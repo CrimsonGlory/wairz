@@ -1,11 +1,14 @@
 """Wairz MCP Server — exposes firmware analysis tools via the Model Context Protocol.
 
 Usage:
-    wairz-mcp --project-id <uuid>
+    wairz-mcp --project-id <uuid> [--firmware-id <uuid>]
 
 Connects to the Wairz database, loads the specified project and firmware,
 then serves all registered analysis tools over stdio for MCP-compatible
 clients (Claude Code, Claude Desktop, OpenCode, etc.).
+
+When a project has multiple firmware versions, --firmware-id selects a
+specific one. Without it, the earliest-uploaded unpacked firmware is used.
 
 Supports dynamic project switching via the switch_project tool — no need
 to restart the MCP server process when changing projects.
@@ -219,31 +222,71 @@ def _build_tool_registry() -> ToolRegistry:
     return registry
 
 
-async def _load_project(
-    session: AsyncSession, project_id: uuid.UUID
-) -> tuple[Project, Firmware | None]:
-    """Load project and optionally its firmware.
+def _select_firmware(
+    firmwares: list[Firmware],
+    firmware_id: uuid.UUID | None = None,
+) -> Firmware:
+    """Select a single firmware from a project's firmware list.
 
-    Returns (project, firmware) where firmware may be None if no firmware
-    has been uploaded or unpacked yet. The MCP server should still start
-    and expose tools — they will return descriptive errors when invoked
-    without firmware.
+    When *firmware_id* is provided, returns that specific firmware. Raises
+    ValueError if it doesn't exist in the list or hasn't been unpacked.
+
+    When *firmware_id* is None (the default), picks the earliest-created
+    firmware that has been unpacked. This is deterministic — the same project
+    always resolves to the same firmware — and matches the mental model of
+    "the first firmware I uploaded to this project."
+
+    Raises ValueError if the list is empty or no firmware has been unpacked.
+    """
+    if not firmwares:
+        raise ValueError("Project has no firmware uploaded.")
+
+    if firmware_id is not None:
+        for fw in firmwares:
+            if fw.id == firmware_id:
+                if not fw.extracted_path:
+                    raise ValueError(
+                        f"Firmware {firmware_id} has not been unpacked "
+                        f"(no extracted_path). Upload status must be 'unpacked'."
+                    )
+                return fw
+        available = ", ".join(str(fw.id) for fw in firmwares)
+        raise ValueError(
+            f"Firmware {firmware_id} not found in this project. "
+            f"Available firmware IDs: {available}"
+        )
+
+    unpacked = [fw for fw in firmwares if fw.extracted_path]
+    if not unpacked:
+        raise ValueError(
+            "No firmware in this project has been unpacked yet. "
+            "Trigger unpack via the web UI or POST /api/v1/projects/<id>/firmware/<id>/unpack "
+            "before starting the MCP server."
+        )
+
+    unpacked.sort(key=lambda fw: fw.created_at)
+    return unpacked[0]
+
+
+async def _load_project(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    firmware_id: uuid.UUID | None = None,
+) -> tuple[Project, Firmware, int]:
+    """Load and validate the project and its active firmware.
+
+    Returns a tuple of (project, selected_firmware, total_firmware_count).
+    The count lets callers log an informative message when the project has
+    multiple firmwares so users know they can select a different one.
     """
     project = await session.get(Project, project_id)
     if not project:
         raise ValueError(f"Project {project_id} not found.")
 
-    stmt = (
-        select(Firmware)
-        .where(
-            Firmware.project_id == project_id,
-            Firmware.extracted_path.isnot(None),
-        )
-        .order_by(Firmware.created_at.desc())
-    )
-    firmware = (await session.execute(stmt)).scalars().first()
-
-    return project, firmware
+    stmt = select(Firmware).where(Firmware.project_id == project_id)
+    firmwares = list((await session.execute(stmt)).scalars().all())
+    firmware = _select_firmware(firmwares, firmware_id)
+    return project, firmware, len(firmwares)
 
 
 async def _load_project_state(
@@ -251,10 +294,17 @@ async def _load_project_state(
     project_id: uuid.UUID,
     state: ProjectState,
     host_storage_root: str | None,
-) -> None:
-    """Load project data from DB into the mutable state object."""
+    firmware_id: uuid.UUID | None = None,
+) -> int:
+    """Load project data from DB into the mutable state object.
+
+    Returns the total number of firmwares in the project, so callers can
+    emit an informative log when more than one is available.
+    """
     async with session_factory() as session:
-        project, firmware = await _load_project(session, project_id)
+        project, firmware, firmware_count = await _load_project(
+            session, project_id, firmware_id
+        )
         state.project_id = project.id
         state.project_name = project.name
         state.project_desc = project.description or ""
@@ -301,8 +351,13 @@ async def _load_project_state(
                 _translate_path(r, host_storage_root) for r in state.detection_roots
             ]
 
+    return firmware_count
 
-async def run_server(project_id: uuid.UUID) -> None:
+
+async def run_server(
+    project_id: uuid.UUID,
+    firmware_id: uuid.UUID | None = None,
+) -> None:
     """Start the MCP server for a given project."""
     settings = get_settings()
 
@@ -327,16 +382,24 @@ async def run_server(project_id: uuid.UUID) -> None:
 
     # Load initial project
     try:
-        await _load_project_state(session_factory, project_id, state, host_storage_root)
+        firmware_count = await _load_project_state(
+            session_factory, project_id, state, host_storage_root, firmware_id
+        )
     except ValueError as exc:
         logger.error(str(exc))
         sys.exit(1)
 
-    loop = asyncio.get_running_loop()
-    extracted_dir_exists = state.extracted_path and await loop.run_in_executor(
-        None, os.path.isdir, state.extracted_path,
-    )
-    if state.extracted_path and not extracted_dir_exists:
+    if firmware_count > 1 and firmware_id is None:
+        logger.info(
+            "Project has %d firmware versions; selected '%s' (%s) as the active firmware. "
+            "Pass --firmware-id <uuid> to select a different one, or use the "
+            "list_firmware_versions MCP tool to see all versions.",
+            firmware_count,
+            state.firmware_filename,
+            state.firmware_id,
+        )
+
+    if not os.path.isdir(state.extracted_path):
         logger.error(
             "Extracted firmware path does not exist: %s",
             state.extracted_path,
@@ -410,7 +473,15 @@ async def run_server(project_id: uuid.UUID) -> None:
         except ValueError:
             return f"Error: '{new_project_id_str}' is not a valid UUID."
 
-        if new_project_id == state.project_id:
+        new_firmware_id: uuid.UUID | None = None
+        new_firmware_id_str = input.get("firmware_id")
+        if new_firmware_id_str:
+            try:
+                new_firmware_id = uuid.UUID(new_firmware_id_str)
+            except ValueError:
+                return f"Error: '{new_firmware_id_str}' is not a valid UUID."
+
+        if new_project_id == state.project_id and new_firmware_id is None:
             return (
                 f"Already connected to project '{state.project_name}' "
                 f"({state.project_id})."
@@ -418,23 +489,28 @@ async def run_server(project_id: uuid.UUID) -> None:
 
         old_name = state.project_name
         old_id = state.project_id
+        old_firmware_id = state.firmware_id
 
         try:
             await _load_project_state(
-                session_factory, new_project_id, state, host_storage_root
+                session_factory,
+                new_project_id,
+                state,
+                host_storage_root,
+                new_firmware_id,
             )
         except ValueError as exc:
             return f"Error: {exc}"
 
-        loop = asyncio.get_running_loop()
-        extracted_dir_exists = state.extracted_path and await loop.run_in_executor(
-            None, os.path.isdir, state.extracted_path,
-        )
-        if state.extracted_path and not extracted_dir_exists:
-            # Revert to old project
+        if not os.path.isdir(state.extracted_path):
+            # Revert to old project + firmware
             try:
                 await _load_project_state(
-                    session_factory, old_id, state, host_storage_root
+                    session_factory,
+                    old_id,
+                    state,
+                    host_storage_root,
+                    old_firmware_id,
                 )
             except ValueError:
                 pass
@@ -465,8 +541,9 @@ async def run_server(project_id: uuid.UUID) -> None:
         description=(
             "Switch the MCP server to a different Wairz project without restarting. "
             "Takes a project UUID and reloads all context (firmware, paths, metadata). "
-            "Use this when you need to analyze a different project. "
-            "Call get_project_info afterwards to confirm the switch."
+            "When the target project has multiple firmware versions, pass firmware_id "
+            "to pick a specific one; otherwise the earliest-uploaded unpacked firmware "
+            "is selected. Call get_project_info afterwards to confirm the switch."
         ),
         input_schema={
             "type": "object",
@@ -474,6 +551,14 @@ async def run_server(project_id: uuid.UUID) -> None:
                 "project_id": {
                     "type": "string",
                     "description": "UUID of the project to switch to.",
+                },
+                "firmware_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional UUID of a specific firmware version within the target "
+                        "project. If omitted, the earliest-uploaded unpacked firmware "
+                        "is used. Use list_firmware_versions to see available IDs."
+                    ),
                 },
             },
             "required": ["project_id"],
@@ -688,6 +773,17 @@ def main() -> None:
         help="Print the registered MCP tool manifest and exit. "
              "Does not require --project-id or a database connection.",
     )
+    parser.add_argument(
+        "--firmware-id",
+        type=str,
+        default=None,
+        help=(
+            "UUID of a specific firmware version within the project. "
+            "Optional — when omitted, the earliest-uploaded unpacked firmware "
+            "is selected. Use list_firmware_versions (MCP tool) or the project "
+            "detail page in the web UI to find firmware IDs."
+        ),
+    )
     args = parser.parse_args()
 
     if args.list_tools:
@@ -703,7 +799,17 @@ def main() -> None:
         print(f"Error: '{args.project_id}' is not a valid UUID.", file=sys.stderr)
         sys.exit(1)
 
-    asyncio.run(run_server(project_id))
+    firmware_id: uuid.UUID | None = None
+    if args.firmware_id is not None:
+        try:
+            firmware_id = uuid.UUID(args.firmware_id)
+        except ValueError:
+            print(
+                f"Error: '{args.firmware_id}' is not a valid UUID.", file=sys.stderr
+            )
+            sys.exit(1)
+
+    asyncio.run(run_server(project_id, firmware_id))
 
 
 if __name__ == "__main__":

@@ -172,6 +172,10 @@ Add to your `opencode.json` (project root or `~/.config/opencode/opencode.json`)
 
 Once connected, your AI agent can autonomously explore firmware, analyze binaries, run emulation, fuzz targets, and generate security findings. The MCP server supports dynamic project switching via the `switch_project` tool — no restart needed to change projects.
 
+#### Projects with multiple firmware versions
+
+When a project has more than one firmware uploaded (useful for diffing across versions via `diff_firmware`), the MCP server picks the earliest-uploaded unpacked firmware by default. To target a specific version, add `--firmware-id <FIRMWARE_ID>` to the launch command, or pass `firmware_id` to the `switch_project` MCP tool. Use `list_firmware_versions` to find IDs.
+
 ### MCP Tools (172 across 21 categories)
 
 | Category | Count | Tools |
