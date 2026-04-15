@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import tarfile
+import tempfile
 import traceback
 import uuid
 import zipfile
@@ -56,6 +57,16 @@ def _rmtree_if_isdir_sync(path: str) -> None:
     """
     if os.path.isdir(path):
         shutil.rmtree(path, ignore_errors=True)
+
+
+_7Z_MAGIC = b"\x37\x7a\xbc\xaf\x27\x1c"
+# 7z's CLI writes password-prompt errors to stderr; match on stable fragments
+# rather than the full message (wording varies slightly across p7zip versions).
+_7Z_ENCRYPTED_MARKERS = (
+    "Cannot open encrypted archive",
+    "Wrong password",
+    "Can not open encrypted archive",
+)
 
 
 def _sanitize_filename(name: str) -> str:
@@ -242,6 +253,92 @@ def _extract_firmware_from_zip(zip_path: str, output_dir: str) -> str | None:
 # validation that the local copy lacked.
 
 
+def _is_7z_archive(path: str) -> bool:
+    """Return True if the file begins with the 7-Zip magic signature.
+
+    Uses magic-bytes detection rather than extension matching because
+    vendor OTAs sometimes ship 7z-wrapped firmware with misleading
+    extensions (e.g. ``.img``). The 6-byte signature is specific enough
+    that false positives are effectively impossible.
+    """
+    try:
+        with open(path, "rb") as f:
+            return f.read(len(_7Z_MAGIC)) == _7Z_MAGIC
+    except OSError:
+        return False
+
+
+async def _extract_firmware_from_7z(archive_path: str, output_dir: str) -> str | None:
+    """Extract the largest file from an unencrypted 7-Zip archive.
+
+    Runs the 7z tool with an empty password so unencrypted archives unwrap
+    without ever blocking on a prompt. Extraction goes into a temp
+    sub-directory so any path-traversal attempts in the archive are
+    contained; only the chosen inner file is moved into output_dir.
+
+    Returns the path to the extracted firmware, or None if the archive
+    contained no usable file.
+
+    Raises:
+        ValueError: The archive is password-protected. Message starts with
+            "Archive is password-protected" so callers can identify it and
+            convert to HTTP 400.
+        RuntimeError: Extraction failed for another reason (corrupt
+            archive, out of disk, etc). Callers may choose to fall back to
+            treating the upload as a raw binary.
+    """
+    extract_dir = tempfile.mkdtemp(prefix="7z_extract_", dir=output_dir)
+    try:
+        argv = ["7z", "x", f"-o{extract_dir}", "-y", "-p", archive_path]
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        combined = (stdout + stderr).decode("utf-8", errors="replace")
+
+        if proc.returncode != 0:
+            if any(marker in combined for marker in _7Z_ENCRYPTED_MARKERS):
+                raise ValueError(
+                    "Archive is password-protected. Decrypt the archive "
+                    "locally and re-upload the inner firmware image."
+                )
+            raise RuntimeError(
+                f"7z extraction failed (exit {proc.returncode}): "
+                f"{combined.strip() or 'no output'}"
+            )
+
+        largest_path: str | None = None
+        largest_size = -1
+        for root, _dirs, files in os.walk(extract_dir):
+            for name in files:
+                if name.startswith(".") or name.startswith("__"):
+                    continue
+                path = os.path.join(root, name)
+                try:
+                    size = os.path.getsize(path)
+                except OSError:
+                    continue
+                if size > largest_size:
+                    largest_size = size
+                    largest_path = path
+
+        if largest_path is None:
+            return None
+
+        target_name = _sanitize_filename(os.path.basename(largest_path))
+        target_path = os.path.join(output_dir, target_name)
+        # Avoid colliding with the original archive still in output_dir.
+        if os.path.exists(target_path):
+            base, ext = os.path.splitext(target_name)
+            target_path = os.path.join(output_dir, f"{base}_extracted{ext}")
+        shutil.move(largest_path, target_path)
+        return target_path
+    finally:
+        shutil.rmtree(extract_dir, ignore_errors=True)
+
+
 def _extract_archive(archive_path: str, output_dir: str) -> None:
     """Extract a tar, tar.gz, or zip archive with path traversal prevention."""
     if tarfile.is_tarfile(archive_path):
@@ -390,6 +487,31 @@ class FirmwareService:
                     "or upload to a different project."
                 ),
             )
+
+        # 7z wrapper — detected by magic bytes because vendor OTAs often ship
+        # 7z-wrapped firmware with misleading extensions (e.g. Creality K1 Max
+        # ships a 7z OTA as .img). binwalk does not descend into 7z containers,
+        # so without this the firmware would appear unrecognizable to the
+        # unpack pipeline.
+        elif _is_7z_archive(storage_path):
+            try:
+                extracted = await _extract_firmware_from_7z(storage_path, firmware_dir)
+            except RuntimeError:
+                # Corrupt or otherwise non-extractable — fall through and let
+                # binwalk surface whatever it can. We're no worse off than today.
+                extracted = None
+            # Note: ValueError (password-protected) intentionally propagates;
+            # the router converts it to HTTP 400 so the user gets actionable
+            # feedback instead of an unpack failure later.
+            if extracted:
+                os.remove(storage_path)
+                storage_path = extracted
+                sha256_hash = hashlib.sha256()
+                file_size = 0
+                async with aiofiles.open(storage_path, "rb") as f:
+                    while chunk := await f.read(8192):
+                        sha256_hash.update(chunk)
+                        file_size += len(chunk)
 
         firmware = Firmware(
             id=firmware_id,
