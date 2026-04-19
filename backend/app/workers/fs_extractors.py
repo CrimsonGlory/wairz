@@ -276,10 +276,10 @@ def _scan_candidates(
                 continue
             if not stat.S_ISREG(st.st_mode):
                 continue
-            if _is_excluded(path, extraction_root_real):
-                continue
             fs_type = _detect_fs_type(path)
             if fs_type is None:
+                continue
+            if _is_excluded(path, extraction_root_real):
                 continue
             sha = _sha256_file(path)
             if sha is None or sha in seen_sha:
