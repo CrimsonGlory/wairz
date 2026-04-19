@@ -164,18 +164,52 @@ def _is_android_firmware_zip(zip_path: str) -> bool:
     return False
 
 
-def _extract_firmware_from_zip(zip_path: str, output_dir: str) -> str | None:
-    """Extract all files from a ZIP archive, returning the primary firmware path.
+def _zip_is_rootfs(zip_path: str) -> bool:
+    """Check if a ZIP archive contains a Linux root filesystem.
 
-    Extracts the full contents of the ZIP into a 'zip_contents' subdirectory
-    (preserving internal directory structure) so that all companion files
-    (FPGA bitstreams, adapter firmware, manifests, config data) are retained
-    for browsing and analysis.
-
-    The largest file is identified as the primary firmware image and its path
-    is returned for the analysis pipeline.  Returns None if the archive
-    contains no extractable files.
+    Looks for top-level directory entries matching standard Linux filesystem
+    markers (etc/ + bin/ or usr/). Handles both flat rootfs archives and
+    archives with a single wrapper directory (e.g. rootfs/etc/, squashfs-root/bin/).
     """
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            names = {info.filename for info in zf.infolist()}
+    except (zipfile.BadZipFile, OSError):
+        return False
+
+    def _has_markers(prefix: str) -> bool:
+        has_etc = any(
+            n.startswith(prefix + "etc/") or n == prefix + "etc"
+            for n in names
+        )
+        has_usr_or_bin = any(
+            n.startswith(prefix + d) or n == prefix + d.rstrip("/")
+            for n in names
+            for d in ("usr/", "bin/")
+        )
+        return has_etc and has_usr_or_bin
+
+    if _has_markers(""):
+        return True
+
+    top_dirs = {n.split("/", 1)[0] for n in names if "/" in n}
+    for top in top_dirs:
+        if _has_markers(top + "/"):
+            return True
+
+    return False
+
+
+def _extract_firmware_from_zip(zip_path: str, output_dir: str) -> str | None:
+    """Extract the main firmware file from a ZIP archive.
+
+    If the ZIP contains a Linux root filesystem, returns None so the ZIP is
+    passed intact to binwalk. Otherwise picks the largest file in the archive.
+    Returns None if the archive is empty.
+    """
+    if _zip_is_rootfs(zip_path):
+        return None
+
     with zipfile.ZipFile(zip_path, "r") as zf:
         candidates = []
         for info in zf.infolist():
