@@ -159,29 +159,20 @@ RUN wget -q "https://github.com/NationalSecurityAgency/ghidra/releases/download/
     && mv /opt/ghidra_${GHIDRA_VERSION}_PUBLIC /opt/ghidra \
     && rm /tmp/ghidra.zip
 
-# On ARM64: build native decompiler from Ghidra source (official release
-# only ships linux_x86_64 natives — no linux_arm_64). The decompiler is a
-# C++ binary invoked by the Java frontend for decompilation.
-# On x86_64: skip (pre-built binaries are included in the release ZIP).
-RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-        echo "ARM64 detected — building Ghidra native decompiler from source..." && \
-        apt-get update && apt-get install -y --no-install-recommends bison flex binutils-dev && \
-        git clone --depth 1 --branch Ghidra_${GHIDRA_VERSION}_build \
-            https://github.com/NationalSecurityAgency/ghidra /tmp/ghidra-src && \
-        cd /tmp/ghidra-src/Ghidra/Features/Decompiler/src/decompile/cpp && \
-        sed -i 's/-m32//g' Makefile && \
-        make decomp_opt -j$(nproc) ARCH_FLAGS= && \
-        mkdir -p /opt/ghidra/Ghidra/Features/Decompiler/os/linux_arm_64 && \
-        cp decomp_opt /opt/ghidra/Ghidra/Features/Decompiler/os/linux_arm_64/decompile && \
-        chmod +x /opt/ghidra/Ghidra/Features/Decompiler/os/linux_arm_64/decompile && \
-        cd /tmp/ghidra-src/Ghidra/Features/Decompiler/src/decompile/cpp && \
-        make sleigh_opt -j$(nproc) ARCH_FLAGS= && \
-        cp sleigh_opt /opt/ghidra/Ghidra/Features/Decompiler/os/linux_arm_64/sleighc && \
-        chmod +x /opt/ghidra/Ghidra/Features/Decompiler/os/linux_arm_64/sleighc && \
-        rm -rf /tmp/ghidra-src && \
-        apt-get purge -y bison flex && apt-get autoremove -y && rm -rf /var/lib/apt/lists/* && \
-        echo "Ghidra ARM64 natives built successfully"; \
+# Build Ghidra native components on ARM64 (decompiler, sleigh, demangler).
+# The pre-built Ghidra release only ships x86_64 Linux binaries. On ARM64
+# (e.g. Apple Silicon Macs running Docker), the decompiler is missing,
+# breaking decompilation, dataflow tracing, and string ref resolution.
+# The Gradle build system included in the distribution handles this.
+RUN if [ "$(uname -m)" = "aarch64" ]; then \
+        echo "ARM64 detected — building Ghidra native components..." \
+        && apt-get update && apt-get install -y --no-install-recommends flex bison \
+        && rm -rf /var/lib/apt/lists/* \
+        && cd /opt/ghidra/support/gradle \
+        && chmod +x gradlew \
+        && JAVA_HOME=/usr/lib/jvm/java-21-openjdk-arm64 \
+           ./gradlew buildNatives \
+        && echo "Ghidra native build complete for ARM64"; \
     else \
         echo "x86_64 detected — using pre-built Ghidra natives"; \
     fi
@@ -272,6 +263,7 @@ RUN git clone --depth 1 https://github.com/qilingframework/rootfs.git /opt/qilin
     && rm -rf /opt/qiling-rootfs/.git \
     && echo "Qiling rootfs installed at /opt/qiling-rootfs" \
     || echo "WARN: Qiling rootfs download failed — PE/Mach-O emulation won't work"
+
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
