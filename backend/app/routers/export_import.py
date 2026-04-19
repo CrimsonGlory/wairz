@@ -90,8 +90,11 @@ async def import_project(
     except ValueError as e:
         raise HTTPException(400, str(e))
 
-    # Flush to ensure all records are written, then reload with firmware relationship
-    await db.flush()
+    # Commit before returning so the project is visible to other sessions
+    # immediately. Without this, the get_db dependency commits after the
+    # response is sent, causing a race where the frontend navigates to
+    # the new project page before the data is committed.
+    await db.commit()
     result = await db.execute(
         select(Project)
         .where(Project.id == project.id)

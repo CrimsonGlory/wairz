@@ -7,7 +7,7 @@ import json
 import os
 import uuid
 import zipfile
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,15 +31,27 @@ from app.services.jsonb_normalizers import (
 
 
 def _parse_dt(val) -> datetime | None:
-    """Parse an ISO datetime string or return None."""
+    """Parse an ISO datetime string or return None.
+
+    Always returns a timezone-naive datetime (UTC) to match the DB column
+    types (TIMESTAMP WITHOUT TIME ZONE). Exported archives may contain
+    timezone-aware ISO strings (e.g. "2026-04-15T06:05:48+00:00") that
+    would cause asyncpg to raise "can't subtract offset-naive and
+    offset-aware datetimes" if passed directly.
+    """
     if val is None:
         return None
     if isinstance(val, datetime):
-        return val
-    try:
-        return datetime.fromisoformat(val)
-    except (TypeError, ValueError):
-        return None
+        dt = val
+    else:
+        try:
+            dt = datetime.fromisoformat(val)
+        except (TypeError, ValueError):
+            return None
+    # Convert to UTC and strip timezone info for asyncpg compatibility
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 
 def _stream_extract_sync(
