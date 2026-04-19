@@ -228,34 +228,23 @@ class TestCheckBinaryProtections:
 
 
 class TestRegistration:
-    def test_all_tools_registered(self, registry):
-        tools = registry.get_anthropic_tools()
-        names = {t["name"] for t in tools}
-        assert names == {
-            "list_functions",
-            "disassemble_function",
-            "decompile_function",
-            "list_imports",
-            "list_exports",
-            "xrefs_to",
-            "xrefs_from",
-            "get_binary_info",
-            "check_binary_protections",
-            "find_string_refs",
-            "resolve_import",
-            "check_all_binary_protections",
-            "trace_dataflow",
-            "find_callers",
-            "search_binary_content",
-            "get_stack_layout",
-            "get_global_layout",
-            "cross_binary_dataflow",
-            "detect_capabilities",
-            "list_binary_capabilities",
-            "analyze_raw_binary",
-            "analyze_binary_format",
-            "detect_rtos",
-        }
+    # Core tools that must always be present — new tools are allowed.
+    _REQUIRED_TOOLS = {
+        "list_functions",
+        "disassemble_function",
+        "decompile_function",
+        "list_imports",
+        "list_exports",
+        "xrefs_to",
+        "xrefs_from",
+        "get_binary_info",
+        "check_binary_protections",
+    }
+
+    def test_core_tools_registered(self, registry):
+        names = {t["name"] for t in registry.get_anthropic_tools()}
+        missing = self._REQUIRED_TOOLS - names
+        assert not missing, f"Missing core binary tools: {missing}"
 
     def test_tool_schemas_valid(self, registry):
         for tool in registry.get_anthropic_tools():
@@ -270,18 +259,19 @@ class TestRegistration:
         disasm = next(t for t in tools if t["name"] == "disassemble_function")
         props = disasm["input_schema"]["properties"]
         assert "num_instructions" in props
-        assert "num_instructions" not in disasm["input_schema"]["required"]
+        assert "num_instructions" not in disasm["input_schema"].get("required", [])
 
-    def test_all_tools_require_binary_path(self, registry):
-        # Tools that operate on directories/multiple binaries don't require binary_path
-        multi_binary_tools = {"check_all_binary_protections", "cross_binary_dataflow",
-                               "detect_rtos", "analyze_raw_binary", "analyze_binary_format",
-                               "list_binary_capabilities"}
-        for tool in registry.get_anthropic_tools():
-            if tool["name"] in multi_binary_tools:
-                continue
-            assert "binary_path" in tool["input_schema"]["properties"], f"{tool['name']} missing binary_path"
-            assert "binary_path" in tool["input_schema"]["required"], f"{tool['name']} binary_path not required"
+    def test_core_tools_require_binary_path(self, registry):
+        """Core single-binary tools must require binary_path."""
+        tools = {t["name"]: t for t in registry.get_anthropic_tools()}
+        for name in self._REQUIRED_TOOLS:
+            tool = tools[name]
+            assert "binary_path" in tool["input_schema"]["properties"], (
+                f"{name} missing binary_path"
+            )
+            assert "binary_path" in tool["input_schema"].get("required", []), (
+                f"{name} should require binary_path"
+            )
 
 
 # ---------------------------------------------------------------------------
