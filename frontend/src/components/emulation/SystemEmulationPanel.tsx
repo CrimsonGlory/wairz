@@ -37,8 +37,11 @@ const PIPELINE_STAGES = [
 
 const STATUS_CONFIG: Record<EmulationStatus, { label: string; className: string }> = {
   created: { label: 'Created', className: 'bg-gray-500 text-white' },
+  pending: { label: 'Queued', className: 'bg-yellow-500 text-black' },
   starting: { label: 'Starting', className: 'bg-yellow-500 text-black' },
+  booting: { label: 'Booting', className: 'bg-yellow-500 text-black' },
   running: { label: 'Running', className: 'bg-green-500 text-white' },
+  ready: { label: 'Ready', className: 'bg-green-500 text-white' },
   stopping: { label: 'Stopping...', className: 'bg-orange-500 text-white' },
   stopped: { label: 'Stopped', className: 'bg-zinc-600 text-white' },
   error: { label: 'Error', className: 'bg-red-500 text-white' },
@@ -154,12 +157,20 @@ export function SystemEmulationPanel({
     loadExistingSession()
   }, [loadExistingSession])
 
-  // Poll for status while pipeline is in progress
+  // Poll for status while pipeline is in progress. Note: FirmAE
+  // system emulation has its own `system_emulation_stage` column
+  // alongside the shared EmulationStatus. The 202-polling statuses
+  // (pending/booting) belong to the user-mode path; for FirmAE they
+  // never appear in practice (the /emulation/system endpoint has its
+  // own state machine), but we include them here for exhaustiveness
+  // against the new EmulationStatus union (Rule #9).
   useEffect(() => {
     if (!session || !projectId) return
     const isActive =
       session.status === 'starting' ||
       session.status === 'created' ||
+      session.status === 'pending' ||
+      session.status === 'booting' ||
       (session.status === 'running' &&
         session.system_emulation_stage != null &&
         session.system_emulation_stage !== 'running')
@@ -433,10 +444,15 @@ export function SystemEmulationPanel({
     )
   }
 
-  // Pipeline in progress (starting/created)
+  // Pipeline in progress (starting/created/pending/booting).
+  // "pending" and "booting" are the 202-polling intermediate states
+  // from the user-mode path; they don't normally appear via FirmAE
+  // but are listed for exhaustiveness.
   const isPipelineActive =
     session.status === 'starting' ||
     session.status === 'created' ||
+    session.status === 'pending' ||
+    session.status === 'booting' ||
     (session.status === 'running' &&
       session.system_emulation_stage != null &&
       session.system_emulation_stage !== 'running')

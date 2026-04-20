@@ -95,8 +95,10 @@ export default function EmulationPage() {
       const data = await listSessions(projectId)
       setSessions(data)
 
-      // Auto-select the first running session
-      const running = data.find((s) => s.status === 'running')
+      // Auto-select the first running/ready session. "ready" is the
+      // new 202-polling terminal status; "running" stays as the legacy
+      // equivalent from the synchronous MCP start path.
+      const running = data.find((s) => s.status === 'running' || s.status === 'ready')
       if (running && !activeSessionRef.current) {
         setActiveSession(running)
       }
@@ -152,8 +154,18 @@ export default function EmulationPage() {
     }
   }, [firmwareList, selectedFirmwareId])
 
-  // SSE: listen for emulation events and refresh on status changes
-  const hasActiveSession = sessions.some((s) => s.status === 'running' || s.status === 'starting')
+  // SSE: listen for emulation events and refresh on status changes.
+  // Include the 202-polling intermediate states (pending, booting) so
+  // the fallback poller keeps refreshing until the background task
+  // transitions to ready/error.
+  const hasActiveSession = sessions.some(
+    (s) =>
+      s.status === 'running' ||
+      s.status === 'starting' ||
+      s.status === 'pending' ||
+      s.status === 'booting' ||
+      s.status === 'ready',
+  )
   const { lastEvent: emulationEvent } = useEventStream<{ type: string; status: string }>(
     projectId,
     { types: ['emulation'], enabled: hasActiveSession },
@@ -163,12 +175,39 @@ export default function EmulationPage() {
     if (emulationEvent) loadSessions()
   }, [emulationEvent, loadSessions])
 
-  // Fallback poll during active sessions (in case SSE unavailable)
+  // Fallback poll during active sessions. Use 2s while a session is in
+  // the 202-polling transient states (pending/booting) so users see
+  // status transitions quickly; fall back to 5s once the session has
+  // stabilised at ready/running. Matches the firmware-unpack polling
+  // cadence.
+  const hasBootingSession = sessions.some(
+    (s) => s.status === 'pending' || s.status === 'booting',
+  )
   useEffect(() => {
     if (!projectId || !hasActiveSession) return
-    const interval = setInterval(loadSessions, 5000)
+    const interval = setInterval(loadSessions, hasBootingSession ? 2000 : 5000)
     return () => clearInterval(interval)
-  }, [projectId, hasActiveSession, loadSessions])
+  }, [projectId, hasActiveSession, hasBootingSession, loadSessions])
+
+  // Auto-attach the terminal when the active session finishes health
+  // check and transitions to ready. This is the core 202+polling UI
+  // behaviour: after POST /start returns 202 with status=pending, the
+  // poll loop above refreshes session rows; once status flips to ready,
+  // this effect opens the terminal WebSocket. The backend WS gate
+  // rejects any status other than ready/running (router line ~665), so
+  // attaching earlier would fail-fast anyway — we just avoid the
+  // round-trip.
+  useEffect(() => {
+    if (!activeSession) return
+    const latest = sessions.find((s) => s.id === activeSession.id)
+    if (!latest) return
+    if (latest !== activeSession) {
+      setActiveSession(latest)
+    }
+    if ((latest.status === 'ready' || latest.status === 'running') && !showTerminal) {
+      setShowTerminal(true)
+    }
+  }, [sessions, activeSession, showTerminal])
 
   const handleStart = async () => {
     if (!projectId) return
@@ -181,6 +220,12 @@ export default function EmulationPage() {
     setError(null)
 
     try {
+      // POST /start returns 202 with the pending session row (Rule #29
+      // 202+polling refactor). We do NOT attach the terminal here —
+      // the fallback poll loop at `hasActiveSession` detects the row
+      // and the `useEffect` below transitions to the terminal once
+      // status flips to "ready" (health check passed in the backend
+      // background task).
       const session = await startEmulation(projectId, {
         mode,
         binary_path: mode === 'user' ? binaryPath.trim() : undefined,
@@ -192,8 +237,10 @@ export default function EmulationPage() {
         stub_profile: mode === 'system' && stubProfile !== 'none' ? stubProfile : undefined,
       }, selectedFirmwareId)
       setActiveSession(session)
-      if (session.status === 'running' || session.status === 'error') {
-        setShowTerminal(session.status === 'running')
+      // If the synchronous MCP path is somehow taken (e.g. tests), the
+      // session may already be "running"; keep back-compat.
+      if (session.status === 'running' || session.status === 'ready') {
+        setShowTerminal(true)
       }
       await loadSessions()
     } catch (err: unknown) {
@@ -232,16 +279,17 @@ export default function EmulationPage() {
 
   const handleConnect = async (session: EmulationSession) => {
     if (!projectId) return
-    // Refresh status
+    // Refresh status. "ready" is the 202-polling terminal status;
+    // "running" stays for back-compat with the synchronous MCP path.
     try {
       const updated = await getSessionStatus(projectId, session.id)
       setActiveSession(updated)
-      if (updated.status === 'running') {
+      if (updated.status === 'running' || updated.status === 'ready') {
         setShowTerminal(true)
       }
     } catch {
       setActiveSession(session)
-      if (session.status === 'running') {
+      if (session.status === 'running' || session.status === 'ready') {
         setShowTerminal(true)
       }
     }
@@ -320,7 +368,7 @@ export default function EmulationPage() {
 
   const handleSystemTerminalConnect = (session: EmulationSession, _port?: number) => {
     setActiveSession(session)
-    if (session.status === 'running') {
+    if (session.status === 'running' || session.status === 'ready') {
       setShowTerminal(true)
     }
   }

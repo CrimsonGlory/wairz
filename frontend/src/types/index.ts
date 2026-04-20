@@ -345,7 +345,21 @@ export interface DocumentContent {
 // ── Emulation types ──
 
 export type EmulationMode = 'user' | 'system' | 'qiling'
-export type EmulationStatus = 'created' | 'starting' | 'running' | 'stopping' | 'stopped' | 'error'
+// 202+polling statuses (pending, booting, ready) were added alongside
+// the legacy synchronous values (created, starting, running). The new
+// flow transitions pending → booting → ready; "running" is kept as the
+// terminal-attachable alias for sessions started via the synchronous
+// MCP path, and "ready" is the equivalent for the async REST path.
+export type EmulationStatus =
+  | 'created'
+  | 'pending'
+  | 'starting'
+  | 'booting'
+  | 'running'
+  | 'ready'
+  | 'stopping'
+  | 'stopped'
+  | 'error'
 
 export interface PortForward {
   host: number
