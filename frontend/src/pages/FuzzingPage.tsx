@@ -66,8 +66,12 @@ export default function FuzzingPage() {
       const data = await listCampaigns(projectId)
       setCampaigns(data)
 
-      // Auto-select running campaign
-      const running = data.find((c) => c.status === 'running')
+      // Auto-select running or queued campaign. Queued campaigns are
+      // waiting on the background container spawn; auto-selecting lets
+      // the user see status transitions in real time.
+      const running = data.find(
+        (c) => c.status === 'running' || c.status === 'queued',
+      )
       if (running && !selectedIdRef.current) {
         setSelectedId(running.id)
       }
@@ -82,8 +86,14 @@ export default function FuzzingPage() {
     loadCampaigns()
   }, [loadCampaigns])
 
-  // SSE: listen for fuzzing events and refresh on status changes
-  const hasRunningCampaign = campaigns.some((c) => c.status === 'running')
+  // SSE: listen for fuzzing events and refresh on status changes.
+  // "queued" rows also count — they are waiting on the background
+  // container spawn, and we want the poll loop active until the status
+  // transitions to "running" or "error". Matches the 202+polling
+  // pattern on POST /campaigns/{id}/start (CLAUDE.md Rule #29).
+  const hasRunningCampaign = campaigns.some(
+    (c) => c.status === 'running' || c.status === 'queued',
+  )
   const { lastEvent: fuzzEvent } = useEventStream<{ type: string; status: string }>(
     projectId,
     { types: ['fuzzing'], enabled: hasRunningCampaign },
@@ -98,10 +108,17 @@ export default function FuzzingPage() {
     }
   }, [fuzzEvent, projectId, loadCampaigns])
 
-  // Fallback poll while campaigns are running (in case SSE unavailable)
+  // Fallback poll while campaigns are running or queued (in case SSE
+  // unavailable). Use a tighter 2 s cadence while any campaign is in
+  // the "queued" state — we're waiting on the backend 202+polling
+  // container spawn (typically <30 s, CLAUDE.md Rule #29), and the
+  // user is staring at a "Starting..." indicator. Once no row is
+  // queued, drop to 10 s for long-running stats refresh.
+  const hasQueuedCampaign = campaigns.some((c) => c.status === 'queued')
   useEffect(() => {
     if (!projectId || !hasRunningCampaign) return
 
+    const intervalMs = hasQueuedCampaign ? 2000 : 10000
     const interval = setInterval(async () => {
       await loadCampaigns()
       const currentSelectedId = selectedIdRef.current
@@ -114,9 +131,9 @@ export default function FuzzingPage() {
           } catch { /* ignore */ }
         }
       }
-    }, 10000)
+    }, intervalMs)
     return () => clearInterval(interval)
-  }, [projectId, hasRunningCampaign, loadCampaigns])
+  }, [projectId, hasRunningCampaign, hasQueuedCampaign, loadCampaigns])
 
   // Load crashes when selected campaign changes
   useEffect(() => {

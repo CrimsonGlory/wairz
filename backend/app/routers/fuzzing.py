@@ -1,12 +1,13 @@
 """REST endpoints for AFL++ fuzzing campaigns."""
 
+import asyncio
 import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.database import async_session_factory, get_db
 from app.models.firmware import Firmware
 from app.routers.deps import resolve_firmware as _resolve_firmware
 from app.schemas.fuzzing import (
@@ -24,6 +25,35 @@ router = APIRouter(
     prefix="/api/v1/projects/{project_id}/fuzzing",
     tags=["fuzzing"],
 )
+
+
+async def _run_campaign_spawn_background(campaign_id: uuid.UUID) -> None:
+    """Spawn the AFL++ container for a queued campaign in the background.
+
+    Owns its own ``AsyncSession`` so the FastAPI request session that
+    returned the 202 can close cleanly. Mirrors
+    ``_run_unpack_background`` in ``routers/firmware.py``.
+
+    Errors are caught and logged; the service itself is responsible for
+    flipping ``campaign.status`` to ``"error"`` on spawn failure. This
+    wrapper's ``except`` is a belt-and-braces guard for unexpected
+    exceptions (e.g. DB connection issues) so we never crash the event
+    loop for a background job.
+    """
+    try:
+        async with async_session_factory() as db:
+            try:
+                svc = FuzzingService(db)
+                await svc._spawn_campaign_container(campaign_id)
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+    except Exception:
+        logger.exception(
+            "Background fuzzing-container spawn failed for campaign %s",
+            campaign_id,
+        )
 
 
 @router.get("/analyze", response_model=FuzzingTargetAnalysis)
@@ -65,19 +95,48 @@ async def create_campaign(
     return campaign
 
 
-@router.post("/campaigns/{campaign_id}/start", response_model=FuzzingCampaignResponse)
+@router.post(
+    "/campaigns/{campaign_id}/start",
+    response_model=FuzzingCampaignResponse,
+    status_code=202,
+)
 async def start_campaign(
     project_id: uuid.UUID,
     campaign_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Start a fuzzing campaign."""
+    """Enqueue a fuzzing campaign for background start.
+
+    Returns 202 Accepted with the campaign row in ``status="queued"``.
+    The frontend should poll ``GET /campaigns/{id}`` every 2 s (matches
+    the firmware-unpack pattern) and expect the status to transition to
+    ``"running"`` (container spawned successfully) or ``"error"`` (spawn
+    failed; ``error_message`` populated).
+
+    Why 202 rather than 200: container spin-up + seed-corpus upload can
+    take 30-60 s on a cold docker daemon and the backend synchronous
+    ceiling is ``fuzzing_timeout_minutes=120`` (7200 s) — well past any
+    reverse-proxy tolerance (nginx 60 s, Cloudflare 100 s, ALB 60 s).
+    See CLAUDE.md Rule #29.
+    """
     svc = FuzzingService(db)
     try:
         campaign = await svc.start_campaign(campaign_id, project_id)
         await db.flush()
+        # The session is committed automatically on a clean return from
+        # the FastAPI dependency (via ``get_db``). We commit here
+        # explicitly so the background task sees the ``queued`` row
+        # when it opens its own session.
+        await db.commit()
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+
+    # Schedule the container spawn outside the HTTP request / response
+    # cycle. ``asyncio.create_task`` is acceptable here because the
+    # spawn phase is short-lived (typically <30 s) and the arq pool is
+    # not currently wired for fuzzing jobs — this matches the firmware
+    # unpack fallback path in routers/firmware.py lines 182-184.
+    asyncio.create_task(_run_campaign_spawn_background(campaign_id))
     return campaign
 
 
