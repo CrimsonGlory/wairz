@@ -1,11 +1,14 @@
 ---
-Status: ready
+Status: completed
 Direction: Convert POST /emulation/start and POST /fuzzing/campaigns/{id}/start from blocking-return to 202-accepted + job-status polling. Rule #29 identified these two misalignments as DEFERRED (pending the protocol change); synchronous ceilings of 1800s and 7200s are impractical to align at the frontend — firmware-unpack's 202+polling pattern is the template.
 Created: 2026-04-19
 Created_in: session 480666ce (strategic research post wairz-intake-sweep-2026-04-19 close)
 Type: build
 Baseline HEAD: ea5f1c7 (backend pytest CI workflow shipped)
 Estimated Sessions: 1-2
+Actual Sessions: 1
+Completed: 2026-04-20
+Completed_in: session b3a3b580 (/fleet two-stream single-wave; α emulation + β fuzzing; merged at 41d8e72 + 6956aaa; Rule #21 mex mirror at d83095f)
 Orchestrator: /fleet (2 parallel streams, isolated worktrees per Rule #23)
 Daemon: optional (small campaign — single-session likely)
 ---
