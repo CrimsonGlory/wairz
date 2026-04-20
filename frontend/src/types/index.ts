@@ -484,7 +484,7 @@ export interface EmulationExecResponse {
 
 // ── Fuzzing types ──
 
-export type FuzzingStatus = 'created' | 'running' | 'stopped' | 'completed' | 'error'
+export type FuzzingStatus = 'created' | 'queued' | 'running' | 'stopped' | 'completed' | 'error'
 export type CrashExploitability = 'exploitable' | 'probably_exploitable' | 'probably_not' | 'unknown'
 
 export interface FuzzingStats {

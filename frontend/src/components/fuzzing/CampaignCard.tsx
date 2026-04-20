@@ -11,6 +11,7 @@ import type { FuzzingCampaign, FuzzingStatus } from '@/types'
 
 const STATUS_CONFIG: Record<FuzzingStatus, { label: string; className: string }> = {
   created: { label: 'Created', className: 'bg-gray-500 text-white' },
+  queued: { label: 'Queued', className: 'bg-amber-500 text-white' },
   running: { label: 'Running', className: 'bg-green-500 text-white' },
   stopped: { label: 'Stopped', className: 'bg-zinc-600 text-white' },
   completed: { label: 'Completed', className: 'bg-blue-500 text-white' },
