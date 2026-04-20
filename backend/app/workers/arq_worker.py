@@ -348,6 +348,50 @@ async def sync_kernel_vulns_job(ctx: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Job: emulation session spawn (Rule #29 202+polling refactor)
+# ---------------------------------------------------------------------------
+
+async def spawn_emulation_session_job(
+    ctx: dict,
+    *,
+    session_id: str,
+    firmware_id: str,
+    kernel_name: str | None = None,
+    init_path: str | None = None,
+    pre_init_script: str | None = None,
+    stub_profile: str = "none",
+) -> None:
+    """Spawn an emulation session's QEMU container (arq job).
+
+    The REST handler POST /emulation/start creates a `pending` row,
+    returns 202, and enqueues this job. The job runs the heavy Docker
+    work — tar-stream firmware into container, fix permissions, inject
+    stubs, launch QEMU, await health probe — and transitions the row
+    through booting → ready (or error).
+
+    Delegates to :meth:`EmulationService.spawn_session_background`,
+    which owns the lifecycle logic. This job is a thin adapter for the
+    arq queue; an `asyncio.create_task` fallback lives in
+    `routers/emulation.py` for deployments without arq.
+    """
+    from app.services.emulation import EmulationService
+
+    sid = uuid.UUID(session_id)
+    fid = uuid.UUID(firmware_id)
+
+    async with async_session_factory() as db:
+        svc = EmulationService(db)
+        await svc.spawn_session_background(
+            session_id=sid,
+            firmware_id=fid,
+            kernel_name=kernel_name,
+            init_path=init_path,
+            pre_init_script=pre_init_script,
+            stub_profile=stub_profile,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Cron: cleanup_emulation_expired (Phase 3 / O1)
 # ---------------------------------------------------------------------------
 
@@ -662,6 +706,7 @@ class WorkerSettings:
         run_vulnerability_scan_job,
         run_yara_scan_job,
         sync_kernel_vulns_job,
+        spawn_emulation_session_job,
         cleanup_emulation_expired_job,
         cleanup_fuzzing_orphans_job,
         check_storage_quota_job,

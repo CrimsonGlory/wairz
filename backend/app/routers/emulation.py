@@ -46,30 +46,127 @@ router = APIRouter(
 )
 
 
-@router.post("/start", response_model=EmulationSessionResponse, status_code=201)
+# ---------------------------------------------------------------------------
+# arq pool (lazy-initialised, with fallback to asyncio.create_task). Mirrors
+# the firmware-unpack precedent in `routers/firmware.py` so emulation start
+# benefits from the durable worker queue when arq is configured and falls
+# back to in-process background tasks otherwise.
+# ---------------------------------------------------------------------------
+_arq_pool = None
+_arq_unavailable = False
+
+
+async def _get_arq_pool():
+    """Return a shared arq connection pool, or None if arq is unavailable."""
+    global _arq_pool, _arq_unavailable
+    if _arq_unavailable:
+        return None
+    if _arq_pool is not None:
+        return _arq_pool
+    try:
+        from arq import create_pool
+        from app.workers.arq_worker import get_redis_settings
+        _arq_pool = await create_pool(get_redis_settings())
+        logger.info(
+            "arq pool connected for emulation — background spawn will use the worker queue",
+        )
+        return _arq_pool
+    except Exception:
+        _arq_unavailable = True
+        logger.warning(
+            "arq pool unavailable for emulation — falling back to asyncio.create_task",
+        )
+        return None
+
+
+async def _run_spawn_background(
+    session_id: uuid.UUID,
+    firmware_id: uuid.UUID,
+    kernel_name: str | None,
+    init_path: str | None,
+    pre_init_script: str | None,
+    stub_profile: str,
+) -> None:
+    """Detached fallback runner for emulation session spawn.
+
+    Opens its own AsyncSession and calls EmulationService.spawn_session_background,
+    which does the heavy Docker work and transitions the DB row through
+    pending → booting → ready (or error).
+    """
+    async with async_session_factory() as db:
+        svc = EmulationService(db)
+        await svc.spawn_session_background(
+            session_id=session_id,
+            firmware_id=firmware_id,
+            kernel_name=kernel_name,
+            init_path=init_path,
+            pre_init_script=pre_init_script,
+            stub_profile=stub_profile,
+        )
+
+
+@router.post("/start", response_model=EmulationSessionResponse, status_code=202)
 async def start_emulation(
     project_id: uuid.UUID,
     request: EmulationStartRequest,
     firmware: Firmware = Depends(_resolve_firmware),
     db: AsyncSession = Depends(get_db),
 ):
-    """Start a new emulation session (user-mode or system-mode)."""
+    """Start a new emulation session (user-mode or system-mode).
+
+    Returns 202 Accepted with an initial session row at status="pending".
+    The heavy work (Docker container boot, QEMU launch, health probe)
+    runs in a background task. Callers must poll
+    `GET /emulation/{id}/status` and wait for status="ready" before
+    attaching the terminal WebSocket. Mirrors the firmware-unpack
+    precedent in `routers/firmware.py`.
+    """
     svc = EmulationService(db)
 
     try:
-        session = await svc.start_session(
+        session = await svc.create_pending_session(
             firmware=firmware,
             mode=request.mode,
             binary_path=request.binary_path,
             arguments=request.arguments,
             port_forwards=[pf.model_dump() for pf in request.port_forwards],
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+    # Commit the pending row before returning, so the background task
+    # (which opens its own AsyncSession) can find it.
+    await db.commit()
+
+    # Schedule the heavy work — prefer arq worker queue, fall back to
+    # in-process asyncio.create_task. Whichever path runs, the detached
+    # work transitions the row from pending → booting → ready (or error).
+    pool = await _get_arq_pool()
+    if pool is not None:
+        await pool.enqueue_job(
+            "spawn_emulation_session_job",
+            session_id=str(session.id),
+            firmware_id=str(firmware.id),
             kernel_name=request.kernel_name,
             init_path=request.init_path,
             pre_init_script=request.pre_init_script,
             stub_profile=request.stub_profile or "none",
         )
-    except ValueError as exc:
-        raise HTTPException(400, str(exc))
+        logger.info(
+            "Enqueued spawn_emulation_session_job for session %s via arq",
+            session.id,
+        )
+    else:
+        asyncio.create_task(
+            _run_spawn_background(
+                session_id=session.id,
+                firmware_id=firmware.id,
+                kernel_name=request.kernel_name,
+                init_path=request.init_path,
+                pre_init_script=request.pre_init_script,
+                stub_profile=request.stub_profile or "none",
+            )
+        )
 
     return session
 
@@ -168,9 +265,13 @@ async def list_sessions(
     svc = EmulationService(db)
     sessions = await svc.list_sessions(project_id)
     # Update status for running sessions sequentially
-    # (AsyncSession is not safe for concurrent coroutine access)
+    # (AsyncSession is not safe for concurrent coroutine access).
+    # "pending" and "booting" are the 202-polling intermediate states;
+    # "ready" replaced "running" for sessions started via the async path.
     for i, session in enumerate(sessions):
-        if session.status in ("running", "starting"):
+        if session.status in (
+            "running", "starting", "pending", "booting", "ready",
+        ):
             try:
                 sessions[i] = await svc.get_status(session.id)
             except Exception:
@@ -662,7 +763,15 @@ async def websocket_emulation_terminal(
             await websocket.close(code=4004)
             return
 
-        if session.status != "running" or not session.container_id:
+        # Gate on the post-health-check "ready" status (new 202-polling
+        # flow) OR the legacy "running" status (sessions started via the
+        # synchronous start_session path for MCP / tests). Rejecting any
+        # other status prevents the terminal-WS race: clients that poll
+        # must wait for status="ready" before opening the WS, at which
+        # point the container has passed its health probe (user-mode:
+        # /firmware or /tmp/.standalone_mode observable; system-mode:
+        # /tmp/qemu-serial.sock appeared).
+        if session.status not in ("running", "ready") or not session.container_id:
             await websocket.send_json(
                 {"type": "error", "data": f"Session is not running (status: {session.status})"}
             )
