@@ -1,5 +1,5 @@
 ---
-Status: queued
+Status: ready
 Direction: Convert POST /emulation/start and POST /fuzzing/campaigns/{id}/start from blocking-return to 202-accepted + job-status polling. Rule #29 identified these two misalignments as DEFERRED (pending the protocol change); synchronous ceilings of 1800s and 7200s are impractical to align at the frontend — firmware-unpack's 202+polling pattern is the template.
 Created: 2026-04-19
 Created_in: session 480666ce (strategic research post wairz-intake-sweep-2026-04-19 close)
@@ -9,6 +9,31 @@ Estimated Sessions: 1-2
 Orchestrator: /fleet (2 parallel streams, isolated worktrees per Rule #23)
 Daemon: optional (small campaign — single-session likely)
 ---
+
+## Pre-flight audit — 2026-04-20 (session 5321d5a1)
+
+Two prep concerns raised by research-fleet dispatch scan (202+polling readiness
+agent); both resolved as no-ops per Rule #19:
+
+1. **`frontend/src/components/ProjectRouteGuard.tsx` status-filter audit** —
+   Component only resets project-scoped Zustand stores on `projectId` change;
+   carries no status-list filter. Adding `starting` to a filter array is a
+   non-op; no code change required.
+2. **E2E start-endpoint timeout audit** —
+   `frontend/tests/e2e/emulation-workflow.spec.ts` exercises UI smoke only
+   (tab render, button presence). No test invokes `startEmulation()` /
+   `startCampaign()`. `grep -r "startEmulation\|startCampaign" frontend/tests/e2e/`
+   → 0 matches. No fuzzing E2E spec exists (`fuzz*.spec.ts` → 0 files). No
+   stall-at-30s risk in existing suite.
+
+**Verdict:** Campaign is dispatch-ready. No prep commit needed. Status flipped
+`queued → ready`. Dispatch via `/fleet 2 streams` per the stream plan below.
+Terminal-WS race (emulation α) is the only in-stream technical risk —
+`routers/emulation.py:829-831` must transition `starting → running` on a
+container health-check (ping socat socket / shell responsiveness), not on
+spawn-completion, so the frontend terminal connect doesn't race a still-
+booting container.
+
 
 # Campaign: Emulation + Fuzzing "202 + Polling" Refactor
 
