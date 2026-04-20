@@ -297,7 +297,7 @@ class FuzzingService:
         result = await self.db.scalar(
             select(func.count(FuzzingCampaign.id)).where(
                 FuzzingCampaign.project_id == project_id,
-                FuzzingCampaign.status.in_(["created", "running"]),
+                FuzzingCampaign.status.in_(["created", "queued", "running"]),
             )
         )
         return result or 0
@@ -343,7 +343,26 @@ class FuzzingService:
         return campaign
 
     async def start_campaign(self, campaign_id: UUID, project_id: UUID) -> FuzzingCampaign:
-        """Start a fuzzing campaign by spawning an AFL++ container."""
+        """Enqueue a fuzzing campaign for background start.
+
+        Fast-path (<100 ms): validates preconditions, flips ``status`` to
+        ``"queued"``, and returns the campaign row. The caller (router) is
+        expected to schedule :func:`run_campaign_background` via
+        ``asyncio.create_task`` (or an arq job) so the container spin-up,
+        seed-corpus upload, and AFL++ launch happen outside the HTTP
+        request / response cycle.
+
+        Why 202+polling rather than a synchronous start:
+
+        * Backend work-ceiling on the AFL++ container spawn is bounded by
+          ``fuzzing_timeout_minutes = 120`` (``config.py:38``) — the
+          synchronous start would have needed a 7200 s axios override,
+          which fails under any reverse proxy (nginx 60 s default,
+          Cloudflare 100 s, ALB 60 s) per CLAUDE.md Rule #29.
+        * Matches the firmware-unpack precedent
+          (``routers/firmware.py:139``) — 202 with the row, background
+          task updates DB, frontend polls every 2 s.
+        """
         result = await self.db.execute(
             select(FuzzingCampaign).where(
                 FuzzingCampaign.id == campaign_id,
@@ -357,13 +376,55 @@ class FuzzingService:
         if campaign.status not in ("created", "stopped"):
             raise ValueError(f"Campaign cannot be started (status: {campaign.status})")
 
-        # Get firmware for paths
+        # Validate firmware is in a startable state before accepting the
+        # request — so the caller gets a 400, not a 202 that later fails.
         fw_result = await self.db.execute(
             select(Firmware).where(Firmware.id == campaign.firmware_id)
         )
         firmware = fw_result.scalar_one_or_none()
         if not firmware or not firmware.extracted_path:
             raise ValueError("Firmware not found or not unpacked")
+
+        # Optimistic state flip: the background task is responsible for
+        # transitioning queued → running (after the container is verified
+        # up) or queued → error (if spawn fails). No container_id yet.
+        campaign.status = "queued"
+        campaign.error_message = None
+        await self.db.flush()
+        await self._emit_event(campaign.project_id, "queued", "Fuzzing campaign queued for start")
+        return campaign
+
+    async def _spawn_campaign_container(self, campaign_id: UUID) -> FuzzingCampaign:
+        """Spawn the AFL++ container for a queued campaign.
+
+        Runs the full container-startup path: volume resolution, seed +
+        dictionary + harness upload, AFL++ launch. Transitions the
+        campaign row to ``"running"`` on success or ``"error"`` on
+        failure. Safe to call from a background task that owns its own
+        :class:`AsyncSession`.
+        """
+        result = await self.db.execute(
+            select(FuzzingCampaign).where(FuzzingCampaign.id == campaign_id)
+        )
+        campaign = result.scalar_one_or_none()
+        if not campaign:
+            raise ValueError("Campaign not found")
+
+        if campaign.status != "queued":
+            # Already started, stopped, or errored — nothing to do. This
+            # protects against duplicate background-task fires.
+            return campaign
+
+        # Get firmware for paths
+        fw_result = await self.db.execute(
+            select(Firmware).where(Firmware.id == campaign.firmware_id)
+        )
+        firmware = fw_result.scalar_one_or_none()
+        if not firmware or not firmware.extracted_path:
+            campaign.status = "error"
+            campaign.error_message = "Firmware not found or not unpacked"
+            await self.db.flush()
+            return campaign
 
         # Detect standalone binary mode
         is_standalone = firmware.binary_info is not None
@@ -1031,9 +1092,12 @@ class FuzzingService:
         campaigns_by_container: dict[str, FuzzingCampaign] = {
             c.container_id: c for c in all_campaigns if c.container_id
         }
+        # "queued" rows waiting for a background spawn also belong here —
+        # if the worker process crashed mid-spawn the row would otherwise
+        # hang forever with no container_id.
         running_campaign_ids_no_container: list[UUID] = [
             c.id for c in all_campaigns
-            if c.status == "running" and not c.container_id
+            if c.status in ("running", "queued") and not c.container_id
         ]
 
         # 2. List ALL (running + stopped) containers with the fuzzing label.
