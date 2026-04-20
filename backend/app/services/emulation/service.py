@@ -81,44 +81,47 @@ class EmulationService:
         return ARCH_ALIASES.get(arch, arch.lower())
 
     async def _count_active_sessions(self, project_id: UUID) -> int:
+        # "pending" and "booting" are the 202-polling intermediate
+        # statuses; "starting" and "running" are pre-202 legacy values
+        # kept for back-compat; "ready" is the new terminal-attachable
+        # status (replacement for "running"). All five count as
+        # consuming a concurrency slot.
         result = await self.db.scalar(
             select(func.count(EmulationSession.id)).where(
                 EmulationSession.project_id == project_id,
-                EmulationSession.status.in_(["created", "starting", "running"]),
+                EmulationSession.status.in_([
+                    "created", "pending", "booting",
+                    "starting", "running", "ready",
+                ]),
             )
         )
         return result or 0
 
     # ── Session lifecycle ──
 
-    async def start_session(
+    async def create_pending_session(
         self,
         firmware: Firmware,
         mode: str,
         binary_path: str | None = None,
         arguments: str | None = None,
         port_forwards: list[dict] | None = None,
-        kernel_name: str | None = None,
-        init_path: str | None = None,
-        pre_init_script: str | None = None,
-        stub_profile: str = "none",
     ) -> EmulationSession:
-        """Start a new emulation session.
+        """Validate start-request inputs and create a ``pending`` DB row.
 
-        Args:
-            firmware: The firmware record (must have extracted_path).
-            mode: "user" or "system".
-            binary_path: For user mode — path to the binary within the
-                extracted FS.
-            arguments: Optional CLI arguments for user mode.
-            port_forwards: List of ``{"host": int, "guest": int}`` dicts.
-            kernel_name: Specific kernel to use for system mode.
-            init_path: Override init binary for system mode
-                (e.g., "/bin/sh").
-            pre_init_script: Shell script to run before firmware init
-                (system mode).
-            stub_profile: Stub library profile ("none", "generic",
-                "tenda").
+        Fast path — runs synchronously inside the request handler. Does
+        NO Docker work, NO subprocesses, NO filesystem reads beyond
+        what's needed to validate ``binary_path``. Returns in a few
+        milliseconds.
+
+        The returned row has ``status="pending"``. Caller is expected to
+        schedule :meth:`spawn_session_background` to do the heavy
+        lifting. The background task transitions
+        ``pending → booting → ready`` (or ``error`` / ``stopped`` for
+        Qiling).
+
+        Raises ``ValueError`` for invalid inputs — the router translates
+        this into a 400.
         """
         if mode not in ("user", "system"):
             raise ValueError("mode must be 'user' or 'system'")
@@ -148,12 +151,11 @@ class EmulationService:
                 "Architecture detection must complete before emulation."
             )
 
-        # Create DB record
         session = EmulationSession(
             project_id=firmware.project_id,
             firmware_id=firmware.id,
             mode=mode,
-            status="starting",
+            status="pending",
             binary_path=binary_path,
             arguments=arguments,
             architecture=arch,
@@ -161,16 +163,294 @@ class EmulationService:
         )
         self.db.add(session)
         await self.db.flush()
+        return session
 
-        # Detect standalone binary mode: binary_info is only set for
-        # standalone binaries (direct ELF/PE upload or extraction
-        # fallback), never for firmware with a proper rootfs.
+    async def spawn_session_background(
+        self,
+        session_id: UUID,
+        firmware_id: UUID,
+        kernel_name: str | None = None,
+        init_path: str | None = None,
+        pre_init_script: str | None = None,
+        stub_profile: str = "none",
+    ) -> None:
+        """Heavy-lifting phase of session start. Runs detached.
+
+        Reads the ``pending`` session from its OWN AsyncSession (NOT
+        ``self.db`` — the request-scoped session is already closed by
+        the time this runs) and transitions its status:
+
+        - ``pending → booting`` once the Docker container is created
+          and the arch-specific setup has started.
+        - ``booting → ready`` once the health check succeeds
+          (user-mode: the /firmware chroot or /tmp/.standalone_mode
+          marker is observable; system-mode: the QEMU serial socket
+          ``/tmp/qemu-serial.sock`` appears, per
+          :func:`system_mode.await_system_startup`).
+        - ``booting → error`` on any exception, with the message
+          stored in ``error_message``.
+
+        For Qiling (PE/Mach-O binaries, user-mode only), the terminal
+        attachment codepath is not used — the background task runs the
+        Qiling emulation inline and transitions to ``stopped`` when
+        done, matching the pre-202 behaviour.
+
+        This method is designed to be called via ``asyncio.create_task``
+        from the router. The caller should NOT await it — the router
+        has already returned 202 by that point.
+        """
+        from app.database import async_session_factory
+
+        async with async_session_factory() as db:
+            # Re-load the session + firmware using this task's session
+            session = await db.scalar(
+                select(EmulationSession).where(
+                    EmulationSession.id == session_id,
+                )
+            )
+            firmware = await db.scalar(
+                select(Firmware).where(Firmware.id == firmware_id)
+            )
+            if session is None or firmware is None:
+                logger.error(
+                    "spawn_session_background: session=%s firmware=%s "
+                    "not found — cannot spawn",
+                    session_id,
+                    firmware_id,
+                )
+                return
+
+            # Detect standalone binary mode: binary_info is only set for
+            # standalone binaries (direct ELF/PE upload or extraction
+            # fallback), never for firmware with a proper rootfs.
+            is_standalone = firmware.binary_info is not None
+
+            # Qiling path — PE/Mach-O run in-process; no Docker, no
+            # terminal. Runs to completion inline because Qiling is
+            # batch-only; the session ends in status=stopped.
+            binary_format = (firmware.binary_info or {}).get("format")
+            use_qiling = (
+                is_standalone
+                and binary_format in ("pe", "macho")
+                and session.mode == "user"
+            )
+
+            if use_qiling:
+                await self._spawn_qiling(
+                    db, session, firmware, binary_format,
+                )
+                return
+
+            # QEMU path (user-mode ELF + system-mode).
+            try:
+                session.status = "booting"
+                session.started_at = datetime.now(timezone.utc)
+                await db.commit()
+
+                container_id = await self._start_container(
+                    session=session,
+                    extracted_path=firmware.extracted_path,
+                    kernel_name=kernel_name,
+                    firmware_kernel_path=firmware.kernel_path,
+                    init_path=init_path,
+                    pre_init_script=pre_init_script,
+                    stub_profile=stub_profile,
+                    is_standalone=is_standalone,
+                    binary_info=firmware.binary_info,
+                )
+                session.container_id = container_id
+
+                # Health check: verify the session is actually bootable
+                # before flipping to "ready". System mode's
+                # await_system_startup (called inside
+                # setup_system_mode_container) already probes the
+                # serial socket — if we got here without an exception,
+                # system mode is ready. User mode: check the standalone
+                # marker file or /firmware directory is readable.
+                await self._await_ready(session, container_id)
+
+                session.status = "ready"
+                await db.commit()
+            except Exception as exc:
+                logger.exception("Failed to spawn emulation session %s", session_id)
+                session.status = "error"
+                session.error_message = str(exc)
+                session.stopped_at = datetime.now(timezone.utc)
+                try:
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+
+    async def _spawn_qiling(
+        self,
+        db: AsyncSession,
+        session: EmulationSession,
+        firmware: Firmware,
+        binary_format: str,
+    ) -> None:
+        """Run the Qiling in-process emulation and finalise the session.
+
+        Split out for readability. Only called from
+        :meth:`spawn_session_background`.
+        """
+        try:
+            from app.services.qiling_service import (
+                get_rootfs_path,
+                run_binary_async,
+            )
+
+            abs_binary = os.path.join(
+                firmware.extracted_path,
+                (session.binary_path or "").lstrip("/"),
+            )
+            args = shlex.split(session.arguments) if session.arguments else None
+            rootfs = get_rootfs_path(binary_format, session.architecture)
+
+            session.mode = "qiling"
+            session.status = "booting"
+            session.started_at = datetime.now(timezone.utc)
+            await db.commit()
+
+            qresult = await run_binary_async(
+                binary_path=abs_binary,
+                rootfs=rootfs,
+                args=args,
+                timeout=60,
+                trace_syscalls=True,
+                binary_format=binary_format,
+                architecture=session.architecture,
+            )
+
+            output_parts = []
+            if qresult.stdout:
+                output_parts.append(f"=== STDOUT ===\n{qresult.stdout}")
+            if qresult.stderr:
+                output_parts.append(f"=== STDERR ===\n{qresult.stderr}")
+            if qresult.error:
+                output_parts.append(f"=== ERROR ===\n{qresult.error}")
+            if qresult.memory_errors:
+                output_parts.append(
+                    "=== MEMORY ERRORS ===\n" +
+                    "\n".join(qresult.memory_errors)
+                )
+            if qresult.syscall_trace:
+                trace = qresult.syscall_trace[:100]
+                output_parts.append(
+                    f"=== SYSCALL TRACE ({qresult.syscall_count} total) ===\n" +
+                    "\n".join(trace)
+                )
+
+            session.logs = "\n\n".join(output_parts) if output_parts else "(no output)"
+            session.error_message = qresult.error
+            session.status = "stopped"
+            session.stopped_at = datetime.now(timezone.utc)
+            await db.commit()
+        except Exception as exc:
+            logger.exception("Qiling emulation failed")
+            session.status = "error"
+            session.error_message = str(exc)
+            session.stopped_at = datetime.now(timezone.utc)
+            try:
+                await db.commit()
+            except Exception:
+                await db.rollback()
+
+    async def _await_ready(
+        self,
+        session: EmulationSession,
+        container_id: str,
+    ) -> None:
+        """Gate the ``booting → ready`` transition on a real health probe.
+
+        System mode: the inner ``await_system_startup`` check inside
+        ``setup_system_mode_container`` already waited for the QEMU
+        serial socket to appear; if we returned from ``_start_container``
+        without raising, the container is usable. We re-verify the
+        container itself is still up.
+
+        User mode: standalone-binary sessions expose a marker file at
+        ``/tmp/.standalone_mode``; chroot sessions should have
+        ``/firmware/`` readable. Both are fast exec_run probes.
+
+        Raises ``RuntimeError`` if the probe fails — the caller flips
+        the session to ``error``.
+        """
+        import docker
+        import docker.errors
+
+        client = get_docker_client()
+        try:
+            container = client.containers.get(container_id)
+        except docker.errors.NotFound:
+            raise RuntimeError(
+                "Emulation container disappeared before readiness probe",
+            )
+
+        container.reload()
+        if container.status not in ("running", "created"):
+            raise RuntimeError(
+                f"Emulation container in unexpected state: {container.status}",
+            )
+
+        if session.mode == "user":
+            # Either standalone marker OR chroot /firmware dir must be
+            # probe-able. The standalone_check runs quickly (single
+            # docker API call).
+            standalone_probe = container.exec_run(
+                ["test", "-f", "/tmp/.standalone_mode"], demux=True,
+            )
+            chroot_probe = container.exec_run(
+                ["test", "-d", "/firmware"], demux=True,
+            )
+            if (
+                standalone_probe.exit_code != 0
+                and chroot_probe.exit_code != 0
+            ):
+                raise RuntimeError(
+                    "User-mode container has neither /tmp/.standalone_mode "
+                    "nor /firmware — setup did not complete successfully."
+                )
+        elif session.mode == "system":
+            # setup_system_mode_container.await_system_startup already
+            # probed /tmp/qemu-serial.sock. No further work needed.
+            pass
+
+    async def start_session(
+        self,
+        firmware: Firmware,
+        mode: str,
+        binary_path: str | None = None,
+        arguments: str | None = None,
+        port_forwards: list[dict] | None = None,
+        kernel_name: str | None = None,
+        init_path: str | None = None,
+        pre_init_script: str | None = None,
+        stub_profile: str = "none",
+    ) -> EmulationSession:
+        """Synchronous full start (back-compat for callers outside the router).
+
+        Exists for MCP tools and tests that want a one-shot
+        "return when ready" call. The REST router no longer uses this —
+        it calls :meth:`create_pending_session` and schedules
+        :meth:`spawn_session_background` to return 202 immediately.
+
+        Behaviour is identical to the pre-202 flow: creates the row,
+        boots the container, flips to ``ready`` (was ``running``) on
+        success or ``error`` on failure, then returns the final row.
+        """
+        session = await self.create_pending_session(
+            firmware=firmware,
+            mode=mode,
+            binary_path=binary_path,
+            arguments=arguments,
+            port_forwards=port_forwards,
+        )
+
+        # Run the background work synchronously. We can't just call
+        # spawn_session_background directly because that opens its own
+        # AsyncSession; instead, inline the work against self.db to
+        # preserve the old single-session semantics.
         is_standalone = firmware.binary_info is not None
-
-        # Check if this binary should use Qiling instead of QEMU/Docker.
-        # Qiling handles PE (Windows) and Mach-O (macOS) binaries that
-        # QEMU user-mode can't emulate. Qiling runs in-process (no
-        # Docker needed).
         binary_format = (firmware.binary_info or {}).get("format")
         use_qiling = (
             is_standalone
@@ -179,83 +459,14 @@ class EmulationService:
         )
 
         if use_qiling:
-            try:
-                from app.services.qiling_service import (
-                    get_rootfs_path,
-                    run_binary_async,
-                )
-
-                # Resolve absolute binary path
-                abs_binary = os.path.join(
-                    firmware.extracted_path,
-                    binary_path.lstrip("/") if binary_path else "",
-                )
-
-                # Parse arguments
-                args = shlex.split(arguments) if arguments else None
-
-                # Resolve rootfs
-                rootfs = get_rootfs_path(binary_format, arch)
-
-                session.mode = "qiling"
-                session.started_at = datetime.now(timezone.utc)
-                await self.db.flush()
-
-                # Run Qiling emulation (batch, not interactive)
-                qresult = await run_binary_async(
-                    binary_path=abs_binary,
-                    rootfs=rootfs,
-                    args=args,
-                    timeout=60,
-                    trace_syscalls=True,
-                    binary_format=binary_format,
-                    architecture=arch,
-                )
-
-                # Store results in session
-                output_parts = []
-                if qresult.stdout:
-                    output_parts.append(f"=== STDOUT ===\n{qresult.stdout}")
-                if qresult.stderr:
-                    output_parts.append(f"=== STDERR ===\n{qresult.stderr}")
-                if qresult.error:
-                    output_parts.append(f"=== ERROR ===\n{qresult.error}")
-                if qresult.memory_errors:
-                    output_parts.append(
-                        "=== MEMORY ERRORS ===\n" +
-                        "\n".join(qresult.memory_errors)
-                    )
-                if qresult.syscall_trace:
-                    trace = qresult.syscall_trace[:100]  # Cap for storage
-                    output_parts.append(
-                        f"=== SYSCALL TRACE ({qresult.syscall_count} total) ===\n" +
-                        "\n".join(trace)
-                    )
-
-                summary = (
-                    f"Qiling emulation completed in {qresult.duration_ms}ms. "
-                    f"Exit code: {qresult.exit_code}. "
-                    f"Syscalls: {qresult.syscall_count}."
-                )
-                if qresult.timed_out:
-                    summary += " (TIMED OUT)"
-
-                session.logs = "\n\n".join(output_parts) if output_parts else "(no output)"
-                session.error_message = qresult.error
-                session.status = "stopped"
-                session.stopped_at = datetime.now(timezone.utc)
-
-            except Exception as exc:
-                logger.exception("Qiling emulation failed")
-                session.status = "error"
-                session.error_message = str(exc)
-
-            await self.db.flush()
+            await self._spawn_qiling(self.db, session, firmware, binary_format)
             return session
 
-        # Start Docker container (QEMU path — for ELF binaries and
-        # system mode)
         try:
+            session.status = "booting"
+            session.started_at = datetime.now(timezone.utc)
+            await self.db.flush()
+
             container_id = await self._start_container(
                 session=session,
                 extracted_path=firmware.extracted_path,
@@ -268,8 +479,8 @@ class EmulationService:
                 binary_info=firmware.binary_info,
             )
             session.container_id = container_id
-            session.status = "running"
-            session.started_at = datetime.now(timezone.utc)
+            await self._await_ready(session, container_id)
+            session.status = "ready"
         except Exception as exc:
             logger.exception("Failed to start emulation container")
             session.status = "error"
@@ -502,7 +713,9 @@ class EmulationService:
         session = result.scalar_one_or_none()
         if not session:
             raise ValueError("Session not found")
-        if session.status in ("running", "starting"):
+        if session.status in (
+            "running", "starting", "pending", "booting", "ready",
+        ):
             raise ValueError("Cannot delete an active session — stop it first")
         await self.db.delete(session)
         await self.db.flush()
@@ -522,7 +735,11 @@ class EmulationService:
         if not session:
             raise ValueError("Session not found")
 
-        if session.status != "running":
+        # Accept both the legacy "running" status and the new 202-polling
+        # terminal status "ready" (Commit 1 of the 202+polling refactor —
+        # "ready" replaces "running" for sessions that went through the
+        # async start path).
+        if session.status not in ("running", "ready"):
             raise ValueError(
                 f"Session is not running (status: {session.status})",
             )
@@ -682,7 +899,7 @@ class EmulationService:
         session = result.scalar_one_or_none()
         if not session:
             raise ValueError("Session not found")
-        if session.status != "running":
+        if session.status not in ("running", "ready"):
             raise ValueError(
                 f"Session is not running (status: {session.status})",
             )
@@ -734,8 +951,8 @@ class EmulationService:
         if not session:
             raise ValueError("Session not found")
 
-        # If session claims to be running, verify with Docker
-        if session.status == "running" and session.container_id:
+        # If session claims to be running or ready, verify with Docker
+        if session.status in ("running", "ready") and session.container_id:
             try:
                 client = get_docker_client()
                 container = client.containers.get(session.container_id)
@@ -833,7 +1050,7 @@ class EmulationService:
 
         result = await self.db.execute(
             select(EmulationSession).where(
-                EmulationSession.status == "running",
+                EmulationSession.status.in_(("running", "ready")),
                 EmulationSession.started_at.isnot(None),
             )
         )
