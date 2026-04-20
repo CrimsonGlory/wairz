@@ -18,8 +18,17 @@ import type { EmulationSession, EmulationStatus } from '@/types'
 
 const STATUS_CONFIG: Record<EmulationStatus, { label: string; className: string }> = {
   created: { label: 'Created', className: 'bg-gray-500 text-white' },
+  // Rule #29 202+polling intermediate: request accepted, DB row created,
+  // background task not yet running.
+  pending: { label: 'Queued', className: 'bg-yellow-500 text-black' },
   starting: { label: 'Starting', className: 'bg-yellow-500 text-black' },
+  // Rule #29 202+polling intermediate: container created, waiting on
+  // health check (serial socket for system, chroot probe for user).
+  booting: { label: 'Booting', className: 'bg-yellow-500 text-black' },
   running: { label: 'Running', className: 'bg-green-500 text-white' },
+  // Rule #29 202+polling terminal: health probe succeeded, terminal
+  // WebSocket is safe to attach.
+  ready: { label: 'Ready', className: 'bg-green-500 text-white' },
   stopping: { label: 'Stopping...', className: 'bg-orange-500 text-white' },
   stopped: { label: 'Stopped', className: 'bg-zinc-600 text-white' },
   error: { label: 'Error', className: 'bg-red-500 text-white' },
@@ -158,7 +167,7 @@ export function SessionCard({ session, isActive, projectId, onConnect, onStop, o
       )}
 
       <div className="mt-2 flex flex-wrap gap-2">
-        {session.status === 'running' && session.mode !== 'qiling' && (
+        {(session.status === 'running' || session.status === 'ready') && session.mode !== 'qiling' && (
           <>
             <Button
               variant="outline"

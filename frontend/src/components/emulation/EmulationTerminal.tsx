@@ -9,8 +9,11 @@ import '@xterm/xterm/css/xterm.css'
 
 const STATUS_CONFIG: Record<EmulationStatus, { label: string; className: string }> = {
   created: { label: 'Created', className: 'bg-gray-500 text-white' },
+  pending: { label: 'Queued', className: 'bg-yellow-500 text-black' },
   starting: { label: 'Starting', className: 'bg-yellow-500 text-black' },
+  booting: { label: 'Booting', className: 'bg-yellow-500 text-black' },
   running: { label: 'Running', className: 'bg-green-500 text-white' },
+  ready: { label: 'Ready', className: 'bg-green-500 text-white' },
   stopping: { label: 'Stopping...', className: 'bg-orange-500 text-white' },
   stopped: { label: 'Stopped', className: 'bg-zinc-600 text-white' },
   error: { label: 'Error', className: 'bg-red-500 text-white' },
