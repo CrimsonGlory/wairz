@@ -245,6 +245,13 @@ async def _run_unpack_background(
                     firmware.unpack_log = result.unpack_log
                     firmware.unpack_stage = None
                     firmware.unpack_progress = None
+                    # Record vendor-AES auto-decrypt audit trail so the
+                    # operator can reproduce the decryption from
+                    # device_metadata alone (Rule #16 companion).
+                    if result.vendor_decryption:
+                        meta = dict(firmware.device_metadata or {})
+                        meta["vendor_decryption"] = result.vendor_decryption
+                        firmware.device_metadata = meta
                     project.status = "ready"
                 else:
                     firmware.unpack_log = result.unpack_log

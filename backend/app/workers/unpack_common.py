@@ -402,6 +402,10 @@ class UnpackResult:
     unpack_log: str = ""
     success: bool = False
     error: str | None = None
+    # Vendor-AES auto-decrypt audit: one entry per encrypted archive that
+    # the decrypt pass found a working key for. Consumed by the background
+    # unpack runner to populate firmware.device_metadata['vendor_decryption'].
+    vendor_decryption: list[dict] | None = None
 
 
 # Map ELF machine types to friendly names

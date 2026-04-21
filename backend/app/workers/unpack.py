@@ -749,6 +749,61 @@ async def _unpack_firmware_inner(
                     )
             except Exception as e:
                 result.unpack_log += f"Nested extraction skipped: {e}\n"
+            # Vendor-AES auto-decrypt: some firmware packages (e.g. EDAN
+            # MPM RespArray/target-ld v1.12) ship .tar.xz files that are
+            # AES-CBC ciphertext with the decryption key+iv hardcoded in
+            # an update shell script inside a recovery rootfs. If we find
+            # such a script in the freshly-extracted tree, decrypt any
+            # sibling archives whose magic doesn't match their extension
+            # and extract them into <path>_extract/ siblings. No-op when
+            # no script-level keys are discoverable.
+            try:
+                from app.workers.unpack_common import (
+                    _decrypt_vendor_encrypted_archives,
+                    _detect_openssl_key_triples,
+                )
+                triples = _detect_openssl_key_triples(extraction_dir)
+                if triples:
+                    decrypted = _decrypt_vendor_encrypted_archives(
+                        extraction_dir, triples,
+                    )
+                    if decrypted:
+                        # Record every triple used for audit (Rule #16
+                        # companion: operator should be able to reproduce
+                        # the decryption from device_metadata alone).
+                        result.vendor_decryption = [
+                            {
+                                "archive": os.path.relpath(p, extraction_dir),
+                                "algorithm": t.algo,
+                                "key_hex": t.key_hex,
+                                "iv_hex": t.iv_hex,
+                                "key_source": t.source,
+                            }
+                            for p, t in decrypted
+                        ]
+                        result.unpack_log += (
+                            f"Vendor-AES auto-decrypt: "
+                            f"{len(decrypted)} archive(s) decrypted using "
+                            f"{len(triples)} key triple(s) found in update "
+                            f"scripts; contents extracted to <path>_extract/ "
+                            f"siblings.\n"
+                        )
+                        # Recurse one more time — the decrypted output
+                        # may contain its own nested archives.
+                        try:
+                            nested2 = _recursive_extract_nested(
+                                extraction_dir, max_depth=3,
+                            )
+                            if nested2:
+                                result.unpack_log += (
+                                    f"Post-decrypt nested extraction: "
+                                    f"expanded {len(nested2)} archive(s).\n"
+                                )
+                        except Exception:
+                            pass
+            except Exception as e:
+                result.unpack_log += f"Vendor-AES decrypt skipped: {e}\n"
+                logger.debug("Vendor-AES decrypt pass failed", exc_info=True)
             bomb_error = check_extraction_limits(extraction_dir, fw_size)
             await _report("Analyzing filesystem", progress_base + 20)
             _analyze_filesystem(result, extraction_dir)
