@@ -743,6 +743,74 @@ def _read_magic(path: str, num_bytes: int = 4) -> bytes:
         return b""
 
 
+def _file_looks_like_fs_image(path: str) -> bool:
+    """Return True if ``path`` appears to be a raw filesystem image.
+
+    Probes magic bytes for FAT12/16/32, ext2/3/4, squashfs (LE+BE), UBI,
+    JFFS2, and CramFS. This is how we tell a "vendor archive that wraps
+    a raw partition" (e.g. Eaton Network M3: tar → ``.data_img`` FAT16)
+    apart from a pure rootfs tarball.
+
+    Kept deliberately conservative — each magic is a well-known signature
+    with no credible false-positive in the firmware-archive context.
+    """
+    try:
+        with open(path, "rb") as f:
+            head = f.read(4)
+            # squashfs — LE ("hsqs") or BE ("sqsh") at offset 0
+            if head in (b"hsqs", b"sqsh"):
+                return True
+            # UBI at offset 0
+            if head == b"UBI!":
+                return True
+            # CramFS at offset 0 (little-endian signature)
+            if head == b"\x45\x3d\xcd\x28":
+                return True
+            # JFFS2 at offset 0 (either endianness)
+            if head[:2] in (b"\x19\x85", b"\x85\x19"):
+                return True
+            # FAT: "FAT12   ", "FAT16   ", or "FAT32   " at offset 54 (FAT12/16)
+            # or offset 82 (FAT32). We check both since the string is
+            # distinctive and cannot appear in a plain tar/zip.
+            for offset in (54, 82):
+                f.seek(offset)
+                fs_type = f.read(8)
+                if fs_type.startswith((b"FAT12", b"FAT16", b"FAT32")):
+                    return True
+            # ext2/3/4 superblock magic at offset 0x438
+            f.seek(0x438)
+            ext_magic = f.read(2)
+            if ext_magic == b"\x53\xef":
+                return True
+    except OSError:
+        return False
+    return False
+
+
+def _dir_has_filesystem_image(path: str) -> bool:
+    """Return True if ``path`` contains at least one raw filesystem image
+    at its top level (non-recursive, non-symlink).
+
+    Used as a gate on ``find_filesystem_root``'s "best-entry-count"
+    fallback: if a candidate directory has a raw FS image at top level
+    but no Linux markers, the archive is "vendor-wrap-of-image" shape
+    and should be re-run through unblob, not treated as a rootfs.
+    """
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                try:
+                    if entry.is_symlink() or not entry.is_file(follow_symlinks=False):
+                        continue
+                except OSError:
+                    continue
+                if _file_looks_like_fs_image(entry.path):
+                    return True
+    except OSError:
+        return False
+    return False
+
+
 def _has_linux_markers(path: str) -> bool:
     """Check if a directory has the standard Linux or Android filesystem markers."""
     try:
@@ -822,6 +890,16 @@ def find_filesystem_root(extraction_dir: str) -> str | None:
         if count > best_count:
             best_count = count
             best_dir = root
+
+    # Reject the "most entries" fallback when the candidate is actually a
+    # vendor archive that wraps a raw filesystem image (e.g. Eaton Network
+    # M3: tar → {EULA, manifest.json, .data_img(FAT16)}). Returning the
+    # container as fs_root would short-circuit unblob and leave the image
+    # un-extracted. Returning None instead forces the caller to fall
+    # through to the recursive extractor chain, which can handle the
+    # nested filesystem format.
+    if best_dir and _dir_has_filesystem_image(best_dir):
+        return None
 
     return best_dir
 
