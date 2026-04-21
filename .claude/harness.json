@@ -225,6 +225,12 @@
         "pattern": "--ignore=tests/",
         "filePattern": ".github/workflows/**/*.yml",
         "message": "CI pytest --ignore= flags hide real signal. Each ignored file MUST have a tracking intake in .planning/intake/*-unstable-*.md with per-file failure triage (test-bug / product-bug / missing-fixture / deprecated). Remove the --ignore= line in the same commit that makes the file green. Learned from session 480666ce backend-tests.yml workflow \u2014 see .planning/intake/backend-pytest-unstable-tests.md."
+      },
+      {
+        "name": "auto-vendor-aes-followups-1",
+        "pattern": "asyncio\\.create_task\\(\\s*_run_hardware_firmware_detection_safe",
+        "filePattern": "backend/app/workers/unpack.py",
+        "message": "Learned from campaign vendor-aes-followups-2026-04-21: _run_hardware_firmware_detection_safe must NOT be spawned from inside unpack_firmware. Fire it AFTER the caller commits (arq_worker.unpack_firmware_job or routers/firmware._run_unpack_background), or the concurrent DB write will clobber vendor_decryption + detection_roots. See commit bede8a5."
       }
     ]
   },
@@ -287,7 +293,7 @@
     "sessions": 0,
     "campaigns": 0,
     "override": null,
-    "sessions_completed": 126
+    "sessions_completed": 134
   },
   "consent": {
     "externalActions": "session-allow"
