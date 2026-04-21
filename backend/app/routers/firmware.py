@@ -277,6 +277,21 @@ async def _run_unpack_background(
 
                 await db.commit()
 
+                # Fire hardware-firmware detection AFTER the commit so it
+                # sees the latest device_metadata (vendor_decryption +
+                # detection_roots). Used to be spawned inside
+                # unpack_firmware() — moved here to avoid a race where
+                # the HW detection's concurrent write clobbered the
+                # decrypt audit on firmwares where detection finished
+                # quickly (e.g. 0 detection roots).
+                if result.success and result.extracted_path:
+                    from app.workers.unpack import _run_hardware_firmware_detection_safe
+                    asyncio.create_task(
+                        _run_hardware_firmware_detection_safe(
+                            firmware_id, result.extracted_path,
+                        ),
+                    )
+
                 # Push SSE completion/error event
                 try:
                     await event_service.publish_progress(

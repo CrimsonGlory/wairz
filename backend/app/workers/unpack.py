@@ -253,10 +253,14 @@ async def unpack_firmware(
     result = await _unpack_firmware_inner(
         firmware_path, output_base_dir, progress_callback,
     )
-    if result.success and result.extracted_path and firmware_id is not None:
-        asyncio.create_task(
-            _run_hardware_firmware_detection_safe(firmware_id, result.extracted_path),
-        )
+    # NOTE: hardware-firmware detection is NOT spawned here — it runs a
+    # concurrent DB session that can race with the caller's commit and
+    # silently clobber vendor_decryption / detection_roots in
+    # ``firmware.device_metadata`` (last-writer-wins on the whole JSONB
+    # dict). Callers (arq_worker.unpack_firmware_job,
+    # routers/firmware._run_unpack_background) MUST fire the detection
+    # task via ``_run_hardware_firmware_detection_safe`` only AFTER
+    # their own ``db.commit()``.
     return result
 
 

@@ -6,6 +6,7 @@ async DB session via ``async_session_factory`` so it is fully independent of
 the request lifecycle.
 """
 
+import asyncio
 import logging
 import os
 import shutil
@@ -144,6 +145,21 @@ async def unpack_firmware_job(
                     project.status = "error"
 
                 await db.commit()
+
+                # Fire hardware-firmware detection AFTER the commit so it
+                # sees the latest device_metadata (vendor_decryption +
+                # detection_roots). Used to be spawned inside
+                # unpack_firmware() — moved here to avoid a race where
+                # the HW detection's concurrent write clobbered the
+                # decrypt audit on firmwares where detection finished
+                # quickly (e.g. 0 detection roots).
+                if result.success and result.extracted_path:
+                    from app.workers.unpack import _run_hardware_firmware_detection_safe
+                    asyncio.create_task(
+                        _run_hardware_firmware_detection_safe(
+                            uuid.UUID(firmware_id), result.extracted_path,
+                        ),
+                    )
 
                 try:
                     await event_service.publish_progress(
