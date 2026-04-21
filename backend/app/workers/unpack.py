@@ -781,6 +781,12 @@ async def _unpack_firmware_inner(
                             }
                             for p, t in decrypted
                         ]
+                        # Absolute paths of the _extract/ output dirs — the
+                        # DB runner registers these as detection roots so
+                        # the file-explorer virtual-root surfaces them.
+                        result.decryption_output_dirs = [
+                            p + "_extract" for p, _ in decrypted
+                        ]
                         result.unpack_log += (
                             f"Vendor-AES auto-decrypt: "
                             f"{len(decrypted)} archive(s) decrypted using "

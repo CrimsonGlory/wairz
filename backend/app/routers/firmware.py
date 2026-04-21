@@ -248,9 +248,25 @@ async def _run_unpack_background(
                     # Record vendor-AES auto-decrypt audit trail so the
                     # operator can reproduce the decryption from
                     # device_metadata alone (Rule #16 companion).
+                    # Also register each decrypted _extract/ dir as a
+                    # detection root so the file-explorer virtual root
+                    # surfaces them (otherwise its *-root regex filter
+                    # hides them).
                     if result.vendor_decryption:
                         meta = dict(firmware.device_metadata or {})
                         meta["vendor_decryption"] = result.vendor_decryption
+                        decrypt_roots = [
+                            p for p in (result.decryption_output_dirs or [])
+                            if os.path.isdir(p)
+                        ]
+                        if decrypt_roots:
+                            existing = meta.get("detection_roots") or []
+                            seen = {os.path.realpath(p) for p in existing}
+                            for r in decrypt_roots:
+                                if os.path.realpath(r) not in seen:
+                                    existing.append(r)
+                                    seen.add(os.path.realpath(r))
+                            meta["detection_roots"] = existing
                         firmware.device_metadata = meta
                     project.status = "ready"
                 else:

@@ -406,6 +406,11 @@ class UnpackResult:
     # the decrypt pass found a working key for. Consumed by the background
     # unpack runner to populate firmware.device_metadata['vendor_decryption'].
     vendor_decryption: list[dict] | None = None
+    # Absolute paths of the _extract/ directories produced by the vendor-AES
+    # decrypt pass. Written to firmware.device_metadata['detection_roots']
+    # by the DB runner so the file-explorer virtual-root walker surfaces
+    # them (its *-root regex filter hides them otherwise).
+    decryption_output_dirs: list[str] | None = None
 
 
 # Map ELF machine types to friendly names
