@@ -1,12 +1,22 @@
 ---
-Status: in-progress
+Status: completed
 Direction: Teach the unpack pipeline to recognise vendor-encrypted archives whose decryption key is hardcoded in a recovery rootfs shell script, and auto-decrypt them during unpack so the real payload surfaces in the file explorer without operator intervention.
 Created: 2026-04-21
 Created_in: session b3a3b580 (immediate follow-up to tar-shortcut recursion fix + RespArray/target-ld manual decrypt)
+Completed: 2026-04-21
+Completed_in: session b3a3b580 (same-session ship)
 Type: build
 Baseline HEAD: c00ec94 (merged tar-shortcut recursion fix)
+Final HEAD: 180d9e1 (Stage-2 wiring)
 Estimated Sessions: 1
+Actual Sessions: 1
 Orchestrator: inline (single stream, single session)
+End-condition audit:
+  1. [PASS] backend/tests/test_vendor_aes_decrypt.py — 16/16 tests pass
+  2. [PASS] Re-unpack of a7523429 produced target/rootfs_partition.tar.xz_extract, extracted_path lands there, arch=arm le
+  3. [PASS] device_metadata.vendor_decryption records 5 entries with key_hex=43c8e032... matching Phase 1
+  4. [PASS] grep 'openssl aes' backend/app/workers/ → 2 matches in unpack_common.py (detector + regex)
+  5. [PASS] Eaton + DPCS10 regression — _detect_openssl_key_triples returns [] on both; zero behaviour change
 ---
 
 # Campaign: Vendor-AES auto-decrypt detector
