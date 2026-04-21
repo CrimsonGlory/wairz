@@ -392,6 +392,52 @@ def _persist_roots(
     firmware.device_metadata = merged
 
 
+def populate_detection_roots(
+    firmware: Firmware,
+    *,
+    extra_roots: list[str] | None = None,
+) -> list[str]:
+    """Canonical detection_roots writer for firmware rows at extraction time.
+
+    Computes the primary roots from ``firmware.extracted_path`` via
+    ``_compute_roots_sync`` (same logic downstream consumers use when
+    resolving), merges ``extra_roots`` (e.g. vendor-AES decrypt output
+    dirs) with realpath deduplication, and writes the result into
+    ``firmware.device_metadata['detection_roots']``. Caller owns the
+    session flush/commit.
+
+    Callers:
+        - firmware_service.py tar + zip-rootfs shortcut paths (upload-time)
+        - routers/firmware.py _run_unpack_background (async /unpack path)
+        - workers/arq_worker.py unpack_firmware_job (arq /unpack path)
+
+    Before this helper existed, each call site hand-rolled the merge,
+    and some sites omitted ``_compute_roots_sync`` entirely, producing
+    divergent ``detection_roots`` content across upload formats. This
+    helper eliminates that divergence — single source of truth.
+
+    Returns the final merged root list (post-dedup) for logging.
+    """
+    extracted = getattr(firmware, "extracted_path", None)
+    if not extracted:
+        # Nothing to persist — raw-binary uploads that never extract
+        # legitimately have no detection roots.
+        return []
+    roots = _compute_roots_sync(extracted)
+    if extra_roots:
+        existing_real = {os.path.realpath(r) for r in roots if r}
+        for p in extra_roots:
+            if not p or not os.path.isdir(p):
+                continue
+            real = os.path.realpath(p)
+            if real in existing_real:
+                continue
+            roots.append(p)
+            existing_real.add(real)
+    _persist_roots(firmware, roots)
+    return roots
+
+
 async def get_detection_roots(
     firmware: Firmware,
     *,

@@ -406,15 +406,15 @@ class FirmwareService:
                         # Rule #16: populate detection_roots so downstream
                         # walkers (hardware-firmware, SBOM, MCP file tree)
                         # don't have to re-derive them from extracted_path.
-                        # Safe + synchronous — already wrapped for walk I/O.
+                        # Canonical single-call helper — same code path as
+                        # every other extraction site (zip-rootfs shortcut,
+                        # /unpack in-process runner, arq unpack job).
                         from app.services.firmware_paths import (
-                            _compute_roots_sync,
-                            _persist_roots,
+                            populate_detection_roots,
                         )
-                        roots = await loop.run_in_executor(
-                            None, _compute_roots_sync, fs_root
+                        await loop.run_in_executor(
+                            None, populate_detection_roots, firmware,
                         )
-                        _persist_roots(firmware, roots)
                         self.db.add(firmware)
                         await self.db.flush()
                         return firmware
@@ -501,14 +501,13 @@ class FirmwareService:
                 )
                 # Rule #16: populate detection_roots so downstream walkers
                 # don't have to re-derive them from extracted_path.
+                # Canonical single-call helper.
                 from app.services.firmware_paths import (
-                    _compute_roots_sync,
-                    _persist_roots,
+                    populate_detection_roots,
                 )
-                roots = await loop.run_in_executor(
-                    None, _compute_roots_sync, fs_root
+                await loop.run_in_executor(
+                    None, populate_detection_roots, firmware,
                 )
-                _persist_roots(firmware, roots)
                 self.db.add(firmware)
                 await self.db.flush()
                 return firmware

@@ -3,7 +3,7 @@ import logging
 import os
 import uuid
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -78,11 +78,27 @@ async def upload_firmware(
     request: Request,
     project_id: uuid.UUID,
     file: UploadFile,
+    background_tasks: BackgroundTasks,
     version_label: str | None = Form(None),
     service: FirmwareService = Depends(get_firmware_service),
 ):
     await _check_upload_size(file, "Firmware")
     firmware = await service.upload(project_id, file, version_label=version_label)
+    # Fire hardware-firmware detection for uploads that extract at upload-time
+    # (tar shortcut, zip-rootfs shortcut). The /unpack path already fires its
+    # own detection post-commit (bede8a5). Before this hook, shortcut uploads
+    # skipped HW detection entirely, leaving hardware_firmware_blobs empty
+    # until a manual re-unpack. BackgroundTasks runs AFTER the response is
+    # returned — by which time get_db has committed the firmware row, so the
+    # detection's own session reads a consistent snapshot (same
+    # post-commit invariant as bede8a5).
+    if firmware.extracted_path:
+        from app.workers.unpack import _run_hardware_firmware_detection_safe
+        background_tasks.add_task(
+            _run_hardware_firmware_detection_safe,
+            firmware.id,
+            firmware.extracted_path,
+        )
     return firmware
 
 
@@ -248,26 +264,20 @@ async def _run_unpack_background(
                     # Record vendor-AES auto-decrypt audit trail so the
                     # operator can reproduce the decryption from
                     # device_metadata alone (Rule #16 companion).
-                    # Also register each decrypted _extract/ dir as a
-                    # detection root so the file-explorer virtual root
-                    # surfaces them (otherwise its *-root regex filter
-                    # hides them).
                     if result.vendor_decryption:
                         meta = dict(firmware.device_metadata or {})
                         meta["vendor_decryption"] = result.vendor_decryption
-                        decrypt_roots = [
-                            p for p in (result.decryption_output_dirs or [])
-                            if os.path.isdir(p)
-                        ]
-                        if decrypt_roots:
-                            existing = meta.get("detection_roots") or []
-                            seen = {os.path.realpath(p) for p in existing}
-                            for r in decrypt_roots:
-                                if os.path.realpath(r) not in seen:
-                                    existing.append(r)
-                                    seen.add(os.path.realpath(r))
-                            meta["detection_roots"] = existing
                         firmware.device_metadata = meta
+                    # Uniform detection_roots write for every successful
+                    # unpack — includes primary roots from extracted_path
+                    # + any decrypt-output dirs, realpath-deduplicated.
+                    # Same helper used by upload-time tar / zip-rootfs
+                    # shortcuts and the arq worker: single source of truth.
+                    from app.services.firmware_paths import populate_detection_roots
+                    populate_detection_roots(
+                        firmware,
+                        extra_roots=result.decryption_output_dirs,
+                    )
                     project.status = "ready"
                 else:
                     firmware.unpack_log = result.unpack_log
