@@ -512,7 +512,21 @@ class FirmwareService:
                     logger.warning("ZIP extraction failed (%s), treating as raw firmware", exc)
                     extracted = None
                 if extracted:
-                    os.remove(storage_path)
+                    # Preserve the original zip on disk so POST /unpack can
+                    # reprocess the whole archive end-to-end (needed for
+                    # the vendor-AES auto-decrypt pipeline in Stage 2 to
+                    # see the recovery rootfs + encrypted payloads side-
+                    # by-side). The zip path used to delete the original
+                    # here and re-point storage_path at a single inner
+                    # file, which starved /unpack of context and diverged
+                    # from the .7z/.tar paths. See intake:
+                    # zip-upload-breaks-vendor-aes-autodecrypt.md.
+                    zip_file_path = storage_path
+                    # ``storage_path`` now points at the picked inner file
+                    # so the nested-extract walk + diagnostic scan below
+                    # can locate ``zip_contents/`` via dirname(); we
+                    # restore it to the zip path when constructing the
+                    # Firmware row so /unpack reprocesses the whole zip.
                     storage_path = extracted
                     # Extraction-integrity fix: multi-file firmware ZIPs
                     # (medical device / embedded Linux patterns) pack many
@@ -577,13 +591,11 @@ class FirmwareService:
                             "Archive diagnostic scan failed",
                             exc_info=True,
                         )
-                    # Recompute hash and size for the actual firmware content
-                    sha256_hash = hashlib.sha256()
-                    file_size = 0
-                    async with aiofiles.open(storage_path, "rb") as f:
-                        while chunk := await f.read(8192):
-                            sha256_hash.update(chunk)
-                            file_size += len(chunk)
+                    # Hash/size of the original zip are already captured
+                    # from the upload stream above; no recompute needed.
+                    # Restore storage_path to the zip so Firmware.storage_path
+                    # points at the whole upload artefact, not an inner file.
+                    storage_path = zip_file_path
 
         firmware = Firmware(
             id=firmware_id,
