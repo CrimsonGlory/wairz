@@ -357,6 +357,10 @@ class FirmwareService:
 
                     loop = asyncio.get_running_loop()
                     await loop.run_in_executor(None, _extract_tar)
+                    # Widen read perms so the backend can stat/open files
+                    # shipped with vendor-restrictive modes.
+                    from app.workers.unpack_common import widen_read_perms
+                    await loop.run_in_executor(None, widen_read_perms, extraction_dir)
 
                     fs_root = await loop.run_in_executor(
                         None, find_filesystem_root, extraction_dir
@@ -459,6 +463,10 @@ class FirmwareService:
                     None, _extract_archive, storage_path, extraction_dir
                 )
                 os.remove(storage_path)
+                # Widen read perms on the extracted rootfs so the backend
+                # can serve vendor-restricted files to the file explorer.
+                from app.workers.unpack_common import widen_read_perms
+                await loop.run_in_executor(None, widen_read_perms, extraction_dir)
 
                 fs_root = await loop.run_in_executor(
                     None, find_filesystem_root, extraction_dir
@@ -568,6 +576,14 @@ class FirmwareService:
                                     len(nested),
                                     zip_root,
                                 )
+                            # Widen read perms so the file explorer can
+                            # serve vendor-restricted files uploaded via
+                            # the generic-zip path (inner tar.xz / .so /
+                            # credential scripts extracted to zip_contents/).
+                            from app.workers.unpack_common import widen_read_perms
+                            await zip_loop.run_in_executor(
+                                None, widen_read_perms, zip_root,
+                            )
                     except Exception:
                         logger.warning(
                             "Nested extraction of zip_contents failed",

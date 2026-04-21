@@ -811,6 +811,21 @@ async def _unpack_firmware_inner(
                 result.unpack_log += f"Vendor-AES decrypt skipped: {e}\n"
                 logger.debug("Vendor-AES decrypt pass failed", exc_info=True)
             bomb_error = check_extraction_limits(extraction_dir, fw_size)
+            # Widen read perms so the backend user can stat/open files
+            # that vendor tarballs ship with restrictive modes (e.g.
+            # rwxr-x--- root:root for cred-gen scripts). Without this
+            # pass the file-explorer API returns EPERM on legitimate
+            # content. Runs ONCE post-extract, before filesystem analysis.
+            try:
+                from app.workers.unpack_common import widen_read_perms
+                changed = widen_read_perms(extraction_dir)
+                if changed:
+                    result.unpack_log += (
+                        f"Widened read permissions on {changed} entry/entries "
+                        "so the file-explorer API can read vendor-restricted files.\n"
+                    )
+            except Exception as e:
+                logger.debug("widen_read_perms failed: %s", e, exc_info=True)
             await _report("Analyzing filesystem", progress_base + 20)
             _analyze_filesystem(result, extraction_dir)
             if result.success:
