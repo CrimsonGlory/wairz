@@ -3,7 +3,7 @@ import logging
 import os
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -78,27 +78,17 @@ async def upload_firmware(
     request: Request,
     project_id: uuid.UUID,
     file: UploadFile,
-    background_tasks: BackgroundTasks,
     version_label: str | None = Form(None),
     service: FirmwareService = Depends(get_firmware_service),
 ):
+    # HW-firmware detection for upload-time shortcuts is spawned inside
+    # service.upload() right after an explicit commit — NOT via FastAPI
+    # BackgroundTasks here. BackgroundTasks fires before get_db's
+    # dependency-teardown commit, so a detection task spawned from here
+    # would race the commit and log "firmware_id=... not found". The
+    # service layer owns the spawn because it controls the commit.
     await _check_upload_size(file, "Firmware")
     firmware = await service.upload(project_id, file, version_label=version_label)
-    # Fire hardware-firmware detection for uploads that extract at upload-time
-    # (tar shortcut, zip-rootfs shortcut). The /unpack path already fires its
-    # own detection post-commit (bede8a5). Before this hook, shortcut uploads
-    # skipped HW detection entirely, leaving hardware_firmware_blobs empty
-    # until a manual re-unpack. BackgroundTasks runs AFTER the response is
-    # returned — by which time get_db has committed the firmware row, so the
-    # detection's own session reads a consistent snapshot (same
-    # post-commit invariant as bede8a5).
-    if firmware.extracted_path:
-        from app.workers.unpack import _run_hardware_firmware_detection_safe
-        background_tasks.add_task(
-            _run_hardware_firmware_detection_safe,
-            firmware.id,
-            firmware.extracted_path,
-        )
     return firmware
 
 

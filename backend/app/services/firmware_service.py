@@ -416,7 +416,29 @@ class FirmwareService:
                             None, populate_detection_roots, firmware,
                         )
                         self.db.add(firmware)
-                        await self.db.flush()
+                        # Explicit commit BEFORE spawning hardware-firmware
+                        # detection: the detector opens its own async
+                        # session and reads the firmware row. FastAPI's
+                        # get_db commits only after the endpoint response
+                        # is returned, AFTER BackgroundTasks/spawned
+                        # tasks already fire — so a task spawned from
+                        # here with only a db.flush() would see
+                        # "firmware_id=... not found" (same class of race
+                        # as bede8a5). Explicit commit makes the row
+                        # visible to the detector's session.
+                        await self.db.commit()
+                        # Fire HW detection post-commit. Matches bede8a5's
+                        # invariant: detection only fires after the write
+                        # is durable, so device_metadata['detection_roots']
+                        # is visible to the detector's fresh session.
+                        from app.workers.unpack import (
+                            _run_hardware_firmware_detection_safe,
+                        )
+                        asyncio.create_task(
+                            _run_hardware_firmware_detection_safe(
+                                firmware.id, firmware.extracted_path,
+                            ),
+                        )
                         return firmware
             except Exception:
                 logger.debug("Tarball device-dump detection failed", exc_info=True)
@@ -509,7 +531,17 @@ class FirmwareService:
                     None, populate_detection_roots, firmware,
                 )
                 self.db.add(firmware)
-                await self.db.flush()
+                # Explicit commit BEFORE spawning HW detection — see
+                # tar-shortcut comment above for the race rationale.
+                await self.db.commit()
+                from app.workers.unpack import (
+                    _run_hardware_firmware_detection_safe,
+                )
+                asyncio.create_task(
+                    _run_hardware_firmware_detection_safe(
+                        firmware.id, firmware.extracted_path,
+                    ),
+                )
                 return firmware
 
             else:
