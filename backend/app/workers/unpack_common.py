@@ -743,6 +743,212 @@ def _read_magic(path: str, num_bytes: int = 4) -> bytes:
         return b""
 
 
+# ---------------------------------------------------------------------------
+# Vendor-AES auto-decrypt (firmware packages whose update scripts hardcode an
+# openssl key/iv to decrypt sibling archive payloads).
+# ---------------------------------------------------------------------------
+# The regex accepts both `openssl aes-128-cbc` and `openssl enc -aes-128-cbc`
+# shapes, since vendors use both. It also tolerates `-K HEX` in either order
+# relative to `-iv HEX`. Restricted to CBC because ECB/CTR/GCM require
+# different flag handling; add as separate clauses if needed.
+_OPENSSL_AES_CBC_RE = _re.compile(
+    r"openssl\s+(?:enc\s+-)?aes-(128|192|256)-cbc\b"
+    r"(?:[^\n]*?)"
+    r"(?:-K\s+([0-9a-fA-F]{32,64})\b[^\n]*?-iv\s+([0-9a-fA-F]{32})\b"
+    r"|-iv\s+([0-9a-fA-F]{32})\b[^\n]*?-K\s+([0-9a-fA-F]{32,64})\b)"
+)
+
+# File extensions we attempt to auto-decrypt + their required plaintext magic.
+# The magic check after decryption is a strict gate against false positives.
+_ARCHIVE_MAGIC: dict[str, bytes] = {
+    ".tar.xz": b"\xfd7zXZ\x00",
+    ".tar.gz": b"\x1f\x8b",
+    ".tgz":    b"\x1f\x8b",
+    ".tar.bz2": b"BZh",
+    ".zip":    b"PK\x03\x04",
+    ".xz":     b"\xfd7zXZ\x00",
+}
+
+
+@dataclass(frozen=True)
+class _AesKeyTriple:
+    algo: str       # "aes-128-cbc" / "aes-192-cbc" / "aes-256-cbc"
+    key_hex: str    # 32 / 48 / 64 hex chars (lower)
+    iv_hex: str     # 32 hex chars (lower)
+    source: str     # file:line where discovered
+
+
+def _detect_openssl_key_triples(extraction_dir: str) -> list[_AesKeyTriple]:
+    """Walk ``extraction_dir`` for shell scripts that hardcode an AES-CBC
+    key+iv for openssl decryption, and return every distinct triple found.
+
+    Shapes matched (case-sensitive; openssl's CLI args are case-sensitive):
+        openssl aes-128-cbc -d ... -K <hex32> ... -iv <hex32> ...
+        openssl aes-256-cbc -d ... -iv <hex32> ... -K <hex64> ...
+        openssl enc -aes-128-cbc -d ... -K <hex32> -iv <hex32>
+
+    Returns an empty list when no script matches — the caller should
+    silently skip the auto-decrypt pass in that case.
+    """
+    found: dict[tuple[str, str, str], _AesKeyTriple] = {}
+    for root, dirs, files in os.walk(extraction_dir, followlinks=False):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for name in files:
+            # Cheap filter: only read files that plausibly contain shell.
+            # ".sh", "Makefile", "install*", "update*" — and anything with
+            # no extension but small enough to be a shell script.
+            lname = name.lower()
+            path = os.path.join(root, name)
+            try:
+                st = os.stat(path, follow_symlinks=False)
+            except OSError:
+                continue
+            if st.st_size > 1_000_000:  # >1 MB unlikely to be a shell script
+                continue
+            if not (
+                lname.endswith(".sh")
+                or lname.endswith(".bash")
+                or lname in ("makefile",)
+                or "update" in lname
+                or "install" in lname
+                or "." not in name
+            ):
+                continue
+            try:
+                with open(path, "rb") as f:
+                    data = f.read(st.st_size)
+            except OSError:
+                continue
+            try:
+                text = data.decode("utf-8", errors="replace")
+            except Exception:
+                continue
+            for m in _OPENSSL_AES_CBC_RE.finditer(text):
+                bits = m.group(1)
+                # Groups 2+3 are (-K first, -iv second); groups 4+5 are (-iv first, -K second)
+                if m.group(2) and m.group(3):
+                    key_hex, iv_hex = m.group(2).lower(), m.group(3).lower()
+                else:
+                    key_hex, iv_hex = m.group(5).lower(), m.group(4).lower()
+                # Sanity: key hex length must match the declared algorithm
+                expected_key_nibbles = {"128": 32, "192": 48, "256": 64}[bits]
+                if len(key_hex) != expected_key_nibbles:
+                    continue
+                algo = f"aes-{bits}-cbc"
+                key = (algo, key_hex, iv_hex)
+                if key not in found:
+                    # Compute line number from byte offset
+                    line = text.count("\n", 0, m.start()) + 1
+                    found[key] = _AesKeyTriple(
+                        algo=algo,
+                        key_hex=key_hex,
+                        iv_hex=iv_hex,
+                        source=f"{os.path.relpath(path, extraction_dir)}:{line}",
+                    )
+    return list(found.values())
+
+
+def _archive_ext_for(path: str) -> str | None:
+    """Return the archive extension for ``path`` (longest match), or None."""
+    lname = os.path.basename(path).lower()
+    # Prefer the longest match (.tar.xz > .xz)
+    for ext in sorted(_ARCHIVE_MAGIC.keys(), key=len, reverse=True):
+        if lname.endswith(ext):
+            return ext
+    return None
+
+
+def _file_head_matches_magic(path: str, magic: bytes) -> bool:
+    try:
+        with open(path, "rb") as f:
+            return f.read(len(magic)) == magic
+    except OSError:
+        return False
+
+
+def _decrypt_vendor_encrypted_archives(
+    extraction_dir: str,
+    triples: list[_AesKeyTriple],
+) -> list[tuple[str, _AesKeyTriple]]:
+    """Walk ``extraction_dir`` for archive files whose head bytes do NOT
+    match the expected magic for their extension, and try to decrypt each
+    with every candidate triple until one produces plaintext whose head
+    DOES match. On success, the archive is re-extracted into
+    ``<path>_extract/`` (mirroring unblob's sibling convention).
+
+    Returns a list of (archive_path, triple_that_worked) for successes.
+    Silently skips unreachable / failed decryption attempts.
+
+    Safety:
+        - Never follows symlinks.
+        - Refuses to write over an existing ``<path>_extract/`` directory.
+        - Requires a strict magic match on decrypted output — no byte in
+          common between the ciphertext and a valid archive means a
+          miss-keyed decryption cannot pass the gate by coincidence.
+    """
+    if not triples:
+        return []
+    results: list[tuple[str, _AesKeyTriple]] = []
+    for root, dirs, files in os.walk(extraction_dir, followlinks=False):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for name in files:
+            path = os.path.join(root, name)
+            if os.path.islink(path):
+                continue
+            ext = _archive_ext_for(path)
+            if ext is None:
+                continue
+            magic = _ARCHIVE_MAGIC[ext]
+            if _file_head_matches_magic(path, magic):
+                continue  # already plaintext — not our problem
+            out_dir = path + "_extract"
+            if os.path.exists(out_dir):
+                continue  # already handled on a prior run
+            # Try each triple. First success wins.
+            for triple in triples:
+                try:
+                    decrypted = _subprocess.run(
+                        [
+                            "openssl", triple.algo, "-d",
+                            "-in", path,
+                            "-K", triple.key_hex,
+                            "-iv", triple.iv_hex,
+                        ],
+                        capture_output=True,
+                        check=False,
+                        timeout=300,
+                    )
+                except Exception as e:
+                    logger.debug("openssl decrypt failed for %s with %s: %s", path, triple.algo, e)
+                    continue
+                if decrypted.returncode != 0 or not decrypted.stdout.startswith(magic):
+                    continue  # magic mismatch — wrong key
+                # Success — write decrypted payload to a temp file and extract.
+                os.makedirs(out_dir, exist_ok=True)
+                tmp_path = os.path.join(out_dir, "__decrypted_tmp")
+                try:
+                    with open(tmp_path, "wb") as f:
+                        f.write(decrypted.stdout)
+                    _extract_single_archive(tmp_path, out_dir, ext)
+                    results.append((path, triple))
+                    logger.info(
+                        "Vendor-AES decrypt: %s → %s (key source: %s)",
+                        os.path.relpath(path, extraction_dir),
+                        os.path.relpath(out_dir, extraction_dir),
+                        triple.source,
+                    )
+                except Exception as e:
+                    logger.warning("Post-decrypt extraction failed for %s: %s", path, e)
+                    # Leave out_dir in place for diagnostics; don't rmtree
+                finally:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
+                break  # success — don't try other triples
+    return results
+
+
 def _file_looks_like_fs_image(path: str) -> bool:
     """Return True if ``path`` appears to be a raw filesystem image.
 
