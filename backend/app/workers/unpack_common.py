@@ -5,6 +5,7 @@ import logging
 import os
 import re as _re
 import shutil as _shutil
+import stat as _stat
 import subprocess as _subprocess
 import tarfile as _tarfile
 import zipfile as _zipfile
@@ -13,6 +14,48 @@ from dataclasses import dataclass
 from elftools.elf.elffile import ELFFile
 
 logger = logging.getLogger(__name__)
+
+
+def widen_read_perms(root: str) -> int:
+    """Ensure every regular file and directory under ``root`` is readable
+    (and dirs are traversable) by the backend user.
+
+    Firmware tarballs frequently ship files with vendor-restrictive modes
+    (e.g. ``rwxr-x---`` root:root for credential-generation scripts). When
+    the Wairz backend runs as a non-root user it gets EPERM on such files,
+    and the file-explorer API returns "no access" despite the file
+    sitting happily on disk.
+
+    This helper ORs ``0o044`` into file modes (group+other read) and
+    ``0o055`` into directory modes (group+other read+execute). Does not
+    touch execute bits on files, so scripts stay marked executable.
+    Symlinks are skipped — chmod on a symlink affects the target, not
+    the link, and some firmwares contain symlinks pointing outside the
+    extraction sandbox.
+
+    Returns the count of entries whose mode was changed.
+    """
+    changed = 0
+    for dirpath, dirs, files in os.walk(root, followlinks=False):
+        for name in dirs + files:
+            p = os.path.join(dirpath, name)
+            try:
+                st = os.lstat(p)
+            except OSError:
+                continue
+            if _stat.S_ISLNK(st.st_mode):
+                continue
+            is_dir = _stat.S_ISDIR(st.st_mode)
+            mask = 0o055 if is_dir else 0o044
+            new_mode = st.st_mode | mask
+            if new_mode == st.st_mode:
+                continue
+            try:
+                os.chmod(p, new_mode)
+                changed += 1
+            except OSError:
+                continue
+    return changed
 
 
 # File extensions that indicate a nested archive worth recursively expanding.
