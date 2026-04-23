@@ -174,7 +174,15 @@ to 2 sessions if all three streams land in one day.
 
 ---
 
-### Session +3 (and +4 if pytest spills) — follow-up intake drain
+### Session +3 (and +4 if pytest spills) — follow-up intake drain — **COMPLETED 2026-04-23** (verified, not executed)
+
+**Status:** +3-completed. Rule #19 verification at session 0801ca27 close confirmed all recommended
+intakes had already landed via unrelated work: cache-module-extraction-and-ttl (`cleanup_older_than`
+in worker), frontend-firmware-hook-dedup (`useFirmwareList.ts`), data-pagination-list-endpoints
+(`schemas/pagination.py`), data-constraints-and-backpop, infra-cleanup-migration-and-observability,
+security-docker-socket-proxy — all marked completed + artifacts verified. No dispatch needed.
+
+See `.planning/intake/seed-next-session-2026-04-24.md` for next-session continuation options.
 
 After the two big campaigns, the remaining high-leverage intakes:
 
