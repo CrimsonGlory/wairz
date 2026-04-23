@@ -389,8 +389,13 @@ def test_mtk_lk_parser_extracts_partition_name_and_size(tmp_path: Path) -> None:
     assert isinstance(result, ParsedBlob)
     meta = result.metadata
     assert meta.get("partition_name") == "lk"
-    assert meta.get("partition_size") == 0x100000
+    # parser intentionally does NOT emit partition_size — compact-layout
+    # headers don't have that field, and emitting garbage u32s from the
+    # name bytes was the historical bug this parser was rewritten to fix
+    # (see mediatek_lk.py header comment). Assert structural fields only.
     assert meta.get("magic") == "0x58881688"
+    assert meta.get("layout") == "legacy"
+    assert meta.get("file_info_offset") == 0x200
 
 
 def test_mtk_lk_parser_reports_bad_magic(tmp_path: Path) -> None:
