@@ -68,20 +68,15 @@ jobs:
             backend /app/.venv/bin/python -m pytest tests/ \
               -v --tb=short --maxfail=5 \
               --ignore=tests/test_bytecode_analysis.py \
-              --ignore=tests/test_cache_module.py \
               --ignore=tests/test_diva_manifest_scan.py \
-              --ignore=tests/test_emulation_auth.py \
               --ignore=tests/test_false_positive_rate.py \
-              --ignore=tests/test_fp_rate_computation.py \
               --ignore=tests/test_hardware_firmware_classifier_patterns.py \
               --ignore=tests/test_hardware_firmware_parsers.py \
               --ignore=tests/test_hardware_firmware_router.py \
               --ignore=tests/test_mobsf_baseline_comparison.py \
               --ignore=tests/test_mobsf_parity.py \
               --ignore=tests/test_ovaa_manifest.py \
-              --ignore=tests/test_scan_harness.py \
-              --ignore=tests/test_synthetic_apk_fixtures.py \
-              --ignore=tests/test_zip_bomb_prevention.py
+              --ignore=tests/test_synthetic_apk_fixtures.py
         timeout-minutes: 20
 
       - name: Upload backend logs on failure
