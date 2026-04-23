@@ -214,6 +214,7 @@ class TestScanApkIntegration:
     @patch("app.services.bytecode_analysis_service.BytecodeAnalysisService._scan_analysis")
     def test_scan_returns_expected_structure(self, mock_scan):
         """Test that scan_apk returns the expected dict structure."""
+        svc = BytecodeAnalysisService()
         mock_scan.return_value = [
             BytecodeFinding(
                 pattern_id="crypto_ecb_mode",
@@ -231,8 +232,10 @@ class TestScanApkIntegration:
         mock_apk = MagicMock()
         mock_apk.get_package.return_value = "com.test.app"
 
+        # AnalyzeAPK is lazily imported from androguard.misc inside
+        # scan_apk(), so patch the source module, not the service module.
         with patch(
-            "app.services.bytecode_analysis_service.AnalyzeAPK",
+            "androguard.misc.AnalyzeAPK",
             return_value=(mock_apk, [MagicMock()], MagicMock()),
         ):
             import tempfile
