@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   pytest:
-    name: Pytest (Backend, Stable Subset)
+    name: Pytest (Backend)
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -55,13 +55,7 @@ jobs:
           docker compose exec -T backend /app/.venv/bin/pip install --quiet \
             pytest pytest-asyncio
 
-      # Ignore list: 18 test files with ~189 pre-existing failures as of
-      # 2026-04-19. These are tracked in intake
-      # .planning/intake/backend-pytest-unstable-tests.md for a dedicated
-      # cleanup pass. Rule #19 discipline — ship a trustworthy green CI on
-      # the 60 stable files TODAY, do not delay on a red tide that predates
-      # this job.
-      - name: Run pytest (stable subset)
+      - name: Run pytest
         run: |
           docker compose exec -T -w /app \
             -e PYTHONPATH=/app \
