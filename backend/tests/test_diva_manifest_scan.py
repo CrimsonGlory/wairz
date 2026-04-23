@@ -201,7 +201,7 @@ class TestDivaManifestFindings:
 
     def _run_checks(self, **kwargs) -> dict[str, Any]:
         """Run manifest scan by patching APK() to return our mock."""
-        with patch("app.services.androguard_service.APK", return_value=self.apk):
+        with patch("androguard.core.apk.APK", return_value=self.apk):
             with patch("os.path.isfile", return_value=True):
                 return self.svc.scan_manifest_security("/fake/diva-beta.apk", **kwargs)
 
@@ -498,7 +498,7 @@ class TestDivaFirmwareContext:
         self.apk = _build_diva_apk_mock()
 
     def _run_checks(self, **kwargs) -> dict[str, Any]:
-        with patch("app.services.androguard_service.APK", return_value=self.apk):
+        with patch("androguard.core.apk.APK", return_value=self.apk):
             with patch("os.path.isfile", return_value=True):
                 return self.svc.scan_manifest_security("/fake/diva-beta.apk", **kwargs)
 
@@ -556,7 +556,7 @@ class TestDivaFalsePositiveRate:
         svc = AndroguardService()
         apk = _build_diva_apk_mock()
 
-        with patch("app.services.androguard_service.APK", return_value=apk):
+        with patch("androguard.core.apk.APK", return_value=apk):
             with patch("os.path.isfile", return_value=True):
                 result = svc.scan_manifest_security("/fake/diva-beta.apk")
 
@@ -593,7 +593,7 @@ class TestDivaFindingSerialization:
         svc = AndroguardService()
         apk = _build_diva_apk_mock()
 
-        with patch("app.services.androguard_service.APK", return_value=apk):
+        with patch("androguard.core.apk.APK", return_value=apk):
             with patch("os.path.isfile", return_value=True):
                 result = svc.scan_manifest_security("/fake/diva-beta.apk")
 
@@ -616,7 +616,7 @@ class TestDivaFindingSerialization:
         svc = AndroguardService()
         apk = _build_diva_apk_mock()
 
-        with patch("app.services.androguard_service.APK", return_value=apk):
+        with patch("androguard.core.apk.APK", return_value=apk):
             with patch("os.path.isfile", return_value=True):
                 result = svc.scan_manifest_security("/fake/diva-beta.apk")
 
@@ -706,7 +706,7 @@ class TestDivaExportedComponentDetails:
 
     def test_main_activity_excluded(self):
         """The main launcher activity should be excluded from exported findings."""
-        with patch("app.services.androguard_service.APK", return_value=self.apk):
+        with patch("androguard.core.apk.APK", return_value=self.apk):
             with patch("os.path.isfile", return_value=True):
                 result = self.svc.scan_manifest_security("/fake/diva-beta.apk")
 
@@ -726,7 +726,7 @@ class TestDivaExportedComponentDetails:
         DIVA targetSdk=24 (< 31), so activities with intent-filters are
         implicitly exported by default.
         """
-        with patch("app.services.androguard_service.APK", return_value=self.apk):
+        with patch("androguard.core.apk.APK", return_value=self.apk):
             with patch("os.path.isfile", return_value=True):
                 result = self.svc.scan_manifest_security("/fake/diva-beta.apk")
 
@@ -748,7 +748,7 @@ class TestDivaExportedComponentDetails:
         attribute default to NOT exported. NotesProvider and NotesProvider2
         should NOT appear in the MANIFEST-006 findings.
         """
-        with patch("app.services.androguard_service.APK", return_value=self.apk):
+        with patch("androguard.core.apk.APK", return_value=self.apk):
             with patch("os.path.isfile", return_value=True):
                 result = self.svc.scan_manifest_security("/fake/diva-beta.apk")
 
