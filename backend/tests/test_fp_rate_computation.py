@@ -222,18 +222,26 @@ class TestManifestFPRateComputation:
         assert result.expected_absent_violations[0]["check_id"] == "MANIFEST-004"
 
     def test_within_tolerance_passes(self, manifest_baseline: dict) -> None:
-        """1 FP with tolerance=1 and rate < 20% -> PASS."""
+        """1 FP with tolerance=1 and rate < 20% -> PASS.
+
+        Baseline contains MANIFEST-001/002/003 as TPs. To achieve fp_rate
+        < 20% with tolerance=1, we need at least 6 findings. Pad the TPs
+        with duplicates (deduped via set in the counter) and add exactly
+        one extra ID.
+        """
         findings = [
             {"check_id": "MANIFEST-001", "severity": "high"},
             {"check_id": "MANIFEST-002", "severity": "medium"},
             {"check_id": "MANIFEST-003", "severity": "high"},
-            {"check_id": "MANIFEST-005", "severity": "high"},
-            {"check_id": "MANIFEST-006", "severity": "high"},
+            # Duplicates still contribute to total_findings but dedup in
+            # false_positive_count / true_positive_count via set(...)
+            {"check_id": "MANIFEST-001", "severity": "high"},
+            {"check_id": "MANIFEST-002", "severity": "medium"},
             {"check_id": "MANIFEST-099", "severity": "low"},  # 1 FP
         ]
         result = compute_manifest_fp_rate(findings, manifest_baseline)
 
-        # 1 FP out of 6 total = 16.7% < 20%, and 1 <= tolerance 1
+        # 1 unique FP out of 6 total findings = 16.7% < 20%; 1 <= tolerance 1
         assert result.false_positive_count == 1
         assert result.fp_rate == pytest.approx(1 / 6, abs=0.01)
         assert result.passed is True
@@ -683,10 +691,16 @@ class TestSummaryTableFormatting:
 
     def test_table_no_header(self) -> None:
         summary = self._build_simple_summary()
+        table_with_header = format_summary_table(summary, include_header=True)
         table = format_summary_table(summary, include_header=False)
 
-        # Should not have the header row
-        assert "| Phase" not in table
+        # include_header=False suppresses the top per-APK column header
+        # (identified by "| Phase      | APK" with padding).
+        # The bottom "Cross-APK Phase Aggregates" section has its own
+        # "| Phase" header that is always printed — that's a separate
+        # structural section, not gated by this flag.
+        assert "| Phase      | APK" not in table
+        assert "| Phase      | APK" in table_with_header
         # But should still have data
         assert "manifest" in table
 

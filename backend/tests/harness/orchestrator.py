@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -468,13 +469,29 @@ class ManifestScanner:
             is_platform_signed = fixture.is_platform_signed if firmware_context else False
 
             if fixture.source == FixtureSource.SYNTHETIC and fixture.fixture_def:
-                # Use mock APK factory — patch APK() constructor to return mock
+                # Use mock APK factory.
+                #
+                # androguard_service imports ``APK`` lazily inside
+                # scan_manifest_security (`from androguard.core.apk import APK`),
+                # so we must patch the source module, not androguard_service.
+                # We also short-circuit ``os.path.isfile`` for the "<synthetic>"
+                # sentinel path since no real file exists.
                 from unittest.mock import patch as _patch
 
                 from tests.fixtures.apk.mock_apk_factory import build_mock_apk
 
                 mock_apk = build_mock_apk(fixture.fixture_def)
-                with _patch("app.services.androguard_service.APK", return_value=mock_apk):
+                _orig_isfile = os.path.isfile
+
+                def _isfile_or_synthetic(p: str) -> bool:
+                    if p == "<synthetic>":
+                        return True
+                    return _orig_isfile(p)
+
+                with (
+                    _patch("androguard.core.apk.APK", return_value=mock_apk),
+                    _patch("os.path.isfile", side_effect=_isfile_or_synthetic),
+                ):
                     result = service.scan_manifest_security(
                         apk_path="<synthetic>",
                         is_priv_app=is_priv_app,

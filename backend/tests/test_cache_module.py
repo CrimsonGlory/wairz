@@ -212,7 +212,9 @@ class TestStoreCached:
             db, uuid.uuid4(), "op", {"x": 1}, binary_sha256="h",
         )
         db.flush.assert_awaited_once()
-        assert not hasattr(db, "commit_invoked")
+        # db is an AsyncMock; hasattr() auto-creates attributes, so use call
+        # assertions on the commit attribute instead.
+        db.commit.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +232,8 @@ class TestInvalidateFirmware:
         delete_stmt = db.execute.call_args[0][0]
         compiled = str(delete_stmt.compile(compile_kwargs={"literal_binds": True}))
         assert "DELETE FROM analysis_cache" in compiled
-        assert str(fw_id) in compiled
+        # SQLAlchemy compiles UUID literals hyphenless (32-char hex).
+        assert fw_id.hex in compiled
         # No operation / sha filter — deletes EVERY row for this firmware_id.
         assert "operation" not in compiled.split("WHERE")[-1]
         assert "binary_sha256" not in compiled.split("WHERE")[-1]

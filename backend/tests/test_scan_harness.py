@@ -584,9 +584,13 @@ class TestScanOrchestrator:
     @pytest.mark.asyncio
     async def test_fail_fast_stops_on_error(self):
         """fail_fast=True stops after first error."""
+        # Synthetic fixtures with empty fixture_def are skipped by the
+        # orchestrator (should_skip True), so the ManifestScanner patch
+        # would never fire. Give them a non-empty dict so the scanner
+        # is actually invoked and the patched failure surfaces.
         fixtures = [
-            APKFixture(name="apk1.apk", source=FixtureSource.SYNTHETIC, fixture_def={}),
-            APKFixture(name="apk2.apk", source=FixtureSource.SYNTHETIC, fixture_def={}),
+            APKFixture(name="apk1.apk", source=FixtureSource.SYNTHETIC, fixture_def={"package": "c.a"}),
+            APKFixture(name="apk2.apk", source=FixtureSource.SYNTHETIC, fixture_def={"package": "c.b"}),
         ]
         config = ScanConfig(phases={ScanPhase.MANIFEST}, fail_fast=True)
         orchestrator = ScanOrchestrator(config)
@@ -876,6 +880,8 @@ class TestFullPipelineReport:
     @pytest.mark.asyncio
     async def test_full_pipeline_report_structure(self):
         """Full pipeline produces a valid structured report."""
+        # Non-empty fixture_def so should_skip is False and the patched
+        # ManifestScanner.scan is actually invoked for both fixtures.
         fixtures = [
             APKFixture(
                 name="test_vuln.apk",
@@ -885,7 +891,7 @@ class TestFullPipelineReport:
                 expected_min_findings=2,
                 expected_max_findings=20,
                 tags={"synthetic", "vulnerable"},
-                fixture_def={},
+                fixture_def={"package": "com.test.vuln"},
             ),
             APKFixture(
                 name="test_clean.apk",
@@ -893,7 +899,7 @@ class TestFullPipelineReport:
                 package_name="com.test.clean",
                 expected_manifest_checks=set(),
                 tags={"synthetic", "clean"},
-                fixture_def={},
+                fixture_def={"package": "com.test.clean"},
             ),
         ]
 

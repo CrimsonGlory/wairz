@@ -96,6 +96,26 @@ def preset_id() -> uuid.UUID:
     return uuid.uuid4()
 
 
+@pytest.fixture(autouse=True)
+def _disable_api_key_auth(monkeypatch):
+    """Disable APIKeyASGIMiddleware for this test module.
+
+    When ``settings.api_key`` is falsy the middleware is a no-op
+    (see app/middleware/asgi_auth.py lines 59-61). Patching
+    ``get_settings`` that the middleware imports makes the test
+    environment behave like an unauthenticated dev backend, which
+    is the correct shape for endpoint logic tests — the auth layer
+    has its own coverage.
+    """
+    from unittest.mock import MagicMock as _MagicMock
+
+    from app.middleware import asgi_auth as _auth_mod
+
+    fake_settings = _MagicMock()
+    fake_settings.api_key = ""
+    monkeypatch.setattr(_auth_mod, "get_settings", lambda: fake_settings)
+
+
 @pytest.fixture
 async def client():
     async with AsyncClient(
