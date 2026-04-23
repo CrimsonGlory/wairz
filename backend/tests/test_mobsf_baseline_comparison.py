@@ -76,10 +76,21 @@ class TestMobSFBaselineDetection:
         )
 
     def test_detection_rate_100pct(self, comparison: dict[str, Any]) -> None:
-        """Detection rate must be 100% — all baseline findings matched."""
-        rate = comparison["metrics"]["detection_rate"]
-        assert rate == 1.0, (
-            f"{comparison['apk_name']}: Detection rate {rate*100:.1f}% < 100%"
+        """Every baseline check_id must be detected by the scanner.
+
+        Severity mismatches still count as detections — the check ID is
+        found; a severity difference is a separate concern validated by
+        ``TestMobSFBaselineSeverity``. This matches the semantics of
+        ``missing_from_scan`` (empty ⇒ nothing missing ⇒ full detection).
+        """
+        missing = comparison["missing_from_scan"]
+        assert len(missing) == 0, (
+            f"{comparison['apk_name']}: "
+            f"Missing {len(missing)} baseline check_ids: "
+            + ", ".join(
+                f"{m['check_id']}({m.get('baseline_title', '?')})"
+                for m in missing
+            )
         )
 
 

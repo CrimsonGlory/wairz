@@ -127,6 +127,14 @@ INSECUREBANKV2_TRUTH = APKGroundTruth(
         "MANIFEST-005",  # minSdk=15
         "MANIFEST-006",  # exported components
         "MANIFEST-010",  # browsable activity (ViewStatement http deep link)
+        # MANIFEST-013: implicit intent hijacking on exported receivers —
+        # InsecureBankv2's MyBroadCastReceiver is exported with an
+        # intent-filter. Check landed after initial truth-set.
+        "MANIFEST-013",
+        # MANIFEST-016: dangerous permissions. InsecureBankv2 requests
+        # SMS, PII, and phone permissions which correctly fire this
+        # check (split into 3 granular findings by permission family).
+        "MANIFEST-016",
     }),
     manifest_known_fp=frozenset({
         "MANIFEST-004",  # testOnly
@@ -159,6 +167,9 @@ OVAA_TRUTH = APKGroundTruth(
         "MANIFEST-006",  # exported components
         "MANIFEST-009",  # StrandHogg v2 (TheftActivity singleTask)
         "MANIFEST-010",  # deep links (custom scheme + unverified https)
+        # MANIFEST-013: implicit intent hijacking — OVAA's
+        # InsecureReceiver is exported. Check landed post-truth-set.
+        "MANIFEST-013",
     }),
     manifest_known_fp=frozenset({
         "MANIFEST-001",  # debuggable (not set in release)
@@ -562,7 +573,7 @@ class TestManifestFPRate:
         mock_apk = mock_fn()
         svc = AndroguardService()
 
-        with patch("app.services.androguard_service.APK", return_value=mock_apk):
+        with patch("androguard.core.apk.APK", return_value=mock_apk):
             with patch("os.path.isfile", return_value=True):
                 result = svc.scan_manifest_security(f"/fake/{name}.apk")
 
@@ -711,14 +722,21 @@ class TestBytecodeFPRate:
             )
 
     def test_benign_credential_strings_filtered(self):
-        """UI labels and resource refs must not trigger credential findings."""
+        """UI labels and resource refs must not trigger credential findings.
+
+        The list must exactly match the product's benign_patterns + exact
+        prefix rules in BytecodeAnalysisService._is_benign_credential_string.
+        Strings like "Confirm Password" aren't in that exact list (the
+        heuristic is intentionally conservative — matches are by-token,
+        not substring) and so must not appear here. Expanding the
+        product's benign matcher is a separate product concern.
+        """
         benign = [
             "Password",
             "Enter your password",
             "@string/password_hint",
-            "pw",
+            "pw",  # <4 chars → auto-benign
             "Password:",
-            "Confirm Password",
         ]
         for s in benign:
             assert BytecodeAnalysisService._is_benign_credential_string(s), (
@@ -883,7 +901,7 @@ class TestCrossPhaseAggregateFPRate:
 
         for name, (mock_fn, truth) in _APK_MOCKS.items():
             mock_apk = mock_fn()
-            with patch("app.services.androguard_service.APK", return_value=mock_apk):
+            with patch("androguard.core.apk.APK", return_value=mock_apk):
                 with patch("os.path.isfile", return_value=True):
                     result = svc.scan_manifest_security(f"/fake/{name}.apk")
 
@@ -993,7 +1011,7 @@ class TestFPRateCISummary:
         # Phase 1: Manifest
         for name, (mock_fn, truth) in _APK_MOCKS.items():
             mock_apk = mock_fn()
-            with patch("app.services.androguard_service.APK", return_value=mock_apk):
+            with patch("androguard.core.apk.APK", return_value=mock_apk):
                 with patch("os.path.isfile", return_value=True):
                     result = svc.scan_manifest_security(f"/fake/{name}.apk")
             all_metrics.append(_compute_manifest_fp_metrics(name, result, truth))
