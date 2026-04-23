@@ -366,7 +366,8 @@ def test_classify_edan_vendor_in_registry() -> None:
 def test_classify_linux_zimage_by_magic() -> None:
     """ARM zImage magic 0x016F2818 at offset 0x24 — high-confidence gate."""
     magic = b"\x00" * 0x24 + b"\x18\x28\x6f\x01" + b"\x00" * 32
-    assert len(magic) == 64
+    # classifier requires len(magic) >= 0x28 (40 bytes) to read the 4 magic bytes
+    assert len(magic) >= 0x28
     cls = classify("/zImage-restore/zImage-restore", magic, 2_400_000)
     assert cls is not None
     assert cls.category == "kernel"

@@ -71,6 +71,12 @@ class ComponentChecks:
             "Data URI scheme may enable content injection",
             "CWE-94",
         ),
+        "intent": (
+            "Intent URI scheme enables intent-scheme hijacking where "
+            "a crafted URL can redirect the user to an attacker-chosen "
+            "activity with arbitrary parameters",
+            "CWE-926",
+        ),
     }
 
     def __init__(self, scanner: Any) -> None:

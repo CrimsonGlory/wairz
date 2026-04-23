@@ -24,6 +24,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.config import get_settings
 from app.database import get_db
 from app.main import app
 from app.routers.deps import resolve_firmware as resolve_firmware_dep
@@ -66,8 +67,15 @@ def _make_blob(firmware_id: uuid.UUID, blob_path: str) -> MagicMock:
 
 @pytest.fixture
 async def client():
+    # Pre-attach X-API-Key so the APIKeyASGIMiddleware gate in
+    # app/middleware/asgi_auth.py doesn't return 401 on every request.
+    # get_settings() is @lru_cache'd and reads API_KEY from the container
+    # env; tests that want to exercise the auth middleware itself should
+    # use a different fixture.
+    api_key = get_settings().api_key or ""
+    headers = {"X-API-Key": api_key} if api_key else {}
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test", headers=headers,
     ) as c:
         yield c
 
