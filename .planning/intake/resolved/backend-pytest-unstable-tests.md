@@ -1,10 +1,41 @@
 ---
 title: "Backend: Fix 18 Unstable Test Files (Unlock Full CI)"
-status: pending
+status: resolved
+resolved_at: 2026-04-23
+resolved_in: fleet session backend-pytest-unstable-2026-04-23 (α/β/γ streams)
+resolved_shas:
+  - 01182fc  # merge α — Android/MobSF
+  - 50d1bc1  # merge β — Hardware/Firmware + intent:// fix
+  - c53800c  # merge γ — Data/Emulation
+  - 2fae870  # workflow rename: "Pytest (Backend)"
 priority: medium
 target: backend/tests/
 created_at: 2026-04-19
 created_in: session 480666ce — discovered when adding pytest CI workflow
+---
+
+## Resolution note (2026-04-23)
+
+Rule #19 re-measure: at dispatch the workflow had **15** `--ignore=` lines (not 18
+as the intake title claims — 3 test files had been fixed via unrelated work
+between 2026-04-19 and 2026-04-23, confirming Rule #19 hygiene: never trust a
+count that's >24 hours old).
+
+Fleet dispatch with 3 disjoint streams:
+- α (Android/MobSF, 5 files): 167 tests green, 3 skipped (documented), 0 product changes
+- β (Hardware/Firmware, 5 files): 236 tests green, 1 product fix (intent:// scheme in `_SENSITIVE_SCHEMES`), preserved Rule #1 symlink-rejection contract
+- γ (Data/Emulation, 5 files): 163 tests green, 1 xfail (aspirational zip-entry-count check not yet implemented), 0 product changes
+
+Zero cross-stream sweeps (Rule #23 worktree discipline). Final full pytest:
+**1706 passed, 3 skipped, 1 xfailed** in 57s. Workflow job renamed from
+"Pytest (Backend, Stable Subset)" → "Pytest (Backend)".
+
+Pattern note: per-stream `/app/tests-{name}` subdirs failed for files that
+cross-import within the `tests` package (e.g. `from tests.harness.orchestrator
+import ...`). Fallback canonical `/app/tests/` path + `/tmp/wairz-pytest.lock`
+file-lock worked for α and γ. β's files had no cross-package imports, so its
+per-stream subdir ran without the lock.
+
 ---
 
 ## Context

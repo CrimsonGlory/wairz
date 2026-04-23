@@ -101,7 +101,13 @@ wall-clock. Single session.
 
 ---
 
-### Session +2 — `/fleet` backend-pytest-unstable-tests (3 streams, 2-3 sessions total)
+### Session +2 — `/fleet` backend-pytest-unstable-tests (3 streams, 2-3 sessions total) — **COMPLETED 2026-04-23** (single session)
+
+**Status:** +1+2-completed. Merged SHAs: α 01182fc · β 50d1bc1 · γ c53800c · rename 2fae870.
+Fleet session: `.planning/fleet/session-backend-pytest-unstable-2026-04-23.md`.
+Intake moved to `.planning/intake/resolved/backend-pytest-unstable-tests.md`.
+
+
 
 **Pre-flight (do first in session +2, before dispatch):**
 
