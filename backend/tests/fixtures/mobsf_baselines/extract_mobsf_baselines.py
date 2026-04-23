@@ -546,7 +546,11 @@ def run_scan(spec: TestAPKSpec) -> dict[str, Any]:
     apk_mock = _build_mock_apk(spec)
     fake_path = f"/fake/{spec.package}.apk"
 
-    with patch("app.services.androguard_service.APK", return_value=apk_mock):
+    # Patch target: scan_manifest_security imports APK lazily via
+    # `from androguard.core.apk import APK` at call time. Python's local
+    # import reads androguard.core.apk.APK at the moment of call, so we
+    # patch the source module, not app.services.androguard_service.
+    with patch("androguard.core.apk.APK", return_value=apk_mock):
         with patch("os.path.isfile", return_value=True):
             return svc.scan_manifest_security(fake_path)
 
