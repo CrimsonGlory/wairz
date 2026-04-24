@@ -13,9 +13,12 @@ unconfigured.
   identification; produces a single informational summary finding.
 """
 
+import asyncio
 import logging
 import os
 
+from app.config import get_settings
+from app.services import abusech_service, clamav_service, hashlookup_service, virustotal_service
 from app.services.security_audit._base import SecurityFinding
 
 logger = logging.getLogger(__name__)
@@ -27,8 +30,6 @@ async def run_clamav_scan(extracted_root: str) -> list[SecurityFinding]:
     Returns findings for infected files. Returns empty list if
     ClamAV is unavailable.
     """
-    from app.services import clamav_service
-
     available = await clamav_service.check_available()
     if not available:
         logger.info("ClamAV not available — skipping antivirus scan")
@@ -63,10 +64,6 @@ async def run_virustotal_scan(extracted_root: str) -> list[SecurityFinding]:
     Returns findings for detected files. Returns empty list if
     VT API key is not configured.
     """
-    import asyncio
-    from app.config import get_settings
-    from app.services import virustotal_service
-
     settings = get_settings()
     if not settings.virustotal_api_key:
         logger.info("VT API key not configured — skipping VirusTotal scan")
@@ -117,9 +114,6 @@ async def run_abusech_scan(extracted_root: str) -> list[SecurityFinding]:
     Returns findings for known malware (MalwareBazaar), IOC matches
     (ThreatFox), and community YARA matches (YARAify).
     """
-    import asyncio
-    from app.services import abusech_service, virustotal_service
-
     loop = asyncio.get_running_loop()
     hashes = await loop.run_in_executor(
         None, virustotal_service.collect_binary_hashes,
@@ -182,9 +176,6 @@ async def run_known_good_scan(extracted_root: str) -> list[SecurityFinding]:
     Returns informational findings for files identified as known-good.
     These are useful for reducing false positives in other scans.
     """
-    import asyncio
-    from app.services import hashlookup_service, virustotal_service
-
     loop = asyncio.get_running_loop()
     hashes = await loop.run_in_executor(
         None, virustotal_service.collect_binary_hashes,
