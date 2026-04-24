@@ -1,6 +1,13 @@
 ---
 title: "Next-session seed — post-pytest-unblock, P3-circular-imports carve-out or queue-empty maintenance"
-status: "+C-completed +A-completed (session 5eefecb0, 2026-04-24) +A-prime-completed (session f2f9060c, 2026-04-24: fuzzing_service + emulation/ pair) +A-prime-continuation-completed (session f2f9060c cont, 2026-04-24: mobsfscan/ pair)"
+status: completed
+completion_history:
+  - "+C completed (session pre-5eefecb0, 2026-04-24): Rule #30 + Rule #31 promoted to CLAUDE.md + .mex/context/conventions.md mirror per Rule #21"
+  - "+A completed (session 5eefecb0, 2026-04-24, commit fc384bb): assessment_service.py function-local imports promoted; latent ComplianceService/ETSIComplianceService mismatch fixed"
+  - "+A-prime completed (session f2f9060c, 2026-04-24, commits 7d349c3/d1a8701/77a5908): fuzzing_service + emulation/ pair cleared"
+  - "+A-prime-continuation completed (session f2f9060c cont, 2026-04-24, commits b213795/ff111d2): mobsfscan/ pair cleared"
+  - "Route B/D verified (session 3d9d854e autopilot, 2026-04-24): architecture-review-2026-04-16 re-scanned, 19/20 items + item 0 feature all completed; only #12 (P3 residual) remains as dormant `partial` intake; queue genuinely empty — mechanical P3 carve-outs explicitly not chained per seed's own anti-scope-creep guidance"
+closed_by: "session 3d9d854e autopilot (2026-04-24): all four options routed; Rule #19 evidence-first confirms no felt cycle pressure remains to justify a 4th P3 carve-out in a single day"
 priority: medium
 format: citadel-seed-v1
 author: session-0801ca27-fleet+learn
