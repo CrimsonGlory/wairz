@@ -1,11 +1,34 @@
 ---
 title: "Backend: Promote Private APIs + Break Circular Imports"
-status: partial
+status: completed
 priority: high
 target: backend/app/services/
-partially_completed_at: 2026-04-19
-partially_completed_via: "session 93a4948d — Phases 1 and 2 shipped (kernel_service cycle broken; _scan_* promoted via run_scan_subset)"
+completed_at: 2026-04-24
+completed_in: "session aa8b4a17 — P3 thread close; structural 1-per-file floor reached (12 residual files, 1 function-body app.* import each)"
+shipped_commits:
+  # P1/P2 — session 93a4948d (2026-04-19)
+  - 2a27175  # P1: security_audit_service public run_scan_subset API
+  - 68ecb64  # P2: kernel_service ↔ emulation_service cycle broken via emulation_constants
+  # P3 carve-outs — 9 files across 3 calendar sessions (2026-04-24)
+  - fc384bb  # P3/1st: assessment_service (11 promotions; ComplianceService rename fix) — session 5eefecb0
+  - 7d349c3  # P3/2nd: fuzzing_service — session f2f9060c
+  - d1a8701  # P3/3rd: emulation/service — session f2f9060c
+  - 77a5908  # P3/4th: emulation/user_mode — session f2f9060c
+  - b213795  # P3/5th: mobsfscan/normalization — session f2f9060c continuation
+  - ff111d2  # P3/6th: mobsfscan/pipeline — session f2f9060c continuation
+  - 404f66d  # P3/7th: security_audit/hash_lookups — session 3d9d854e
+  - 781a30e  # P3/8th: wairz_runner — session 3d9d854e
+  - 8e99ec4  # (audit) firmware_service de-risk analysis — session 3d9d854e
+  - 5e2cb18  # P3/9th: firmware_service (bipartite audit + execution) — session 78f772bd
+  - 8f9d261  # P3/10th: clamav_service — session aa8b4a17
+  - 4bd491b  # P3/11th: attack_surface_service — session aa8b4a17
+  - 9a26c1a  # P3/12th: hardware_firmware/cve_matcher — session aa8b4a17
+closed_by: "session aa8b4a17 — residual distribution flattened to 1-per-file across 12 files; Rule #19 close recommended (aesthetic tidiness is not pressure; re-open only on concrete cycle-pressure — failed CI import, circular-import ImportError at module-load, or cold-start regression traced to one of the 12 residual sites)"
 ---
+
+> **Status note 2026-04-24 (P3 close):** All three phases shipped.
+> - **P1 + P2** — session 93a4948d on 2026-04-19 (commits `2a27175`, `68ecb64`).
+> - **P3** — 9 files cleared across 3 calendar sessions all on 2026-04-24 (12 refactor commits above; sessions 5eefecb0, f2f9060c (+continuation), 3d9d854e, 78f772bd, aa8b4a17). Residual runtime function-body `app.*` imports across `backend/app/services/` via `ast.walk` (unique-line): pre-P3 ≈40 → post-session aa8b4a17 = **12 across 12 files, flat 1-per-file distribution**. Further carve-outs would each deliver −1 on the repo-wide count at full Rule #30 audit + Rule #11 smoke cost. Intake's original P3 acceptance criteria ("audit-based, scoped per service pair, not bulk") is structurally satisfied; no concrete cycle-pressure observed across the 3 sessions. Re-open gated on an actual runtime or CI symptom attributable to a residual site.
 
 ## Status: Partial — P1 and P2 complete (2026-04-19, session 93a4948d)
 
