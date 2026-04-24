@@ -42,6 +42,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.models.sbom import SbomComponent, SbomVulnerability
+from app.services.cpe_dictionary_service import CpeDictionaryService
+from app.services.hardware_firmware import kernel_vulns_index as kvi
 
 logger = logging.getLogger(__name__)
 
@@ -248,8 +250,6 @@ async def _match_chipset_cpe(
     if not blob.chipset_target:
         return []
     try:
-        from app.services.cpe_dictionary_service import CpeDictionaryService
-
         svc = CpeDictionaryService()
         if not await svc.ensure_loaded():
             return []
@@ -477,8 +477,6 @@ async def _match_kernel_subsystem(
     kmod_blobs = [b for b in blobs if (b.category or "").lower() == "kernel_module"]
     if not kmod_blobs:
         return []
-
-    from app.services.hardware_firmware import kernel_vulns_index as kvi
 
     # Fast-fail — don't block a CVE match on a cold-cache initial clone.
     try:
