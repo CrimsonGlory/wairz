@@ -23,6 +23,9 @@ from app.config import get_settings
 from app.models.firmware import Firmware
 from app.models.fuzzing import FuzzingCampaign, FuzzingCrash
 from app.services.analysis_service import check_binary_protections
+from app.services.emulation.docker_ops import copy_dir_to_container
+from app.services.event_service import event_service
+from app.services.sysroot_service import get_sysroot_path
 from app.utils.docker_client import get_docker_client
 from app.utils.sandbox import validate_path
 
@@ -94,7 +97,6 @@ class FuzzingService:
     async def _emit_event(project_id: UUID, status: str, message: str = "", extra: dict | None = None) -> None:
         """Best-effort SSE event for fuzzing status changes."""
         try:
-            from app.services.event_service import event_service
             await event_service.publish_progress(
                 str(project_id), "fuzzing",
                 status=status, message=message, extra=extra,
@@ -463,9 +465,6 @@ class FuzzingService:
 
             # If no host path, copy firmware via tar
             if not host_path:
-                from app.services.emulation.docker_ops import (
-                    copy_dir_to_container,
-                )
                 container.exec_run(["mkdir", "-p", "/firmware"])
                 copy_dir_to_container(container, real_path, "/firmware")
 
@@ -541,7 +540,6 @@ class FuzzingService:
             # For standalone binaries: use sysroot for library resolution
             # instead of the firmware rootfs. Static binaries don't need it.
             if is_standalone and not is_static:
-                from app.services.sysroot_service import get_sysroot_path
                 sysroot = get_sysroot_path(arch) or "/opt/sysroots/arm"
                 ld_prefix = sysroot
             else:
@@ -850,7 +848,6 @@ class FuzzingService:
         is_standalone = firmware.binary_info is not None
         is_static = (firmware.binary_info or {}).get("is_static", False)
         if is_standalone and not is_static:
-            from app.services.sysroot_service import get_sysroot_path
             ld_prefix = get_sysroot_path(arch) or "/opt/sysroots/arm"
         else:
             ld_prefix = "/firmware"
