@@ -11,6 +11,8 @@ import re
 import stat
 from dataclasses import dataclass, field
 
+from app.services.analysis_service import check_binary_protections
+from app.services.binary_analysis_service import _LIEF_ELF_ARCH_MAP
 from app.utils.sandbox import safe_walk
 
 logger = logging.getLogger(__name__)
@@ -137,7 +139,6 @@ def _get_elf_imports_lief(path: str) -> tuple[set[str], str | None, bool]:
             imports.add(sym.name)
 
     # Architecture
-    from app.services.binary_analysis_service import _LIEF_ELF_ARCH_MAP
     arch = _LIEF_ELF_ARCH_MAP.get(binary.header.machine_type)
 
     # Debug info
@@ -190,7 +191,6 @@ def _get_elf_imports(path: str) -> tuple[set[str], str | None, bool]:
 def _get_binary_protections(path: str) -> dict:
     """Get binary protections using pyelftools."""
     try:
-        from app.services.analysis_service import check_binary_protections
         return check_binary_protections(path)
     except Exception:
         return {}
