@@ -40,6 +40,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.services.androguard_service import AndroguardService
+from app.services.mobsf_runner import compare_findings
+
 logger = logging.getLogger(__name__)
 
 
@@ -184,10 +187,9 @@ class WairzRunner:
         self._service = service
 
     def _get_service(self) -> Any:
-        """Lazy-load the AndroguardService."""
+        """Lazy-instantiate the AndroguardService (import is top-level;
+        instantiation stays lazy to avoid cold-start cost on non-APK paths)."""
         if self._service is None:
-            from app.services.androguard_service import AndroguardService
-
             self._service = AndroguardService()
         return self._service
 
@@ -481,8 +483,6 @@ def compare_with_mobsf(
     dict
         Structured comparison report (see ``mobsf_runner.compare_findings``).
     """
-    from app.services.mobsf_runner import compare_findings
-
     wairz_dicts = [f.to_dict() for f in wairz_result.manifest_findings]
     return compare_findings(wairz_dicts, mobsf_findings)
 
