@@ -1,6 +1,6 @@
 ---
 title: "Next-session seed — post-pytest-unblock, P3-circular-imports carve-out or queue-empty maintenance"
-status: proposed
+status: "+C-completed +A-completed (session 5eefecb0, 2026-04-24)"
 priority: medium
 format: citadel-seed-v1
 author: session-0801ca27-fleet+learn

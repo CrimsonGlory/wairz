@@ -29,6 +29,8 @@ partially_completed_via: "session 93a4948d — Phases 1 and 2 shipped (kernel_se
 
 Non-blocking, open-ended. Spin out as a separate campaign when cycle pressure becomes felt.
 
+**Partial P3 progress — session 5eefecb0 (2026-04-24, commit `fc384bb`):** `assessment_service.py` fully promoted (10 service + 1 model + 1 cross-layer `app.ai.tools.binary` function-local imports → top-level); deep cycle audit confirmed 0 callees back-import assessment_service and no module top-level-imports it, so promotion was safe. Rule #30 companion import-smoke caught a latent `ComplianceService` / `ETSIComplianceService` mismatch that had been silently killing `_phase_compliance` since the rename — fixed in the same commit (untested path, zero test coverage). Post-session function-local `from app.services.*` count: 37 → 26 (-11; mechanical, not cycle-driven). 13 files still carry function-locals: `fuzzing_service`(4), `wairz_runner`(3), `mobsfscan/pipeline`(2), `hardware_firmware/cve_matcher`(2), `firmware_service`(2), `emulation/user_mode`(2), `emulation/service`(2), `attack_surface_service`(2), plus 1-each in `security_audit/network`, `sbom/strategies/__init__`, `sbom/enrichment`, `qiling_service`, `mobsfscan/normalization`, `hardware_firmware/graph`, `hardware_firmware/classifier`. Each of these should be audited individually against Rule #30 legitimate-lazy criteria (optional-dep / LGPL / latent-cycle) before any further bulk promotion — don't assume assessment_service's mechanical-safe profile repeats.
+
 ---
 
 ## Original specification (preserved for reference)
