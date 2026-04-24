@@ -38,6 +38,9 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from app.models.finding import Finding
+from app.utils.firmware_context import enrich_description, enrich_evidence
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -466,15 +469,12 @@ async def persist_mobsfscan_findings(
     int
         Number of findings persisted.
     """
-    from app.models.finding import Finding
-
     for nf in normalized:
         description = nf.description
         evidence = nf.evidence
 
         # Enrich with firmware context when available
         if fw_ctx:
-            from app.utils.firmware_context import enrich_description, enrich_evidence
             description = enrich_description(description, fw_ctx)
             evidence = enrich_evidence(evidence, fw_ctx)
 
