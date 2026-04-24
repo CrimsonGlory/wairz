@@ -14,10 +14,21 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.tools.binary import _scan_all_binary_protections
 from app.models.finding import Finding
+from app.models.firmware import Firmware
 from app.models.sbom import SbomComponent
 from app.schemas.finding import FindingCreate, Severity
+from app.services.androguard_service import AndroguardService
+from app.services.compliance_service import ETSIComplianceService
+from app.services.event_service import event_service
 from app.services.finding_service import FindingService
+from app.services.firmware_paths import get_detection_roots
+from app.services.sbom import SbomService
+from app.services.security_audit import SecurityFinding, run_scan_subset
+from app.services.selinux_service import SELinuxService
+from app.services.vulnerability_service import VulnerabilityService
+from app.services.yara_service import scan_firmware_multi
 
 logger = logging.getLogger(__name__)
 
@@ -100,9 +111,6 @@ class AssessmentService:
         if self._detection_roots is not None:
             return self._detection_roots
         try:
-            from app.models.firmware import Firmware
-            from app.services.firmware_paths import get_detection_roots
-
             fw = await self.db.get(Firmware, self.firmware_id)
             if fw is not None:
                 roots = await get_detection_roots(fw, db=self.db)
@@ -133,7 +141,6 @@ class AssessmentService:
         overall_start = time.monotonic()
 
         # SSE event publishing — best-effort, never blocks assessment
-        from app.services.event_service import event_service
         try:
             await event_service.connect()
         except Exception:
@@ -270,11 +277,6 @@ class AssessmentService:
 
     async def _phase_credential_crypto(self) -> int:
         """Scan for hardcoded credentials and crypto material."""
-        from app.services.security_audit import (
-            SecurityFinding,
-            run_scan_subset,
-        )
-
         findings: list[SecurityFinding] = []
         loop = asyncio.get_running_loop()
 
@@ -308,10 +310,6 @@ class AssessmentService:
 
     async def _phase_sbom_vulnerability(self) -> int:
         """Generate SBOM and scan for known vulnerabilities."""
-        from app.models.firmware import Firmware
-        from app.services.sbom import SbomService
-        from app.services.vulnerability_service import VulnerabilityService
-
         # Check if SBOM already exists
         existing_count = await self.db.scalar(
             select(func.count(SbomComponent.id)).where(
@@ -366,11 +364,6 @@ class AssessmentService:
 
     async def _phase_config_filesystem(self) -> int:
         """Check init scripts, setuid, world-writable files, filesystem perms."""
-        from app.services.security_audit import (
-            SecurityFinding,
-            run_scan_subset,
-        )
-
         findings: list[SecurityFinding] = []
         loop = asyncio.get_running_loop()
 
@@ -408,8 +401,6 @@ class AssessmentService:
         # YARA scan — Phase 3b: multi-root via scan_firmware_multi so
         # scatter-zip siblings / raw-image dirs are covered in one pass.
         try:
-            from app.services.yara_service import scan_firmware_multi
-
             roots = await self._resolve_detection_roots()
             loop = asyncio.get_running_loop()
             yara_result = await loop.run_in_executor(
@@ -524,10 +515,6 @@ class AssessmentService:
 
     async def _phase_binary_protections(self) -> int:
         """Check all ELF binaries for security protections."""
-        from app.ai.tools.binary import (
-            _scan_all_binary_protections,
-        )
-
         # Phase 3b: scan every detection root. Results from sibling
         # partitions are labelled with paths relative to their own root
         # (``_scan_all_binary_protections`` already takes a ``real_root``
@@ -628,8 +615,6 @@ class AssessmentService:
         # SELinux analysis — uses the Android root so ``sepolicy``/``cil``
         # files in that partition resolve correctly.
         try:
-            from app.services.selinux_service import SELinuxService
-
             svc = SELinuxService(android_root)
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(None, svc.analyze_policy)
@@ -682,8 +667,6 @@ class AssessmentService:
 
         # APK analysis (if androguard available)
         try:
-            from app.services.androguard_service import AndroguardService
-
             apk_svc = AndroguardService()
             loop = asyncio.get_running_loop()
 
@@ -751,9 +734,7 @@ class AssessmentService:
         report that maps existing findings to ETSI provisions. The report
         is returned as part of the phase result.
         """
-        from app.services.compliance_service import ComplianceService
-
-        svc = ComplianceService(self.db)
+        svc = ETSIComplianceService(self.db)
         report = await svc.generate_report(
             project_id=self.project_id,
             firmware_id=self.firmware_id,
