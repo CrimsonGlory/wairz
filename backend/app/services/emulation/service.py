@@ -34,6 +34,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.database import async_session_factory
 from app.models.emulation_preset import EmulationPreset
 from app.models.emulation_session import EmulationSession
 from app.models.firmware import Firmware
@@ -60,6 +61,8 @@ from app.services.emulation_constants import (
     QEMU_USER_BIN_MAP,
 )
 from app.services.emulation_preset_service import EmulationPresetService
+from app.services.qiling_service import get_rootfs_path, run_binary_async
+from app.services.sysroot_service import get_sysroot_path
 from app.utils.docker_client import get_docker_client
 from app.utils.sandbox import validate_path
 
@@ -199,8 +202,6 @@ class EmulationService:
         from the router. The caller should NOT await it — the router
         has already returned 202 by that point.
         """
-        from app.database import async_session_factory
-
         async with async_session_factory() as db:
             # Re-load the session + firmware using this task's session
             session = await db.scalar(
@@ -294,11 +295,6 @@ class EmulationService:
         :meth:`spawn_session_background`.
         """
         try:
-            from app.services.qiling_service import (
-                get_rootfs_path,
-                run_binary_async,
-            )
-
             abs_binary = os.path.join(
                 firmware.extracted_path,
                 (session.binary_path or "").lstrip("/"),
@@ -788,8 +784,6 @@ class EmulationService:
 
             if is_standalone:
                 # Standalone binary mode: run QEMU directly with sysroot
-                from app.services.sysroot_service import get_sysroot_path
-
                 static_check = container.exec_run(
                     ["cat", "/tmp/.standalone_static"], demux=True,
                 )
