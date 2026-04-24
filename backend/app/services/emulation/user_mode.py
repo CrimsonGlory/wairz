@@ -38,6 +38,7 @@ from app.services.emulation_constants import (
     QEMU_USER_BIN_MAP,
     _HOST_ARCH,
 )
+from app.services.sysroot_service import get_sysroot_path
 from app.utils.docker_client import get_docker_client
 
 logger = logging.getLogger(__name__)
@@ -178,8 +179,6 @@ def setup_user_mode_container(
         # Standalone binary mode: no chroot, use QEMU directly with
         # -L pointing to the sysroot for library resolution.
         is_static = binary_info.get("is_static", False) if binary_info else False
-        from app.services.sysroot_service import get_sysroot_path
-
         sysroot_path = get_sysroot_path(arch) if not is_static else None
 
         # Mark the container as standalone mode via a flag file
@@ -249,8 +248,6 @@ def build_user_shell_cmd(
     qemu_bin = QEMU_USER_BIN_MAP.get(arch, "qemu-arm-static")
 
     if is_standalone and binary_path:
-        from app.services.sysroot_service import get_sysroot_path
-
         # For standalone binaries, run QEMU directly (no chroot).
         # The binary is at /firmware/<binary_name>.
         full_binary = f"/firmware/{binary_path.lstrip('/')}"
