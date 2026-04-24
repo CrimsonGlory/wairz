@@ -59,10 +59,10 @@ Then read this file fully before doing anything else in this session.
 - **P3 circular-imports carve-outs** (sessions 5eefecb0 / f2f9060c / f2f9060c-cont, 2026-04-24) — assessment_service (11 promotions, fc384bb), fuzzing_service + emulation/ pair (9 promotions, 7d349c3/d1a8701/77a5908), mobsfscan/ pair (3 promotions, b213795/ff111d2). Runtime function-local `from app.*` residual: 40→37 across 18 files. `firmware_service.py` (14 remaining) explicitly deferred — cross-layer latent-cycle risk, per-call audit required.
 - arq cron for orphan emulation/fuzzing container reaping — `cleanup_emulation_expired` + `cleanup_fuzzing_orphans` in `backend/app/workers/arq_worker.py:424,452` (infra-cleanup-migration-and-observability intake closed).
 - B.1.a require-API-key gate (`asgi_auth.py`) + B.1.b slowapi rate limit (`rate_limit.py`) + B.1.c streaming upload-size check (`firmware.py:56-66 _check_upload_size` + `firmware_service.py:287-332` mid-transfer MAX_UPLOAD_SIZE_MB enforcement) — full `security-auth-hardening` intake closed.
-- 4th P3 carve-out: `security_audit/hash_lookups.py` (5 → 0 runtime, session 3d9d854e commit 404f66d). Runtime residual now 32 across 18 files.
+- 4th + 5th P3 carve-outs: `security_audit/hash_lookups.py` (5 → 0 runtime, commit 404f66d) + `wairz_runner.py` (2 → 0 real runtime body-imports, commit 781a30e) — session 3d9d854e. Runtime residual via `ast.walk` (authoritative, replaces grep-based count): **33 across 16 files** (was 35/17 pre-session).
 
 **Not yet built (per intake queue):**
-- P3 residual promotion: `firmware_service.py` (14 function-locals, cross-layer risk — needs per-call audit, explicitly NOT a mechanical sweep); `wairz_runner.py`(3), `hardware_firmware/cve_matcher.py`(2), `clamav_service.py`(2), `attack_surface_service.py`(2), 13 more files with 1 each — all gated on actual cycle pressure (Rule #19: evidence-first), not aesthetic.
+- P3 residual promotion: `firmware_service.py` (15 via ast.walk, cross-layer risk — needs per-call audit, explicitly NOT a mechanical sweep); `hardware_firmware/cve_matcher.py`(2), `clamav_service.py`(2), `attack_surface_service.py`(2), 12 more files with 1 each — all gated on actual cycle pressure (Rule #19: evidence-first), not aesthetic.
 - Architecture-review-2026-04-16 intake queue: 19/20 items + item 0 (android hardware firmware feature) all completed; only #12 (this P3 work) remains as the dormant `partial` intake above.
 
 **Known issues:**
