@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from app.services import _cache
+from app.services.jadx_service import get_jadx_cache
 from app.services.mobsfscan.normalization import (
     NormalizedFinding,
     format_mobsfscan_text,
@@ -240,8 +241,6 @@ class MobsfScanPipeline:
 
         Uses :meth:`JadxDecompilationCache.write_sources_to_disk`.
         """
-        from app.services.jadx_service import get_jadx_cache
-
         cache = get_jadx_cache()
         return await cache.write_sources_to_disk(
             apk_path, firmware_id, db, target_dir,
@@ -254,8 +253,6 @@ class MobsfScanPipeline:
         db: "AsyncSession",
     ) -> str:
         """Ensure JADX has decompiled the APK; returns the SHA-256 hash."""
-        from app.services.jadx_service import get_jadx_cache
-
         cache = get_jadx_cache()
         return await cache.ensure_decompilation(apk_path, firmware_id, db)
 
