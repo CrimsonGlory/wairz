@@ -15,6 +15,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models.firmware import Firmware
+from app.services.firmware_paths import populate_detection_roots
+from app.workers.safe_extract import safe_extract_zip
+from app.workers.unpack import (
+    _run_hardware_firmware_detection_safe,
+    detect_architecture,
+    detect_kernel,
+    detect_os_info,
+    find_filesystem_root,
+)
+from app.workers.unpack_common import (
+    _recursive_extract_nested,
+    diagnose_failed_archives,
+    widen_read_perms,
+)
+from app.workers.unpack_linux import _firmware_tar_filter
 
 logger = logging.getLogger(__name__)
 
@@ -222,7 +237,6 @@ def _extract_archive(archive_path: str, output_dir: str) -> None:
         with tarfile.open(archive_path) as tf:
             tf.extractall(output_dir, filter=_firmware_tar_filter)
     elif zipfile.is_zipfile(archive_path):
-        from app.workers.safe_extract import safe_extract_zip
         settings = get_settings()
         max_bytes = settings.max_extraction_size_mb * 1024 * 1024
         safe_extract_zip(archive_path, output_dir, max_size=max_bytes)
@@ -340,26 +354,17 @@ class FirmwareService:
             import tarfile
             try:
                 if tarfile.is_tarfile(storage_path):
-                    from app.workers.unpack import (
-                        detect_architecture,
-                        detect_kernel,
-                        detect_os_info,
-                        find_filesystem_root,
-                    )
-
                     extraction_dir = os.path.join(firmware_dir, "extracted")
                     os.makedirs(extraction_dir, exist_ok=True)
 
                     def _extract_tar():
                         with tarfile.open(storage_path) as tf:
-                            from app.workers.unpack_linux import _firmware_tar_filter
                             tf.extractall(extraction_dir, filter=_firmware_tar_filter)
 
                     loop = asyncio.get_running_loop()
                     await loop.run_in_executor(None, _extract_tar)
                     # Widen read perms so the backend can stat/open files
                     # shipped with vendor-restrictive modes.
-                    from app.workers.unpack_common import widen_read_perms
                     await loop.run_in_executor(None, widen_read_perms, extraction_dir)
 
                     fs_root = await loop.run_in_executor(
@@ -409,9 +414,6 @@ class FirmwareService:
                         # Canonical single-call helper — same code path as
                         # every other extraction site (zip-rootfs shortcut,
                         # /unpack in-process runner, arq unpack job).
-                        from app.services.firmware_paths import (
-                            populate_detection_roots,
-                        )
                         await loop.run_in_executor(
                             None, populate_detection_roots, firmware,
                         )
@@ -431,9 +433,6 @@ class FirmwareService:
                         # invariant: detection only fires after the write
                         # is durable, so device_metadata['detection_roots']
                         # is visible to the detector's fresh session.
-                        from app.workers.unpack import (
-                            _run_hardware_firmware_detection_safe,
-                        )
                         asyncio.create_task(
                             _run_hardware_firmware_detection_safe(
                                 firmware.id, firmware.extracted_path,
@@ -470,13 +469,6 @@ class FirmwareService:
                 # archive directly instead of pulling a single file for binwalk.
                 # This mirrors the "Upload Rootfs" path so the user doesn't need
                 # to fall back to manual rootfs upload.
-                from app.workers.unpack import (
-                    detect_architecture,
-                    detect_kernel,
-                    detect_os_info,
-                    find_filesystem_root,
-                )
-
                 extraction_dir = os.path.join(firmware_dir, "extracted")
                 os.makedirs(extraction_dir, exist_ok=True)
 
@@ -487,7 +479,6 @@ class FirmwareService:
                 os.remove(storage_path)
                 # Widen read perms on the extracted rootfs so the backend
                 # can serve vendor-restricted files to the file explorer.
-                from app.workers.unpack_common import widen_read_perms
                 await loop.run_in_executor(None, widen_read_perms, extraction_dir)
 
                 fs_root = await loop.run_in_executor(
@@ -524,9 +515,6 @@ class FirmwareService:
                 # Rule #16: populate detection_roots so downstream walkers
                 # don't have to re-derive them from extracted_path.
                 # Canonical single-call helper.
-                from app.services.firmware_paths import (
-                    populate_detection_roots,
-                )
                 await loop.run_in_executor(
                     None, populate_detection_roots, firmware,
                 )
@@ -534,9 +522,6 @@ class FirmwareService:
                 # Explicit commit BEFORE spawning HW detection — see
                 # tar-shortcut comment above for the race rationale.
                 await self.db.commit()
-                from app.workers.unpack import (
-                    _run_hardware_firmware_detection_safe,
-                )
                 asyncio.create_task(
                     _run_hardware_firmware_detection_safe(
                         firmware.id, firmware.extracted_path,
@@ -578,9 +563,6 @@ class FirmwareService:
                     # tree in-place so their contents are visible to
                     # Phase 2's get_detection_roots.
                     try:
-                        from app.workers.unpack_common import (
-                            _recursive_extract_nested,
-                        )
                         zip_loop = asyncio.get_running_loop()
                         # storage_path = firmware-dir/zip_contents/<arbitrary-path>/<file>
                         # Find the zip_contents dir by walking up until its basename matches.
@@ -611,7 +593,6 @@ class FirmwareService:
                             # serve vendor-restricted files uploaded via
                             # the generic-zip path (inner tar.xz / .so /
                             # credential scripts extracted to zip_contents/).
-                            from app.workers.unpack_common import widen_read_perms
                             await zip_loop.run_in_executor(
                                 None, widen_read_perms, zip_root,
                             )
@@ -624,9 +605,6 @@ class FirmwareService:
                     # (vendor-encrypted / signed containers). Surfaced in
                     # device_metadata so the UI can flag partial extraction.
                     try:
-                        from app.workers.unpack_common import (
-                            diagnose_failed_archives,
-                        )
                         if zip_root and os.path.isdir(zip_root):
                             extraction_diagnostics = await zip_loop.run_in_executor(
                                 None,
@@ -672,13 +650,6 @@ class FirmwareService:
         Accepts .tar.gz, .tar, or .zip archives containing the filesystem root.
         Runs architecture and OS detection on the extracted contents.
         """
-        from app.workers.unpack import (
-            detect_architecture,
-            detect_kernel,
-            detect_os_info,
-            find_filesystem_root,
-        )
-
         firmware_dir = os.path.dirname(firmware.storage_path)
         extraction_dir = os.path.join(firmware_dir, "extracted")
         os.makedirs(extraction_dir, exist_ok=True)
