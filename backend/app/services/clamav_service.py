@@ -11,6 +11,8 @@ import os
 import stat
 from dataclasses import dataclass
 
+from app.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 # Maximum file size to scan (100 MB)
@@ -28,7 +30,6 @@ class ClamScanResult:
 
 async def check_available() -> bool:
     """Check whether the clamd daemon is reachable."""
-    from app.config import get_settings
     settings = get_settings()
     if not settings.clamav_enabled:
         return False
@@ -46,7 +47,6 @@ async def check_available() -> bool:
 
 def _get_clamd():
     """Create a clamd network socket client."""
-    from app.config import get_settings
     settings = get_settings()
     import clamd
     return clamd.ClamdNetworkSocket(
