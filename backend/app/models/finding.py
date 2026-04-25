@@ -30,7 +30,7 @@ class Finding(Base):
         nullable=True,
         index=True,
     )
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
     severity: Mapped[str] = mapped_column(String(20), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     evidence: Mapped[str | None] = mapped_column(Text)
