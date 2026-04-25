@@ -436,8 +436,15 @@ async def run_cve_match(
 
     Persists new matches in ``sbom_vulnerabilities`` and commits so the
     follow-up ``/{blob_id}/cves`` query reflects the results.
+
+    Tier 4 (kernel CPE) is persisted streaming inside the matcher and
+    its row counts surface via ``result.tier4_rows`` /
+    ``result.tier4_distinct_cves`` rather than appearing in
+    ``result.matches`` — the cartesian (kernel_cve × kernel_module) can
+    reach 2.65 M rows on Yocto firmware and previously OOM'd the
+    backend when held as Python objects.
     """
-    matches = await match_firmware_cves(firmware.id, db, force_rescan=force_rescan)
+    result = await match_firmware_cves(firmware.id, db, force_rescan=force_rescan)
     await db.commit()
     # Report distinct CVEs + a per-lane breakdown so the UI doesn't
     # present the cartesian (kernel_cve × kernel_module) row count as
@@ -445,14 +452,17 @@ async def run_cve_match(
     # CVE onto every kernel_module blob (by design — so per-blob CVE
     # queries reflect kernel findings) which inflates the row count by
     # ~O(CVEs × modules). Aggregate UI needs distinct-CVE semantics.
-    kernel_matches = [m for m in matches if m.tier in _KERNEL_TIERS]
-    hwfw_matches = [m for m in matches if m.tier not in _KERNEL_TIERS]
+    tier5_kernel = [m for m in result.matches if m.tier == "kernel_subsystem"]
+    hwfw_matches = [m for m in result.matches if m.tier not in _KERNEL_TIERS]
+    tier5_kernel_cves = {m.cve_id for m in tier5_kernel}
+    hwfw_cves = {m.cve_id for m in hwfw_matches}
+    kernel_distinct = result.tier4_distinct_cves | tier5_kernel_cves
     return {
-        "count": len({m.cve_id for m in matches}),
-        "rows": len(matches),
-        "hw_firmware_cves": len({m.cve_id for m in hwfw_matches}),
-        "kernel_cves": len({m.cve_id for m in kernel_matches}),
-        "kernel_module_rows": len(kernel_matches),
+        "count": len(hwfw_cves | kernel_distinct),
+        "rows": len(hwfw_matches) + len(tier5_kernel) + result.tier4_rows,
+        "hw_firmware_cves": len(hwfw_cves),
+        "kernel_cves": len(kernel_distinct),
+        "kernel_module_rows": len(tier5_kernel) + result.tier4_rows,
     }
 
 

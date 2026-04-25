@@ -678,12 +678,18 @@ def _mock_db_full_matcher(
     kernel_components: list | None = None,
     kernel_vulns: list | None = None,
 ) -> AsyncMock:
-    """AsyncSession mock covering all four execute() calls.
+    """AsyncSession mock covering the matcher's execute() call sequence.
 
+    Calls in order:
     1. blobs query
     2. existing (blob_id, cve_id) dedup keys
-    3. kernel-component query (Tier 4)
-    4. kernel-vulnerability query (Tier 4, skipped if step 3 empty)
+    3. kernel-component query (Tier 4 SELECT)
+    4. kernel-vulnerability query (Tier 4 SELECT, skipped if step 3 empty)
+    5. tier-4 bulk INSERT (Core ``insert()`` + executemany; skipped if no
+       new tier-4 rows survive the dedup set)
+
+    The bulk insert returns a no-op MagicMock — the matcher only needs
+    the call to succeed; it doesn't read the result.
     """
     existing = existing or []
     kernel_components = kernel_components or []
@@ -701,14 +707,28 @@ def _mock_db_full_matcher(
     vuln_result = MagicMock()
     vuln_result.scalars.return_value.all.return_value = kernel_vulns
 
+    insert_result = MagicMock()  # tier-4 bulk insert — not inspected
+
     side_effects: list = [blobs_result, existing_result]
     # Tier 4 only hits the DB when there's at least one kmod blob.
-    has_kmod = any((b.category or "").lower() == "kernel_module" for b in blobs)
+    kmod_blobs = [b for b in blobs if (b.category or "").lower() == "kernel_module"]
+    has_kmod = bool(kmod_blobs)
     if has_kmod:
         side_effects.append(comp_result)
         # Only the second Tier 4 query fires if the first returned rows.
         if kernel_components:
             side_effects.append(vuln_result)
+            # Tier 4 bulk insert only fires if at least one new (blob, cve)
+            # pair survives the dedup set.  The matrix is kmod_blobs ×
+            # kernel_vulns; if every pair is in ``existing``, no insert.
+            existing_set = set(existing)
+            new_pairs = any(
+                (b.id, v.cve_id) not in existing_set
+                for b in kmod_blobs
+                for v in kernel_vulns
+            )
+            if new_pairs:
+                side_effects.append(insert_result)
 
     db = AsyncMock()
     db.add = MagicMock()
@@ -817,8 +837,19 @@ async def test_kernel_cpe_matcher_aggregates_across_multiple_components() -> Non
 
 @pytest.mark.asyncio
 async def test_kernel_cpe_persists_and_dedups_on_rerun() -> None:
-    """Full matcher integration: first run persists 2 new kernel_cpe rows,
-    second run (with those pairs already recorded) persists none."""
+    """Full matcher integration: first run streams 2 new kernel_cpe rows
+    via the bulk INSERT path, second run (with those pairs already
+    recorded) streams none.
+
+    Tier 4 is persisted via SQLAlchemy Core ``insert(...)`` +
+    executemany (not ``db.add``), to keep the cartesian
+    ``kmod_blobs × kernel_cves`` matrix off the ORM identity map — the
+    matrix can reach 2.65 M rows on Yocto firmware and previously OOM'd
+    the backend at the bulk flush.  Test inspects the bulk-insert
+    payload via ``db.execute.call_args_list`` and the new
+    :attr:`MatchResult.tier4_rows` / ``tier4_distinct_cves`` summary
+    attributes.
+    """
     firmware_id = uuid.uuid4()
     blob_id = uuid.uuid4()
     kmod_blob = _make_blob(
@@ -831,7 +862,8 @@ async def test_kernel_cpe_persists_and_dedups_on_rerun() -> None:
         _make_kernel_vuln(cve_id="CVE-2024-K2", component_id=comp.id),
     ]
 
-    # First run: no existing pairs → both CVEs inserted as SbomVulnerability rows.
+    # First run: no existing pairs → both CVEs inserted as one bulk
+    # INSERT batch (well under the 5 000-row batch ceiling).
     db1 = _mock_db_full_matcher(
         blobs=[kmod_blob],
         existing=[],
@@ -839,19 +871,37 @@ async def test_kernel_cpe_persists_and_dedups_on_rerun() -> None:
         kernel_vulns=vulns,
     )
     run1 = await match_firmware_cves(firmware_id, db1)
-    added1 = [call.args[0] for call in db1.add.call_args_list]
-    kernel_rows = [r for r in added1 if r.match_tier == "kernel_cpe"]
-    assert len(kernel_rows) == 2
-    for row in kernel_rows:
-        assert isinstance(row, SbomVulnerability)
-        assert row.blob_id == blob_id
-        assert row.firmware_id == firmware_id
-        assert row.component_id is None
-        assert row.match_confidence == "low"
-        assert row.cve_id in {"CVE-2024-K1", "CVE-2024-K2"}
+    assert run1.tier4_rows == 2  # cartesian: 1 kmod × 2 cves
+    assert run1.tier4_inserted == 2  # all 2 are new on first run
+    assert run1.tier4_distinct_cves == frozenset({"CVE-2024-K1", "CVE-2024-K2"})
+    # ORM-add is not used for tier-4; verify nothing else slipped in.
+    assert all(
+        getattr(call.args[0], "match_tier", None) != "kernel_cpe"
+        for call in db1.add.call_args_list
+    )
+    # Inspect the bulk-insert payload — last execute() call is the
+    # tier-4 executemany INSERT (see _mock_db_full_matcher side-effect
+    # order).  Pattern: ``db.execute(insert(M), [dicts])`` so args[0]
+    # is the Insert statement and args[1] is the list of param dicts.
+    insert_calls = [
+        c for c in db1.execute.call_args_list
+        if len(c.args) == 2 and isinstance(c.args[1], list)
+    ]
+    assert len(insert_calls) == 1
+    payload = insert_calls[0].args[1]
+    assert len(payload) == 2
+    for row in payload:
+        assert row["blob_id"] == blob_id
+        assert row["firmware_id"] == firmware_id
+        assert row["component_id"] is None
+        assert row["match_confidence"] == "low"
+        assert row["match_tier"] == "kernel_cpe"
+        assert row["resolution_status"] == "open"
+        assert row["cve_id"] in {"CVE-2024-K1", "CVE-2024-K2"}
 
-    # Second run: feed back the pairs the first run produced → no inserts.
-    existing_pairs = [(m.blob_id, m.cve_id) for m in run1]
+    # Second run: feed back the (blob, cve) pairs from run1's tier-4
+    # output → dedup set covers everything → no bulk insert fires.
+    existing_pairs = [(blob_id, cve) for cve in run1.tier4_distinct_cves]
     db2 = _mock_db_full_matcher(
         blobs=[kmod_blob],
         existing=existing_pairs,
@@ -859,9 +909,17 @@ async def test_kernel_cpe_persists_and_dedups_on_rerun() -> None:
         kernel_vulns=vulns,
     )
     run2 = await match_firmware_cves(firmware_id, db2)
-    # Returns the same CveMatch objects, but nothing new persisted.
-    assert len(run2) == len(run1)
+    # Cartesian still 2 (matrix unchanged), but 0 new persisted (dedup'd).
+    assert run2.tier4_rows == 2
+    assert run2.tier4_inserted == 0
+    assert run2.tier4_distinct_cves == frozenset({"CVE-2024-K1", "CVE-2024-K2"})
     db2.add.assert_not_called()
+    # No bulk INSERT call should have fired on the second run
+    # (executemany shape: 2-arg call where args[1] is the dict list).
+    assert not [
+        c for c in db2.execute.call_args_list
+        if len(c.args) == 2 and isinstance(c.args[1], list)
+    ]
 
 
 @pytest.mark.asyncio

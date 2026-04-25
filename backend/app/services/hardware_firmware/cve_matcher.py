@@ -33,12 +33,14 @@ import logging
 import re
 import time
 import uuid
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Iterator, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
-from sqlalchemy import func, or_, select
+from collections.abc import AsyncIterator
+
+from sqlalchemy import func, insert, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.hardware_firmware import HardwareFirmwareBlob
@@ -62,6 +64,50 @@ class CveMatch:
     description: str
     confidence: str  # high | medium | low
     tier: str  # parser_version_pin | chipset_cpe | nvd_freetext | curated_yaml | kernel_cpe | kernel_subsystem
+
+
+@dataclass
+class MatchResult:
+    """Return value of :func:`match_firmware_cves`.
+
+    The Tier 4 cartesian (kmod_blobs × kernel_cves) is persisted directly
+    via batched SQLAlchemy Core inserts inside the matcher and is NOT
+    materialised in :attr:`matches` — for Yocto-style firmware that
+    matrix can reach 2.65 M rows and previously OOM'd the backend when
+    held as Python ``CveMatch`` instances.  Callers that need the row /
+    distinct-CVE counts for Tier 4 should read :attr:`tier4_rows` and
+    :attr:`tier4_distinct_cves`.
+
+    For back-compat, ``MatchResult`` proxies ``__iter__`` / ``__len__`` /
+    ``__getitem__`` to :attr:`matches`, so existing patterns like
+    ``for m in matches:`` and ``len(matches)`` keep working without
+    seeing the streamed Tier 4 rows.
+    """
+
+    matches: list[CveMatch] = field(default_factory=list)
+    tier4_rows: int = 0  # total tier-4 cartesian count seen this run (incl. dedup'd)
+    tier4_inserted: int = 0  # NEW tier-4 rows actually persisted this run
+    tier4_distinct_cves: frozenset[str] = field(default_factory=frozenset)
+    inserted: int = 0  # total new sb_vuln rows persisted across all tiers
+
+    def __iter__(self) -> Iterator[CveMatch]:
+        return iter(self.matches)
+
+    def __len__(self) -> int:
+        return len(self.matches)
+
+    def __getitem__(self, idx):  # type: ignore[no-untyped-def]
+        return self.matches[idx]
+
+    def __bool__(self) -> bool:
+        return bool(self.matches) or self.tier4_rows > 0
+
+    def __eq__(self, other: object) -> bool:
+        # Back-compat: tests compare ``out == []``.  Treat empty
+        # MatchResult as equal to an empty list so the contract holds.
+        if isinstance(other, list):
+            return self.matches == other and self.tier4_rows == 0
+        return NotImplemented
 
 
 def _load_known_firmware() -> list[dict]:
@@ -278,23 +324,23 @@ async def _match_nvd_freetext(
     return []
 
 
-async def _match_kernel_cpe(
+async def _iter_kernel_cve_rows(
     blobs: Sequence[HardwareFirmwareBlob],
     firmware_id: uuid.UUID,
     db: AsyncSession,
-) -> list[CveMatch]:
-    """Tier 4 — mirror linux-kernel component CVEs onto each kernel_module blob.
+) -> AsyncIterator[CveMatch]:
+    """Yield Tier 4 CveMatch rows one at a time without materialising the matrix.
 
-    Reads ``SbomComponent`` rows flagged as the Linux kernel (by name /
-    type / ``kernel_*`` detection source) for this firmware, pulls the
-    grype-supplied ``SbomVulnerability`` rows attached to those
-    components, and projects a ``CveMatch`` onto every ``kernel_module``
-    blob.  The persistence layer in :func:`match_firmware_cves` dedups on
-    ``(blob_id, cve_id)``, so callers can safely re-run this tier.
+    Pulls the kernel SbomComponent rows + their SbomVulnerability rows once
+    (small, bounded), then yields kmod_blob × cve cross-products one at a
+    time.  Memory cost is O(kernel_cves) for the source, not O(kernel_cves
+    × kmod_blobs) for the cross-product.  Used both by the back-compat
+    list-returning :func:`_match_kernel_cpe` and the streaming-persist
+    path in :func:`match_firmware_cves`.
     """
     kmod_blobs = [b for b in blobs if (b.category or "").lower() == "kernel_module"]
     if not kmod_blobs:
-        return []
+        return
 
     # Locate every linux-kernel SbomComponent for this firmware.  Match on
     # name (case-insensitive) plus a loose "operating-system" type or any
@@ -310,7 +356,7 @@ async def _match_kernel_cpe(
     )
     components = (await db.execute(comp_stmt)).scalars().all()
     if not components:
-        return []
+        return
 
     comp_ids = [c.id for c in components]
     vuln_stmt = select(SbomVulnerability).where(
@@ -318,9 +364,8 @@ async def _match_kernel_cpe(
     )
     vulns = (await db.execute(vuln_stmt)).scalars().all()
     if not vulns:
-        return []
+        return
 
-    matches: list[CveMatch] = []
     for vuln in vulns:
         # cvss_score arrives as Decimal off the Numeric column; coerce so
         # downstream consumers see a float | None consistently with the
@@ -335,18 +380,32 @@ async def _match_kernel_cpe(
         # confidence so UIs can filter or down-rank these; Tier 5
         # (subsystem-verified) is the authoritative "high" tier.
         for blob in kmod_blobs:
-            matches.append(
-                CveMatch(
-                    blob_id=blob.id,
-                    cve_id=vuln.cve_id,
-                    severity=severity,
-                    cvss_score=cvss_score,
-                    description=description,
-                    confidence="low",
-                    tier="kernel_cpe",
-                )
+            yield CveMatch(
+                blob_id=blob.id,
+                cve_id=vuln.cve_id,
+                severity=severity,
+                cvss_score=cvss_score,
+                description=description,
+                confidence="low",
+                tier="kernel_cpe",
             )
-    return matches
+
+
+async def _match_kernel_cpe(
+    blobs: Sequence[HardwareFirmwareBlob],
+    firmware_id: uuid.UUID,
+    db: AsyncSession,
+) -> list[CveMatch]:
+    """Tier 4 — mirror linux-kernel component CVEs onto each kernel_module blob.
+
+    Back-compat list-returning wrapper around :func:`_iter_kernel_cve_rows`.
+    Production callers should use the async iterator + streaming persist
+    in :func:`match_firmware_cves` instead — for large firmware (e.g.
+    Yocto-style with 500+ kmods × 5000 kernel CVEs) the materialised list
+    is the OOM driver.  This wrapper is kept for unit tests and any
+    future ad-hoc tier-4 inspection.
+    """
+    return [m async for m in _iter_kernel_cve_rows(blobs, firmware_id, db)]
 
 
 # ---------------------------------------------------------------------------
@@ -527,17 +586,44 @@ async def _match_kernel_subsystem(
     return matches
 
 
+_TIER4_BATCH_SIZE = 5000
+"""Tier 4 batch size for the streaming Core INSERT path.
+
+Uses ``db.execute(insert(M), [dicts])`` — asyncpg ``executemany`` —
+which AVOIDS PostgreSQL's 32 767 bound-parameter cap (each row is
+parameter-bound independently, not packed into one big statement).
+A multi-row INSERT (``insert(M).values([dicts])``) would hit the
+cap because each row contributes ~11 bound params — including the
+Python-default ``id`` UUID — giving a ceiling of ~2 700 rows per
+batch, and benchmark on the 2.65 M-row Yocto firmware showed the
+multi-row form was no faster than executemany once index-update
+cost dominated (5 b-trees × 2.65 M rows = 13 M index writes is the
+bulk of the 375 s runtime).  The per-row cost is near-constant; for
+work that needs to be faster than ~7 k rows/sec, the right fix is
+the 202+polling pattern (Rule #29), not a batch-tuning microoptim.
+"""
+
+
 async def match_firmware_cves(
     firmware_id: uuid.UUID,
     db: AsyncSession,
     force_rescan: bool = False,
-) -> list[CveMatch]:
+) -> MatchResult:
     """Run the multi-tier matcher for all hardware firmware blobs of one firmware.
 
     - Skips blobs that already have cves in sbom_vulnerabilities unless
       force_rescan=True.
-    - Persists matches to sbom_vulnerabilities with blob_id + match_tier +
-      match_confidence.  Dedups on (firmware_id, blob_id, cve_id).
+    - Persists tiers 0/1/2/3/5 via ``db.add()`` + final ``db.flush()``.
+      Persists tier 4 (the cartesian kmod_blobs × kernel_cves) via
+      :func:`sqlalchemy.insert` with batched ``executemany`` —
+      bypassing the ORM identity map, which previously held all 2.65 M
+      objects in memory and OOM'd the backend container at the bulk
+      flush.  Memory cost for tier 4 is now bounded to ~5 000 dicts
+      (one batch's worth) regardless of input size.
+    - Dedups on (firmware_id, blob_id, cve_id) across all tiers.
+    - Returns a :class:`MatchResult` whose ``matches`` list excludes
+      tier-4 rows; per-tier-4 stats live on :attr:`MatchResult.tier4_rows`
+      and :attr:`MatchResult.tier4_distinct_cves`.
     """
     families = _load_known_firmware()
 
@@ -547,7 +633,7 @@ async def match_firmware_cves(
     )
     blobs = (await db.execute(stmt)).scalars().all()
     if not blobs:
-        return []
+        return MatchResult()
 
     # Fetch existing hw-firmware CVEs for dedup key
     existing_stmt = select(
@@ -603,38 +689,96 @@ async def match_firmware_cves(
         len(blobs),
     )
 
-    # Tier 4 — kernel CPE (pulls grype's kernel-component CVEs onto each kmod blob)
-    logger.info("cve-match: entering tier-4 _match_kernel_cpe (kmod_blobs=%d)", kmod_count)
-    t_start = time.monotonic()
-    tier4 = await _match_kernel_cpe(blobs, firmware_id, db)
+    # Tier 4 — streaming Core insert (per-blob yield → batch → flush →
+    # discard).  Replaces the previous "build a 2.65 M-element list,
+    # ORM-add each one, then bulk-flush" pattern that exhausted process
+    # memory at the flush step.  See cve-match-residual-oom-2026-04-25
+    # intake for the diagnostic logs.
     logger.info(
-        "cve-match: tier-4 done in %.2fs (%d matches; running total=%d)",
-        time.monotonic() - t_start,
-        len(tier4),
-        len(all_matches) + len(tier4),
+        "cve-match: entering tier-4 streaming persist (kmod_blobs=%d, batch_size=%d)",
+        kmod_count,
+        _TIER4_BATCH_SIZE,
     )
-    all_matches.extend(tier4)
+    t_start = time.monotonic()
+    tier4_total = 0  # cartesian count seen, regardless of dedup
+    tier4_inserted = 0  # rows actually persisted this run
+    tier4_distinct: set[str] = set()
+    tier4_batch: list[dict] = []
 
-    # Tier 5 — kernel subsystem (kernel.org vulns.git CNA feed)
+    async def _flush_tier4_batch() -> None:
+        if not tier4_batch:
+            return
+        # See ``_TIER4_BATCH_SIZE`` doc for the executemany-vs-multi-row
+        # tradeoff.  Short version: executemany sidesteps the asyncpg
+        # 32 767 bound-param cap and gives equivalent throughput once
+        # index-update cost dominates.
+        # Pass a shallow copy so the subsequent ``.clear()`` does not
+        # mutate the list still referenced by AsyncMock test fixtures
+        # (asyncpg itself doesn't care — execute completes before we
+        # clear — but tests inspecting call_args_list would see [] post-clear).
+        await db.execute(insert(SbomVulnerability), list(tier4_batch))
+        await db.flush()
+        tier4_batch.clear()
+
+    async for m in _iter_kernel_cve_rows(blobs, firmware_id, db):
+        # Count every cartesian projection so the router's
+        # kernel_module_rows reflects the total matrix size, matching
+        # pre-streaming semantics. Distinct CVE set captures the unique
+        # kernel CVEs regardless of dedup status.
+        tier4_total += 1
+        tier4_distinct.add(m.cve_id)
+        if (m.blob_id, m.cve_id) in existing and not force_rescan:
+            continue
+        tier4_batch.append(
+            {
+                "component_id": None,
+                "firmware_id": firmware_id,
+                "blob_id": m.blob_id,
+                "cve_id": m.cve_id,
+                "severity": m.severity,
+                "cvss_score": m.cvss_score,
+                "description": m.description,
+                "match_confidence": m.confidence,
+                "match_tier": m.tier,
+                "resolution_status": "open",
+            }
+        )
+        existing.add((m.blob_id, m.cve_id))
+        tier4_inserted += 1
+        if len(tier4_batch) >= _TIER4_BATCH_SIZE:
+            await _flush_tier4_batch()
+    await _flush_tier4_batch()
+    logger.info(
+        "cve-match: tier-4 streamed-persist done in %.2fs "
+        "(%d cartesian rows, %d new persisted, %d distinct CVEs)",
+        time.monotonic() - t_start,
+        tier4_total,
+        tier4_inserted,
+        len(tier4_distinct),
+    )
+
+    # Tier 5 — kernel subsystem (kernel.org vulns.git CNA feed) — small
+    # result set (~2 k rows on big firmware), keep ORM add pattern.
     logger.info("cve-match: entering tier-5 _match_kernel_subsystem (kmod_blobs=%d)", kmod_count)
     t_start = time.monotonic()
     tier5 = await _match_kernel_subsystem(blobs)
     logger.info(
-        "cve-match: tier-5 done in %.2fs (%d matches; running total=%d)",
+        "cve-match: tier-5 done in %.2fs (%d matches)",
         time.monotonic() - t_start,
         len(tier5),
-        len(all_matches) + len(tier5),
     )
     all_matches.extend(tier5)
 
-    # Persist matches
+    # Persist non-tier-4 matches via the existing ORM pattern.  These
+    # tiers stay small (Yocto firmware: tier-0/1/2/3 ≈ 0 ; tier-5 ≈ 2 k)
+    # so the identity-map cost is negligible.
     logger.info(
-        "cve-match: entering persist loop (all_matches=%d, existing dedup-keys=%d)",
+        "cve-match: entering non-tier-4 persist loop (all_matches=%d, existing dedup-keys=%d)",
         len(all_matches),
         len(existing),
     )
     t_start = time.monotonic()
-    inserted = 0
+    inserted_other = 0
     for m in all_matches:
         if (m.blob_id, m.cve_id) in existing and not force_rescan:
             continue
@@ -652,24 +796,38 @@ async def match_firmware_cves(
         )
         db.add(vuln)
         existing.add((m.blob_id, m.cve_id))
-        inserted += 1
+        inserted_other += 1
     logger.info(
-        "cve-match: persist build-loop done in %.2fs (%d new sb_vuln rows queued)",
+        "cve-match: non-tier-4 persist build-loop done in %.2fs (%d new sb_vuln rows queued)",
         time.monotonic() - t_start,
-        inserted,
+        inserted_other,
     )
 
-    logger.info("cve-match: entering db.flush() (queued=%d)", inserted)
+    logger.info("cve-match: entering final db.flush() (queued=%d)", inserted_other)
     t_start = time.monotonic()
     await db.flush()
     logger.info(
-        "cve-match: db.flush() done in %.2fs",
+        "cve-match: final db.flush() done in %.2fs",
         time.monotonic() - t_start,
     )
+
+    inserted_total = inserted_other + tier4_inserted
     logger.info(
-        "HW firmware CVE matcher: %d blobs scanned, %d new matches (%d total)",
+        "HW firmware CVE matcher: %d blobs scanned, %d new matches "
+        "(%d non-tier-4 + %d tier-4 = %d total persisted; "
+        "%d non-tier-4 returned; tier-4 cartesian seen=%d)",
         len(blobs),
-        inserted,
+        inserted_total,
+        inserted_other,
+        tier4_inserted,
+        inserted_total,
         len(all_matches),
+        tier4_total,
     )
-    return all_matches
+    return MatchResult(
+        matches=all_matches,
+        tier4_rows=tier4_total,
+        tier4_inserted=tier4_inserted,
+        tier4_distinct_cves=frozenset(tier4_distinct),
+        inserted=inserted_total,
+    )

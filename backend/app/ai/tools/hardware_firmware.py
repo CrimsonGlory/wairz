@@ -336,11 +336,11 @@ async def _handle_check_firmware_cves(input: dict, context: ToolContext) -> str:
     from app.services.hardware_firmware.cve_matcher import match_firmware_cves
 
     force_rescan = bool(input.get("force_rescan", False))
-    matches = await match_firmware_cves(
+    result = await match_firmware_cves(
         context.firmware_id, context.db, force_rescan=force_rescan
     )
 
-    if not matches:
+    if not result:
         return (
             "No hardware firmware CVE matches. Either detection hasn't run, "
             "no blobs were classified/parsed, or none of them match curated "
@@ -348,15 +348,28 @@ async def _handle_check_firmware_cves(input: dict, context: ToolContext) -> str:
             "families — modem, TEE, Wi-Fi, GPU, DSP, bootloader."
         )
 
-    # Group by blob
+    # Group non-tier-4 matches by blob.  Tier 4 (kernel CPE cartesian) is
+    # streamed-persisted inside the matcher and is summarised at the top
+    # rather than rendered per-blob, since it can reach 2.65 M rows on
+    # Yocto-style firmware and would blow the MCP 30 KB output budget.
     by_blob: dict[str, list[CveMatch]] = {}
-    for m in matches:
+    for m in result.matches:
         by_blob.setdefault(str(m.blob_id), []).append(m)
 
-    lines = [
-        f"# Hardware firmware CVE matches ({len(matches)} total across {len(by_blob)} blob(s))",
-        "",
-    ]
+    total_rendered = len(result.matches)
+    header = (
+        f"# Hardware firmware CVE matches "
+        f"({total_rendered} non-tier-4 across {len(by_blob)} blob(s)"
+    )
+    if result.tier4_rows:
+        header += (
+            f"; tier-4 kernel-CPE: {result.tier4_rows} cartesian rows "
+            f"({result.tier4_inserted} newly persisted, "
+            f"{len(result.tier4_distinct_cves)} distinct kernel CVEs) — "
+            f"query individual kernel_module blobs for detail"
+        )
+    header += ")"
+    lines = [header, ""]
     for blob_id, group in by_blob.items():
         lines.append(f"## Blob `{blob_id}`")
         lines.append("")
