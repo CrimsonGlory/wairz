@@ -42,7 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.models.sbom import SbomComponent, SbomVulnerability
-from app.services.cpe_dictionary_service import CpeDictionaryService
+from app.services.cpe_dictionary_service import get_cpe_dictionary_service
 from app.services.hardware_firmware import kernel_vulns_index as kvi
 
 logger = logging.getLogger(__name__)
@@ -250,7 +250,7 @@ async def _match_chipset_cpe(
     if not blob.chipset_target:
         return []
     try:
-        svc = CpeDictionaryService()
+        svc = get_cpe_dictionary_service()
         if not await svc.ensure_loaded():
             return []
         # We validated the CPE path works; actual CPE -> CVE query is
