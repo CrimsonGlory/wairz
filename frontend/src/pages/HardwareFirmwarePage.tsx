@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { apiUrl } from '@/api/config'
 import {
   getCveAggregate,
+  getCveMatchStatus,
   getFirmwareDrivers,
   getHardwareFirmwareBlob,
   getHardwareFirmwareCves,
@@ -182,15 +183,43 @@ export default function HardwareFirmwarePage() {
     setRunning(true)
     setRunResult(null)
     try {
-      const res = await runCveMatch(projectId, {
+      // Rule #29 202+polling: POST returns immediately with status="queued"
+      // and the matcher runs detached on the backend. Poll every 2 s until
+      // the status flips to "completed" (read .result for the aggregate)
+      // or "failed" (surface .error).
+      await runCveMatch(projectId, {
         forceRescan: false,
         firmwareId: selectedFirmwareId,
       })
-      {
-        const distinct = res.count ?? 0
-        const hwfw = res.hw_firmware_cves ?? distinct
-        const kernel = res.kernel_cves ?? 0
-        const kmodRows = res.kernel_module_rows ?? 0
+
+      const POLL_INTERVAL_MS = 2000
+      // 15-minute ceiling — well past the observed 7-minute Yocto runtime
+      // so we never bail before the backend declares terminal status, but
+      // bounded so a runaway matcher can't pin the spinner forever.
+      const POLL_DEADLINE_MS = 15 * 60 * 1000
+      const deadline = Date.now() + POLL_DEADLINE_MS
+      let snapshot: Awaited<ReturnType<typeof getCveMatchStatus>> | null = null
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS))
+        snapshot = await getCveMatchStatus(projectId, selectedFirmwareId)
+        if (snapshot.status === 'completed' || snapshot.status === 'failed') {
+          break
+        }
+      }
+      if (!snapshot || (snapshot.status !== 'completed' && snapshot.status !== 'failed')) {
+        setError('CVE matcher polling timed out — refresh to see the latest state.')
+        return
+      }
+      if (snapshot.status === 'failed') {
+        setError(snapshot.error ?? 'CVE matcher failed')
+        return
+      }
+      const aggregate = snapshot.result
+      if (aggregate) {
+        const distinct = aggregate.count ?? 0
+        const hwfw = aggregate.hw_firmware_cves ?? distinct
+        const kernel = aggregate.kernel_cves ?? 0
+        const kmodRows = aggregate.kernel_module_rows ?? 0
         const parts: string[] = []
         if (hwfw > 0) parts.push(`${hwfw} hw-firmware`)
         if (kernel > 0) parts.push(`${kernel} kernel (${kmodRows} projection rows across kmod blobs)`)

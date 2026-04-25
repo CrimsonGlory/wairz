@@ -15,19 +15,26 @@ Endpoints:
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
+import traceback
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy import case, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.database import async_session_factory, get_db
+from app.models.firmware import Firmware
 from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.models.sbom import SbomVulnerability
 from app.routers.deps import resolve_firmware as _resolve_firmware
 from app.schemas.hardware_firmware import (
+    CveMatchRunResult,
+    CveMatchStatusResponse,
     FirmwareDriverResponse,
     FirmwareDriversListResponse,
     FirmwareEdgeResponse,
@@ -38,6 +45,9 @@ from app.schemas.hardware_firmware import (
     HardwareFirmwareCvesResponse,
     HardwareFirmwareListResponse,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 # Severity ordering for the per-blob max_severity rollup. Postgres
@@ -426,44 +436,206 @@ async def list_drivers(
     return FirmwareDriversListResponse(drivers=drivers, total=len(drivers))
 
 
-@router.post("/cve-match")
-async def run_cve_match(
-    force_rescan: bool = False,
-    firmware=Depends(_resolve_firmware),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Run the three-tier CVE matcher for the resolved firmware.
+def _aggregate_match_result(result) -> CveMatchRunResult:
+    """Roll a :class:`MatchResult` into the shape the frontend renders.
 
-    Persists new matches in ``sbom_vulnerabilities`` and commits so the
-    follow-up ``/{blob_id}/cves`` query reflects the results.
-
-    Tier 4 (kernel CPE) is persisted streaming inside the matcher and
-    its row counts surface via ``result.tier4_rows`` /
-    ``result.tier4_distinct_cves`` rather than appearing in
-    ``result.matches`` — the cartesian (kernel_cve × kernel_module) can
-    reach 2.65 M rows on Yocto firmware and previously OOM'd the
-    backend when held as Python objects.
+    Distinct-CVE semantics: tiers 4/5 project every kernel CVE onto
+    every kernel_module blob by design (so per-blob CVE queries reflect
+    kernel findings), which inflates the persisted row count by
+    O(CVEs × modules). The aggregate UI needs distinct-CVE counts.
     """
-    result = await match_firmware_cves(firmware.id, db, force_rescan=force_rescan)
-    await db.commit()
-    # Report distinct CVEs + a per-lane breakdown so the UI doesn't
-    # present the cartesian (kernel_cve × kernel_module) row count as
-    # the headline "match" number. Tiers 4 and 5 project each kernel
-    # CVE onto every kernel_module blob (by design — so per-blob CVE
-    # queries reflect kernel findings) which inflates the row count by
-    # ~O(CVEs × modules). Aggregate UI needs distinct-CVE semantics.
     tier5_kernel = [m for m in result.matches if m.tier == "kernel_subsystem"]
     hwfw_matches = [m for m in result.matches if m.tier not in _KERNEL_TIERS]
     tier5_kernel_cves = {m.cve_id for m in tier5_kernel}
     hwfw_cves = {m.cve_id for m in hwfw_matches}
     kernel_distinct = result.tier4_distinct_cves | tier5_kernel_cves
-    return {
-        "count": len(hwfw_cves | kernel_distinct),
-        "rows": len(hwfw_matches) + len(tier5_kernel) + result.tier4_rows,
-        "hw_firmware_cves": len(hwfw_cves),
-        "kernel_cves": len(kernel_distinct),
-        "kernel_module_rows": len(tier5_kernel) + result.tier4_rows,
-    }
+    return CveMatchRunResult(
+        count=len(hwfw_cves | kernel_distinct),
+        rows=len(hwfw_matches) + len(tier5_kernel) + result.tier4_rows,
+        hw_firmware_cves=len(hwfw_cves),
+        kernel_cves=len(kernel_distinct),
+        kernel_module_rows=len(tier5_kernel) + result.tier4_rows,
+    )
+
+
+def _firmware_to_status(firmware: Firmware) -> CveMatchStatusResponse:
+    """Build a status response from a Firmware row.
+
+    The persisted ``cve_match_result`` JSONB is hydrated back into a
+    :class:`CveMatchRunResult` so the frontend's last-known-result
+    render survives a page reload without an extra `/cve-aggregate`
+    round-trip.
+    """
+    raw = firmware.cve_match_result
+    return CveMatchStatusResponse(
+        firmware_id=firmware.id,
+        status=firmware.cve_match_status,
+        started_at=firmware.cve_match_started_at,
+        finished_at=firmware.cve_match_finished_at,
+        error=firmware.cve_match_error,
+        result=CveMatchRunResult(**raw) if raw else None,
+    )
+
+
+async def _run_cve_match_background(
+    firmware_id: uuid.UUID,
+    force_rescan: bool,
+) -> None:
+    """Detached cve-match runner.
+
+    Owns its own ``AsyncSession`` so the FastAPI request that returned
+    the 202 can close cleanly. Mirrors ``_run_unpack_background`` in
+    ``routers/firmware.py`` and ``_run_campaign_spawn_background`` in
+    ``routers/fuzzing.py``.
+
+    On entry: flips ``cve_match_status`` from ``queued`` → ``running``.
+    On clean return: persists the aggregate via :func:`_aggregate_match_result`
+    and flips status to ``completed``.
+    On exception: flips status to ``failed`` and stores a short
+    traceback summary on ``cve_match_error`` for the UI to surface.
+    """
+    started = datetime.utcnow()
+    try:
+        async with async_session_factory() as db:
+            try:
+                # Mark running. Use a fresh select so we don't carry over
+                # any stale ORM state from the request session that
+                # queued the job.
+                fw = (
+                    await db.execute(
+                        select(Firmware).where(Firmware.id == firmware_id)
+                    )
+                ).scalar_one_or_none()
+                if fw is None:
+                    logger.warning(
+                        "cve-match background: firmware %s vanished before run",
+                        firmware_id,
+                    )
+                    return
+                fw.cve_match_status = "running"
+                fw.cve_match_started_at = started
+                fw.cve_match_error = None
+                fw.cve_match_result = None
+                await db.commit()
+
+                # Heavy work — streaming tier-4 persist (commit 5fddd6d)
+                # bounds memory; runtime is governed by the matcher's
+                # own logging (cve-match: tier-N done in N.NNs).
+                result = await match_firmware_cves(
+                    firmware_id, db, force_rescan=force_rescan
+                )
+                await db.commit()
+
+                aggregate = _aggregate_match_result(result)
+                fw = (
+                    await db.execute(
+                        select(Firmware).where(Firmware.id == firmware_id)
+                    )
+                ).scalar_one_or_none()
+                if fw is None:
+                    return
+                fw.cve_match_status = "completed"
+                fw.cve_match_finished_at = datetime.utcnow()
+                fw.cve_match_result = aggregate.model_dump()
+                fw.cve_match_error = None
+                await db.commit()
+                logger.info(
+                    "cve-match background: firmware %s completed (count=%d, rows=%d)",
+                    firmware_id,
+                    aggregate.count,
+                    aggregate.rows,
+                )
+            except Exception as exc:
+                await db.rollback()
+                # Best-effort failure persistence on a fresh session —
+                # the rolled-back one can't be reused after the rollback
+                # invalidates its state and we still want the row to
+                # carry the error for the UI poller.
+                err_summary = "\n".join(
+                    traceback.format_exception(type(exc), exc, exc.__traceback__)
+                )[-2000:]
+                async with async_session_factory() as fail_db:
+                    fail_fw = (
+                        await fail_db.execute(
+                            select(Firmware).where(Firmware.id == firmware_id)
+                        )
+                    ).scalar_one_or_none()
+                    if fail_fw is not None:
+                        fail_fw.cve_match_status = "failed"
+                        fail_fw.cve_match_finished_at = datetime.utcnow()
+                        fail_fw.cve_match_error = err_summary
+                        await fail_db.commit()
+                logger.exception(
+                    "cve-match background: firmware %s failed", firmware_id
+                )
+    except Exception:
+        # Outer guard — never let the event loop crash on a background
+        # job. A DB unavailability mid-run lands here.
+        logger.exception(
+            "cve-match background: unrecoverable error for firmware %s",
+            firmware_id,
+        )
+
+
+@router.post("/cve-match", response_model=CveMatchStatusResponse, status_code=202)
+async def run_cve_match(
+    force_rescan: bool = False,
+    firmware=Depends(_resolve_firmware),
+    db: AsyncSession = Depends(get_db),
+) -> CveMatchStatusResponse:
+    """Enqueue a cve-match run for the resolved firmware (Rule #29).
+
+    Returns 202 Accepted with the firmware row in ``cve_match_status="queued"``.
+    The frontend polls ``GET /cve-match/status`` every 2 s (firmware-unpack
+    precedent) until ``status`` flips to ``completed`` (success — read
+    ``result``) or ``failed`` (read ``error``).
+
+    Why 202 rather than 200: the matcher's tier-4 cartesian (kernel CVEs ×
+    kernel module blobs) reaches 2.65 M rows on Yocto firmware and runs
+    ~7 minutes end-to-end even with the streaming Core insert (commit
+    5fddd6d) — past every reasonable reverse-proxy ceiling
+    (nginx 60 s, Cloudflare 100 s, ALB 60 s). See CLAUDE.md Rule #29
+    and the cve-match-residual-oom-2026-04-25 intake.
+
+    Idempotency: a POST while the firmware's status is already
+    ``queued`` or ``running`` returns 409 with the in-flight status
+    rather than spawning a second run. The frontend should poll
+    ``/cve-match/status`` to observe the existing run.
+    """
+    if firmware.cve_match_status in ("queued", "running"):
+        raise HTTPException(
+            409,
+            f"cve-match already {firmware.cve_match_status} for this firmware",
+        )
+
+    firmware.cve_match_status = "queued"
+    firmware.cve_match_started_at = None
+    firmware.cve_match_finished_at = None
+    firmware.cve_match_error = None
+    firmware.cve_match_result = None
+    # Commit before scheduling the background task so its fresh session
+    # observes the queued row.
+    await db.commit()
+    await db.refresh(firmware)
+
+    asyncio.create_task(
+        _run_cve_match_background(firmware.id, force_rescan)
+    )
+    return _firmware_to_status(firmware)
+
+
+@router.get("/cve-match/status", response_model=CveMatchStatusResponse)
+async def get_cve_match_status(
+    firmware=Depends(_resolve_firmware),
+    db: AsyncSession = Depends(get_db),
+) -> CveMatchStatusResponse:
+    """Return the current cve-match status snapshot for the resolved firmware.
+
+    The frontend polls this every 2 s after a 202 from POST /cve-match
+    until ``status`` flips to ``completed`` or ``failed``. Mirrors the
+    firmware-unpack polling shape used by ProjectDetailPage.
+    """
+    return _firmware_to_status(firmware)
 
 
 @router.get("/cdx.json")

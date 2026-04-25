@@ -124,24 +124,49 @@ export interface CveMatchRunResult {
   kernel_module_rows: number
 }
 
-// CVE-match walks every hardware-firmware blob and kernel module, expanding
-// the cartesian (kernel_cve × kmod) product persist. Large Android scatter
-// extractions with 10+ partitions routinely exceed 2 min; default axios 30 s
-// fires and surfaces a fake failure while the backend continues.
-// Matches SECURITY_SCAN_TIMEOUT tier in findings.ts (b437095).
-const SECURITY_SCAN_TIMEOUT = 600_000
+export type CveMatchStatus = 'idle' | 'queued' | 'running' | 'completed' | 'failed'
 
+export interface CveMatchStatusResponse {
+  firmware_id: string
+  status: CveMatchStatus
+  started_at: string | null
+  finished_at: string | null
+  error: string | null
+  result: CveMatchRunResult | null
+}
+
+// POST /cve-match returns 202 + a CveMatchStatusResponse with status="queued"
+// per Rule #29 (cve-match-residual-oom-2026-04-25 follow-up). The previous
+// SECURITY_SCAN_TIMEOUT=600_000 axios override was a workaround for the
+// then-synchronous endpoint that ran ~7 minutes on Yocto firmware; the 202
+// ack is sub-second now and the default 30 s axios floor is correct.
+// Frontend callers must follow the POST with a 2 s poll loop on
+// getCveMatchStatus until status flips to "completed" (read .result) or
+// "failed" (read .error).
 export async function runCveMatch(
   projectId: string,
   options?: { forceRescan?: boolean; firmwareId?: string | null },
-): Promise<CveMatchRunResult> {
+): Promise<CveMatchStatusResponse> {
   const params: Record<string, unknown> = {}
   if (options?.forceRescan) params.force_rescan = true
   if (options?.firmwareId) params.firmware_id = options.firmwareId
-  const { data } = await apiClient.post<CveMatchRunResult>(
+  const { data } = await apiClient.post<CveMatchStatusResponse>(
     `/projects/${projectId}/hardware-firmware/cve-match`,
     null,
-    { params, timeout: SECURITY_SCAN_TIMEOUT },
+    { params },
+  )
+  return data
+}
+
+// GET /cve-match/status — polled every 2 s by HardwareFirmwarePage while a
+// run is queued/running. Cheap (one row read).
+export async function getCveMatchStatus(
+  projectId: string,
+  firmwareId?: string | null,
+): Promise<CveMatchStatusResponse> {
+  const { data } = await apiClient.get<CveMatchStatusResponse>(
+    `/projects/${projectId}/hardware-firmware/cve-match/status`,
+    { params: firmwareId ? { firmware_id: firmwareId } : undefined },
   )
   return data
 }
