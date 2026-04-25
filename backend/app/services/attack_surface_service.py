@@ -12,7 +12,7 @@ import stat
 from dataclasses import dataclass, field
 
 from app.services.analysis_service import check_binary_protections
-from app.services.binary_analysis_service import _LIEF_ELF_ARCH_MAP
+from app.services.binary_analysis_service import _LIEF_ELF_ARCH_MAP, _ensure_lief
 from app.utils.sandbox import safe_walk
 
 logger = logging.getLogger(__name__)
@@ -427,6 +427,11 @@ def scan_attack_surface(
     Returns:
         List of AttackSurfaceResult sorted by score descending.
     """
+    # Populate _LIEF_ELF_ARCH_MAP before binary iteration — without this,
+    # every arch lookup at L142 returns None and 100% of attack-surface rows
+    # land with architecture=NULL.  See intake gui-smoke-bugs-2026-04-24 Bug #2.
+    _ensure_lief()
+
     real_root = os.path.realpath(extracted_root)
     scan_root = real_root
     if path_filter:
