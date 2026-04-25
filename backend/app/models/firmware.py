@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -37,6 +37,13 @@ class Firmware(Base):
     unpack_progress: Mapped[int | None] = mapped_column(Integer)
     binary_info: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     device_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    cve_match_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    cve_match_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cve_match_finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cve_match_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cve_match_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
     project: Mapped["Project"] = relationship(back_populates="firmware")  # noqa: F821

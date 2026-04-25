@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -69,6 +70,42 @@ class HardwareFirmwareCveAggregate(BaseModel):
     hw_severity_high: int = 0
     hw_severity_medium: int = 0
     hw_severity_low: int = 0
+
+
+class CveMatchRunResult(BaseModel):
+    """Final-result payload of a cve-match run.
+
+    Carries the same shape the synchronous endpoint used to return; now
+    persisted on ``firmware.cve_match_result`` so the frontend can render
+    the last-known-result without a follow-up ``/cve-aggregate`` call.
+    """
+
+    count: int             # distinct CVE IDs across all tiers
+    rows: int              # total persisted rows (kernel cartesian included)
+    hw_firmware_cves: int  # distinct hw-firmware tier CVEs
+    kernel_cves: int       # distinct kernel-tier CVEs
+    kernel_module_rows: int  # cartesian projection rows across kmod blobs
+
+
+CveMatchStatus = Literal["idle", "queued", "running", "completed", "failed"]
+
+
+class CveMatchStatusResponse(BaseModel):
+    """Status snapshot for the 202+polling cve-match flow.
+
+    Mirrors the firmware-unpack precedent: the POST handler returns this
+    with ``status="queued"``; the frontend polls ``GET /cve-match/status``
+    every 2 s until ``status`` flips to ``"completed"`` or ``"failed"``.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    firmware_id: uuid.UUID
+    status: CveMatchStatus
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error: str | None = None
+    result: CveMatchRunResult | None = None
 
 
 class HardwareFirmwareCveRow(BaseModel):
