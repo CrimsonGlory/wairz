@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -558,26 +559,81 @@ async def match_firmware_cves(
     )
     existing = {(r[0], r[1]) for r in (await db.execute(existing_stmt)).all()}
 
+    kmod_count = sum(1 for b in blobs if (b.category or "").lower() == "kernel_module")
+    logger.info(
+        "cve-match: starting firmware_id=%s blobs=%d kernel_modules=%d existing=%d",
+        firmware_id,
+        len(blobs),
+        kmod_count,
+        len(existing),
+    )
+
     all_matches: list[CveMatch] = []
     # Tier 0 — parser-embedded version-pin fingerprints (per-blob metadata;
     # zero DB cost).  Runs before the per-blob Tier 1/2/3 loop so any CVE
     # a parser flagged during detection surfaces even when the curated
     # YAML, NVD keyword search, and CPE dictionary all miss.
-    all_matches.extend(_match_parser_detected(blobs))
+    t_start = time.monotonic()
+    tier0 = _match_parser_detected(blobs)
+    all_matches.extend(tier0)
+    logger.info(
+        "cve-match: tier-0 parser_detected done in %.2fs (%d matches)",
+        time.monotonic() - t_start,
+        len(tier0),
+    )
+
+    t_start = time.monotonic()
+    tier123_count = 0
     for blob in blobs:
         # Tier 3 (always)
-        all_matches.extend(_match_curated(blob, families))
+        m3 = _match_curated(blob, families)
+        all_matches.extend(m3)
+        tier123_count += len(m3)
         # Tier 1 / Tier 2 stubs
-        all_matches.extend(await _match_chipset_cpe(blob))
-        all_matches.extend(await _match_nvd_freetext(blob))
+        m1 = await _match_chipset_cpe(blob)
+        all_matches.extend(m1)
+        tier123_count += len(m1)
+        m2 = await _match_nvd_freetext(blob)
+        all_matches.extend(m2)
+        tier123_count += len(m2)
+    logger.info(
+        "cve-match: tier-1/2/3 loop done in %.2fs (%d matches across %d blobs)",
+        time.monotonic() - t_start,
+        tier123_count,
+        len(blobs),
+    )
 
     # Tier 4 — kernel CPE (pulls grype's kernel-component CVEs onto each kmod blob)
-    all_matches.extend(await _match_kernel_cpe(blobs, firmware_id, db))
+    logger.info("cve-match: entering tier-4 _match_kernel_cpe (kmod_blobs=%d)", kmod_count)
+    t_start = time.monotonic()
+    tier4 = await _match_kernel_cpe(blobs, firmware_id, db)
+    logger.info(
+        "cve-match: tier-4 done in %.2fs (%d matches; running total=%d)",
+        time.monotonic() - t_start,
+        len(tier4),
+        len(all_matches) + len(tier4),
+    )
+    all_matches.extend(tier4)
 
     # Tier 5 — kernel subsystem (kernel.org vulns.git CNA feed)
-    all_matches.extend(await _match_kernel_subsystem(blobs))
+    logger.info("cve-match: entering tier-5 _match_kernel_subsystem (kmod_blobs=%d)", kmod_count)
+    t_start = time.monotonic()
+    tier5 = await _match_kernel_subsystem(blobs)
+    logger.info(
+        "cve-match: tier-5 done in %.2fs (%d matches; running total=%d)",
+        time.monotonic() - t_start,
+        len(tier5),
+        len(all_matches) + len(tier5),
+    )
+    all_matches.extend(tier5)
 
     # Persist matches
+    logger.info(
+        "cve-match: entering persist loop (all_matches=%d, existing dedup-keys=%d)",
+        len(all_matches),
+        len(existing),
+    )
+    t_start = time.monotonic()
     inserted = 0
     for m in all_matches:
         if (m.blob_id, m.cve_id) in existing and not force_rescan:
@@ -597,8 +653,19 @@ async def match_firmware_cves(
         db.add(vuln)
         existing.add((m.blob_id, m.cve_id))
         inserted += 1
+    logger.info(
+        "cve-match: persist build-loop done in %.2fs (%d new sb_vuln rows queued)",
+        time.monotonic() - t_start,
+        inserted,
+    )
 
+    logger.info("cve-match: entering db.flush() (queued=%d)", inserted)
+    t_start = time.monotonic()
     await db.flush()
+    logger.info(
+        "cve-match: db.flush() done in %.2fs",
+        time.monotonic() - t_start,
+    )
     logger.info(
         "HW firmware CVE matcher: %d blobs scanned, %d new matches (%d total)",
         len(blobs),
