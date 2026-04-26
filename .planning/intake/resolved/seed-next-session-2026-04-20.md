@@ -1,14 +1,15 @@
 ---
 title: "Next-session seed — 202+polling fleet, then CI-unblock fleet (deep-researched)"
-status: proposed
+status: completed
 priority: high
 format: ouroboros-seed-v1
 author: session-5321d5a1-research-fleet
 created: 2026-04-20T00:00:00Z
-target_session: next
+completed_at: 2026-04-26
 baseline_head: 5d75bca  # campaign: flip 202+polling queued→ready after pre-flight Rule-19 audit
 previous_seed: seed-next-session-2026-04-19.md (option-a-completed 2026-04-18)
 research_method: 4-scout parallel Explore fleet (ROI scan, CI triage, 202+polling readiness, Ouroboros fit)
+closed_by: "All 3 proposed sessions shipped per the seed's own internal annotations: +1 (202+polling fleet) — emulation Stream α + fuzzing Stream β both merged 2026-04-20 (per CLAUDE.md Rule #29 — branches feat/stream-alpha-emulation-202-2026-04-20, feat/stream-beta-fuzzing-202-2026-04-20); +2 (backend-pytest-unstable-tests) — completed 2026-04-23 single session, merged α 01182fc · β 50d1bc1 · γ c53800c · rename 2fae870 (intake archived to .planning/intake/resolved/backend-pytest-unstable-tests.md); +3 (intake drain) — Rule #19 verification at session 0801ca27 close confirmed all recommended intakes had already landed via unrelated work. Status front-matter promoted from proposed to completed 2026-04-26 per Rule #19 / Rule #21 housekeeping."
 ---
 
 # Next-session seed — post-intake-sweep continuation (deep-researched)

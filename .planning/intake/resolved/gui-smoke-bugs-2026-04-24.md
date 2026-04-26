@@ -1,17 +1,18 @@
 ---
 title: "GUI golden-path smoke: 3 pre-existing bugs surfaced by post-P3 verification"
-status: partial-completed
+status: completed
 priority: high
 target: backend/app/services/, backend/app/models/, backend/alembic/versions/
 baseline_head: a1c5d54  # knowledge: /learn extraction for p3-triple-close-2026-04-24
-target_session: next
 created: 2026-04-24T18:10:00Z
+completed_at: 2026-04-26
 author: session-d8edd200-do-continue (smoke driven against fw a7523429 — RespArray V1.12)
 previous_handoff: session aa8b4a17 ("Unresolved — GUI not exercised; CLAUDE.md explicitly requires end-to-end UI verification")
 research_method: REST-driven smoke against fw a7523429-1c9c-4740-a360-545ef5b6a85f (project ACM test, 00815038-cb0f-4642-b2bf-2f176fd807f7) covering Security Scan / Attack Surface / HBOM / CVE flows; backend+worker logs tailed throughout; verdict cross-checked against `git blame` and prior commit messages
 priority_order: "#3 → #1 → #2 (most-blocking to least-blocking — #3 unblocks the entire Security Scan tab on deeply-nested firmware; #1 unblocks /cve-match; #2 cosmetic-but-visible arch column)"
-closed_by: "session 56797be2 — three-commit sweep; Bug #3 + Bug #2 fully verified; Bug #1 mechanically verified (singleton fix in place, 0 CPE loads in second smoke) but cve-match endpoint still OOMs from a SEPARATE root cause not anticipated by the intake — see follow-up intake cve-match-residual-oom-2026-04-25.md"
-shipped_commits: [ca583d0, f71f978, 9f7ddde]
+closed_by: "session 56797be2 — three-commit sweep; Bug #3 + Bug #2 fully verified; Bug #1 mechanically verified (singleton fix in place, 0 CPE loads in second smoke). Bug #1's residual OOM was carved into cve-match-residual-oom-2026-04-25.md and resolved across two sessions (76fd9c3a + prior fix-session) — diagnostic-plan steps 1+2 (tier-4/5 instrumentation, streaming tier-4 persist) shipped 2104b28+5fddd6d; step 4 (202+polling refactor) shipped 6226be2+22c1990. Status promoted to completed 2026-04-26 per Rule #19 evidence-first close-out: all three intake-specified bugs are now end-to-end verified, no remaining work attributable to this intake."
+shipped_commits: [ca583d0, f71f978, 9f7ddde]  # original three-commit sweep — Bug #3 / Bug #1 / Bug #2 in priority order
+followup_commits: [2104b28, 5fddd6d, 6226be2, 22c1990]  # cve-match-residual-oom-2026-04-25.md closeout
 ---
 
 ## Smoke verification results — 2026-04-25 session 56797be2
