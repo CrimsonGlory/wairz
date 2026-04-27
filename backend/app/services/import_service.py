@@ -277,6 +277,18 @@ class ImportService:
                 target = zf.read(name).decode("utf-8", errors="replace")
                 real_rel = rel[:-8]  # strip .symlink suffix
                 dest = os.path.join(dest_root, real_rel)
+
+                # Reject symlinks whose target escapes dest_root — otherwise a malicious archive can plant one and write through it on a later entry.
+                real_root = os.path.realpath(dest_root)
+                resolved = os.path.realpath(
+                    os.path.join(os.path.dirname(dest), target)
+                )
+                if not (
+                    resolved == real_root
+                    or resolved.startswith(real_root + os.sep)
+                ):
+                    continue
+
                 os.makedirs(os.path.dirname(dest), exist_ok=True)
                 if os.path.lexists(dest):
                     os.unlink(dest)

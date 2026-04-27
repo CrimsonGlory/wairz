@@ -384,12 +384,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# CSRF + DNS-rebinding guard — only localhost origins allowed on the
+# local backend. Used by origin_host_guard middleware below.
+ALLOWED_HOSTS = {
+    "localhost", "localhost:3000", "localhost:8000",
+    "127.0.0.1", "127.0.0.1:3000", "127.0.0.1:8000",
+}
+
 # Attach rate limiter state, 429 handler, and SlowAPI middleware (B.1.b).
-# SlowAPIMiddleware intercepts requests and checks @limiter.limit() decorators.
-# custom_rate_limit_exceeded_handler wraps slowapi's default with structured
-# JSON body (tier name + retry_after_seconds + operator-friendly hint) and a
-# structured log event so operators don't need to read backend stdout to
-# diagnose a frontend "Rate limit reached" toast.
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, custom_rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
@@ -412,6 +414,19 @@ app.add_middleware(
 # intercepted HTTP, leaving /ws terminal and /{session}/terminal ws-to-tcp
 # proxy endpoints unauthenticated.
 app.add_middleware(APIKeyASGIMiddleware)
+
+
+@app.middleware("http")
+async def origin_host_guard(request: Request, call_next):
+    # CSRF + DNS-rebinding guard for the localhost-bound backend.
+    host = request.headers.get("host", "")
+    if host not in ALLOWED_HOSTS:
+        return JSONResponse(status_code=403, content={"detail": "host not allowed"})
+    origin = request.headers.get("origin")
+    if origin and origin not in _cors_origins:
+        return JSONResponse(status_code=403, content={"detail": "origin not allowed"})
+    return await call_next(request)
+
 
 app.include_router(health.router)
 app.include_router(projects.router)
