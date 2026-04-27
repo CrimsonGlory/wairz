@@ -255,12 +255,6 @@ class ImportService:
             except (json.JSONDecodeError, KeyError):
                 pass
 
-        # Build symlink map from permissions data
-        symlink_map: dict[str, str] = {}
-        for entry in permissions_data:
-            if entry.get("type") == "symlink":
-                symlink_map[entry["path"]] = entry["target"]
-
         # Extract files from the archive
         for name in sorted(zf.namelist()):
             if not name.startswith(prefix) or name == prefix:
