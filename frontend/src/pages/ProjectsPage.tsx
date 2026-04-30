@@ -6,6 +6,7 @@ import ProjectList from '@/components/projects/ProjectList'
 import CreateProjectDialog from '@/components/projects/CreateProjectDialog'
 import { importProject } from '@/api/exportImport'
 import { useProjectStore } from '@/stores/projectStore'
+import { extractErrorMessage } from '@/utils/error'
 
 export default function ProjectsPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -32,13 +33,7 @@ export default function ProjectsPage() {
       await fetchProjects()
       navigate(`/projects/${project.id}`)
     } catch (err) {
-      const msg =
-        err && typeof err === 'object' && 'response' in err
-          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-          : err instanceof Error
-            ? err.message
-            : 'Import failed'
-      setImportError(msg ?? 'Import failed')
+      setImportError(extractErrorMessage(err, 'Import failed'))
     } finally {
       setImporting(false)
     }
