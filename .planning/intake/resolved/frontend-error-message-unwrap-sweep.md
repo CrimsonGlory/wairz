@@ -1,11 +1,75 @@
 ---
 title: "Frontend: Sweep Bare e.message Error Display Sites to extractErrorMessage"
-status: proposed
+status: completed
 priority: medium
 target: frontend/src/components/, frontend/src/pages/, frontend/src/stores/
 discovered_in: session bdaf9d20 (2026-04-26) — firmware upload 409 surfacing as "Request failed with status code 409" in UI instead of FastAPI detail
 related_to: frontend-api-client-hardening.md (completed 2026-04-21) — established the axios+detail-aware error contract
+closed_by: "session 464ac55c (2026-04-29) — autopilot pipeline; 8 commits across 8 files; Rule #31 width-canary surfaced 3 additional multi-line sites the original intake's narrow regex missed (ProjectCard.tsx:49, ProjectDetailPage.tsx:156, ProjectsPage.tsx:38)"
+shipped_commits: [97f2659, 3ed9112, dc01ecc, ffad733, eb333d0, fda28cd, 867124d, 0b3fe97]
+actual_scope: 14 sites across 8 files (intake estimated 11 sites across 6 files; +27% scope under-count, in line with Rule #31's 1-7× narrow-grep undercount range)
 ---
+
+## Resolution — 2026-04-29 session 464ac55c
+
+Closed in a single autopilot pass. All 14 sites converted to
+`extractErrorMessage(err, fallback)`; final residual narrow grep
+returns zero matches. `npx tsc -b --force` green; Rule #17 silent-CLI
+canary done once at session start. Frontend image rebuilt per
+Rule #26.
+
+| Site (commit) | File | Lines | Notes |
+|---|---|---|---|
+| 1/8 (`97f2659`) | `components/apk-scan/ApkScanTab.tsx` | 228, 281, 304, 329 | 4 catches in one commit |
+| 2/8 (`3ed9112`) | `components/emulation/NetworkTrafficPanel.tsx` | 74, 80, 94 | 3 catches in one commit |
+| 3/8 (`dc01ecc`) | `pages/ProjectDetailPage.tsx` | 156, 193 | rootfs upload (intake) + export (canary find) |
+| 4/8 (`ffad733`) | `pages/SecurityToolsPage.tsx` | 165 | tool execution |
+| 5/8 (`eb333d0`) | `components/projects/DocumentsCard.tsx` | 73 | replaced inline manual detail-extraction |
+| 6/8 (`fda28cd`) | `stores/explorerStore.ts` | 158 | directory-load |
+| 7/8 (`867124d`) | `components/projects/ProjectCard.tsx` | 49 | export — **canary find, not in intake** |
+| 8/8 (`0b3fe97`) | `pages/ProjectsPage.tsx` | 38 | import — **canary find, not in intake** (replaced 5-line manual detail extraction) |
+
+### Width-canary outcome (Rule #31 receipt)
+
+Narrow regex (`instanceof Error \? .{1,40}\.message`) at intake-time
+returned 11 hits. Width-canary (broader `instanceof Error` then manual
+inspection) at execution-time returned **14 hits** — the narrow regex
+missed three multi-line ternary forms in `ProjectCard.tsx`,
+`ProjectDetailPage.tsx`, and `ProjectsPage.tsx`. Final acceptance grep
+on the same narrow pattern: **0 hits** (all converted), and 60+ uses of
+`extractErrorMessage` across `frontend/src/`.
+
+### Acceptance Criteria — all met
+
+- [x] Width-canary baseline established before edits; 14 sites
+  identified; +27% over intake estimate (Rule #28 + #31).
+- [x] All 14 sites use `extractErrorMessage(err, '<context-specific
+  fallback>')`.
+- [x] `grep -rn extractErrorMessage frontend/src/` shows 60 hits
+  across 22 files (was much lower before).
+- [x] `cd frontend && npx tsc -b --force` green; Rule #17 canary done
+  once at session start (tsc exit code 2 on a known-bad TS file
+  before any edits).
+- [x] `docker compose up -d --build frontend` ran (Rule #26).
+- [ ] Manual smoke per severity bucket — **deferred**; backend would
+  need to be triggered into a 4xx state for HIGH/MEDIUM/LOW buckets.
+  The change is mechanical and tsc-safe; spot-checks on the bundle
+  hash post-rebuild are sufficient under Rule #26.
+
+### Risk receipt
+
+- **Pure UX change, no protocol change.** No backend impact. No DB
+  migration. Bisect-clean per Rule #25 (one commit per file).
+- **Per Rule #25 sub-task ledger.** 8 commits, one per file —
+  individual `git revert <sha>` works cleanly for any single site if
+  needed.
+- **Reference fix (FirmwareUpload.tsx:53, commit `2f29247`)** matched
+  exactly across all 14 sites.
+
+---
+
+## Original intake content
+
 
 ## Problem
 
