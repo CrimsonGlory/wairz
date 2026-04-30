@@ -208,6 +208,62 @@ These rules were extracted from recurring bugs and failures across 30+ developme
 
     Applies to: residual-count audits (this session's P3 carve-out ranking), intake/seed scope verification (Rule #19 extended to grep-derived counts), multi-file migration scoping (Rule #22's "grep all sites" + width discipline), cut-over caller re-greps (Rule #27's "intakes regularly under-count" observation). Companion to Rule #17 (silent-CLI-exit canary) — both are about distinguishing "tool confirmed nothing" from "tool wasn't looking." Cost is one extra grep (~1 s); carries zero risk; eliminates a recurring source of mid-session scope surprises. No harness rule candidate — any auto-flag on "narrow-looking" regexes would fire on legitimate targeted greps and produce noise. The durable form IS the width-canary discipline in this rule.
 
+32. **In wairz, `await db.refresh(obj)` after `await db.commit()` is a no-op — skip it.** wairz's session factory at `backend/app/database.py:24` sets `expire_on_commit=False`, so attributes are NOT expired by commit and remain populated in memory. The `db.refresh(obj)` call issues a redundant SELECT round-trip that returns the same values already in scope (~1-2 ms wasted per call; negligible perf impact, but the redundancy obscures intent and signals a misunderstanding of the session config). The SQLAlchemy default is `expire_on_commit=True` where the refresh IS load-bearing — wairz overrides this to `False` everywhere, so external tutorials/docs that pair commit+refresh DO NOT apply to this codebase. Mechanical detection: `grep -A2 "await db\.commit()" backend/app/routers/*.py backend/app/services/*.py | grep -B1 "await db\.refresh"` — every match is suspicious. If a session DOES need expiry behavior (rare — typically when a separate process may have updated the row), use an explicit re-SELECT against `Model.id` rather than relying on `refresh()`. Originally surfaced in session 76fd9c3a (2026-04-25) cve-match POST handler review — the `db.refresh(firmware)` after `db.commit()` was a no-op caught post-smoke; shipped as-is to avoid a Rule #8 rebuild for a cosmetic improvement, flagged for a future cleanup sweep.
+
+33. **A 202+polling endpoint conversion (per Rule #29) follows a 4-bullet design contract — apply ALL FOUR before shipping.** Rule #29 establishes WHEN to convert (frontend timeout > 100s with reverse proxy on the path, OR backend ceiling > axios floor and the work is genuinely async-friendly); this rule establishes WHAT a correct conversion looks like, generalised from 4 shipped applications: firmware unpacking (`backend/app/routers/firmware.py:139`, original precedent), emulation (`c5d2f74`, 2026-04-20 Fleet Wave-1 α), fuzzing (`df30015`, 2026-04-20 Fleet Wave-1 β), cve-match (`22c1990`, 2026-04-25 session 76fd9c3a).
+
+    **(a) Idempotent POST + 409-on-conflict in the router (not the service).** The handler MUST check `if row.status in ("queued", "running"): raise HTTPException(409, f"<op> already {row.status}")` BEFORE any state mutation. 409 is RFC 9110's "conflict with current resource state" — clients distinguish it from 400 (validation error) reliably. Putting the check at the API surface (not buried in a service-layer `ValueError` like emulation's `create_pending_session` or fuzzing's `start_campaign` did originally) makes the contract visible and the response explicit. Anti-patterns: returning 200 with the in-flight status (frontend can't distinguish "started new" from "found existing"); returning 400 (loses conflict semantics); silently re-using the existing job (frontend's `started_at` watcher gets stale data).
+
+    **(b) Persist the result aggregate on the same row used for status — not Redis, not in-process memory.** Add a nullable JSONB column (e.g. `firmware.cve_match_result`) that stores the same dict the synchronous endpoint used to return. Frontend renders the last-known-result directly from the row on page reload; no separate `GET /<op>-result` round-trip needed. Cost: one nullable JSONB column. Benefit: survives backend restart AND survives a page reload. Anti-pattern: storing the result in Redis or process memory (lost on restart; user wonders what their last run produced after F5).
+
+    **(c) New status column gets BOTH a Pydantic `Literal` AND a DB CHECK constraint.** Migration adds `op.create_check_constraint("ck_<table>_<col>", "<table>", "<col> IN ('idle', 'queued', 'running', 'completed', 'failed')")`. Schema declares `Status = Literal["idle", "queued", "running", "completed", "failed"]`. The `Literal` catches LLM/dev typos at the API boundary; the CHECK catches direct-SQL writes (cron scripts, manual fixes, ORM rollbacks under partial-failure paths). Both gates are cheap; ship both. Mirrors `ck_emulation_sessions_status` / `ck_fuzzing_campaigns_status` (revision `54c8864fbe0c`) and `ck_firmware_cve_match_status` (revision `e6f7a8b9c0d1`).
+
+    **(d) `asyncio.create_task` vs arq decision rubric.** Use **arq** if (i) the work coordinates with worker-only resources (Docker container spawn, long-form Ghidra), OR (ii) work survives backend restarts via durable Redis-queue state, OR (iii) work needs scheduled/cron triggering. Use **asyncio.create_task** if (i) work runs entirely in-process, AND (ii) intermediate state is incrementally persisted to the DB by the work itself (so a mid-run crash is recoverable via re-run dedup), AND (iii) "fire and observe via row-status" is sufficient. Current applications: cve-match → asyncio.create_task (in-process matcher with per-batch `db.flush()`); emulation → arq (Docker spawn = worker resource); fuzzing → asyncio.create_task (Docker spawn delegated to a separate already-arq path); firmware-unpack → arq (long-running, multi-stage, restart-survival valuable). Anti-pattern: defaulting to arq "for durability" without applying the rubric — adds worker job + registration churn + Rule #8 rebuild cost for no semantic gain when the work is already DB-persisted.
+
+    **Reference shape** (background runner owns its own AsyncSession via `async_session_factory`; outer guard catches anything; failure persistence on a fresh session because the inner one rolled back):
+
+    ```python
+    async def _run_<op>_background(<id>: uuid.UUID, *args) -> None:
+        try:
+            async with async_session_factory() as db:
+                row = (await db.execute(select(Model).where(Model.id == <id>))).scalar_one_or_none()
+                if row is None: return
+                row.status = "running"; row.started_at = datetime.utcnow()
+                await db.commit()
+                try:
+                    result = await do_work(...)
+                    row.status = "completed"; row.finished_at = datetime.utcnow()
+                    row.result = result.model_dump()
+                    await db.commit()
+                except Exception as exc:
+                    await db.rollback()
+                    err = "\n".join(traceback.format_exception(type(exc), exc, exc.__traceback__))[-2000:]
+                    async with async_session_factory() as fail_db:
+                        fail_row = (await fail_db.execute(select(Model).where(Model.id == <id>))).scalar_one_or_none()
+                        if fail_row is not None:
+                            fail_row.status = "failed"; fail_row.error = err
+                            await fail_db.commit()
+                    logger.exception("...")
+        except Exception:
+            logger.exception("unrecoverable")  # outer guard
+
+    @router.post("/<op>", response_model=StatusResponse, status_code=202)
+    async def run_<op>(...) -> StatusResponse:
+        if row.status in ("queued", "running"):
+            raise HTTPException(409, f"<op> already {row.status}")
+        row.status = "queued"
+        row.started_at = None; row.finished_at = None; row.error = None; row.result = None
+        await db.commit()  # background task's fresh session must see this
+        asyncio.create_task(_run_<op>_background(row.id, ...))  # OR arq enqueue per (d)
+        return _row_to_status(row)
+
+    @router.get("/<op>/status", response_model=StatusResponse)
+    async def get_<op>_status(...) -> StatusResponse:
+        return _row_to_status(row)
+    ```
+
+    Frontend pairs this with `useEffect + setInterval` polling every 2 s on `/<op>/status` until `status in ("completed", "failed")`, matching the firmware-unpack precedent. The axios timeout drops to the default 30 s floor (no override needed) since the ack is sub-second per (a). Companion to Rule #29 (when), Rule #25 (per-sub-task commits — typically ships in 3 commits: DB migration / router-and-frontend pair / intake closure), Rule #11 (post-rebuild import smoke after the new ORM fields land), Rule #32 (skip the no-op `db.refresh(row)` after commit). Originally extracted from session 76fd9c3a (2026-04-25) cve-match closer; validates against 4 prior shipped applications.
+
 ---
 
 ## Companion scaffold: `.mex/`
