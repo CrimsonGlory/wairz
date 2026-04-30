@@ -307,6 +307,64 @@ class FileService:
     def _validate(self, path: str) -> str:
         return self._resolve(path)
 
+    def to_virtual_path(self, abs_path: str) -> str | None:
+        """Map a real absolute path back to its virtual representation.
+
+        Inverse of ``_resolve``. Indexers (``search_files``, ``find_files_by_type``,
+        certificate scans, etc.) must emit virtual paths so the result can be
+        passed straight back into ``read_file``/``file_info``/etc. Without this,
+        walking from ``extraction_dir`` produces ``..``-laden paths that
+        downstream tools refuse to dereference.
+
+        Returns:
+            ``/rootfs/...`` when ``abs_path`` is inside the rootfs.
+            ``/<vname>/...`` when inside a virtual partition entry.
+            ``/<rel>`` when at the top level of ``extraction_dir`` (sibling files).
+            ``None`` when ``abs_path`` is outside every sandboxed root.
+        """
+        try:
+            real = os.path.realpath(abs_path)
+        except OSError:
+            return None
+
+        rootfs_real = os.path.realpath(self.extracted_root)
+        if real == rootfs_real:
+            return "/" + self.ROOTFS_VNAME if self.extraction_dir else "/"
+        if real.startswith(rootfs_real + os.sep):
+            rel = os.path.relpath(real, rootfs_real)
+            if self.extraction_dir:
+                return f"/{self.ROOTFS_VNAME}/{rel}"
+            return f"/{rel}"
+
+        if not self.extraction_dir:
+            return None
+
+        # Match against virtual partition entries (longest prefix wins so a
+        # nested `*-root` inside another doesn't shadow the outer one).
+        vmap = self._build_virtual_map()
+        best_vname: str | None = None
+        best_vreal: str = ""
+        for vname, vpath in vmap.items():
+            vreal = os.path.realpath(vpath)
+            if real == vreal or real.startswith(vreal + os.sep):
+                if len(vreal) > len(best_vreal):
+                    best_vname = vname
+                    best_vreal = vreal
+        if best_vname is not None:
+            if real == best_vreal:
+                return f"/{best_vname}"
+            rel = os.path.relpath(real, best_vreal)
+            return f"/{best_vname}/{rel}"
+
+        extraction_real = os.path.realpath(self.extraction_dir)
+        if real == extraction_real:
+            return "/"
+        if real.startswith(extraction_real + os.sep):
+            rel = os.path.relpath(real, extraction_real)
+            return f"/{rel}"
+
+        return None
+
     # ── virtual top-level listing ────────────────────────────────────
 
     def _list_virtual_root(self) -> tuple[list[FileEntry], bool]:
@@ -610,35 +668,33 @@ class FileService:
         )
 
     def search_files(self, pattern: str, path: str = "/") -> tuple[list[str], bool]:
-        """Search for files matching a glob pattern. Returns (matches, truncated)."""
+        """Search for files matching a glob pattern. Returns (matches, truncated).
+
+        Result paths are always virtual (``/rootfs/...``, ``/<partition>/...``)
+        and can be passed straight back into ``read_file``/``file_info``/etc.
+        without re-resolution. Walking from ``/`` with ``extraction_dir`` set
+        crosses multiple namespaces, so prefixes are computed per-result via
+        ``to_virtual_path``.
+        """
         full_path = self._resolve(path)
 
-        # Determine the prefix to use for relative paths
-        if self.extraction_dir:
-            clean = path.strip("/")
-            if clean == "" or clean == self.ROOTFS_VNAME or clean.startswith(self.ROOTFS_VNAME + "/"):
-                real_root = os.path.realpath(self.extracted_root)
-                prefix = f"/{self.ROOTFS_VNAME}"
-            else:
-                real_root = os.path.realpath(self.extraction_dir)
-                prefix = ""
-        else:
-            real_root = os.path.realpath(self.extracted_root)
-            prefix = ""
-
-        matches = []
+        matches: list[str] = []
+        seen: set[str] = set()
         truncated = False
 
         for root, dirs, files in safe_walk(full_path):
             for name in files + dirs:
-                if fnmatch.fnmatch(name.lower(), pattern.lower()):
-                    abs_path = os.path.join(root, name)
-                    # Return path relative to the appropriate root
-                    rel_path = prefix + "/" + os.path.relpath(abs_path, real_root)
-                    matches.append(rel_path)
-                    if len(matches) >= MAX_SEARCH_RESULTS:
-                        truncated = True
-                        break
+                if not fnmatch.fnmatch(name, pattern):
+                    continue
+                abs_path = os.path.join(root, name)
+                vpath = self.to_virtual_path(abs_path)
+                if vpath is None or vpath in seen:
+                    continue
+                seen.add(vpath)
+                matches.append(vpath)
+                if len(matches) >= MAX_SEARCH_RESULTS:
+                    truncated = True
+                    break
             if truncated:
                 break
 

@@ -53,6 +53,10 @@ class ToolContext:
         as the base, while paths inside /jffs2-root/ etc. use the partition's
         real directory.  Returns the appropriate base so that:
             os.path.relpath(resolved_abs_path, real_root) → firmware-relative path
+
+        NOTE: This is unsafe for multi-namespace walks (input ``path="/"`` with
+        ``extraction_dir`` set), where files can live in different real roots.
+        Prefer ``to_virtual_path`` for converting walk results to virtual paths.
         """
         import os
         svc = self._file_service()
@@ -79,6 +83,18 @@ class ToolContext:
         if self.detection_roots:
             return list(self.detection_roots)
         return [self.extracted_path] if self.extracted_path else []
+
+    def to_virtual_path(self, abs_path: str) -> str | None:
+        """Map a real absolute path back to its firmware-virtual representation.
+
+        Indexers (search_files, find_files_by_type, scanners) walk real paths
+        but must report virtual ones so the agent can pass them back into
+        read_file/file_info without hitting "Path traversal detected". Returns
+        None if abs_path is outside every sandboxed root.
+        """
+        from app.services.file_service import FileService
+        svc = FileService(self.extracted_path, extraction_dir=self.extraction_dir)
+        return svc.to_virtual_path(abs_path)
 
 
 @dataclass

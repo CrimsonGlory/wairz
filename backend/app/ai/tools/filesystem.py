@@ -1,6 +1,7 @@
 import asyncio
 import os
 from collections import Counter
+from collections.abc import Callable
 
 from sqlalchemy import select
 
@@ -74,32 +75,44 @@ def _matches_type(filepath: str, name: str, file_type: str) -> bool:
 
 
 def _find_files_by_type(
-    search_root: str, real_root: str, file_type: str, max_results: int = 0
+    search_root: str,
+    file_type: str,
+    to_virtual: Callable[[str], str | None],
 ) -> str:
-    """Walk filesystem and find files matching the requested type."""
+    """Walk filesystem and find files matching the requested type.
+
+    *to_virtual* maps each real abs_path to its firmware-virtual path. Using
+    this instead of a single ``real_root`` avoids ``..`` segments when the
+    walk crosses multiple namespaces (e.g. searching from ``/`` with
+    extraction_dir set).
+    """
     if file_type not in VALID_TYPES:
         return f"Error: unknown file type '{file_type}'. Valid types: {', '.join(sorted(VALID_TYPES))}"
 
-    limit = max_results if max_results > 0 else MAX_FIND_RESULTS
     matches: list[str] = []
+    seen: set[str] = set()
 
     for dirpath, _dirs, files in safe_walk(search_root):
         for name in files:
             abs_path = os.path.join(dirpath, name)
-            if _matches_type(abs_path, name, file_type):
-                rel_path = "/" + os.path.relpath(abs_path, real_root)
-                matches.append(rel_path)
-                if len(matches) >= limit:
-                    break
-        if len(matches) >= limit:
+            if not _matches_type(abs_path, name, file_type):
+                continue
+            vpath = to_virtual(abs_path)
+            if vpath is None or vpath in seen:
+                continue
+            seen.add(vpath)
+            matches.append(vpath)
+            if len(matches) >= MAX_FIND_RESULTS:
+                break
+        if len(matches) >= MAX_FIND_RESULTS:
             break
 
     if not matches:
         return f"No files of type '{file_type}' found."
 
     header = f"Found {len(matches)} {file_type} file(s)"
-    if len(matches) >= limit:
-        header += f" (showing first {limit})"
+    if len(matches) >= MAX_FIND_RESULTS:
+        header += f" (showing first {MAX_FIND_RESULTS})"
     header += ":\n"
     return header + "\n".join(matches)
 
@@ -184,12 +197,10 @@ async def _handle_search_files(input: dict, context: ToolContext) -> str:
 async def _handle_find_files_by_type(input: dict, context: ToolContext) -> str:
     input_path = input.get("path") or "/"
     search_root = context.resolve_path(input_path)
-    real_root = context.real_root_for(input_path)
     return _find_files_by_type(
         search_root=search_root,
-        real_root=real_root,
         file_type=input["file_type"],
-        max_results=input.get("max_results", 0),
+        to_virtual=context.to_virtual_path,
     )
 
 

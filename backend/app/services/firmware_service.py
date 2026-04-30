@@ -624,7 +624,8 @@ class FirmwareService:
         if not fs_root:
             raise ValueError(
                 "Could not locate a filesystem root in the archive. "
-                "Ensure it contains a Linux root filesystem (with etc/, bin/ or usr/)."
+                "Ensure it contains a Linux root filesystem with at least two "
+                "of: bin/, sbin/, etc/, usr/, lib/, var/, init/, ko/."
             )
 
         firmware.extracted_path = fs_root

@@ -275,7 +275,6 @@ def _check_setuid_binaries_sync(
     search_root: str, real_root: str, limit: int,
 ) -> tuple[list[str], list[str]]:
     """Synchronous walk for setuid/setgid binary detection.
-
     Returns (setuid_files, setgid_files). The async caller wraps this via
     ``run_in_executor`` (Rule #5).
     """
@@ -293,7 +292,9 @@ def _check_setuid_binaries_sync(
             if not stat.S_ISREG(st.st_mode):
                 continue
 
-            rel = _rel(abs_path, real_root)
+            rel = context.to_virtual_path(abs_path)
+            if rel is None:
+                continue
             mode = st.st_mode
 
             if mode & stat.S_ISUID:
@@ -515,7 +516,6 @@ def _check_filesystem_permissions_sync(
     search_root: str, real_root: str, limit: int,
 ) -> tuple[list[str], list[str]]:
     """Synchronous walk to detect world-writable files and weak perms.
-
     Returns (world_writable, sensitive_weak). The async caller wraps this via
     ``run_in_executor`` (Rule #5).
     """
@@ -531,7 +531,9 @@ def _check_filesystem_permissions_sync(
                 continue
 
             mode = st.st_mode
-            rel = _rel(abs_path, real_root)
+            rel = context.to_virtual_path(abs_path)
+            if rel is None:
+                continue
             perm_str = oct(mode)[-4:]
 
             # World-writable files (not symlinks)
@@ -667,8 +669,11 @@ def _is_pem_file(path: str) -> bool:
         return False
 
 
-def _audit_certificate(cert_data: bytes, file_path: str, real_root: str) -> dict:
-    """Parse and audit a single certificate. Returns a dict with info and issues."""
+def _audit_certificate(cert_data: bytes, file_path: str, rel_path: str) -> dict:
+    """Parse and audit a single certificate. Returns a dict with info and issues.
+
+    *rel_path* is the virtual firmware path used purely for display.
+    """
     try:
         from cryptography import x509
         from cryptography.hazmat.primitives.asymmetric import dsa, ec, rsa
@@ -692,7 +697,6 @@ def _audit_certificate(cert_data: bytes, file_path: str, real_root: str) -> dict
 
     rel_path = "/" + os.path.relpath(file_path, real_root)
     now = datetime.now(UTC)
-
     # Extract info
     info: dict = {
         "path": rel_path,
@@ -796,7 +800,6 @@ def _analyze_certificate_sync(
     resolved_root: str, real_root: str, search_path: str | None,
 ) -> tuple[list[str], list[dict]]:
     """Synchronous certificate discovery + parse + audit.
-
     Returns (cert_files, results). The async caller wraps this via
     ``run_in_executor`` (Rule #5).
     """
@@ -810,7 +813,11 @@ def _analyze_certificate_sync(
         except (OSError, PermissionError):
             continue
 
-        result = _audit_certificate(cert_data, cert_file, real_root)
+        rel_path = context.to_virtual_path(cert_file)
+        if rel_path is None:
+            continue
+        result = _audit_certificate(cert_data, cert_file, rel_path)
+        result["path"] = rel_path
         if "error" not in result:
             results.append(result)
 
