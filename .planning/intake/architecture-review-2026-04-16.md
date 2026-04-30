@@ -105,3 +105,11 @@ Full review reports are in the session transcript of `e89b8145-5067-4b58-987c-48
 - Infrastructure: Docker, CI/CD, networking, secrets
 
 See `.planning/knowledge/session40-architecture-review-*.md` (to be created via `/learn` after work begins).
+
+---
+
+## Closure / Re-scan Log
+
+- **2026-04-24 (session 3d9d854e autopilot):** First re-scan. 19/20 items + item 0 completed; #12 (P3 circular-imports) remained as `partial`. Documented in `seed-next-session-2026-04-24.md` Route B/D verification.
+- **2026-04-24 → 2026-04-25:** Item #12 P3 residual fully closed via per-service-pair carve-outs — `firmware_service` (5e2cb18), `cve_matcher` (9a26c1a), `attack_surface_service` (4bd491b), `clamav_service` (8f9d261); P3 thread close (e84f02e).
+- **2026-04-26 (session bdaf9d20):** Second re-scan — Option C from the closed seed. **Result: 21/21 items resolved.** All intake files referenced in the table above carry `status: completed` frontmatter. Underlying patterns + anti-patterns from the original review are now encoded as Learned Rules in `CLAUDE.md` (Rules #1, #3, #5, #7 cover the recurring sub-themes). No new sub-items surface. **This master index is fully closed against; a future re-scan should be skipped unless the wairz attack surface materially changes (e.g. new external integration, public deployment).**
