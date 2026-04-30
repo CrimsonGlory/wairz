@@ -83,13 +83,38 @@ _DEFAULT_SINKS = [
 ]
 
 
+# Lines that match the error keyword filter but are actually benign Ghidra
+# warnings — not real failures. These shouldn't be the headline reason that
+# we tell the user "FindStringRefs failed".
+_BENIGN_GHIDRA_PATTERNS = (
+    # MIPS-specific: Ghidra warns about empty .mdebug.abi32 sections that some
+    # MIPS toolchains emit as zero-size placeholders. Harmless.
+    "skipping section [.mdebug",
+    # Cross-binary symbol resolution requires every dependency to be imported
+    # as a separate program in the project. WAIRZ imports only the target
+    # binary, so DT_NEEDED entries that the loader can't find emit this. The
+    # analysis itself still completes successfully — these are informational.
+    "-> not found in project",
+)
+
+
+def _is_benign_ghidra_warning(line: str) -> bool:
+    """Whether a diagnostic line is a known-noisy Ghidra warning, not an error."""
+    lower = line.lower()
+    return any(p in lower for p in _BENIGN_GHIDRA_PATTERNS)
+
+
 def _extract_ghidra_error(raw_output: str, script_name: str) -> str:
     """Extract diagnostic info from Ghidra output when expected markers are missing.
 
     Looks for ERROR, Exception, Usage, and other diagnostic lines to provide
     actionable error info instead of a generic 'no parseable output' message.
+    Real errors are reported first; benign warnings (missing optional debug
+    sections, library symbols not in project) are demoted to a separate
+    section so users don't think they caused the failure.
     """
-    diagnostic_lines: list[str] = []
+    error_lines: list[str] = []
+    benign_warnings: list[str] = []
     for line in raw_output.splitlines():
         stripped = line.strip()
         if not stripped:
@@ -105,22 +130,43 @@ def _extract_ghidra_error(raw_output: str, script_name: str) -> str:
                 if cleaned.startswith(prefix):
                     cleaned = cleaned[len(prefix):]
                     break
-            if cleaned not in diagnostic_lines:
-                diagnostic_lines.append(cleaned)
+            bucket = benign_warnings if _is_benign_ghidra_warning(cleaned) else error_lines
+            if cleaned not in bucket:
+                bucket.append(cleaned)
 
-    if not diagnostic_lines:
+    if not error_lines and not benign_warnings:
         return (
             f"Ghidra {script_name} produced no parseable output. "
             "Possible causes: binary too large (timeout), unsupported format, "
             "or incomplete Ghidra analysis. Try running on a smaller binary first."
         )
 
+    # If only benign warnings appeared, the script likely crashed silently —
+    # don't lead with the warnings as if they were the cause.
+    if not error_lines:
+        result = (
+            f"Ghidra {script_name} produced no parseable output despite "
+            "running. The binary may be too large, the script may have crashed, "
+            "or the analysis may not have completed.\n\n"
+            "Non-fatal warnings observed (these are normal and not the cause):\n"
+        )
+        result += "\n".join(f"  {line}" for line in benign_warnings[:5])
+        if len(benign_warnings) > 5:
+            result += f"\n  ... ({len(benign_warnings) - 5} more warnings)"
+        return result
+
     # Cap at 10 lines
-    shown = diagnostic_lines[:30]
+    shown = error_lines[:10]
     result = f"Ghidra {script_name} failed. Diagnostic output:\n\n"
     result += "\n".join(f"  {line}" for line in shown)
-    if len(diagnostic_lines) > 30:
-        result += f"\n  ... ({len(diagnostic_lines) - 30} more diagnostic lines)"
+    if len(error_lines) > 10:
+        result += f"\n  ... ({len(error_lines) - 10} more diagnostic lines)"
+    if benign_warnings:
+        result += (
+            f"\n\n(Suppressed {len(benign_warnings)} non-fatal warning(s) — "
+            "missing-library and empty-debug-section messages are not the "
+            "cause of failure.)"
+        )
     return result
 
 

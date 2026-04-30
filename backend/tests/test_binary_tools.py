@@ -550,3 +550,54 @@ class TestFullRegistration:
         assert "list_functions" in names
         assert "check_binary_protections" in names
         assert "disassemble_function" in names
+
+
+class TestGhidraErrorExtractionBenignWarnings:
+    """Bug 7: Ghidra warnings about empty .mdebug.abi32 sections and missing
+    library symbols should not be presented to the user as the cause of a
+    Ghidra script failure — they're informational and don't break analysis.
+    """
+
+    def test_pure_benign_warnings_get_demoted(self):
+        from app.ai.tools.binary import _extract_ghidra_error
+
+        # Output with only benign warnings (no real error). Should not look
+        # like the warnings caused the failure.
+        raw = (
+            "INFO  Loading...\n"
+            "WARN  Skipping section [.mdebug.abi32] with invalid size 0x0\n"
+            "WARN  [libdl.so.0] -> not found in project\n"
+            "WARN  [libmbedtls.so.17] -> not found in project\n"
+            "INFO  Done.\n"
+        )
+        result = _extract_ghidra_error(raw, "FindStringRefs")
+
+        # The headline should be neutral, not "FindStringRefs failed".
+        assert "produced no parseable output" in result
+        assert "not the cause" in result
+        # The warnings should be visible but presented as non-fatal.
+        assert "mdebug" in result.lower()
+        assert "not found in project" in result.lower()
+
+    def test_real_error_takes_precedence(self):
+        from app.ai.tools.binary import _extract_ghidra_error
+
+        # Mix of real error + benign warnings.
+        raw = (
+            "INFO  Loading...\n"
+            "WARN  Skipping section [.mdebug.abi32] with invalid size 0x0\n"
+            "ERROR Script execution failed: NullPointerException at line 42\n"
+            "WARN  [libdl.so.0] -> not found in project\n"
+        )
+        result = _extract_ghidra_error(raw, "FindStringRefs")
+
+        # The real error should headline; warnings should be summarised.
+        assert "FindStringRefs failed" in result
+        assert "NullPointerException" in result
+        assert "Suppressed 2 non-fatal warning" in result
+
+    def test_no_diagnostic_at_all(self):
+        from app.ai.tools.binary import _extract_ghidra_error
+
+        result = _extract_ghidra_error("INFO  Loading...\nINFO  Done.\n", "Foo")
+        assert "no parseable output" in result

@@ -398,8 +398,49 @@ async def _handle_get_firmware_metadata(input: dict, context: ToolContext) -> st
     return "\n".join(lines)
 
 
+# Plain-text U-Boot env file locations (uEnv.txt-style). U-Boot reads these
+# at boot via ``run loadbootenv; env import -t``. They live in the rootfs (or
+# /boot partition) rather than as a packed CRC+kv block in flash.
+_TEXT_UBOOT_ENV_PATHS = (
+    "/uEnv.txt", "/boot/uEnv.txt",
+    "/u-boot.env", "/boot/u-boot.env",
+    "/etc/u-boot.env", "/etc/uboot.env",
+)
+
+
+def _parse_text_uboot_env(path: str) -> dict[str, str]:
+    """Parse a uEnv.txt-style file. Tolerates comments, blank lines, CRLFs."""
+    env: dict[str, str] = {}
+    try:
+        with open(path, "r", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                if key and key.replace("_", "").isalnum():
+                    env[key] = value.strip()
+    except OSError:
+        pass
+    return env
+
+
 async def _handle_extract_bootloader_env(input: dict, context: ToolContext) -> str:
-    """Return just the U-Boot environment variables."""
+    """Return U-Boot environment variables.
+
+    Tries two locations in order:
+      1. The packed CRC+kv block scan against the raw firmware image (covers
+         standalone U-Boot env partitions and env embedded in the upgrade .bin).
+      2. Plain-text uEnv.txt-style files inside the extracted rootfs (covers
+         U-Boot's ``env import -t`` bootflow).
+
+    For vendor *upgrade images* the env may legitimately not be present at
+    all — it lives on device flash, separate from the upgrade payload. In
+    that case both scans return empty.
+    """
     from app.models.firmware import Firmware
     from app.services.firmware_metadata_service import FirmwareMetadataService
 
@@ -409,18 +450,56 @@ async def _handle_extract_bootloader_env(input: dict, context: ToolContext) -> s
     if not firmware or not firmware.storage_path:
         return "Error: firmware storage path not available."
 
+    # 1. Scan raw firmware image for CRC+kv env block.
     service = FirmwareMetadataService()
     metadata = await service.scan_firmware_image(
         firmware.storage_path, context.firmware_id, context.db,
     )
+    binary_env = dict(metadata.uboot_env)
 
-    if not metadata.uboot_env:
-        return "No U-Boot environment variables found in firmware image."
+    # 2. Look for plain-text uEnv.txt-style files in the extracted rootfs.
+    text_env: dict[str, str] = {}
+    text_env_source: str | None = None
+    for rel in _TEXT_UBOOT_ENV_PATHS:
+        try:
+            real = context.resolve_path(rel)
+        except Exception:
+            continue
+        if os.path.isfile(real):
+            parsed = _parse_text_uboot_env(real)
+            if parsed:
+                text_env.update(parsed)
+                text_env_source = rel
+                break
 
-    lines = [f"U-Boot Environment ({len(metadata.uboot_env)} variables):", ""]
-    for key, value in sorted(metadata.uboot_env.items()):
-        lines.append(f"{key}={value}")
-    return "\n".join(lines)
+    if not binary_env and not text_env:
+        return (
+            "No U-Boot environment variables found.\n\n"
+            "Checked:\n"
+            "  - CRC+key=value block scan of the firmware image\n"
+            "  - Plain-text env files: " + ", ".join(_TEXT_UBOOT_ENV_PATHS) + "\n\n"
+            "For vendor upgrade images the bootloader env often isn't present "
+            "(it lives on device flash, not in the .bin). Try a full flash dump "
+            "if available, or check the device's actual storage layout."
+        )
+
+    lines: list[str] = []
+    if binary_env:
+        lines.append(f"U-Boot Environment from image scan ({len(binary_env)} variables):")
+        lines.append("")
+        for key, value in sorted(binary_env.items()):
+            lines.append(f"{key}={value}")
+        lines.append("")
+
+    if text_env:
+        lines.append(
+            f"U-Boot Environment from {text_env_source} ({len(text_env)} variables):"
+        )
+        lines.append("")
+        for key, value in sorted(text_env.items()):
+            lines.append(f"{key}={value}")
+
+    return "\n".join(lines).strip()
 
 
 def register_filesystem_tools(registry: ToolRegistry) -> None:
