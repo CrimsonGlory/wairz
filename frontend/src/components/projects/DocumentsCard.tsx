@@ -19,6 +19,7 @@ import {
   getDocumentDownloadUrl,
 } from '@/api/documents'
 import { formatFileSize, formatDate } from '@/utils/format'
+import { extractErrorMessage } from '@/utils/error'
 import type { ProjectDocument } from '@/types'
 
 const MAX_DOCUMENTS = 20
@@ -68,10 +69,7 @@ export default function DocumentsCard({ projectId }: DocumentsCardProps) {
       setShowUploadForm(false)
       await fetchDocuments()
     } catch (e) {
-      const msg =
-        (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
-        (e instanceof Error ? e.message : 'Upload failed')
-      setError(msg)
+      setError(extractErrorMessage(e, 'Upload failed'))
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
