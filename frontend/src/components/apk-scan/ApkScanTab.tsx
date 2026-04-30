@@ -41,6 +41,7 @@ import type {
   SastScanResponse,
 } from '@/api/apkScan'
 import { searchFiles } from '@/api/files'
+import { extractErrorMessage } from '@/utils/error'
 
 // ── Phase scan status ──
 
@@ -225,7 +226,7 @@ export default function ApkScanTab({ projectId, selectedFirmwareId, initialApk, 
         setSelectedApk(null)
       }
     } catch (e) {
-      setDiscoveryError(e instanceof Error ? e.message : 'Failed to discover APK files')
+      setDiscoveryError(extractErrorMessage(e, 'Failed to discover APK files'))
       setApkFiles([])
     } finally {
       setDiscoveryLoading(false)
@@ -278,7 +279,7 @@ export default function ApkScanTab({ projectId, selectedFirmwareId, initialApk, 
     } catch (e) {
       setManifestPhase({
         status: 'error',
-        error: e instanceof Error ? e.message : 'Manifest scan failed',
+        error: extractErrorMessage(e, 'Manifest scan failed'),
       })
     } finally {
       stopTimer('manifest')
@@ -301,7 +302,7 @@ export default function ApkScanTab({ projectId, selectedFirmwareId, initialApk, 
     } catch (e) {
       setBytecodePhase({
         status: 'error',
-        error: e instanceof Error ? e.message : 'Bytecode scan failed',
+        error: extractErrorMessage(e, 'Bytecode scan failed'),
       })
     } finally {
       stopTimer('bytecode')
@@ -326,7 +327,7 @@ export default function ApkScanTab({ projectId, selectedFirmwareId, initialApk, 
     } catch (e) {
       setSastPhase({
         status: 'error',
-        error: e instanceof Error ? e.message : 'SAST scan failed',
+        error: extractErrorMessage(e, 'SAST scan failed'),
       })
     } finally {
       stopTimer('sast')
