@@ -454,6 +454,115 @@ class TestFindHardcodedCredentials:
         assert "token" in result.lower() or "config.js" in result
 
 
+class TestBinaryRodataCredentialScan:
+    """Regression for Bug 6: secrets in compiled binary rodata, not /etc/."""
+
+    def _build_elf_with_strings(self, path: Path, strings: list[str]) -> None:
+        """Write a minimal ELF-shaped file containing the given rodata strings.
+
+        We don't need a valid loadable ELF — just the magic bytes and enough
+        structure that ``strings -d`` can extract the embedded text. The
+        rodata section is faked by appending null-separated strings into a
+        plausibly-named ELF body.
+        """
+        # 64 bytes of minimal ELF-ish header / padding so the file looks like
+        # an ELF to magic-detection but doesn't need a valid program-header
+        # table. Then a fake .rodata blob of null-separated strings.
+        header = b"\x7fELF\x01\x01\x01\x00" + b"\x00" * 56
+        rodata = b"\x00".join(s.encode() for s in strings) + b"\x00\x00"
+        # Pad so size > _MIN_FS_SIZE / etc; not strictly needed for strings.
+        path.write_bytes(header + rodata + b"\x00" * 256)
+
+    @pytest.mark.asyncio
+    async def test_finds_32hex_secret_in_binary(self, tmp_path, registry):
+        # Embed a 32-hex string in a fake ELF rodata section. The scanner
+        # should flag it as a high-confidence binary credential.
+        bin_path = tmp_path / "bin" / "ppsapp"
+        bin_path.parent.mkdir()
+        self._build_elf_with_strings(
+            bin_path,
+            [
+                # Two real-shaped 32-hex secrets (matches the Wyze fixture's
+                # 360a7068... and 5b0e5bc2... app_id/app_key).
+                "360a7068374548a2853526f5e0231ad2",
+                "5b0e5bc2788d4ff68c7b98a5656148d0",
+                # Some other strings that should NOT match
+                "hello world",
+                "/usr/bin/ppsapp",
+                "Copyright (c) 2023",
+            ],
+        )
+
+        ctx = ToolContext(
+            project_id=uuid4(),
+            firmware_id=uuid4(),
+            extracted_path=str(tmp_path),
+            db=MagicMock(),
+        )
+        result = await registry.execute("find_hardcoded_credentials", {}, ctx)
+
+        assert "binary" in result.lower() or "rodata" in result.lower()
+        assert "360a7068374548a2853526f5e0231ad2" in result
+        assert "5b0e5bc2788d4ff68c7b98a5656148d0" in result
+
+    @pytest.mark.asyncio
+    async def test_finds_magic_key_in_binary(self, tmp_path, registry):
+        # _MEARI56565099-shaped strings are flagged at medium confidence.
+        bin_path = tmp_path / "bin" / "app"
+        bin_path.parent.mkdir()
+        self._build_elf_with_strings(
+            bin_path,
+            ["_MEARI56565099", "regular string", "/etc/foo"],
+        )
+
+        ctx = ToolContext(
+            project_id=uuid4(),
+            firmware_id=uuid4(),
+            extracted_path=str(tmp_path),
+            db=MagicMock(),
+        )
+        result = await registry.execute("find_hardcoded_credentials", {}, ctx)
+        assert "_MEARI56565099" in result
+        assert "medium confidence" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_skips_zero_padding(self, tmp_path, registry):
+        # All-zero or all-F hex strings (common ELF padding) must not be flagged.
+        bin_path = tmp_path / "bin" / "app"
+        bin_path.parent.mkdir()
+        self._build_elf_with_strings(
+            bin_path,
+            ["0" * 32, "f" * 64, "F" * 40, "deadbeef" * 4],  # last is real-shaped
+        )
+
+        ctx = ToolContext(
+            project_id=uuid4(),
+            firmware_id=uuid4(),
+            extracted_path=str(tmp_path),
+            db=MagicMock(),
+        )
+        result = await registry.execute("find_hardcoded_credentials", {}, ctx)
+        # The all-zero/all-F strings should be filtered; only deadbeef×4 should
+        # appear in the high-confidence section (or the result might say "No
+        # hardcoded credentials found" if even that's filtered, but we expect
+        # it to pass through since it's not in the FP set).
+        assert "0" * 32 not in result
+        assert "f" * 64 not in result
+
+    @pytest.mark.asyncio
+    async def test_no_binaries_no_binary_findings(
+        self, registry, tool_context
+    ):
+        # The standard fixture has a token-only fake ELF (4-byte ELF magic +
+        # 70 bytes of mixed strings). It contains no hex-shaped tokens, so we
+        # should NOT see a binary-rodata section in the output.
+        result = await registry.execute(
+            "find_hardcoded_credentials", {}, tool_context
+        )
+        # Sanity: shadow + text findings still happen.
+        assert "Hardcoded Secrets in Binary rodata (high confidence)" not in result
+
+
 # ---------------------------------------------------------------------------
 # Path traversal tests
 # ---------------------------------------------------------------------------
