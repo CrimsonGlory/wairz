@@ -8,6 +8,7 @@ import ToolCard from '@/components/tools/ToolCard'
 import ToolForm from '@/components/tools/ToolForm'
 import ToolOutput from '@/components/tools/ToolOutput'
 import { formatToolName } from '@/components/tools/ToolCard'
+import { extractErrorMessage } from '@/utils/error'
 
 // ---------------------------------------------------------------------------
 // Category classification
@@ -162,7 +163,7 @@ export default function SecurityToolsPage() {
       )
       setResult(resp)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Tool execution failed')
+      setError(extractErrorMessage(err, 'Tool execution failed'))
     } finally {
       setRunning(false)
     }
