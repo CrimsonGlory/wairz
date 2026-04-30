@@ -22,6 +22,7 @@ import DocumentsCard from '@/components/projects/DocumentsCard'
 import { exportProject } from '@/api/exportImport'
 import { useEventStream } from '@/hooks/useEventStream'
 import { PROJECT_STATUS_VARIANT } from '@/constants/statusConfig'
+import { extractErrorMessage } from '@/utils/error'
 
 export default function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -153,10 +154,7 @@ export default function ProjectDetailPage() {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
     } catch (err) {
-      const msg = err instanceof Error
-        ? err.message
-        : 'Export failed'
-      setExportError(msg)
+      setExportError(extractErrorMessage(err, 'Export failed'))
     } finally {
       setExporting(false)
     }
@@ -190,7 +188,7 @@ export default function ProjectDetailPage() {
       fetchProject(projectId)
       invalidateFirmwareList()
     } catch (e) {
-      setRootfsError(e instanceof Error ? e.message : 'Upload failed')
+      setRootfsError(extractErrorMessage(e, 'Upload failed'))
     } finally {
       setUploadingRootfs(null)
     }
