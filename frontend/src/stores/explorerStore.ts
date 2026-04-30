@@ -3,6 +3,7 @@ import { listDirectory, readFile, getFileInfo } from '@/api/files'
 import { useProjectStore } from '@/stores/projectStore'
 import { listDocuments, readDocumentContent, createNote as apiCreateNote, updateDocumentContent } from '@/api/documents'
 import type { FileContent, FileInfo, ProjectDocument } from '@/types'
+import { extractErrorMessage } from '@/utils/error'
 
 /** MIME types that indicate text content (even though some start with application/) */
 const TEXT_MIME_PREFIXES = ['text/', 'application/json', 'application/xml', 'application/javascript']
@@ -154,8 +155,7 @@ export const useExplorerStore = create<ExplorerState & ExplorerActions>(
       } catch (e) {
         if (get().currentProjectId === projectId) {
           set({
-            treeError:
-              e instanceof Error ? e.message : 'Failed to load directory',
+            treeError: extractErrorMessage(e, 'Failed to load directory'),
           })
         }
       }
