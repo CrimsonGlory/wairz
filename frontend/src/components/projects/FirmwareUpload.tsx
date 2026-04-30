@@ -3,6 +3,7 @@ import { Upload, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
 import { useProjectStore } from '@/stores/projectStore'
 import { uploadFirmware as apiUploadFirmware, unpackFirmware as apiUnpackFirmware } from '@/api/firmware'
 import { getProject } from '@/api/projects'
+import { extractErrorMessage } from '@/utils/error'
 import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -49,7 +50,7 @@ export default function FirmwareUpload({ projectId, onComplete, showVersionLabel
         onComplete?.()
       } catch (e) {
         setStore({ uploading: false })
-        setErrorMsg(e instanceof Error ? e.message : 'Upload failed')
+        setErrorMsg(extractErrorMessage(e, 'Upload failed'))
         setPhase('error')
       }
     },
