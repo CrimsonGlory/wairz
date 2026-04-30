@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { formatDate } from '@/utils/format'
+import { extractErrorMessage } from '@/utils/error'
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   ready: 'default',
@@ -46,10 +47,7 @@ export default function ProjectCard({ project, onDelete }: ProjectCardProps) {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
     } catch (err) {
-      const msg = err instanceof Error
-        ? err.message
-        : 'Export failed'
-      setExportError(msg)
+      setExportError(extractErrorMessage(err, 'Export failed'))
     } finally {
       setExporting(false)
     }
