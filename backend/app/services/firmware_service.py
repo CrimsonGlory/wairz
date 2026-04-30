@@ -346,6 +346,38 @@ class FirmwareService:
                         f"({self.settings.max_upload_size_mb} MB limit).",
                     )
 
+        # Reject same-content re-uploads within a project. The DB constraint
+        # uq_firmware_project_sha256 (migration ca95e2723392) backstops races;
+        # this guard turns the common single-user double-upload into a clean
+        # 409 instead of an asyncpg.UniqueViolationError → 500 inside flush.
+        sha256_hex = sha256_hash.hexdigest()
+        existing_id = (
+            await self.db.execute(
+                select(Firmware.id).where(
+                    Firmware.project_id == project_id,
+                    Firmware.sha256 == sha256_hex,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_id is not None:
+            try:
+                os.remove(storage_path)
+            except OSError:
+                pass
+            try:
+                os.rmdir(firmware_dir)
+            except OSError:
+                pass
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"This firmware is already in the project "
+                    f"(firmware_id={existing_id}). Open the existing entry "
+                    "or upload to a different project."
+                ),
+            )
+
         # Tarball detection: .tar.gz, .tar, .tgz files containing a rootfs
         # are extracted directly (same path as rootfs ZIPs). This supports
         # ADB device dumps (e.g., `adb pull /system` → system.tar.gz).
