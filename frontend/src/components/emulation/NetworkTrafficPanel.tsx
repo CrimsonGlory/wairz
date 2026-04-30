@@ -22,6 +22,7 @@ import type {
   PcapAnalysis,
   NetworkCaptureResult,
 } from '@/api/emulation'
+import { extractErrorMessage } from '@/utils/error'
 
 const SEVERITY_CLASSES: Record<string, string> = {
   Critical: 'bg-red-500/15 text-red-400 border-red-500/40',
@@ -71,14 +72,13 @@ export function NetworkTrafficPanel({
         const analysisResult = await analyzeNetworkTraffic(projectId, sessionId)
         setAnalysis(analysisResult)
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : 'Analysis failed'
+        const msg = extractErrorMessage(err, 'Analysis failed')
         setError(`Capture succeeded but analysis failed: ${msg}`)
       } finally {
         setAnalyzing(false)
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Capture failed'
-      setError(msg)
+      setError(extractErrorMessage(err, 'Capture failed'))
     } finally {
       setCapturing(false)
     }
@@ -91,8 +91,7 @@ export function NetworkTrafficPanel({
       const analysisResult = await analyzeNetworkTraffic(projectId, sessionId)
       setAnalysis(analysisResult)
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Analysis failed'
-      setError(msg)
+      setError(extractErrorMessage(err, 'Analysis failed'))
     } finally {
       setAnalyzing(false)
     }
