@@ -99,6 +99,14 @@ export default function FileTree() {
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchTruncated, setSearchTruncated] = useState(false)
 
+  // Documents-only mode: skip the firmware filesystem pane when the
+  // project doesn't have a Linux rootfs to walk (RTOS / unknown / no
+  // firmware uploaded yet).
+  const project = useProjectStore((s) =>
+    projectId ? s.projects.find((p) => p.id === projectId) : undefined,
+  )
+  const hasFirmwareFs = project?.firmware_kind === 'linux'
+
   const containerRef = useRef<HTMLDivElement>(null)
   const treeRef = useRef<TreeApi<TreeNode>>(null)
   const [height, setHeight] = useState(400)
@@ -118,10 +126,12 @@ export default function FileTree() {
     return () => observer.disconnect()
   }, [])
 
-  // Load root on mount
+  // Load firmware filesystem root on mount — only when there is one to
+  // load. RTOS / unknown projects skip this so listDirectory doesn't
+  // error out against an empty extracted_path.
   useEffect(() => {
-    if (projectId) loadRootDirectory(projectId)
-  }, [projectId, loadRootDirectory])
+    if (projectId && hasFirmwareFs) loadRootDirectory(projectId)
+  }, [projectId, hasFirmwareFs, loadRootDirectory])
 
   // Update visible node count for dynamic tree height
   useEffect(() => {
@@ -298,89 +308,98 @@ export default function FileTree() {
     )
   }
 
-  // Size tree to its content, capped at available space
+  // Size tree to its content, capped at available space. When the firmware
+  // filesystem is hidden (RTOS / unknown), the documents section gets the
+  // full pane.
   const newNoteRowHeight = showNewNote ? 32 : 0
-  const docsHeight = documents.length > 0 || showNewNote || documentsLoading
-    ? Math.min(documents.length * 28 + 36 + newNoteRowHeight, 220)
-    : 36
+  const docsHeight = !hasFirmwareFs
+    ? height
+    : documents.length > 0 || showNewNote || documentsLoading
+      ? Math.min(documents.length * 28 + 36 + newNoteRowHeight, 220)
+      : 36
   const maxTreeHeight = Math.max(height - docsHeight, 100)
   const contentHeight = visibleCount * 28
   const treeHeight = visibleCount > 0 ? Math.min(contentHeight, maxTreeHeight) : maxTreeHeight
 
   return (
     <div ref={containerRef} className="relative flex-1 overflow-hidden" onContextMenu={handleContextMenu}>
-      {/* Search bar */}
-      <div className="flex items-center gap-1 border-b border-border px-2 py-1">
-        <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <input
-          type="text"
-          placeholder="Search files…"
-          value={searchQuery}
-          onChange={(e) => {
-            setSearchQuery(e.target.value)
-            if (!e.target.value.trim()) setSearchResults(null)
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleSearch()
-            if (e.key === 'Escape') { setSearchQuery(''); setSearchResults(null) }
-          }}
-          className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-        />
-        {searchLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-        {searchQuery && (
-          <button onClick={() => { setSearchQuery(''); setSearchResults(null) }} className="text-muted-foreground hover:text-foreground">
-            <X className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
+      {hasFirmwareFs && (
+        <>
+          {/* Search bar */}
+          <div className="flex items-center gap-1 border-b border-border px-2 py-1">
+            <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search files…"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value)
+                if (!e.target.value.trim()) setSearchResults(null)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSearch()
+                if (e.key === 'Escape') { setSearchQuery(''); setSearchResults(null) }
+              }}
+              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            />
+            {searchLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+            {searchQuery && (
+              <button onClick={() => { setSearchQuery(''); setSearchResults(null) }} className="text-muted-foreground hover:text-foreground">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
 
-      {/* Search results overlay */}
-      {searchResults !== null ? (
-        <div className="overflow-auto" style={{ height: treeHeight }}>
-          {searchResults.length === 0 ? (
-            <div className="px-4 py-8 text-center text-sm text-muted-foreground">No matches found</div>
+          {/* Search results overlay or file tree */}
+          {searchResults !== null ? (
+            <div className="overflow-auto" style={{ height: treeHeight }}>
+              {searchResults.length === 0 ? (
+                <div className="px-4 py-8 text-center text-sm text-muted-foreground">No matches found</div>
+              ) : (
+                <>
+                  <div className="px-2 py-1 text-xs text-muted-foreground">
+                    {searchResults.length} result{searchResults.length !== 1 ? 's' : ''}{searchTruncated ? ' (truncated)' : ''}
+                  </div>
+                  {searchResults.map((path) => (
+                    <div
+                      key={path}
+                      onClick={() => handleSearchResultClick(path)}
+                      className="flex cursor-pointer items-center gap-1.5 rounded-sm px-2 py-1 text-sm hover:bg-accent/50"
+                    >
+                      <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{path}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
           ) : (
-            <>
-              <div className="px-2 py-1 text-xs text-muted-foreground">
-                {searchResults.length} result{searchResults.length !== 1 ? 's' : ''}{searchTruncated ? ' (truncated)' : ''}
-              </div>
-              {searchResults.map((path) => (
-                <div
-                  key={path}
-                  onClick={() => handleSearchResultClick(path)}
-                  className="flex cursor-pointer items-center gap-1.5 rounded-sm px-2 py-1 text-sm hover:bg-accent/50"
-                >
-                  <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="truncate">{path}</span>
-                </div>
-              ))}
-            </>
+            <div style={{ height: treeHeight }}>
+              <Tree<TreeNode>
+                ref={treeRef}
+                data={treeData}
+                width="100%"
+                height={treeHeight}
+                rowHeight={28}
+                indent={16}
+                openByDefault={false}
+                disableDrag
+                disableDrop
+                disableEdit
+                disableMultiSelection
+                onToggle={handleToggle}
+                onActivate={handleActivate}
+              >
+                {Node}
+              </Tree>
+            </div>
           )}
-        </div>
-      ) : (
-      <div style={{ height: treeHeight }}>
-        <Tree<TreeNode>
-          ref={treeRef}
-          data={treeData}
-          width="100%"
-          height={treeHeight}
-          rowHeight={28}
-          indent={16}
-          openByDefault={false}
-          disableDrag
-          disableDrop
-          disableEdit
-          disableMultiSelection
-          onToggle={handleToggle}
-          onActivate={handleActivate}
-        >
-          {Node}
-        </Tree>
-      </div>
+        </>
+
       )}
 
       {/* Project Documents section */}
-      <div className="border-t border-border">
+      <div className={hasFirmwareFs ? 'border-t border-border' : ''}>
           <div className="flex items-center gap-2 px-4 py-1.5 text-xs font-medium text-muted-foreground">
             <FileText className="h-3.5 w-3.5" />
             Documents
