@@ -563,6 +563,51 @@ class TestBinaryRodataCredentialScan:
         assert "Hardcoded Secrets in Binary rodata (high confidence)" not in result
 
 
+class TestVendorPrefixedCredentialKeys:
+    """Regression for the Wyze BCS update report — vendor configs use
+    *_KEY / *_TOKEN naming (e.g. ``IOT_APP_KEY=...``, ``WYZE_OTA_UPDATE_KEY=...``)
+    that the old narrow patterns missed entirely."""
+
+    @pytest.mark.asyncio
+    async def test_finds_iot_app_key(self, tmp_path, registry):
+        (tmp_path / "init").mkdir()
+        (tmp_path / "init" / ".product_config").write_text(
+            "[WYZE]\n"
+            "IOT_APP_ID=mbcf_5385a03fe05c63ee\n"
+            "IOT_APP_KEY=L37jsUXlLzputvjcEQ1Hfr1JyeSTMs5x\n"
+            "WYZE_OTA_UPDATE_KEY=oU8XzEpbOD6pVTLwdz9pxRpN9MGPCo1P\n"
+        )
+        ctx = ToolContext(
+            project_id=uuid4(),
+            firmware_id=uuid4(),
+            extracted_path=str(tmp_path),
+            db=MagicMock(),
+        )
+        result = await registry.execute("find_hardcoded_credentials", {}, ctx)
+        assert "L37jsUXlLzputvjcEQ1Hfr1JyeSTMs5x" in result
+        assert "oU8XzEpbOD6pVTLwdz9pxRpN9MGPCo1P" in result
+
+    @pytest.mark.asyncio
+    async def test_no_match_on_keyboard_or_monkey(self, tmp_path, registry):
+        # `keyboard=` and `monkey=` end in "key"-shaped suffixes but are not
+        # credentials. The `[_-]` separator in the catch-all pattern guards
+        # against these false positives.
+        (tmp_path / "etc").mkdir()
+        (tmp_path / "etc" / "config").write_text(
+            "keyboard=us-intl\n"
+            "monkey=banana\n"
+        )
+        ctx = ToolContext(
+            project_id=uuid4(),
+            firmware_id=uuid4(),
+            extracted_path=str(tmp_path),
+            db=MagicMock(),
+        )
+        result = await registry.execute("find_hardcoded_credentials", {}, ctx)
+        assert "us-intl" not in result
+        assert "banana" not in result
+
+
 # ---------------------------------------------------------------------------
 # Path traversal tests
 # ---------------------------------------------------------------------------

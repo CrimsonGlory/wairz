@@ -15,13 +15,20 @@ import re
 # Generic credential patterns (key=value style)
 # ---------------------------------------------------------------------------
 
+# The leading `\w*` lets the suffix match prefixed config keys like
+# IOT_APP_KEY, WYZE_OTA_UPDATE_KEY, CLIENT_SECRET, ACCESS_TOKEN — vendors
+# rarely name their credential fields verbatim "password" or "api_key".
+# The leading `\b` keeps the prefix from starting mid-word.
 CREDENTIAL_PATTERNS = [
-    re.compile(r"password\s*[=:]\s*(\S+)", re.IGNORECASE),
-    re.compile(r"passwd\s*[=:]\s*(\S+)", re.IGNORECASE),
-    re.compile(r"secret\s*[=:]\s*(\S+)", re.IGNORECASE),
-    re.compile(r"api_key\s*[=:]\s*(\S+)", re.IGNORECASE),
-    re.compile(r"token\s*[=:]\s*(\S+)", re.IGNORECASE),
-    re.compile(r"credential\s*[=:]\s*(\S+)", re.IGNORECASE),
+    re.compile(r"\b\w*(?:password|passwd|pwd)\s*[=:]\s*(\S+)", re.IGNORECASE),
+    re.compile(r"\b\w*secret\s*[=:]\s*(\S+)", re.IGNORECASE),
+    re.compile(r"\b\w*token\s*[=:]\s*(\S+)", re.IGNORECASE),
+    re.compile(r"\b\w*credential\s*[=:]\s*(\S+)", re.IGNORECASE),
+    re.compile(r"\b\w*api[_-]?key\s*[=:]\s*(\S+)", re.IGNORECASE),
+    re.compile(r"\b\w*app[_-]?key\s*[=:]\s*(\S+)", re.IGNORECASE),
+    # Catch-all *_key= for vendor-specific naming. The underscore-or-dash
+    # prefix avoids matching keyboard=, monkey=, etc.
+    re.compile(r"\b\w+[_-]key\s*[=:]\s*(\S+)", re.IGNORECASE),
 ]
 
 # ---------------------------------------------------------------------------
