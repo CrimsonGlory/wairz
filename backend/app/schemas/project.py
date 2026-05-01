@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -25,6 +26,9 @@ class FirmwareResponse(BaseModel):
     endianness: str | None
     os_info: str | None
     version_label: str | None = None
+    firmware_kind: Literal["linux", "rtos", "unknown"] = "unknown"
+    firmware_kind_source: Literal["detected", "manual"] | None = None
+    rtos_flavor: Literal["freertos", "zephyr", "baremetal-cortexm"] | None = None
     created_at: datetime
 
 

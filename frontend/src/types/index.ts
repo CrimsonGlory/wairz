@@ -11,6 +11,10 @@ export interface ProjectDetail extends Project {
   firmware: FirmwareSummary[]
 }
 
+export type FirmwareKind = 'linux' | 'rtos' | 'unknown'
+export type FirmwareKindSource = 'detected' | 'manual'
+export type RtosFlavor = 'freertos' | 'zephyr' | 'baremetal-cortexm'
+
 export interface FirmwareSummary {
   id: string
   original_filename: string | null
@@ -21,6 +25,9 @@ export interface FirmwareSummary {
   os_info: string | null
   kernel_path: string | null
   version_label: string | null
+  firmware_kind: FirmwareKind
+  firmware_kind_source: FirmwareKindSource | null
+  rtos_flavor: RtosFlavor | null
   created_at: string
 }
 

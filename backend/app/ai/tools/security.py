@@ -3939,6 +3939,7 @@ def register_security_tools(registry: ToolRegistry) -> None:
             "required": ["path"],
         },
         handler=_handle_analyze_config_security,
+        applies_to=("linux",),
     )
 
     registry.register(
@@ -3963,6 +3964,7 @@ def register_security_tools(registry: ToolRegistry) -> None:
             "required": [],
         },
         handler=_handle_check_setuid_binaries,
+        applies_to=("linux",),
     )
 
     registry.register(
@@ -3988,6 +3990,7 @@ def register_security_tools(registry: ToolRegistry) -> None:
             "required": [],
         },
         handler=_handle_analyze_init_scripts,
+        applies_to=("linux",),
     )
 
     registry.register(
@@ -4013,6 +4016,7 @@ def register_security_tools(registry: ToolRegistry) -> None:
             "required": [],
         },
         handler=_handle_check_filesystem_permissions,
+        applies_to=("linux",),
     )
 
     registry.register(

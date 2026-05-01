@@ -42,6 +42,11 @@ class Firmware(Base):
     os_info: Mapped[str | None] = mapped_column(Text)
     kernel_path: Mapped[str | None] = mapped_column(String(512))
     version_label: Mapped[str | None] = mapped_column(String(100))
+    firmware_kind: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="unknown", server_default="unknown"
+    )
+    firmware_kind_source: Mapped[str | None] = mapped_column(String(20))
+    rtos_flavor: Mapped[str | None] = mapped_column(String(40))
     unpack_log: Mapped[str | None] = mapped_column(Text)
     unpack_stage: Mapped[str | None] = mapped_column(String(100))
     unpack_progress: Mapped[int | None] = mapped_column(Integer)

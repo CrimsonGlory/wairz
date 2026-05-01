@@ -15,6 +15,7 @@ from app.rate_limit import TIER_A_LIGHT_ACK, limiter
 from app.schemas.firmware import (
     FirmwareDetailResponse,
     FirmwareDetectionAuditResponse,
+    FirmwareKindUpdate,
     FirmwareMetadataResponse,
     FirmwareUpdate,
     FirmwareUploadStatusResponse,
@@ -231,6 +232,29 @@ async def update_firmware(
     update_data = data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(firmware, key, value)
+    await service.db.flush()
+    return firmware
+
+
+@router.patch("/{firmware_id}/kind", response_model=FirmwareDetailResponse)
+async def update_firmware_kind(
+    project_id: uuid.UUID,
+    firmware_id: uuid.UUID,
+    data: FirmwareKindUpdate,
+    service: FirmwareService = Depends(get_firmware_service),
+):
+    """Manually override the detected firmware kind (Linux vs RTOS).
+
+    Sets firmware_kind_source='manual' so detection re-runs won't clobber
+    the user's choice.
+    """
+    firmware = await service.get_by_id(firmware_id)
+    if not firmware or firmware.project_id != project_id:
+        raise HTTPException(404, "Firmware not found")
+
+    firmware.firmware_kind = data.kind
+    firmware.rtos_flavor = data.rtos_flavor if data.kind == "rtos" else None
+    firmware.firmware_kind_source = "manual"
     await service.db.flush()
     return firmware
 

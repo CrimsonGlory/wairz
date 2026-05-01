@@ -84,6 +84,11 @@ class ProjectState:
     detection_roots: list[str] = field(default_factory=list)
     carved_path: str | None = None
     firmware_loaded: bool = False
+    # Firmware kind drives which MCP tools are exposed (linux/rtos/unknown).
+    # When firmware isn't loaded we default to "unknown" so kind-tagged tools
+    # are filtered out — only the project-management tools remain.
+    firmware_kind: str = "unknown"
+    rtos_flavor: str | None = None
 
 
 def _resolve_storage_root() -> str | None:
@@ -336,6 +341,8 @@ async def _load_project_state(
             else:
                 state.carved_path = None
             state.firmware_loaded = True
+            state.firmware_kind = firmware.firmware_kind or "unknown"
+            state.rtos_flavor = firmware.rtos_flavor
             await session.commit()
         else:
             # No firmware yet — server starts but tools will return errors
@@ -348,6 +355,8 @@ async def _load_project_state(
             state.detection_roots = []
             state.carved_path = None
             state.firmware_loaded = False
+            state.firmware_kind = "unknown"
+            state.rtos_flavor = None
 
     # Apply path translation
     if host_storage_root and state.extracted_path:
@@ -456,6 +465,11 @@ async def run_server(
             f"Endianness: {state.endianness or 'unknown'}",
             f"Extracted Path: {state.extracted_path}",
         ]
+        if state.firmware_loaded:
+            kind_label = state.firmware_kind
+            if state.firmware_kind == "rtos" and state.rtos_flavor:
+                kind_label = f"rtos ({state.rtos_flavor})"
+            lines.append(f"Kind: {kind_label}")
         return "\n".join(lines)
 
     registry.register(
@@ -544,6 +558,11 @@ async def run_server(
             f"  Architecture: {state.architecture or 'unknown'}",
             f"  Endianness: {state.endianness or 'unknown'}",
         ]
+        if state.firmware_loaded:
+            kind_label = state.firmware_kind
+            if state.firmware_kind == "rtos" and state.rtos_flavor:
+                kind_label = f"rtos ({state.rtos_flavor})"
+            lines.append(f"  Kind: {kind_label}")
         return "\n".join(lines)
 
     registry.register(
@@ -617,10 +636,15 @@ async def run_server(
     server = Server("wairz")
 
     # --- Tool listing ---
+    # Filter dynamically on each call so switch_project (which mutates state
+    # in place) immediately changes the visible tool surface.
     @server.list_tools()
     async def list_tools() -> list[Tool]:
+        kind = state.firmware_kind
         tools = []
         for tool_def in registry._tools.values():
+            if kind not in tool_def.applies_to:
+                continue
             tools.append(
                 Tool(
                     name=tool_def.name,
@@ -656,6 +680,19 @@ async def run_server(
                 ),
             )]
 
+        # Defense in depth: even if the client has a stale tool list, refuse
+        # to run tools that don't apply to this firmware's kind.
+        tool_def = registry._tools.get(name)
+        if tool_def is not None and hasattr(tool_def, 'applies_to') and state.firmware_kind not in tool_def.applies_to:
+            return [TextContent(
+                type="text",
+                text=(
+                    f"Error: Tool '{name}' does not apply to this project "
+                    f"(firmware_kind='{state.firmware_kind}', "
+                    f"tool applies to: {', '.join(tool_def.applies_to)}). "
+                    f"Change the firmware kind in the Wairz UI if this is wrong."
+                ),
+            )]
         async with session_factory() as session:
             context = ToolContext(
                 project_id=state.project_id,
@@ -689,12 +726,16 @@ async def run_server(
     @server.read_resource()
     async def read_resource(uri) -> str:
         if str(uri) == "wairz://project/info":
+            kind_label = state.firmware_kind
+            if state.firmware_kind == "rtos" and state.rtos_flavor:
+                kind_label = f"rtos ({state.rtos_flavor})"
             lines = [
                 f"Project: {state.project_name}",
                 f"Description: {state.project_desc}",
                 f"Project ID: {state.project_id}",
                 f"Firmware: {state.firmware_filename}",
                 f"Firmware ID: {state.firmware_id}",
+                f"Kind: {kind_label}",
                 f"Architecture: {state.architecture or 'unknown'}",
                 f"Endianness: {state.endianness or 'unknown'}",
                 f"Extracted Path: {state.extracted_path}",

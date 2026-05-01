@@ -639,6 +639,7 @@ def register_filesystem_tools(registry: ToolRegistry) -> None:
             "required": [],
         },
         handler=_handle_get_component_map,
+        applies_to=("linux",),
     )
 
     registry.register(

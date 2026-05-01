@@ -109,12 +109,19 @@ class ToolContext:
         return svc.to_virtual_path(abs_path)
 
 
+# Sentinel meaning "this tool applies to every firmware kind". Tools default to
+# this — only tag when the tool is meaningfully kind-specific (e.g. requires a
+# Linux rootfs, or only makes sense for an RTOS image).
+ALL_KINDS: tuple[str, ...] = ("linux", "rtos", "unknown")
+
+
 @dataclass
 class ToolDefinition:
     name: str
     description: str
     input_schema: dict
     handler: Callable[[dict, ToolContext], Awaitable[str]]
+    applies_to: tuple[str, ...] = ALL_KINDS
 
 
 class ToolRegistry:
@@ -127,12 +134,14 @@ class ToolRegistry:
         description: str,
         input_schema: dict,
         handler: Callable[[dict, ToolContext], Awaitable[str]],
+        applies_to: tuple[str, ...] = ALL_KINDS,
     ) -> None:
         self._tools[name] = ToolDefinition(
             name=name,
             description=description,
             input_schema=input_schema,
             handler=handler,
+            applies_to=applies_to,
         )
 
     def subset(self, tool_names: list[str]) -> "ToolRegistry":
@@ -141,6 +150,18 @@ class ToolRegistry:
         for name in tool_names:
             if name in self._tools:
                 new_registry._tools[name] = self._tools[name]
+        return new_registry
+
+    def for_kind(self, kind: str) -> "ToolRegistry":
+        """Return a new ToolRegistry with only the tools that apply to *kind*.
+
+        Tools without an explicit applies_to default to ALL_KINDS and pass
+        through unchanged.
+        """
+        new_registry = ToolRegistry()
+        for name, tool in self._tools.items():
+            if kind in tool.applies_to:
+                new_registry._tools[name] = tool
         return new_registry
 
     def get_anthropic_tools(self) -> list[dict]:

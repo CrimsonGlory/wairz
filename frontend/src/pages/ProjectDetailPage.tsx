@@ -6,14 +6,33 @@ import {
   Loader2,
   Plus,
   Download,
+  Upload,
+  Pencil,
+  Check,
+  X,
+  ChevronDown,
 } from 'lucide-react'
 import { useProjectStore } from '@/stores/projectStore'
 import { useFirmwareList } from '@/hooks/useFirmwareList'
-import { deleteFirmware, updateFirmware, uploadRootfs } from '@/api/firmware'
+import {
+  deleteFirmware,
+  updateFirmware,
+  updateFirmwareKind,
+  uploadRootfs,
+} from '@/api/firmware'
+import type { FirmwareDetail, FirmwareKind, RtosFlavor } from '@/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { formatDate } from '@/utils/format'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { formatFileSize, formatDate } from '@/utils/format'
 import FirmwareUpload from '@/components/projects/FirmwareUpload'
 import FirmwareMetadataCard from '@/components/projects/FirmwareMetadataCard'
 import FirmwareVersionCard from '@/components/projects/FirmwareVersionCard'
@@ -23,6 +42,17 @@ import { exportProject } from '@/api/exportImport'
 import { useEventStream } from '@/hooks/useEventStream'
 import { PROJECT_STATUS_VARIANT } from '@/constants/statusConfig'
 import { extractErrorMessage } from '@/utils/error'
+
+function formatKind(kind: FirmwareKind | undefined, flavor: RtosFlavor | null | undefined): string {
+  if (kind === 'rtos') {
+    if (flavor === 'freertos') return 'RTOS · FreeRTOS'
+    if (flavor === 'zephyr') return 'RTOS · Zephyr'
+    if (flavor === 'baremetal-cortexm') return 'Bare-metal Cortex-M'
+    return 'RTOS'
+  }
+  if (kind === 'linux') return 'Linux'
+  return 'Unknown'
+}
 
 export default function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -179,6 +209,21 @@ export default function ProjectDetailPage() {
     setEditingVersionLabel(null)
   }
 
+  const handleKindChange = async (
+    firmwareId: string,
+    kind: FirmwareKind,
+    flavor: RtosFlavor | null,
+  ) => {
+    if (!projectId) return
+    try {
+      await updateFirmwareKind(projectId, firmwareId, kind, flavor)
+      fetchProject(projectId)
+      listFirmware(projectId).then(setFirmwareList).catch(() => {})
+    } catch {
+      // error surfacing handled at a higher level if needed
+    }
+  }
+
   const handleRootfsUpload = async (firmwareId: string, file: File) => {
     if (!projectId) return
     setUploadingRootfs(firmwareId)
@@ -262,30 +307,192 @@ export default function ProjectDetailPage() {
             </Button>
           </div>
 
-          {firmware.map((fw) => (
-            <FirmwareVersionCard
-              key={fw.id}
-              fw={fw}
-              fwDetail={firmwareList.find((f) => f.id === fw.id)}
-              status={status}
-              unpacking={unpacking}
-              editingVersionLabel={editingVersionLabel}
-              versionLabelDraft={versionLabelDraft}
-              versionInputRef={versionInputRef}
-              onSetVersionLabelDraft={setVersionLabelDraft}
-              handleUnpack={handleUnpack}
-              handleDeleteFirmware={handleDeleteFirmware}
-              startEditingVersionLabel={startEditingVersionLabel}
-              saveVersionLabel={saveVersionLabel}
-              cancelEditingVersionLabel={() => setEditingVersionLabel(null)}
-              handleRootfsUpload={handleRootfsUpload}
-              uploadingRootfs={uploadingRootfs}
-              rootfsError={rootfsError}
-              rootfsInputRef={rootfsInputRef}
-              expandedLogs={expandedLogs}
-              setExpandedLogs={setExpandedLogs}
-            />
-          ))}
+          {firmware.map((fw) => {
+            const fwDetail = firmwareList.find((f) => f.id === fw.id)
+            const isUnpacked = fwDetail?.extracted_path
+            const hasError = fwDetail?.unpack_log && !isUnpacked && status === 'error'
+
+            return (
+              <Card key={fw.id}>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <FileText className="h-4 w-4" />
+                      {fw.original_filename}
+                      {editingVersionLabel === fw.id ? (
+                        <span className="inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                          <Input
+                            ref={versionInputRef}
+                            value={versionLabelDraft}
+                            onChange={(e) => setVersionLabelDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveVersionLabel(fw.id)
+                              if (e.key === 'Escape') setEditingVersionLabel(null)
+                            }}
+                            placeholder="e.g. v1.0.3"
+                            className="h-6 w-32 text-xs"
+                          />
+                          <Button size="icon" variant="ghost" className="h-5 w-5" onClick={() => saveVersionLabel(fw.id)}>
+                            <Check className="h-3 w-3" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-5 w-5" onClick={() => setEditingVersionLabel(null)}>
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </span>
+                      ) : fw.version_label ? (
+                        <Badge
+                          variant="secondary"
+                          className="text-xs cursor-pointer hover:bg-secondary/80"
+                          onClick={() => startEditingVersionLabel(fw.id, fw.version_label ?? null)}
+                        >
+                          <Tag className="mr-1 h-3 w-3" />
+                          {fw.version_label}
+                          <Pencil className="ml-1 h-2.5 w-2.5 opacity-50" />
+                        </Badge>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-5 px-1.5 text-xs text-muted-foreground"
+                          onClick={() => startEditingVersionLabel(fw.id, null)}
+                        >
+                          <Tag className="mr-1 h-3 w-3" />
+                          Add version
+                        </Button>
+                      )}
+                      {isUnpacked && (
+                        <Badge variant="default" className="text-xs">unpacked</Badge>
+                      )}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Badge
+                            variant="outline"
+                            className="text-xs cursor-pointer hover:bg-secondary/50"
+                          >
+                            {formatKind(fw.firmware_kind, fw.rtos_flavor)}
+                            <ChevronDown className="ml-1 h-2.5 w-2.5 opacity-60" />
+                          </Badge>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start">
+                          <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                            Kind ({fw.firmware_kind_source ?? 'unset'})
+                          </DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => handleKindChange(fw.id, 'linux', null)}>
+                            Linux
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleKindChange(fw.id, 'rtos', 'freertos')}>
+                            RTOS · FreeRTOS
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleKindChange(fw.id, 'rtos', 'zephyr')}>
+                            RTOS · Zephyr
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleKindChange(fw.id, 'rtos', 'baremetal-cortexm')}>
+                            Bare-metal Cortex-M
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => handleKindChange(fw.id, 'unknown', null)}>
+                            Unknown
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </CardTitle>
+                    <div className="flex gap-1">
+                      {!isUnpacked && !hasError && (
+                        <Button size="sm" onClick={() => handleUnpack(fw.id)} disabled={unpacking}>
+                          {unpacking && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+                          Unpack
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => handleDeleteFirmware(fw.id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                    <div className="flex items-center gap-2">
+                      <HardDrive className="h-4 w-4 text-muted-foreground" />
+                      <dt className="text-muted-foreground">Size:</dt>
+                      <dd className="font-medium">
+                        {fw.file_size != null ? formatFileSize(fw.file_size) : 'N/A'}
+                      </dd>
+                    </div>
+                    {fw.architecture && (
+                      <div className="flex items-center gap-2">
+                        <Cpu className="h-4 w-4 text-muted-foreground" />
+                        <dt className="text-muted-foreground">Architecture:</dt>
+                        <dd className="font-medium">
+                          {fw.architecture}
+                          {fw.endianness ? ` (${fw.endianness})` : ''}
+                        </dd>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 col-span-2">
+                      <Hash className="h-4 w-4 text-muted-foreground" />
+                      <dt className="text-muted-foreground">SHA256:</dt>
+                      <dd className="font-mono text-xs truncate">{fw.sha256}</dd>
+                    </div>
+                  </dl>
+
+                  {hasError && fwDetail?.unpack_log && (
+                    <div className="mt-3 rounded bg-destructive/5 border border-destructive/20 p-3">
+                      <div className="flex items-center gap-2 text-sm text-destructive mb-2">
+                        <AlertCircle className="h-4 w-4" />
+                        Unpacking Failed
+                      </div>
+                      <pre className="max-h-40 overflow-auto text-xs">{fwDetail.unpack_log}</pre>
+                      <div className="flex gap-2 mt-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleUnpack(fw.id)}
+                          disabled={unpacking}
+                        >
+                          {unpacking && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+                          Retry
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => rootfsInputRef.current?.click()}
+                          disabled={uploadingRootfs === fw.id}
+                        >
+                          {uploadingRootfs === fw.id ? (
+                            <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Upload className="mr-2 h-3.5 w-3.5" />
+                          )}
+                          Upload Rootfs
+                        </Button>
+                        <input
+                          ref={rootfsInputRef}
+                          type="file"
+                          accept=".tar,.tar.gz,.tgz,.zip"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            if (file) handleRootfsUpload(fw.id, file)
+                            e.target.value = ''
+                          }}
+                        />
+                      </div>
+                      {rootfsError && uploadingRootfs === null && (
+                        <p className="text-xs text-destructive mt-1">{rootfsError}</p>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )
+          })}
+
         </div>
       )}
 

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 # State machine for the upload-side 202+polling refactor (Rule #29 + #33).
 # Mirrors the CHECK constraint ck_firmware_upload_stage on the firmware
@@ -227,6 +227,10 @@ IcsProtocolWalkStatus = Literal[
     "idle", "queued", "running", "completed", "failed"
 ]
 
+FirmwareKind = Literal["linux", "rtos", "unknown"]
+FirmwareKindSource = Literal["detected", "manual"]
+RtosFlavor = Literal["freertos", "zephyr", "baremetal-cortexm"]
+
 
 class FirmwareUploadResponse(BaseModel):
     model_config = {"from_attributes": True}
@@ -236,6 +240,9 @@ class FirmwareUploadResponse(BaseModel):
     sha256: str
     file_size: int | None
     version_label: str | None = None
+    firmware_kind: FirmwareKind = "unknown"
+    firmware_kind_source: FirmwareKindSource | None = None
+    rtos_flavor: RtosFlavor | None = None
     created_at: datetime
 
 
@@ -275,6 +282,17 @@ class FirmwareUpdate(BaseModel):
     version_label: str | None = None
 
 
+class FirmwareKindUpdate(BaseModel):
+    kind: FirmwareKind
+    rtos_flavor: RtosFlavor | None = None
+
+    @model_validator(mode="after")
+    def _flavor_only_for_rtos(self) -> "FirmwareKindUpdate":
+        if self.kind != "rtos" and self.rtos_flavor is not None:
+            raise ValueError("rtos_flavor may only be set when kind == 'rtos'")
+        return self
+
+
 class BinaryInfoResponse(BaseModel):
     """Structured binary analysis results (stored as JSONB on Firmware)."""
     format: str | None = None
@@ -305,6 +323,9 @@ class FirmwareDetailResponse(BaseModel):
     extraction_dir: str | None = None
     kernel_path: str | None
     version_label: str | None = None
+    firmware_kind: FirmwareKind = "unknown"
+    firmware_kind_source: FirmwareKindSource | None = None
+    rtos_flavor: RtosFlavor | None = None
     unpack_log: str | None
     unpack_stage: str | None = None
     unpack_progress: int | None = None
