@@ -51,6 +51,7 @@ from app.routers import (
 )
 from app.routers.terminal import system_ws_router as _system_ws_router
 from app.services.event_service import event_service
+from app.services.carving_service import CarvingService
 from app.utils.sandbox import PathTraversalError
 
 
@@ -60,6 +61,7 @@ async def lifespan(app: FastAPI):
 
     os.makedirs(settings.storage_root, exist_ok=True)
     os.makedirs(settings.emulation_kernel_dir, exist_ok=True)
+
 
     # Auth gate removed 2026-05-21 per operator direction (backlog
     # `auth-gate-removal-2026-05-21`). The B.1.a refuse-to-start check
@@ -370,6 +372,15 @@ async def lifespan(app: FastAPI):
             "lifespan startup — walker will operate WITHOUT plugin "
             "matchers; closed-grammar YAML detection still works",
         )
+
+
+    # Reap any carving sandboxes left running by a previous backend process
+    # so we don't accumulate orphans across restarts.
+    try:
+        CarvingService.cleanup_orphans()
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning("Carving orphan cleanup failed", exc_info=True)
 
     yield
 

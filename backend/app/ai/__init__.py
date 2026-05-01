@@ -6,6 +6,7 @@ from app.ai.tools.android_sast import register_android_sast_tools
 from app.ai.tools.attack_surface import register_attack_surface_tools
 from app.ai.tools.bare_metal import register_bare_metal_tools
 from app.ai.tools.binary import register_binary_tools
+from app.ai.tools.carving import register_carving_tools
 from app.ai.tools.comparison import register_comparison_tools
 from app.ai.tools.cwe_checker import register_cwe_checker_tools
 from app.ai.tools.documents import register_document_tools
@@ -158,4 +159,5 @@ def create_tool_registry() -> ToolRegistry:
     # in test_kernel_config_mcp.py + test_network_exposure_mcp.py closes the
     # silent-overwrite gap.
     register_network_exposure_tools(registry)
+    register_carving_tools(registry)
     return registry

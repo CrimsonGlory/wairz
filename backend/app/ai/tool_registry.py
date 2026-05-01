@@ -14,6 +14,7 @@ class ToolContext:
     extracted_path: str
     db: AsyncSession
     extraction_dir: str | None = None
+    carved_path: str | None = None
     review_id: UUID | None = None
     review_agent_id: UUID | None = None
     # Phase 3b: every detection root surfaced by
@@ -33,14 +34,15 @@ class ToolContext:
             self.extracted_path,
             extraction_dir=self.extraction_dir,
             extra_roots=extra or None,
+            carved_path=self.carved_path,
         )
 
     def resolve_path(self, path: str) -> str:
         """Resolve a virtual firmware path to a real filesystem path.
 
         Handles virtual top-level paths like /rootfs/..., /jffs2-root/...,
-        etc. when extraction_dir is set.  Phase 3b: extra detection roots
-        from ``get_detection_roots`` are also accepted as virtual top-level
+        etc. when extraction_dir is set. Extra detection roots from
+        ``get_detection_roots`` are also accepted as virtual top-level
         names (scatter-zip dirs, raw-image dirs). Falls back to simple
         validation against extracted_path for legacy (non-virtual) mode.
         """
@@ -60,9 +62,15 @@ class ToolContext:
         """
         import os
         svc = self._file_service()
+        clean = path.strip("/")
+        # Paths inside the carved-output namespace
+        if self.carved_path and (
+            clean == svc.CARVED_VNAME
+            or clean.startswith(svc.CARVED_VNAME + "/")
+        ):
+            return os.path.realpath(self.carved_path)
         if svc.extraction_dir is None:
             return os.path.realpath(self.extracted_path)
-        clean = path.strip("/")
         # Paths inside rootfs
         if not clean or clean == svc.ROOTFS_VNAME or clean.startswith(svc.ROOTFS_VNAME + "/"):
             return os.path.realpath(self.extracted_path)
@@ -93,7 +101,11 @@ class ToolContext:
         None if abs_path is outside every sandboxed root.
         """
         from app.services.file_service import FileService
-        svc = FileService(self.extracted_path, extraction_dir=self.extraction_dir)
+        svc = FileService(
+            self.extracted_path,
+            extraction_dir=self.extraction_dir,
+            carved_path=self.carved_path,
+        )
         return svc.to_virtual_path(abs_path)
 
 

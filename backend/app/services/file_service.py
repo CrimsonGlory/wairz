@@ -134,6 +134,7 @@ class FileService:
     """
 
     ROOTFS_VNAME = "rootfs"
+    CARVED_VNAME = "_carved"
 
     def __init__(
         self,
@@ -141,24 +142,8 @@ class FileService:
         extraction_dir: str | None = None,
         *,
         extra_roots: list[str] | None = None,
+        carved_path: str | None = None,
     ):
-        """Construct a FileService.
-
-        Parameters
-        ----------
-        extracted_root:
-            The primary rootfs directory (legacy single-root).
-        extraction_dir:
-            The binwalk/unblob output directory containing nested partitions.
-            When set (and distinct from ``extracted_root``), the service
-            exposes a virtual top-level that includes nested partition dirs.
-        extra_roots:
-            Phase 3a addition — additional detection roots returned by
-            ``app.services.firmware_paths.get_detection_roots``. Each root
-            surfaces as its own virtual top-level entry (scatter-zip
-            directories, raw-image dirs, etc.). Ignored when equal to
-            ``extracted_root`` after realpath.
-        """
         self.extracted_root = extracted_root
         # Only enable virtual top-level when extraction_dir differs from rootfs
         # OR when extra detection roots exist (multi-root mode forces a
@@ -167,6 +152,10 @@ class FileService:
             self.extraction_dir = extraction_dir
         else:
             self.extraction_dir = None
+        # Carved-output directory for the firmware. When set and the directory
+        # exists, files written by the carving sandbox become visible to
+        # all read tools at /_carved/...
+        self.carved_path = carved_path if carved_path else None
         # Lazily built mapping from virtual name → real path for nested roots
         self._virtual_map: dict[str, str] | None = None
 
@@ -271,10 +260,20 @@ class FileService:
 
     def _resolve(self, path: str) -> str:
         """Map a virtual path to a real filesystem path and validate it."""
+        clean = path.strip("/")
+
+        # Carving sandbox outputs live outside the extraction tree but are
+        # surfaced at /_carved/... so the agent's carved files are visible
+        # to read_file, extract_strings, decompile_function, etc.
+        if self.carved_path and (
+            clean == self.CARVED_VNAME
+            or clean.startswith(self.CARVED_VNAME + "/")
+        ):
+            sub = clean[len(self.CARVED_VNAME):]
+            return validate_path(self.carved_path, sub or "/")
+
         if self.extraction_dir is None:
             return validate_path(self.extracted_root, path)
-
-        clean = path.strip("/")
 
         # Virtual /rootfs/... → extracted_root/...
         if clean == self.ROOTFS_VNAME or clean.startswith(self.ROOTFS_VNAME + "/"):
@@ -326,6 +325,16 @@ class FileService:
             real = os.path.realpath(abs_path)
         except OSError:
             return None
+
+        # Carved outputs map to /_carved/...; check before rootfs because the
+        # carved dir lives next to (not inside) the extraction tree.
+        if self.carved_path:
+            carved_real = os.path.realpath(self.carved_path)
+            if real == carved_real:
+                return "/" + self.CARVED_VNAME
+            if real.startswith(carved_real + os.sep):
+                rel = os.path.relpath(real, carved_real)
+                return f"/{self.CARVED_VNAME}/{rel}"
 
         rootfs_real = os.path.realpath(self.extracted_root)
         if real == rootfs_real:
@@ -481,6 +490,26 @@ class FileService:
                 size=st.st_size,
                 permissions=_format_permissions(st.st_mode),
             ))
+
+        # 4. _carved/ — the carving sandbox's output directory. Only show
+        # when the directory exists and is non-empty so we don't clutter
+        # the listing for projects that haven't used the sandbox yet.
+        if self.carved_path and os.path.isdir(self.carved_path):
+            try:
+                has_entries = any(os.scandir(self.carved_path))
+            except OSError:
+                has_entries = False
+            if has_entries:
+                try:
+                    st = os.lstat(self.carved_path)
+                    entries.append(FileEntry(
+                        name=self.CARVED_VNAME,
+                        type="directory",
+                        size=st.st_size,
+                        permissions=_format_permissions(st.st_mode),
+                    ))
+                except OSError:
+                    pass
 
         # Sort: rootfs first, then directories, then files alphabetically
         def sort_key(e: FileEntry) -> tuple[int, int, str]:

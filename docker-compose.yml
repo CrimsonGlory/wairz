@@ -454,6 +454,16 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  # Image-only service: built by docker compose so the backend can spawn
+  # ephemeral carving sandboxes via the Docker SDK. Never runs from compose.
+  carving:
+    build:
+      context: ./carving
+      dockerfile: Dockerfile
+    image: wairz-carving
+    profiles:
+      - build-only
+
   frontend:
     build:
       context: ./frontend

@@ -80,11 +80,10 @@ class ProjectState:
     endianness: str | None = None
     extracted_path: str = ""
     extraction_dir: str | None = None
-    # Phase 3b: every detection root surfaced by get_detection_roots,
-    # cached on the ``Firmware.device_metadata`` JSONB field. Populated at
-    # project load so every tool handler sees sibling partition dirs
-    # without a per-call filesystem walk.
+    # Phase 3b: every detection root surfaced by get_detection_roots.
     detection_roots: list[str] = field(default_factory=list)
+    carved_path: str | None = None
+    firmware_loaded: bool = False
 
 
 def _resolve_storage_root() -> str | None:
@@ -317,7 +316,6 @@ async def _load_project_state(
             state.extracted_path = firmware.extracted_path or ""
             state.extraction_dir = firmware.extraction_dir
             # Phase 3b: resolve detection roots once per project switch.
-            # Cache flush is OK — this session owns the transaction below.
             try:
                 from app.services.firmware_paths import get_detection_roots
                 roots = await get_detection_roots(firmware, db=session)
@@ -330,6 +328,14 @@ async def _load_project_state(
                 state.detection_roots = (
                     [firmware.extracted_path] if firmware.extracted_path else []
                 )
+            # Carving-sandbox outputs live next to the original blob.
+            if firmware.storage_path:
+                state.carved_path = os.path.join(
+                    os.path.dirname(firmware.storage_path), "carved"
+                )
+            else:
+                state.carved_path = None
+            state.firmware_loaded = True
             await session.commit()
         else:
             # No firmware yet — server starts but tools will return errors
@@ -340,6 +346,8 @@ async def _load_project_state(
             state.extracted_path = ""
             state.extraction_dir = None
             state.detection_roots = []
+            state.carved_path = None
+            state.firmware_loaded = False
 
     # Apply path translation
     if host_storage_root and state.extracted_path:
@@ -350,6 +358,8 @@ async def _load_project_state(
             state.detection_roots = [
                 _translate_path(r, host_storage_root) for r in state.detection_roots
             ]
+        if state.carved_path:
+            state.carved_path = _translate_path(state.carved_path, host_storage_root)
 
     return firmware_count
 
@@ -654,6 +664,7 @@ async def run_server(
                 db=session,
                 extraction_dir=state.extraction_dir,
                 detection_roots=list(state.detection_roots),
+                carved_path=state.carved_path,
             )
             try:
                 result = await registry.execute(name, arguments, context)

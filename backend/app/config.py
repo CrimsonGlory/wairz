@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     system_emulation_idle_timeout: int = 1800  # 30 min
     system_emulation_ram_limit: str = "2g"
     system_emulation_cpu_limit: int = 2
+    carving_image: str = "wairz-carving"
+    carving_memory_limit_mb: int = 1024
+    carving_cpu_limit: float = 1.0
+    carving_default_timeout: int = 60
+    carving_max_timeout: int = 600
     uart_bridge_host: str = "host.docker.internal"
     uart_bridge_port: int = 9999
     uart_command_timeout: int = 30
