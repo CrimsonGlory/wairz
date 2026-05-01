@@ -5,6 +5,8 @@ export interface Project {
   status: string
   created_at: string
   updated_at: string
+  firmware_kind: FirmwareKind | null
+  rtos_flavor: RtosFlavor | null
 }
 
 export interface ProjectDetail extends Project {

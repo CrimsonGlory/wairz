@@ -78,14 +78,32 @@ async def list_projects(
     offset: int = Query(0, ge=0, description="Number of results to skip"),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(Project).order_by(Project.created_at.desc())
-    items, total = await paginate_query(db, stmt, offset=offset, limit=limit)
-    return Page[ProjectListResponse](
-        items=[ProjectListResponse.model_validate(p) for p in items],
-        total=total,
-        offset=offset,
-        limit=limit,
+    # Eager-load firmware so we can surface the active firmware's kind
+    # without extra round-trips per project.
+    stmt = (
+        select(Project)
+        .options(selectinload(Project.firmware))
+        .order_by(Project.created_at.desc())
     )
+    items, total = await paginate_query(db, stmt, offset=offset, limit=limit)
+    out = []
+    for p in items:
+        # Use the most recently uploaded firmware as the "active" one —
+        # matches the MCP server's default-firmware selection.
+        active_fw = max(p.firmware, key=lambda f: f.created_at) if p.firmware else None
+        out.append(
+            ProjectListResponse(
+                id=p.id,
+                name=p.name,
+                description=p.description,
+                status=p.status,
+                created_at=p.created_at,
+                updated_at=p.updated_at,
+                firmware_kind=active_fw.firmware_kind if active_fw else None,
+                rtos_flavor=active_fw.rtos_flavor if active_fw else None,
+            )
+        )
+    return Page[ProjectListResponse](items=out, total=total, offset=offset, limit=limit)
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)

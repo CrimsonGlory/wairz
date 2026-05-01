@@ -33,6 +33,7 @@ const DriverDetailPage = lazy(() => import('@/pages/DriverDetailPage'))
 const UpdateDiffPage = lazy(() => import('@/pages/UpdateDiffPage'))
 const DotNetBrowserPage = lazy(() => import('@/pages/DotNetBrowserPage'))
 const EvtxWalkPage = lazy(() => import('@/pages/EvtxWalkPage'))
+const RTOSAnalysisPage = lazy(() => import('@/pages/RTOSAnalysisPage'))
 const HelpPage = lazy(() => import('@/pages/HelpPage'))
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'))
 
@@ -56,6 +57,7 @@ export default function App() {
             */}
             <Route path="/projects/:projectId" element={<ProjectRouteGuard><ProjectDetailPage /></ProjectRouteGuard>} />
             <Route path="/projects/:projectId/explore" element={<ProjectRouteGuard><ExplorePage /></ProjectRouteGuard>} />
+            <Route path="/projects/:projectId/rtos" element={<ProjectRouteGuard><RTOSAnalysisPage /></ProjectRouteGuard>} />
             <Route path="/projects/:projectId/security" element={<ProjectRouteGuard><SecurityScanPage /></ProjectRouteGuard>} />
             <Route path="/projects/:projectId/findings" element={<ProjectRouteGuard><FindingsPage /></ProjectRouteGuard>} />
             <Route path="/projects/:projectId/map" element={<ProjectRouteGuard><ComponentMapPage /></ProjectRouteGuard>} />

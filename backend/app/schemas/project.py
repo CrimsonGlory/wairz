@@ -53,3 +53,8 @@ class ProjectListResponse(BaseModel):
     status: str
     created_at: datetime
     updated_at: datetime
+    # Surface the active firmware's kind so the sidebar can filter analysis
+    # tabs without fetching each project's full detail. Null when no
+    # firmware has been uploaded for the project yet.
+    firmware_kind: Literal["linux", "rtos", "unknown"] | None = None
+    rtos_flavor: Literal["freertos", "zephyr", "baremetal-cortexm"] | None = None
