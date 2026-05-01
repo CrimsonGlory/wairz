@@ -31,7 +31,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 #   lz4 / xz / zstd        — common firmware compression formats
 #   squashfs-tools         — unsquashfs
 #   jefferson              — jffs2 (installed via pip below)
-#   ubi_reader             — UBIFS (installed via pip below)
+#   ubi_reader             — UBIFS (installed via pip below; CLI commands
+#                            are ubireader_extract_images / _extract_files /
+#                            _display_info / _list_files — there is no
+#                            single `ubi_reader` binary)
 #   mtd-utils              — mtdinfo, ubinfo, etc.
 #   u-boot-tools           — mkimage for parsing/creating uImage
 #   p7zip-full, libarchive-tools, cpio — generic archive handling
@@ -64,10 +67,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Python crypto + filesystem unpackers. --break-system-packages because
 # Debian bookworm ships PEP 668's externally-managed-environment marker;
 # the container is single-purpose so a system-wide install is fine.
+#
+# lz4 (the python wrapper) is here because the lz4 CLI v1.9.4 can't decode
+# kernel-style legacy lz4 framing; agents fall back to lz4.block.decompress
+# with an explicit uncompressed_size for those payloads.
 RUN pip3 install --no-cache-dir --break-system-packages \
         cryptography \
         pycryptodome \
         jefferson \
+        lz4 \
         ubi_reader
 
 # Non-root user. Permissions on /carved/ are set by the backend before the
@@ -77,8 +85,13 @@ RUN groupadd -g 1000 wairz && useradd -m -u 1000 -g 1000 -s /bin/bash wairz
 
 # /carved/ is the only writable bind mount; /tmp is provided by the runtime
 # as a tmpfs. Everything else (root FS, /image/, /extracted/) is read-only.
-RUN mkdir -p /carved /image /extracted \
-    && chown wairz:wairz /carved
+# Pre-seed binwalk's user-magic directory: when ~/.config/binwalk/magic is
+# missing on a read-only $HOME, binwalk silently exits rc=0 with empty
+# output instead of running the scan. Empty dir == "no user magic", which
+# is what we want.
+RUN mkdir -p /carved /image /extracted /home/wairz/.config/binwalk/magic \
+    && chown wairz:wairz /carved \
+    && chown -R wairz:wairz /home/wairz/.config
 
 USER wairz
 WORKDIR /carved

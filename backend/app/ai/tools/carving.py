@@ -2,9 +2,9 @@
 
 Exposes ``run_shell``: a single command-execution tool that runs in an
 isolated, network-less Docker container with the standard reverse-engineering
-toolset (binwalk, dd, xxd, file, strings, readelf, python3 + cryptography,
-unsquashfs, jefferson, ubi_reader, mkimage, etc.) plus access to the raw
-firmware blob and a writable carved-output directory.
+toolset (binwalk, dd, xxd, file, strings, readelf, python3 + cryptography
++ lz4, unsquashfs, jefferson, ubireader_*, mkimage, etc.) plus access to
+the raw firmware blob and a writable carved-output directory.
 
 Design rationale (see WAIRZ_CARVING_BRIEFING.md):
   - Auto-extracting every vendor envelope is brittle; instead, give the agent
@@ -98,9 +98,11 @@ def register_carving_tools(registry: ToolRegistry) -> None:
             "  /tmp/                — tmpfs scratch (256 MiB)\n"
             "\n"
             "Toolset preinstalled: binwalk, dd, xxd, hexdump, file, strings, grep, "
-            "readelf, objdump, python3 with cryptography + pycryptodome, lz4, "
-            "xz, zstd, unsquashfs, jefferson, ubi_reader, mtd-utils, mkimage, "
-            "p7zip, jq, bsdtar, cpio.\n"
+            "readelf, objdump, python3 with cryptography + pycryptodome + lz4 "
+            "(use lz4.block.decompress for kernel-style legacy framing), "
+            "lz4 / xz / zstd CLIs, unsquashfs, jefferson, ubireader_extract_images "
+            "/ ubireader_extract_files / ubireader_display_info / ubireader_list_files, "
+            "mtd-utils, mkimage, p7zip, jq, bsdtar, cpio.\n"
             "\n"
             "Sandbox: no network, all capabilities dropped, read-only root, "
             "non-root user, 1 GiB memory cap. Working directory is /carved/.\n"
