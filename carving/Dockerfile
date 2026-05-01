@@ -85,13 +85,26 @@ RUN groupadd -g 1000 wairz && useradd -m -u 1000 -g 1000 -s /bin/bash wairz
 
 # /carved/ is the only writable bind mount; /tmp is provided by the runtime
 # as a tmpfs. Everything else (root FS, /image/, /extracted/) is read-only.
-# Pre-seed binwalk's user-magic directory: when ~/.config/binwalk/magic is
-# missing on a read-only $HOME, binwalk silently exits rc=0 with empty
-# output instead of running the scan. Empty dir == "no user magic", which
-# is what we want.
-RUN mkdir -p /carved /image /extracted /home/wairz/.config/binwalk/magic \
+#
+# Pre-seed binwalk's user dotfile tree. binwalk's settings module touches
+# ~/.config/binwalk/{config,magic,modules,plugins} at import time and
+# silently exits rc=0 with empty output if any of them are missing AND
+# $HOME is read-only (which it is here — read_only=True is load-bearing
+# for sandbox isolation, not relaxable). Round 1 of this fix only seeded
+# magic/, which got past the first check but tripped on modules/ instead.
+# Empty dirs are fine: binwalk treats them as "no user-supplied X".
+#
+# Also alias `ubi_reader` → `ubireader_extract_images` for backward
+# compatibility — the package historically went by `ubi_reader` and
+# agents trained on older docs reach for that name.
+RUN mkdir -p /carved /image /extracted \
+        /home/wairz/.config/binwalk/config \
+        /home/wairz/.config/binwalk/magic \
+        /home/wairz/.config/binwalk/modules \
+        /home/wairz/.config/binwalk/plugins \
     && chown wairz:wairz /carved \
-    && chown -R wairz:wairz /home/wairz/.config
+    && chown -R wairz:wairz /home/wairz/.config \
+    && ln -s /usr/local/bin/ubireader_extract_images /usr/local/bin/ubi_reader
 
 USER wairz
 WORKDIR /carved
