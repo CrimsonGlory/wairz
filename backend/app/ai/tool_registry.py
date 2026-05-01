@@ -15,6 +15,10 @@ class ToolContext:
     db: AsyncSession
     extraction_dir: str | None = None
     carved_path: str | None = None
+    # Path to the original firmware blob (e.g. an .axf / .bin). Required by
+    # RTOS tooling because RTOS images don't have a mountable rootfs to
+    # search via extracted_path.
+    storage_path: str | None = None
     review_id: UUID | None = None
     review_agent_id: UUID | None = None
     # Phase 3b: every detection root surfaced by
