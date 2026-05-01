@@ -9,14 +9,21 @@
 // Outputs JSON between ===STRING_REFS_START=== / ===STRING_REFS_END===
 // containing an array of {string_value, string_address, references: [{function, address, instruction}]}
 //
+// Implementation note: rather than relying on Ghidra's ASCII-Strings auto-
+// analyzer to promote rodata into Data instances (which it does inconsistently
+// across binaries — particularly stripped MIPS ELFs), we scan non-executable
+// memory blocks directly for null-terminated printable ASCII sequences. This
+// matches what a /usr/bin/strings invocation would find and works regardless
+// of analyzer state.
+//
 // @category Wairz
 // @author Wairz AI
 
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;
-import ghidra.program.model.data.DataUtilities;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.mem.Memory;
+import ghidra.program.model.mem.MemoryAccessException;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.ReferenceIterator;
@@ -28,9 +35,11 @@ import java.util.regex.PatternSyntaxException;
 
 public class FindStringRefs extends GhidraScript {
 
-    private static final int MAX_STRINGS = 500;
+    private static final int MAX_RESULTS = 500;
     private static final int MAX_REFS_PER_STRING = 50;
     private static final int MAX_TOTAL_REFS = 200;
+    private static final int MIN_STRING_LENGTH = 4;
+    private static final int MAX_STRING_LENGTH = 4096;
 
     @Override
     public void run() throws Exception {
@@ -53,72 +62,138 @@ public class FindStringRefs extends GhidraScript {
         Listing listing = currentProgram.getListing();
         ReferenceManager refManager = currentProgram.getReferenceManager();
         FunctionManager funcManager = currentProgram.getFunctionManager();
+        Memory memory = currentProgram.getMemory();
 
-        // Find all defined strings matching the pattern
         List<Map<String, Object>> results = new ArrayList<>();
+        Set<String> seenAddresses = new HashSet<>();
         int totalRefs = 0;
 
-        DataIterator dataIter = listing.getDefinedData(true);
-        int stringsChecked = 0;
-
-        while (dataIter.hasNext() && stringsChecked < MAX_STRINGS && totalRefs < MAX_TOTAL_REFS) {
-            Data data = dataIter.next();
+        // Walk every initialized, non-executable memory block looking for
+        // printable ASCII sequences terminated by NUL. Skipping executable
+        // blocks avoids false positives on instruction-byte coincidences.
+        for (MemoryBlock block : memory.getBlocks()) {
             if (monitor.isCancelled()) break;
+            if (!block.isInitialized()) continue;
+            if (block.isExecute()) continue;
+            if (results.size() >= MAX_RESULTS || totalRefs >= MAX_TOTAL_REFS) break;
 
-            // Check if this is a string data type
-            if (!data.hasStringValue()) continue;
+            Address blockStart = block.getStart();
+            Address blockEnd = block.getEnd();
+            Address cursor = blockStart;
 
-            String strValue;
-            try {
-                Object val = data.getValue();
-                if (val == null) continue;
-                strValue = val.toString();
-            } catch (Exception e) {
-                continue;
-            }
+            while (cursor.compareTo(blockEnd) <= 0) {
+                if (monitor.isCancelled()) break;
+                if (results.size() >= MAX_RESULTS || totalRefs >= MAX_TOTAL_REFS) break;
 
-            stringsChecked++;
+                StringBuilder sb = new StringBuilder();
+                Address strStart = cursor;
+                Address scanAddr = cursor;
+                boolean terminated = false;
 
-            // Test against pattern
-            if (!pattern.matcher(strValue).find()) continue;
+                while (scanAddr.compareTo(blockEnd) <= 0 && sb.length() < MAX_STRING_LENGTH) {
+                    int b;
+                    try {
+                        b = memory.getByte(scanAddr) & 0xFF;
+                    } catch (MemoryAccessException e) {
+                        break;
+                    }
+                    if (b == 0) {
+                        terminated = true;
+                        break;
+                    }
+                    // Printable ASCII + tab/newline/cr (common in format strings)
+                    if (b == 0x09 || b == 0x0A || b == 0x0D || (b >= 0x20 && b <= 0x7E)) {
+                        sb.append((char) b);
+                        try {
+                            scanAddr = scanAddr.addNoWrap(1);
+                        } catch (Exception e) {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
 
-            // Found a matching string — get references to it
-            Address strAddr = data.getAddress();
-            Reference[] refs = refManager.getReferencesTo(strAddr);
+                if (!terminated || sb.length() < MIN_STRING_LENGTH) {
+                    // Advance one byte and try again
+                    try {
+                        cursor = cursor.addNoWrap(1);
+                    } catch (Exception e) {
+                        break;
+                    }
+                    continue;
+                }
 
-            if (refs.length == 0) continue;
+                String strValue = sb.toString();
 
-            List<Map<String, String>> refList = new ArrayList<>();
-            int refsForThis = 0;
+                // Test against the user-supplied regex
+                if (!pattern.matcher(strValue).find()) {
+                    // Skip past this string + its NUL terminator
+                    try {
+                        cursor = scanAddr.addNoWrap(1);
+                    } catch (Exception e) {
+                        break;
+                    }
+                    continue;
+                }
 
-            for (Reference ref : refs) {
-                if (refsForThis >= MAX_REFS_PER_STRING || totalRefs >= MAX_TOTAL_REFS) break;
+                // Dedupe — strings landing at the same address shouldn't be
+                // reported twice (can happen if blocks overlap).
+                String addrKey = strStart.toString();
+                if (seenAddresses.contains(addrKey)) {
+                    try {
+                        cursor = scanAddr.addNoWrap(1);
+                    } catch (Exception e) {
+                        break;
+                    }
+                    continue;
+                }
+                seenAddresses.add(addrKey);
 
-                Address fromAddr = ref.getFromAddress();
-                Function containingFunc = funcManager.getFunctionContaining(fromAddr);
-                if (containingFunc == null) continue;
+                // Collect references to this string. We check the start
+                // address only — Ghidra's MIPS constant-prop analyzer
+                // typically emits the LUI+ADDIU result as a reference to
+                // the string's first byte.
+                List<Map<String, String>> refList = new ArrayList<>();
+                int refsForThis = 0;
+                ReferenceIterator refIter = refManager.getReferencesTo(strStart);
 
-                // Get the instruction at the reference site
-                Instruction insn = listing.getInstructionAt(fromAddr);
-                String insnStr = (insn != null) ? insn.toString() : "unknown";
+                while (refIter.hasNext()) {
+                    if (refsForThis >= MAX_REFS_PER_STRING || totalRefs >= MAX_TOTAL_REFS) break;
+                    Reference ref = refIter.next();
 
-                Map<String, String> refEntry = new LinkedHashMap<>();
-                refEntry.put("function", containingFunc.getName());
-                refEntry.put("function_address", containingFunc.getEntryPoint().toString());
-                refEntry.put("ref_address", fromAddr.toString());
-                refEntry.put("instruction", insnStr);
+                    Address fromAddr = ref.getFromAddress();
+                    Function containingFunc = funcManager.getFunctionContaining(fromAddr);
+                    if (containingFunc == null) continue;
 
-                refList.add(refEntry);
-                refsForThis++;
-                totalRefs++;
-            }
+                    Instruction insn = listing.getInstructionAt(fromAddr);
+                    String insnStr = (insn != null) ? insn.toString() : "unknown";
 
-            if (!refList.isEmpty()) {
-                Map<String, Object> entry = new LinkedHashMap<>();
-                entry.put("string_value", strValue);
-                entry.put("string_address", strAddr.toString());
-                entry.put("references", refList);
-                results.add(entry);
+                    Map<String, String> refEntry = new LinkedHashMap<>();
+                    refEntry.put("function", containingFunc.getName());
+                    refEntry.put("function_address", containingFunc.getEntryPoint().toString());
+                    refEntry.put("ref_address", fromAddr.toString());
+                    refEntry.put("instruction", insnStr);
+
+                    refList.add(refEntry);
+                    refsForThis++;
+                    totalRefs++;
+                }
+
+                if (!refList.isEmpty()) {
+                    Map<String, Object> entry = new LinkedHashMap<>();
+                    entry.put("string_value", strValue);
+                    entry.put("string_address", addrKey);
+                    entry.put("references", refList);
+                    results.add(entry);
+                }
+
+                // Resume scanning past this string + its NUL terminator
+                try {
+                    cursor = scanAddr.addNoWrap(1);
+                } catch (Exception e) {
+                    break;
+                }
             }
         }
 
