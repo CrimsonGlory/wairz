@@ -1,4 +1,4 @@
-import apiClient from './client'
+import apiClient, { appendApiKey } from './client'
 import { apiUrl } from './config'
 import type { ProjectDocument, DocumentContent } from '@/types'
 
@@ -99,5 +99,5 @@ export async function updateDocumentContent(
 }
 
 export function getDocumentDownloadUrl(projectId: string, documentId: string): string {
-  return apiUrl(`/api/v1/projects/${projectId}/documents/${documentId}/download`)
+  return appendApiKey(apiUrl(`/api/v1/projects/${projectId}/documents/${documentId}/download`))
 }
