@@ -2,6 +2,7 @@ import asyncio
 import dataclasses
 import os
 
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
@@ -27,10 +28,16 @@ def get_file_service(
     cached = meta.get("detection_roots")
     if isinstance(cached, list):
         extra_roots = [p for p in cached if isinstance(p, str)]
+    carved_path = (
+        os.path.join(os.path.dirname(firmware.storage_path), "carved")
+        if firmware.storage_path
+        else None
+    )
     return FileService(
         firmware.extracted_path,
         extraction_dir=firmware.extraction_dir,
         extra_roots=extra_roots,
+        carved_path=carved_path,
     )
 
 

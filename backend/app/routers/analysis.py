@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,9 +26,9 @@ router = APIRouter(
 def _resolve_path(firmware, path: str) -> str:
     """Resolve a virtual firmware path using FileService.
 
-    Handles virtual prefixes like /rootfs/ that the file explorer adds,
-    so analysis endpoints work consistently with the file browser.
-    Includes Phase 3a extra detection roots so paths prefixed with a
+    Handles virtual prefixes like /rootfs/ and /_carved/ that the file
+    explorer adds, so analysis endpoints work consistently with the file
+    browser. Includes Phase 3a extra detection roots so paths prefixed with a
     scatter-dir name resolve correctly.
     """
     extra_roots: list[str] = []
@@ -35,10 +36,16 @@ def _resolve_path(firmware, path: str) -> str:
     cached = meta.get("detection_roots")
     if isinstance(cached, list):
         extra_roots = [p for p in cached if isinstance(p, str)]
+    carved_path = (
+        os.path.join(os.path.dirname(firmware.storage_path), "carved")
+        if firmware.storage_path
+        else None
+    )
     svc = FileService(
         firmware.extracted_path,
         extraction_dir=firmware.extraction_dir,
         extra_roots=extra_roots,
+        carved_path=carved_path,
     )
     return svc._resolve(path)
 

@@ -167,3 +167,53 @@ class TestCarvedTopLevelListing:
         entries, _ = svc.list_directory("/")
         names = [e.name for e in entries]
         assert "_carved" not in names
+
+
+class TestCarvedLegacyModeListing:
+    """Legacy-mode firmwares (no extraction_dir) still need /_carved/ at /."""
+
+    def test_legacy_mode_shows_carved_when_populated(self, tmp_path: Path):
+        rootfs = tmp_path / "rootfs"
+        (rootfs / "etc").mkdir(parents=True)
+        (rootfs / "etc" / "passwd").write_text("root:x:0:0:root:/:/bin/sh\n")
+        carved = tmp_path / "carved"
+        carved.mkdir()
+        (carved / "header.bin").write_bytes(b"\x00" * 16)
+        svc = FileService(str(rootfs), carved_path=str(carved))
+        entries, _ = svc.list_directory("/")
+        names = [e.name for e in entries]
+        assert "_carved" in names
+        # And the regular rootfs entries are still there.
+        assert "etc" in names
+
+    def test_legacy_mode_hides_carved_when_empty(self, tmp_path: Path):
+        rootfs = tmp_path / "rootfs"
+        (rootfs / "etc").mkdir(parents=True)
+        carved = tmp_path / "carved"
+        carved.mkdir()  # exists but empty
+        svc = FileService(str(rootfs), carved_path=str(carved))
+        entries, _ = svc.list_directory("/")
+        names = [e.name for e in entries]
+        assert "_carved" not in names
+
+    def test_legacy_mode_hides_carved_when_missing(self, tmp_path: Path):
+        rootfs = tmp_path / "rootfs"
+        (rootfs / "etc").mkdir(parents=True)
+        carved = tmp_path / "no-such-dir"
+        svc = FileService(str(rootfs), carved_path=str(carved))
+        entries, _ = svc.list_directory("/")
+        names = [e.name for e in entries]
+        assert "_carved" not in names
+
+    def test_legacy_mode_no_double_entry(self, tmp_path: Path):
+        # If the user (somehow) has a real "_carved" directory inside their
+        # rootfs, we must not duplicate it when carved_path is also set.
+        rootfs = tmp_path / "rootfs"
+        (rootfs / "_carved").mkdir(parents=True)
+        carved = tmp_path / "carved"
+        carved.mkdir()
+        (carved / "x").write_bytes(b"\x00")
+        svc = FileService(str(rootfs), carved_path=str(carved))
+        entries, _ = svc.list_directory("/")
+        names = [e.name for e in entries]
+        assert names.count("_carved") == 1

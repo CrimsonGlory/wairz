@@ -574,6 +574,33 @@ class FileService:
             except OSError:
                 continue
 
+        # Legacy mode: surface /_carved/ at the root when populated so the
+        # UI sees carving outputs without an extraction tree. The virtual
+        # mode path goes through _list_virtual_root and handles this on its
+        # own.
+        if (
+            not self.extraction_dir
+            and path.strip("/") == ""
+            and self.carved_path
+            and os.path.isdir(self.carved_path)
+            and not any(e.name == self.CARVED_VNAME for e in entries)
+        ):
+            try:
+                has_entries = any(os.scandir(self.carved_path))
+            except OSError:
+                has_entries = False
+            if has_entries:
+                try:
+                    st = os.lstat(self.carved_path)
+                    entries.append(FileEntry(
+                        name=self.CARVED_VNAME,
+                        type="directory",
+                        size=st.st_size,
+                        permissions=_format_permissions(st.st_mode),
+                    ))
+                except OSError:
+                    pass
+
         return entries, truncated
 
     def read_file(
