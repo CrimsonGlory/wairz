@@ -22,7 +22,7 @@ import sys
 import uuid
 from dataclasses import dataclass, field
 
-from mcp.server import Server
+from mcp.server import NotificationOptions, Server
 from mcp.server.stdio import stdio_server
 from mcp.types import (
     GetPromptResult,
@@ -544,7 +544,8 @@ async def run_server(
 
         old_name = state.project_name
         old_id = state.project_id
-        old_firmware_id = state.firmware_id
+        old_firmware_id = state.firmware_id if state.firmware_loaded else None
+        old_kind = state.firmware_kind
 
         try:
             await _load_project_state(
@@ -593,6 +594,16 @@ async def run_server(
             state.project_name,
             state.project_id,
         )
+
+        # If the firmware kind changed, the visible tool set changes too —
+        # tell the client to re-fetch list_tools so kind-tagged tools come
+        # and go without requiring an MCP reconnect.
+        if state.firmware_kind != old_kind:
+            try:
+                await server.request_context.session.send_tool_list_changed()
+            except Exception:
+                # Notification is best-effort; never fail switch_project on it.
+                logger.exception("send_tool_list_changed failed")
 
         lines = [
             f"Switched to project '{state.project_name}'.",
@@ -827,12 +838,19 @@ async def run_server(
 
     # --- Run ---
     logger.info("Starting Wairz MCP server (stdio transport)...")
+    # Advertise list-changed support in the server capabilities so clients
+    # subscribe to notifications/tools/list_changed (emitted from
+    # switch_project when the active firmware kind changes the visible
+    # tool set).
+    init_options = server.create_initialization_options(
+        notification_options=NotificationOptions(
+            tools_changed=True,
+            resources_changed=True,
+            prompts_changed=True,
+        ),
+    )
     async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            server.create_initialization_options(),
-        )
+        await server.run(read_stream, write_stream, init_options)
 
 
 def _print_tool_manifest() -> None:

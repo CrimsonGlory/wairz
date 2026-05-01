@@ -39,16 +39,16 @@ class ToolContext:
             extraction_dir=self.extraction_dir,
             extra_roots=extra or None,
             carved_path=self.carved_path,
+            firmware_path=self.storage_path,
         )
 
     def resolve_path(self, path: str) -> str:
         """Resolve a virtual firmware path to a real filesystem path.
 
         Handles virtual top-level paths like /rootfs/..., /jffs2-root/...,
-        etc. when extraction_dir is set. Extra detection roots from
-        ``get_detection_roots`` are also accepted as virtual top-level
-        names (scatter-zip dirs, raw-image dirs). Falls back to simple
-        validation against extracted_path for legacy (non-virtual) mode.
+        /_carved/..., /firmware/... etc. when the corresponding root is
+        configured. Falls back to simple validation against extracted_path
+        for legacy (non-virtual) mode.
         """
         return self._file_service()._resolve(path)
 
@@ -109,6 +109,7 @@ class ToolContext:
             self.extracted_path,
             extraction_dir=self.extraction_dir,
             carved_path=self.carved_path,
+            firmware_path=self.storage_path,
         )
         return svc.to_virtual_path(abs_path)
 

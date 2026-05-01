@@ -135,6 +135,10 @@ class FileService:
 
     ROOTFS_VNAME = "rootfs"
     CARVED_VNAME = "_carved"
+    # Virtual entry that exposes the original firmware blob to analysis
+    # tools. For Linux projects this is alongside /rootfs/...; for RTOS
+    # projects (no rootfs) it's the only entry below /.
+    FIRMWARE_VNAME = "firmware"
 
     def __init__(
         self,
@@ -143,6 +147,7 @@ class FileService:
         *,
         extra_roots: list[str] | None = None,
         carved_path: str | None = None,
+        firmware_path: str | None = None,
     ):
         self.extracted_root = extracted_root
         # Only enable virtual top-level when extraction_dir differs from rootfs
@@ -156,6 +161,18 @@ class FileService:
         # exists, files written by the carving sandbox become visible to
         # all read tools at /_carved/...
         self.carved_path = carved_path if carved_path else None
+        # Original firmware blob path (e.g. an .axf for an RTOS project).
+        # Surfaced as /firmware/<basename> so binary tools (extract_strings,
+        # get_binary_info, decompile_function, ...) can analyse it through
+        # the same virtual filesystem the rest of Wairz uses.
+        self.firmware_path = firmware_path if firmware_path else None
+        self.firmware_basename = (
+            os.path.basename(firmware_path) if firmware_path else None
+        )
+        # When there is no rootfs (RTOS / unknown), the firmware blob is
+        # the only thing analysis tools can see — switch the virtual
+        # filesystem into single-file mode.
+        self.is_blob_only = bool(firmware_path) and not extracted_root
         # Lazily built mapping from virtual name → real path for nested roots
         self._virtual_map: dict[str, str] | None = None
 
@@ -262,6 +279,42 @@ class FileService:
         """Map a virtual path to a real filesystem path and validate it."""
         clean = path.strip("/")
 
+        # /firmware[/<basename>] — surfaces the original firmware blob.
+        # Only the configured basename resolves; anything else under
+        # /firmware/ raises because there is no real directory tree.
+        if self.firmware_path and (
+            clean == self.FIRMWARE_VNAME
+            or clean.startswith(self.FIRMWARE_VNAME + "/")
+        ):
+            sub = clean[len(self.FIRMWARE_VNAME):].lstrip("/")
+            if not sub:
+                # /firmware → the parent directory used as a sandbox root
+                return os.path.realpath(os.path.dirname(self.firmware_path))
+            if sub == self.firmware_basename:
+                return os.path.realpath(self.firmware_path)
+            from app.utils.sandbox import PathTraversalError
+            raise PathTraversalError(
+                f"Path traversal detected: only /{self.FIRMWARE_VNAME}/"
+                f"{self.firmware_basename} is exposed for this project"
+            )
+
+        # Blob-only mode (RTOS without a rootfs): be forgiving about how
+        # callers spell the firmware path. "/", "" and the bare basename
+        # all resolve to the firmware blob — same effect as
+        # /firmware/<basename> above.
+        if self.is_blob_only:
+            assert self.firmware_path is not None
+            if not clean:
+                return os.path.realpath(os.path.dirname(self.firmware_path))
+            if clean == self.firmware_basename:
+                return os.path.realpath(self.firmware_path)
+            from app.utils.sandbox import PathTraversalError
+            raise PathTraversalError(
+                f"Path traversal detected: this project has no rootfs — "
+                f"use /{self.FIRMWARE_VNAME}/{self.firmware_basename} or "
+                f"/{self.firmware_basename}"
+            )
+
         # Carving sandbox outputs live outside the extraction tree but are
         # surfaced at /_carved/... so the agent's carved files are visible
         # to read_file, extract_strings, decompile_function, etc.
@@ -317,6 +370,7 @@ class FileService:
 
         Returns:
             ``/rootfs/...`` when ``abs_path`` is inside the rootfs.
+            ``/firmware/<basename>`` when ``abs_path`` is the firmware blob.
             ``/<vname>/...`` when inside a virtual partition entry.
             ``/<rel>`` when at the top level of ``extraction_dir`` (sibling files).
             ``None`` when ``abs_path`` is outside every sandboxed root.
@@ -325,6 +379,12 @@ class FileService:
             real = os.path.realpath(abs_path)
         except OSError:
             return None
+
+        # Firmware blob (RTOS or Linux when storage_path is wired through)
+        if self.firmware_path:
+            firmware_real = os.path.realpath(self.firmware_path)
+            if real == firmware_real:
+                return f"/{self.FIRMWARE_VNAME}/{self.firmware_basename}"
 
         # Carved outputs map to /_carved/...; check before rootfs because the
         # carved dir lives next to (not inside) the extraction tree.
@@ -524,8 +584,27 @@ class FileService:
 
     def list_directory(self, path: str = "/") -> tuple[list[FileEntry], bool]:
         """List directory contents. Returns (entries, truncated)."""
+        clean = path.strip("/")
+
+        # Blob-only mode: there's no real directory tree to walk, just
+        # the firmware file at /firmware/<basename>. Show it at the root
+        # and at /firmware so listing tools surface something useful.
+        if self.is_blob_only and clean in ("", self.FIRMWARE_VNAME):
+            assert self.firmware_path is not None
+            try:
+                st = os.lstat(self.firmware_path)
+                entry = FileEntry(
+                    name=self.firmware_basename or "firmware",
+                    type="file",
+                    size=st.st_size,
+                    permissions=_format_permissions(st.st_mode),
+                )
+                return [entry], False
+            except OSError:
+                return [], False
+
         # Virtual top-level when extraction_dir is set
-        if self.extraction_dir and path.strip("/") == "":
+        if self.extraction_dir and clean == "":
             return self._list_virtual_root()
 
         full_path = self._resolve(path)
