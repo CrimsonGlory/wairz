@@ -246,13 +246,25 @@ def _select_firmware(
     if not firmwares:
         raise ValueError("Project has no firmware uploaded.")
 
+    # A firmware is "loadable" once unpack has produced something analysable:
+    #   - Linux: a rootfs at extracted_path
+    #   - RTOS: the original blob at storage_path (no rootfs to mount)
+    # Unknown-kind firmware needs the user to set the kind manually first.
+    def _is_loadable(fw: Firmware) -> bool:
+        if fw.extracted_path:
+            return True
+        if fw.firmware_kind == "rtos" and fw.storage_path:
+            return True
+        return False
+
     if firmware_id is not None:
         for fw in firmwares:
             if fw.id == firmware_id:
-                if not fw.extracted_path:
+                if not _is_loadable(fw):
                     raise ValueError(
-                        f"Firmware {firmware_id} has not been unpacked "
-                        f"(no extracted_path). Upload status must be 'unpacked'."
+                        f"Firmware {firmware_id} has not finished unpacking "
+                        f"or its kind is still 'unknown'. Run unpack and/or "
+                        f"set the kind on the project page first."
                     )
                 return fw
         available = ", ".join(str(fw.id) for fw in firmwares)
@@ -261,16 +273,16 @@ def _select_firmware(
             f"Available firmware IDs: {available}"
         )
 
-    unpacked = [fw for fw in firmwares if fw.extracted_path]
-    if not unpacked:
+    loadable = [fw for fw in firmwares if _is_loadable(fw)]
+    if not loadable:
         raise ValueError(
-            "No firmware in this project has been unpacked yet. "
-            "Trigger unpack via the web UI or POST /api/v1/projects/<id>/firmware/<id>/unpack "
-            "before starting the MCP server."
+            "No firmware in this project is ready for analysis. "
+            "Trigger unpack via the web UI or POST /api/v1/projects/<id>/firmware/<id>/unpack, "
+            "and confirm the kind is set if detection fell back to 'unknown'."
         )
 
-    unpacked.sort(key=lambda fw: fw.created_at)
-    return unpacked[0]
+    loadable.sort(key=lambda fw: fw.created_at)
+    return loadable[0]
 
 
 async def _load_project(
