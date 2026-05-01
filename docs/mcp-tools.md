@@ -2,7 +2,13 @@
 
 Wairz exposes 172 tools across 21 categories to Claude via the Model Context Protocol. This page lists all available tools organized by category. Source-of-truth count: `find backend/app/ai/tools -name '*.py' | xargs grep -c 'registry\.register' | awk -F: '{s+=$2}END{print s}'`.
 
-> **Note:** This page documents the historical core categories. For the canonical category breakdown including newer additions (Hardware Firmware, CWE Checker, Vulhunt, Attack Surface, Network, UEFI, Taint LLM), see the table in `CLAUDE.md` § Tool Categories.
+!!! note "Tool visibility is firmware-kind aware"
+    Some tools only apply to certain firmware kinds (Linux vs RTOS). When you `switch_project`, the MCP server emits `notifications/tools/list_changed` and the client refreshes its tool list automatically:
+
+    - **Linux-only tools** (emulation, init-script analysis, setuid scanning, component map, etc.) are hidden when the active project's firmware is RTOS or unknown.
+    - **RTOS-only tools** (vector-table parsing, task enumeration, base-address recovery, memory map) are hidden when the active project is Linux.
+
+    Tools without an explicit kind tag apply to all firmware. The kind discriminator is described in [RTOS Support](features/rtos.md).
 
 ## Project
 
@@ -147,3 +153,15 @@ Wairz exposes 172 tools across 21 categories to Claude via the Model Context Pro
 | Tool | Description |
 |------|-------------|
 | `save_code_cleanup` | Save AI-cleaned decompiled code to the analysis cache |
+
+## RTOS Analysis
+
+Available only when the active project's firmware kind is `rtos`. Operate on the firmware blob (`.axf` / `.elf` / `.bin`) at `/firmware/<basename>` rather than an unpacked rootfs.
+
+| Tool | Description |
+|------|-------------|
+| `detect_rtos_kernel` | Re-run RTOS detection and return the kind, flavor, evidence, and ELF metadata |
+| `enumerate_rtos_tasks` | Scan `.symtab` for likely task entry-point functions and FreeRTOS / kernel infrastructure symbols (requires unstripped ELF) |
+| `analyze_vector_table` | Parse the ARM Cortex-M vector table from `.isr_vector` / first executable LOAD segment / file offset 0, with handler-symbol resolution |
+| `recover_base_address` | Return LOAD-segment vaddr/paddr for ELFs, or infer a flash base from the reset vector for raw `.bin` |
+| `analyze_memory_map` | Classify allocated sections into flash (executable / read-only) vs RAM (writable) for Ghidra/IDA loader setup or QEMU memory maps |

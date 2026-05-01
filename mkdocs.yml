@@ -53,6 +53,7 @@ nav:
     - Connecting AI (MCP): getting-started/mcp-setup.md
   - Features:
     - File Explorer: features/file-explorer.md
+    - RTOS Support: features/rtos.md
     - Binary Analysis: features/binary-analysis.md
     - Security Assessment: features/security-assessment.md
     - SBOM & CVE Scanning: features/sbom.md

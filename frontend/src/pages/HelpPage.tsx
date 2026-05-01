@@ -122,6 +122,66 @@ export default function HelpPage() {
           </ul>
         </Section>
 
+        <Section title="Firmware Kind (Linux vs RTOS)">
+          <p className="mb-3">
+            Wairz classifies every uploaded firmware as <strong>linux</strong>,{' '}
+            <strong>rtos</strong>, or <strong>unknown</strong>. The kind drives
+            which analysis tabs and AI tools are exposed for that project.
+          </p>
+          <ul className="list-inside list-disc space-y-1">
+            <li>
+              <strong>Auto-detection:</strong> Runs on unpack. If a Linux
+              filesystem root is found, the project is{' '}
+              <em>linux</em>; otherwise the firmware blob is scanned for
+              FreeRTOS / Zephyr string markers and a Cortex-M vector-table
+              shape, and tagged <em>rtos</em> with a flavor (
+              <em>freertos</em>, <em>zephyr</em>, or{' '}
+              <em>baremetal-cortexm</em>) when matched.
+            </li>
+            <li>
+              <strong>Manual override:</strong> Use the kind dropdown next to
+              each firmware card on the project page to pin the kind. Manual
+              choices stick — re-detection on subsequent unpacks won't
+              overwrite them.
+            </li>
+            <li>
+              <strong>RTOS sidebar:</strong> RTOS projects see a slimmer tab
+              set: Overview, Project Files (documents only), RTOS Analysis,
+              and Findings. Linux-rootfs-specific tabs (Component Map, SBOM,
+              Emulation, Fuzzing, Compare) are hidden.
+            </li>
+            <li>
+              <strong>RTOS MCP tools:</strong> The AI assistant gets a
+              dedicated RTOS tool category for{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                detect_rtos_kernel
+              </code>
+              ,{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                enumerate_rtos_tasks
+              </code>
+              ,{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                analyze_vector_table
+              </code>
+              ,{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                recover_base_address
+              </code>
+              , and{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                analyze_memory_map
+              </code>
+              . Generic binary tools also work — they read the firmware blob
+              from{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                /firmware/&lt;basename&gt;
+              </code>{' '}
+              when there is no rootfs to mount.
+            </li>
+          </ul>
+        </Section>
+
         <Section title="Project Documents">
           <p className="mb-3">
             Attach reference documents and notes to your project for context

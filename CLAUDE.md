@@ -93,7 +93,9 @@ wairz/
 1. Create or edit a handler in `backend/app/ai/tools/<category>.py`:
    ```python
    async def _handle_my_tool(input: dict, context: ToolContext) -> str:
-       # Available on context: project_id, firmware_id, extracted_path, db
+       # Available on context: project_id, firmware_id, extracted_path,
+       # storage_path (for RTOS / blob-only firmware), extraction_dir,
+       # carved_path, db
        path = context.resolve_path(input.get("path", "/"))  # validates against sandbox
        # ... do work ...
        return "result string (max 30KB, truncated automatically)"
@@ -102,7 +104,16 @@ wairz/
    ```python
    registry.register(name="my_tool", description="...", input_schema={...}, handler=_handle_my_tool)
    ```
-3. If it's a new category file, import and call `register_<category>_tools(registry)` in `backend/app/ai/__init__.py`.
+3. **Tag kind-specific tools** via `applies_to`. Defaults to `ALL_KINDS` (`("linux", "rtos", "unknown")`); only set this when the tool *requires* something one kind has and another doesn't:
+   ```python
+   registry.register(
+       name="enumerate_rtos_tasks",
+       description="...", input_schema={...}, handler=_handle_enumerate_rtos_tasks,
+       applies_to=("rtos",),   # hidden from list_tools when active project is Linux
+   )
+   ```
+   The MCP server filters `list_tools` by the active firmware's kind and rejects mismatched `call_tool` invocations as defense in depth. `switch_project` emits `notifications/tools/list_changed` so clients re-fetch automatically.
+4. If it's a new category file, import and call `register_<category>_tools(registry)` in `backend/app/ai/__init__.py`.
 
 ### Adding a New REST Endpoint
 
@@ -495,7 +506,20 @@ Orchestration sits in Citadel (skills, harness hooks, campaigns). mex sits in ve
 
 Entry point: `wairz-mcp = "app.mcp_server:main"` (defined in `pyproject.toml`)
 
-The server uses a mutable `ProjectState` dataclass so all project context (project_id, firmware_id, extracted_path) can be switched dynamically via the `switch_project` tool without restarting the MCP process.
+The server uses a mutable `ProjectState` dataclass so all project context (project_id, firmware_id, extracted_path, storage_path, firmware_kind, rtos_flavor) can be switched dynamically via the `switch_project` tool without restarting the MCP process. When the firmware kind changes, the server emits `notifications/tools/list_changed` so clients re-fetch the visible tool set.
+
+### Firmware kind discriminator
+
+Every `firmware` row carries `firmware_kind` (`linux | rtos | unknown`) plus an optional `rtos_flavor` (`freertos | zephyr | baremetal-cortexm`) and `firmware_kind_source` (`detected | manual`). Auto-detection runs in `app/services/rtos_detection_service.py` at the tail of unpack and only writes when `firmware_kind_source != 'manual'` — the dropdown override on the project page always wins. Kind plumbs through to the MCP system prompt (kind-aware blocks in `app/ai/system_prompt.py`), the tool registry filter (`registry.for_kind(kind)`), and the frontend (`Project.firmware_kind` from the projects-list endpoint, used by Sidebar to filter analysis tabs).
+
+### Path resolution for RTOS firmware
+
+RTOS projects have no `extracted_path` (no rootfs to mount). `FileService` recognises this "blob-only" mode and exposes the firmware blob via:
+
+- `/firmware/<basename>` — the canonical virtual path
+- `/<basename>` and bare `<basename>` — also resolve, for forgiving callers
+
+Tools that take a `binary_path` / `path` argument and call `context.resolve_path()` work transparently across Linux and RTOS; `context.storage_path` is the underlying real path when an RTOS-specific tool needs to bypass the virtual layer (e.g. `enumerate_rtos_tasks` uses pyelftools directly on it).
 
 ### Tool Categories (172 across 21 categories)
 
@@ -525,6 +549,7 @@ Source-of-truth count: `find backend/app/ai/tools -name '*.py' | xargs grep -c '
 | Network | `tools/network.py` | 5 | pcap analyze, protocol breakdown, insecure protocols, DNS queries, conversations |
 | UEFI | `tools/uefi.py` | 5 | list firmware volumes, list/identify/read UEFI modules, extract NVRAM |
 | Taint LLM | `tools/taint_llm.py` | 2 | scan taint analysis, deep-dive taint analysis |
+| RTOS *(applies_to=`("rtos",)`)* | `tools/rtos.py` | 5 | `detect_rtos_kernel`, `enumerate_rtos_tasks`, `analyze_vector_table`, `recover_base_address`, `analyze_memory_map` |
 
 ---
 
