@@ -194,11 +194,30 @@ async def _run_hardware_firmware_detection_safe(
                 )
 
 
-def _analyze_filesystem(result: UnpackResult, extraction_dir: str) -> None:
+def _analyze_filesystem(result: UnpackResult, extraction_dir: str, firmware_path: str = "") -> None:
     """Post-extraction analysis: find root, detect arch/OS/kernel."""
+    # Step 2: Find the filesystem root (Linux signal)
     fs_root = find_filesystem_root(extraction_dir)
+
+    # Step 2a: Classify the firmware kind. If we found a rootfs, the
+    # detector trusts that; otherwise it scans the raw image and any
+    # extracted blobs for RTOS signatures.
+    from app.services.rtos_detection_service import detect_firmware_kind
+
+    detection = detect_firmware_kind(firmware_path, extraction_dir, fs_root)
+    result.firmware_kind = detection.kind
+    result.rtos_flavor = detection.flavor
+    result.unpack_log = (result.unpack_log or "") + f"\nkind detection: {detection.notes}"
+
     if not fs_root:
-        result.error = "Could not locate filesystem root in extracted contents"
+        # Non-Linux path: only succeed if we positively recognised an
+        # RTOS. An unknown image has no rootfs to mount and no RTOS
+        # workflow to run, so keep the error behaviour the frontend
+        # already handles (offer to upload-rootfs).
+        if detection.kind == "rtos":
+            result.success = True
+        else:
+            result.error = "Could not locate filesystem root in extracted contents"
         return
 
     result.extracted_path = fs_root
@@ -742,7 +761,7 @@ async def _unpack_firmware_inner(
                 return result
             result.unpack_log += await _extract_android_ota(firmware_path, extraction_dir)
             bomb_error = check_extraction_limits(extraction_dir, fw_size)
-            _analyze_filesystem(result, extraction_dir)
+            _analyze_filesystem(result, extraction_dir, firmware_path)
             if result.success:
                 # Fast path produced a usable rootfs — keep it even if the
                 # bomb check complained.  The limit is a defensive default
@@ -791,7 +810,7 @@ async def _unpack_firmware_inner(
             # drops super.img raw, so sizing is measured after pruning.
             result.unpack_log += await _extract_android_ota(extraction_dir, extraction_dir)
             bomb_error = check_extraction_limits(extraction_dir, fw_size)
-            _analyze_filesystem(result, extraction_dir)
+            _analyze_filesystem(result, extraction_dir, firmware_path)
             if result.success:
                 if bomb_error:
                     result.unpack_log += (
@@ -840,7 +859,7 @@ async def _unpack_firmware_inner(
             except Exception as e:
                 result.unpack_log += f"Nested extraction skipped: {e}\n"
             bomb_error = check_extraction_limits(extraction_dir, fw_size)
-            _analyze_filesystem(result, extraction_dir)
+            _analyze_filesystem(result, extraction_dir, firmware_path)
             if result.success:
                 if bomb_error:
                     result.unpack_log += (
@@ -1016,7 +1035,7 @@ async def _unpack_firmware_inner(
             except Exception as e:
                 logger.debug("widen_read_perms failed: %s", e, exc_info=True)
             await _report("Analyzing filesystem", progress_base + 20)
-            _analyze_filesystem(result, extraction_dir)
+            _analyze_filesystem(result, extraction_dir, firmware_path)
             if result.success:
                 await _report("Extraction complete", 100)
                 result.unpack_log += f"\n{name} extraction succeeded.\n"

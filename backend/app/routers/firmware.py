@@ -440,6 +440,15 @@ async def _run_unpack_background(
                     firmware.unpack_progress = None
                     project.status = "error"
 
+                # Persist auto-detected kind regardless of unpack success
+                # — even an "error" image is useful info for the user.
+                # Manual overrides win: if the user already pinned the
+                # kind via the dropdown, leave their choice alone.
+                if firmware.firmware_kind_source != "manual":
+                    firmware.firmware_kind = result.firmware_kind
+                    firmware.rtos_flavor = result.rtos_flavor
+                    firmware.firmware_kind_source = "detected"
+
                 await db.commit()
 
                 # Fire hardware-firmware detection AFTER the commit so it
