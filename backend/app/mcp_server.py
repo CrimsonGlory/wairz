@@ -766,6 +766,9 @@ async def run_server(
                 firmware_filename=state.firmware_filename,
                 architecture=state.architecture,
                 endianness=state.endianness,
+                extracted_path=state.extracted_path,
+                firmware_kind=state.firmware_kind,
+                rtos_flavor=state.rtos_flavor,
             )
             return GetPromptResult(
                 description="Wairz firmware analysis system prompt",
