@@ -726,8 +726,13 @@ async def run_unblob_extraction(firmware_path: str, output_dir: str, timeout: in
     if not which("unblob"):
         raise RuntimeError("unblob is not installed")
 
+    # --no-sandbox: unblob's Landlock sandbox induces EXDEV on sasquatch's
+    # link() calls when extracting squashfs with hardlinks (every Linux
+    # rootfs). sasquatch FATAL-aborts mid-extract leaving most files as
+    # 0-byte stubs. Container-level isolation is the actual security
+    # boundary — Landlock here is redundant and breaks correctness.
     proc = await asyncio.create_subprocess_exec(
-        "unblob", "--extract-dir", output_dir, firmware_path,
+        "unblob", "--no-sandbox", "--extract-dir", output_dir, firmware_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
