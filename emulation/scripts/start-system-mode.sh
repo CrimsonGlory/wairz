@@ -17,6 +17,7 @@ INIT_PATH="$6"      # optional init binary override (e.g., /bin/sh)
 
 LOG="/tmp/qemu-system.log"
 SERIAL_SOCK="/tmp/qemu-serial.sock"
+SERIAL_LOG="/tmp/qemu-serial.log"
 ROOTFS_IMG="/tmp/rootfs.ext4"
 
 # Always create the log file immediately so diagnostics are available
@@ -111,7 +112,7 @@ case "$KERNEL_MAGIC" in
 esac
 
 # Clean up stale files from previous runs
-rm -f "$SERIAL_SOCK" "$ROOTFS_IMG"
+rm -f "$SERIAL_SOCK" "$SERIAL_LOG" "$ROOTFS_IMG"
 
 # Create a temporary ext4 image sized to fit the rootfs (2x content + 256MB headroom)
 ROOTFS_MB=$(du -sm "$ROOTFS" 2>/dev/null | cut -f1)
@@ -235,6 +236,7 @@ fi
 
 echo "Starting: $QEMU_BIN -M $MACHINE $CPU_ARGS"
 echo "Serial console: $SERIAL_SOCK"
+echo "Serial log: $SERIAL_LOG"
 echo "Drive interface: ${DRIVE_IF:-default}"
 # Build optional initrd argument
 INITRD_ARGS=""
@@ -257,6 +259,12 @@ echo "Kernel append: $APPEND_ARGS"
 # -nodefaults: suppress audio/USB/etc warnings
 # -no-reboot: exit instead of rebooting (prevents infinite loops)
 # -gdb tcp::1234: expose GDB stub for remote debugging
+# Use the explicit chardev form so we can attach `logfile=` — that gives us
+# a passive copy of every byte that crosses the serial port, even when no
+# socat client is connected. Without it, kernel-boot output (incl. panics)
+# is dropped on the floor and only `run_command_in_emulation` sees it.
+SERIAL_CHARDEV="socket,id=charserial0,server=on,wait=off,path=${SERIAL_SOCK},logfile=${SERIAL_LOG},logappend=off"
+
 exec "$QEMU_BIN" \
     -M "$MACHINE" \
     $CPU_ARGS \
@@ -264,7 +272,8 @@ exec "$QEMU_BIN" \
     -nographic \
     -nodefaults \
     -no-reboot \
-    -serial "unix:${SERIAL_SOCK},server,nowait" \
+    -chardev "$SERIAL_CHARDEV" \
+    -serial chardev:charserial0 \
     -monitor none \
     -gdb tcp::1234 \
     -kernel "$KERNEL" \

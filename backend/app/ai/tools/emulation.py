@@ -1298,19 +1298,27 @@ def _diagnose_environment_sync(
             )
 
     # --- 3. Check init binary ---
+    # NOTE: must distinguish files from directories. Some firmwares (notably
+    # camera /app partitions) ship an `init/` *directory* of config files at
+    # the top level. Treating the dir as an init binary used to mislabel
+    # those rootfs as bootable.
     init_candidates = [
         "sbin/init", "bin/init", "init", "linuxrc",
         "sbin/procd", "usr/sbin/init",
     ]
     found_inits = []
+    init_dir_collisions = []
     for candidate in init_candidates:
         path = os.path.join(fs_root, candidate)
-        if os.path.exists(path) or os.path.islink(path):
-            if os.path.islink(path):
-                target = os.readlink(path)
-                found_inits.append(f"/{candidate} -> {target}")
-            else:
-                found_inits.append(f"/{candidate}")
+        if os.path.islink(path):
+            target = os.readlink(path)
+            found_inits.append(f"/{candidate} -> {target}")
+        elif os.path.isfile(path):
+            found_inits.append(f"/{candidate}")
+        elif os.path.isdir(path):
+            # Directory at one of the init candidate paths — common in
+            # split-MTD camera firmware where /init holds config files.
+            init_dir_collisions.append(f"/{candidate}")
 
     if not found_inits:
         issues.append(
@@ -1323,6 +1331,74 @@ def _diagnose_environment_sync(
         )
     else:
         info.append("Init binaries found: " + ", ".join(found_inits))
+    if init_dir_collisions:
+        info.append(
+            "Directories at init paths (NOT executable): "
+            + ", ".join(init_dir_collisions)
+        )
+
+    # --- 3a. Detect non-FHS rootfs layouts (e.g., a /app partition mounted
+    # standalone). These lack the directories that switch_root assumes and
+    # cannot boot in system mode without the device's separate rootfs.
+    fhs_dirs = ("sbin", "etc", "usr")
+    missing_fhs = [d for d in fhs_dirs if not os.path.isdir(
+        os.path.join(fs_root, d)
+    )]
+    if len(missing_fhs) == len(fhs_dirs):
+        issues.append(
+            "NON-FHS ROOTFS: top-level lacks /sbin, /etc, AND /usr"
+            + (f" (and /init is a directory: {', '.join(init_dir_collisions)})"
+               if init_dir_collisions else "")
+            + ". This looks like a /app-style partition rather than a full "
+            "Linux rootfs. System-mode emulation will panic at switch_root "
+            "because the kernel has no init to exec. The device's real "
+            "rootfs lives on a separate MTD partition that you need to "
+            "extract and merge before booting."
+        )
+        suggestions.append(
+            "Check the original firmware image for a separate rootfs "
+            "partition (often labelled rootfs, root, or system in the "
+            "partition table) and merge it under this /app tree before "
+            "starting emulation."
+        )
+    elif missing_fhs:
+        info.append(
+            "Missing standard FHS directories: "
+            + ", ".join(f"/{d}" for d in missing_fhs)
+        )
+
+    # --- 3b. Check for the dynamic loader (ELF interpreter) ---
+    # All dynamically-linked firmware binaries name an interpreter like
+    # /lib/ld-uClibc.so.0 or /lib/ld-musl-*. If that file is missing the
+    # binaries can't run at all — emulation will appear to "boot" but
+    # every userspace exec will fail with ENOENT.
+    interp_candidates = [
+        "lib/ld-uClibc.so.0", "lib/ld-uClibc.so.1",
+        "lib/ld-musl-arm.so.1", "lib/ld-musl-armhf.so.1",
+        "lib/ld-musl-mips.so.1", "lib/ld-musl-mipsel.so.1",
+        "lib/ld-musl-aarch64.so.1", "lib/ld-musl-x86_64.so.1",
+        "lib/ld-linux.so.2", "lib/ld-linux.so.3",
+        "lib/ld-linux-armhf.so.3", "lib/ld-linux-aarch64.so.1",
+        "lib64/ld-linux-x86-64.so.2",
+    ]
+    found_interp = [
+        f"/{c}" for c in interp_candidates
+        if os.path.exists(os.path.join(fs_root, c))
+        or os.path.islink(os.path.join(fs_root, c))
+    ]
+    if found_interp:
+        info.append("Dynamic loader: " + ", ".join(found_interp))
+    elif os.path.isdir(os.path.join(fs_root, "lib")):
+        # /lib exists but no recognized loader — probably fatal for any
+        # dynamically-linked firmware binary.
+        issues.append(
+            "NO DYNAMIC LOADER: /lib exists but contains none of the "
+            "standard ELF interpreters (ld-uClibc.so.0, ld-musl-*, "
+            "ld-linux*). All dynamically-linked firmware binaries will "
+            "fail to exec ('No such file or directory' even when the "
+            "binary itself is present). Check `readelf -l <bin> | grep "
+            "interpreter` for the actual path the binaries need."
+        )
 
     # --- 4. Check for busybox (shell availability) ---
     bb_paths = ["bin/busybox", "usr/bin/busybox", "sbin/busybox"]
@@ -1981,6 +2057,54 @@ async def _handle_troubleshoot_emulation(input: dict, context: ToolContext) -> s
     sections["kernel_panic"] = (
         ["kernel", "panic", "crash", "oops", "illegal", "instruction", "trap"],
         kernel_lines,
+    )
+
+    # 3b. switch_root failure (kernel panics with "Attempted to kill init")
+    # — almost always one of two things on a panic that early in boot.
+    switch_root_lines = [
+        "## switch_root Fails / 'Attempted to kill init'",
+        "",
+        "Boot reaches the initramfs's `=== Switching root (init=...) ===` line",
+        "and then panics with:",
+        "",
+        "    switch_root: can't execute '/wairz_init.sh': No such file or directory",
+        "    Kernel panic - not syncing: Attempted to kill init!",
+        "",
+        "**The wrapper file IS in the ext4 — the misleading error means the kernel",
+        "could not exec the wrapper's shebang interpreter.** When you exec a",
+        "shebang script and the interpreter is missing, the kernel returns ENOENT",
+        "and busybox switch_root reports it as if the script were missing.",
+        "",
+        "Two common causes, in order of likelihood:",
+        "",
+        "1. **No /bin/sh in the rootfs.** Many split-MTD firmwares (camera /app",
+        "   partitions, etc.) ship busybox at /bin/busybox or /bin/busybox/bin/sh",
+        "   and have no top-level /bin/sh. The wrapper-injection step now detects",
+        "   this and either symlinks /bin/sh or rewrites the shebang — if you're",
+        "   still hitting this, the rootfs likely has no shell at all (see below).",
+        "",
+        "2. **Incomplete rootfs.** If `diagnose_emulation_environment` flagged",
+        "   NON-FHS ROOTFS (no /sbin /etc /usr) the squashfs you uploaded is a",
+        "   /app-style partition, not a full rootfs. The device's real rootfs",
+        "   lives on a separate MTD partition that has to be merged in before",
+        "   system-mode emulation can succeed. Look in the original firmware",
+        "   image for partition entries named rootfs/root/system.",
+        "",
+        "Quick checks:",
+        "- Run `diagnose_emulation_environment` — it surfaces NON-FHS ROOTFS,",
+        "  init-path-is-a-directory, and NO DYNAMIC LOADER errors that all",
+        "  predict this exact panic.",
+        "- `find <fs_root> -name sh -o -name busybox` to see what shells exist.",
+        "- `readelf -l <fs_root>/bin/<anybinary> | grep interpreter` — if the",
+        "  required interpreter (e.g. /lib/ld-uClibc.so.0) isn't in the rootfs,",
+        "  no userspace process can run even if you do reach init.",
+    ]
+    sections["switch_root"] = (
+        [
+            "switch_root", "switchroot", "kill init", "attempted to kill",
+            "no such file", "wairz_init", "init=", "exitcode=0x100",
+        ],
+        switch_root_lines,
     )
 
     # 4. MTD / flash errors

@@ -39,11 +39,73 @@ _TEMPLATE_PATH = os.path.join(
     "templates", "wairz_init_wrapper.sh",
 )
 
+# Locations searched (in order) for a usable POSIX shell inside the
+# firmware rootfs when /bin/sh is missing.
+SHELL_CANDIDATE_PATHS: tuple[str, ...] = (
+    "/bin/sh",
+    "/bin/ash",
+    "/bin/dash",
+    "/bin/bash",
+    "/sbin/sh",
+    "/usr/bin/sh",
+    "/usr/bin/ash",
+    "/usr/bin/bash",
+    "/bin/busybox",
+    "/sbin/busybox",
+    "/usr/bin/busybox",
+    "/usr/sbin/busybox",
+    "/bin/busybox/bin/sh",
+    "/bin/busybox/bin/ash",
+    "/bin/busybox/bin/busybox",
+)
+
+
+def detect_shell_in_firmware(
+    container: "docker.models.containers.Container",
+) -> str | None:
+    """Find a usable shell inside the firmware rootfs.
+
+    Returns the absolute path of the first matching shell (regular file or
+    symlink whose target resolves) under /firmware, with the /firmware prefix
+    stripped (i.e., the path the kernel will see after switch_root). Returns
+    None if no candidate exists.
+    """
+    tests = " ".join(
+        f'if [ -e /firmware{p} ] && [ ! -d /firmware{p} ]; then '
+        f'echo "{p}"; exit 0; fi;'
+        for p in SHELL_CANDIDATE_PATHS
+    )
+    result = container.exec_run(["sh", "-c", tests])
+    path = result.output.decode("utf-8", errors="replace").strip()
+    return path or None
+
+
+def ensure_bin_sh(
+    container: "docker.models.containers.Container",
+    shell_path: str,
+) -> None:
+    """Make /bin/sh resolve to `shell_path` inside the firmware rootfs.
+
+    If /firmware/bin/sh already exists (symlink or file), do nothing.
+    Otherwise create a relative symlink so firmware scripts and the wrapper
+    shebang resolve on rootfs layouts that lack /bin/sh.
+    """
+    if shell_path == "/bin/sh":
+        return
+    rel_target = os.path.relpath(shell_path, "/bin")
+    container.exec_run([
+        "sh", "-c",
+        "mkdir -p /firmware/bin && "
+        "if [ ! -e /firmware/bin/sh ]; then "
+        f"ln -s '{rel_target}' /firmware/bin/sh; fi",
+    ])
+
 
 def generate_init_wrapper(
     original_init: str | None = None,
     pre_init_script: str | None = None,
     stub_profile: str = "none",
+    shell_path: str = "/bin/sh",
 ) -> str:
     """Generate a wairz init wrapper script for system-mode emulation.
 
@@ -54,6 +116,11 @@ def generate_init_wrapper(
     - Setting ``LD_PRELOAD`` for stub libraries (based on stub_profile)
     - Sourcing an optional pre-init script for firmware-specific setup
     - Executing the firmware's original init or an interactive shell
+
+    ``shell_path`` is the absolute path of the interpreter to put in the
+    shebang. Defaults to /bin/sh; callers should pass the result of
+    ``detect_shell_in_firmware`` so the wrapper still runs on rootfs
+    layouts that lack /bin/sh.
     """
     if original_init:
         exec_line = f'exec {original_init}'
@@ -106,6 +173,7 @@ def generate_init_wrapper(
 
     return (
         template
+        .replace("@@SHEBANG@@", f"#!{shell_path}")
         .replace("@@PRE_INIT_BLOCK@@", pre_init_block)
         .replace("@@STUB_BLOCK@@", stub_block)
         .replace("@@EXEC_LINE@@", exec_line)
@@ -128,8 +196,35 @@ def inject_init_wrapper(
     Returns the init_path to pass to ``start-system-mode.sh``
     (``"/wairz_init.sh"``).
     """
+    # Pick a shebang interpreter that actually exists in the rootfs.
+    # Many split-MTD firmwares (camera /app partitions, etc.) lack /bin/sh —
+    # the kernel reports the resulting exec failure as if the wrapper itself
+    # were missing, panicking with "switch_root: can't execute
+    # '/wairz_init.sh': No such file or directory".
+    shell_path = detect_shell_in_firmware(container)
+    if not shell_path:
+        raise RuntimeError(
+            "No usable shell found in firmware rootfs. The init wrapper "
+            "needs an interpreter for its shebang, but none of the "
+            "standard locations (/bin/sh, /bin/busybox, /bin/ash, ...) "
+            "exist under /firmware. This rootfs is likely incomplete "
+            "(e.g., a /app partition mounted standalone without the "
+            "device's separate rootfs partition). Provide a complete "
+            "rootfs or use user-mode emulation."
+        )
+    if shell_path != "/bin/sh":
+        ensure_bin_sh(container, shell_path)
+        logger.info(
+            "Firmware lacks /bin/sh; using %s for wrapper shebang and "
+            "symlinked /bin/sh -> %s",
+            shell_path, shell_path,
+        )
+
     wrapper = generate_init_wrapper(
-        init_path, pre_init_script, stub_profile=stub_profile
+        init_path,
+        pre_init_script,
+        stub_profile=stub_profile,
+        shell_path=shell_path,
     )
 
     # Write scripts into the container using put_archive (avoids
@@ -144,8 +239,9 @@ def inject_init_wrapper(
         logger.info("Injected pre-init script (%d bytes)", len(pre_init_script))
 
     logger.info(
-        "Injected init wrapper (original_init=%s, has_pre_init=%s)",
+        "Injected init wrapper (original_init=%s, has_pre_init=%s, shell=%s)",
         init_path or "auto-detect",
         bool(pre_init_script),
+        shell_path,
     )
     return "/wairz_init.sh"

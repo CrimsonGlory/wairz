@@ -1,6 +1,11 @@
-#!/bin/sh
+@@SHEBANG@@
 # Wairz emulation init wrapper
 # Auto-configures the emulated environment before starting firmware init
+
+# Bring busybox applets into PATH on rootfs layouts where the binaries
+# live somewhere other than /bin and /sbin (e.g. /bin/busybox/{bin,sbin}).
+# Without this, mount/ifconfig/etc. below would fail with "not found".
+export PATH="/bin:/sbin:/usr/bin:/usr/sbin:/bin/busybox/bin:/bin/busybox/sbin:$PATH"
 
 echo "[wairz] Init wrapper starting..."
 

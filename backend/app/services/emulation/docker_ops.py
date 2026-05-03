@@ -335,27 +335,59 @@ def read_container_qemu_log(
     max_bytes: int = 4000,
     quiet: bool = False,
 ) -> str:
-    """Read ``/tmp/qemu-system.log`` from inside a container.
+    """Read QEMU launch log + serial-console buffer from inside a container.
 
-    Returns the log content (truncated to ``max_bytes``) or a fallback
-    message if the log is not available.
+    The launch log (/tmp/qemu-system.log) holds the start-system-mode.sh
+    banner (kernel format, ext4 image creation, QEMU command line). The
+    serial log (/tmp/qemu-serial.log) is QEMU's chardev ``logfile=`` — a
+    passive copy of every byte that crossed the guest serial port,
+    including kernel printk, init script output, and panic traces.
+
+    Returns both, separated by a header. Falls back to container logs if
+    neither file is available.
     """
+    sections: list[str] = []
     try:
         result = container.exec_run(["cat", "/tmp/qemu-system.log"])
-        log = result.output.decode("utf-8", errors="replace")
-        if len(log) > max_bytes:
-            log = log[-max_bytes:] + "\n... [truncated]"
-        return log.strip() if log.strip() else "(log file is empty)"
+        launch = result.output.decode("utf-8", errors="replace")
+        if len(launch) > max_bytes:
+            launch = launch[-max_bytes:] + "\n... [truncated]"
+        launch = launch.strip()
+        sections.append(launch if launch else "(launch log empty)")
     except Exception:
         if not quiet:
-            logger.debug("Could not read QEMU log from container", exc_info=True)
-        # Fall back to container logs
-        try:
-            log = container.logs(tail=50).decode("utf-8", errors="replace")
-            return log.strip() if log.strip() else "(no log available)"
-        except Exception:
-            logger.debug("Failed to read container logs", exc_info=True)
-            return "(no log available)"
+            logger.debug("Could not read QEMU launch log from container", exc_info=True)
+
+    try:
+        # Strip null bytes — QEMU pads serial output with them on some
+        # arch/console combinations and they confuse downstream readers.
+        result = container.exec_run([
+            "sh", "-c",
+            "[ -f /tmp/qemu-serial.log ] && tr -d '\\000' "
+            "< /tmp/qemu-serial.log || true",
+        ])
+        serial = result.output.decode("utf-8", errors="replace")
+        if len(serial) > max_bytes:
+            serial = serial[-max_bytes:] + "\n... [truncated]"
+        serial = serial.strip()
+        if serial:
+            sections.append(
+                "--- Serial console (kernel + init output) ---\n" + serial
+            )
+    except Exception:
+        if not quiet:
+            logger.debug("Could not read QEMU serial log from container", exc_info=True)
+
+    if sections:
+        return "\n\n".join(sections)
+
+    # Fall back to container logs if we couldn't read either file.
+    try:
+        log = container.logs(tail=50).decode("utf-8", errors="replace")
+        return log.strip() if log.strip() else "(no log available)"
+    except Exception:
+        logger.debug("Failed to read container logs", exc_info=True)
+        return "(no log available)"
 
 
 def resolve_host_path(container_path: str) -> str | None:
