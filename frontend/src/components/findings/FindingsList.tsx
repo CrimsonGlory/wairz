@@ -119,7 +119,7 @@ export default function FindingsList({
         })}
 
         <span className="ml-2 text-xs text-muted-foreground">Source:</span>
-        {(['manual', 'ai_discovered', 'sbom_scan', 'security_review', 'security_audit', 'yara_scan', 'fuzzing', 'apk-manifest-scan'] as FindingSource[]).map((src) => {
+        {(['manual', 'ai_discovered', 'sbom_scan', 'security_review', 'security_audit', 'unpack_audit', 'yara_scan', 'fuzzing', 'apk-manifest-scan'] as FindingSource[]).map((src) => {
           const config = FINDING_SOURCE_CONFIG[src]
           const active = sourceFilter === src
           const SourceIcon = config.icon

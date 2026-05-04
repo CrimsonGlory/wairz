@@ -181,7 +181,7 @@ export interface BinaryInfoResponse {
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info'
 export type Confidence = 'high' | 'medium' | 'low'
 export type FindingStatus = 'open' | 'confirmed' | 'false_positive' | 'fixed'
-export type FindingSource = 'manual' | 'ai_discovered' | 'sbom_scan' | 'fuzzing' | 'security_review' | 'security_audit' | 'yara_scan' | 'abusech_scan' | 'known_good_scan' | 'apk-manifest-scan' | 'apk-bytecode-scan' | 'apk-mobsfscan'
+export type FindingSource = 'manual' | 'ai_discovered' | 'sbom_scan' | 'fuzzing' | 'security_review' | 'security_audit' | 'yara_scan' | 'abusech_scan' | 'known_good_scan' | 'apk-manifest-scan' | 'apk-bytecode-scan' | 'apk-mobsfscan' | 'unpack_audit'
 
 export interface Finding {
   id: string
