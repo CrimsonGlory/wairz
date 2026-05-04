@@ -196,6 +196,35 @@ def test_malformed_audit_entries_skipped():
     assert _extract_aes_key_findings(meta, fid) == []
 
 
+def test_legacy_dict_shape_normalised_to_list():
+    """Pre-list-shape rows have vendor_decryption as a single dict
+    with `blobs: list[str]`. Service must normalise to per-archive
+    entries so F1/F2/F3 emit correctly. Real example: firmware
+    5b7735cd-… in production."""
+    fid = uuid.uuid4()
+    legacy = {
+        "blobs": ["rootfs_partition.tar.xz", "boot_partition.tar.xz",
+                  "scripts.tar.xz", "libqt.tar.xz"],
+        "algorithm": "aes-128-cbc",
+        "key_hex": _KEY,
+        "iv_hex": _IV,
+        "key_source": "sbin/force_update.sh:755",
+    }
+    findings = _extract_aes_key_findings({"vendor_decryption": legacy}, fid)
+    # 4 archives → 1 triple → F1+F2+F3
+    assert len(findings) == 3
+    f2 = next(f for f in findings if "Static IV" in f.title)
+    assert "across 4 AES-CBC ciphertexts" in f2.title
+
+
+def test_unparseable_audit_shape_returns_empty():
+    """Defensive: random non-list, non-dict shapes yield zero
+    findings rather than raising."""
+    fid = uuid.uuid4()
+    assert _extract_aes_key_findings({"vendor_decryption": "garbage"}, fid) == []
+    assert _extract_aes_key_findings({"vendor_decryption": 42}, fid) == []
+
+
 # ---------------------------------------------------------------------------
 # _extract_partial_extraction_findings — gap, not non-emptiness
 # ---------------------------------------------------------------------------

@@ -101,11 +101,40 @@ async def run(firmware_id: uuid.UUID) -> int:
         return len(new_findings)
 
 
+def _normalize_vendor_decryption(audit: Any) -> list[dict]:
+    """Accept both schemas in firmware.device_metadata['vendor_decryption']:
+
+    - Canonical (post-unblob worker output): ``list[dict]`` where each
+      dict has keys ``algorithm, key_hex, iv_hex, key_source, archive``.
+    - Legacy (hand-authored / pre-list-shape rows): a single ``dict``
+      with ``algorithm, key_hex, iv_hex, key_source`` plus a ``blobs:
+      list[str]`` listing the affected archive paths.
+
+    Returns the canonical list-of-dicts shape. Unparseable inputs
+    return an empty list rather than raising — defensive at the
+    boundary because real production rows pre-date the canonical
+    schema.
+    """
+    if isinstance(audit, list):
+        return [e for e in audit if isinstance(e, dict)]
+    if isinstance(audit, dict):
+        # Legacy shape — expand 'blobs' to per-archive entries.
+        blobs = audit.get("blobs")
+        common = {
+            k: audit.get(k) for k in ("algorithm", "key_hex", "iv_hex", "key_source")
+        }
+        if isinstance(blobs, list) and blobs:
+            return [{**common, "archive": str(b)} for b in blobs if b]
+        # No 'blobs' — treat as a single entry with archive=None.
+        return [{**common, "archive": audit.get("archive")}]
+    return []
+
+
 def _extract_aes_key_findings(
     meta: dict[str, Any], firmware_id: uuid.UUID,
 ) -> list[FindingCreate]:
     """F1+F2+F3 per recovered AES key triple, deduped."""
-    audit = meta.get("vendor_decryption") or []
+    audit = _normalize_vendor_decryption(meta.get("vendor_decryption"))
     if not audit:
         return []
 
@@ -244,12 +273,12 @@ def _extract_partial_extraction_findings(
     """
     diag = meta.get("extraction_diagnostics") or {}
     encrypted = diag.get("encrypted_archives") or []
-    decrypted = meta.get("vendor_decryption") or []
+    decrypted = _normalize_vendor_decryption(meta.get("vendor_decryption"))
     if not encrypted:
         return []
 
     decrypted_basenames = {
-        (e.get("archive", "")).rsplit("/", 1)[-1]
+        (e.get("archive") or "").rsplit("/", 1)[-1]
         for e in decrypted
         if e.get("archive")
     }
