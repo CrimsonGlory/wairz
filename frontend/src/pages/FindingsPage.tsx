@@ -94,18 +94,20 @@ export default function FindingsPage() {
   }
 
   return (
-    <div className="-m-6 flex h-[calc(100vh-3.5rem)]">
+    <div className="-m-6 flex h-[calc(100vh-3.5rem)] overflow-hidden">
       {/* Left panel: findings list */}
-      <div className="flex w-96 shrink-0 flex-col border-r border-border">
-        <div className="flex items-center gap-2 border-b border-border px-4 py-2">
-          <ShieldAlert className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium">Findings</span>
-          <FirmwareSelector projectId={projectId!} firmwareList={firmwareList} className="ml-2" />
-          <div className="ml-auto">
-            {projectId && <ReportExport projectId={projectId} />}
+      <div className="flex w-96 shrink-0 flex-col overflow-hidden border-r border-border">
+        <div className="flex flex-col gap-2 border-b border-border px-4 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <ShieldAlert className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="shrink-0 text-sm font-medium">Findings</span>
+            <div className="ml-auto shrink-0">
+              {projectId && <ReportExport projectId={projectId} />}
+            </div>
           </div>
+          <FirmwareSelector projectId={projectId!} firmwareList={firmwareList} className="w-full" />
         </div>
-        <div className="flex min-h-0 flex-1 flex-col px-3 py-2">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-3 py-2">
           <FindingsList
             findings={findings}
             selectedId={selectedId}
@@ -121,9 +123,9 @@ export default function FindingsPage() {
       </div>
 
       {/* Center panel: finding detail */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {selectedFinding ? (
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="min-w-0 flex-1 overflow-y-auto p-6">
             <FindingDetail
               key={selectedFinding.id}
               finding={selectedFinding}

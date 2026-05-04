@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import type { CSSProperties } from 'react'
 import {
   ChevronDown,
@@ -48,6 +48,19 @@ export default function FindingsList({
 }: FindingsListProps) {
   const [sortField, setSortField] = useState<SortField>('severity')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const listContainerRef = useRef<HTMLDivElement>(null)
+  const [listHeight, setListHeight] = useState(300)
+
+  useEffect(() => {
+    const el = listContainerRef.current
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect.height ?? 0
+      if (h > 0) setListHeight(h)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
@@ -75,7 +88,7 @@ export default function FindingsList({
     : (sortDir === 'asc' ? ChevronUp : ChevronDown)
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs text-muted-foreground">Severity:</span>
@@ -165,22 +178,24 @@ export default function FindingsList({
         <span className="ml-auto">{findings.length} finding(s)</span>
       </div>
 
-      {/* List */}
-      {sorted.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-          <ShieldAlert className="mb-2 h-8 w-8" />
-          <p className="text-sm">No findings yet</p>
-          <p className="text-xs">Use the AI assistant to analyze firmware and record findings</p>
-        </div>
-      ) : (
-        <List
-          rowComponent={FindingRow}
-          rowCount={sorted.length}
-          rowHeight={ROW_HEIGHT}
-          rowProps={{ sorted, selectedId, onSelect }}
-          style={{ height: 'calc(100vh - 280px)', minHeight: 300 }}
-        />
-      )}
+      {/* List — height measured from parent flex via ResizeObserver, not a fragile vh calc. */}
+      <div ref={listContainerRef} className="min-h-0 min-w-0 flex-1">
+        {sorted.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center py-12 text-muted-foreground">
+            <ShieldAlert className="mb-2 h-8 w-8" />
+            <p className="text-sm">No findings yet</p>
+            <p className="text-xs">Use the AI assistant to analyze firmware and record findings</p>
+          </div>
+        ) : (
+          <List
+            rowComponent={FindingRow}
+            rowCount={sorted.length}
+            rowHeight={ROW_HEIGHT}
+            rowProps={{ sorted, selectedId, onSelect }}
+            style={{ height: listHeight }}
+          />
+        )}
+      </div>
     </div>
   )
 }
@@ -223,8 +238,8 @@ function FindingRow({
           <Icon className="h-3 w-3" />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium">{f.title}</span>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">{f.title}</span>
             <Badge variant="outline" className={`shrink-0 text-[10px] ${statConfig.className}`}>
               {statConfig.label}
             </Badge>
@@ -239,9 +254,9 @@ function FindingRow({
               )
             })()}
           </div>
-          <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="mt-0.5 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
             {f.file_path && (
-              <span className="truncate font-mono">{f.file_path}</span>
+              <span className="min-w-0 flex-1 truncate font-mono">{f.file_path}</span>
             )}
             <span className="shrink-0">{formatDate(f.created_at)}</span>
           </div>

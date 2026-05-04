@@ -31,12 +31,13 @@ export default function FirmwareSelector({ firmwareList, className }: FirmwareSe
   if (unpacked.length <= 1) return null
 
   return (
-    <div className={className}>
-      <label className="text-xs font-medium text-muted-foreground mr-2">Firmware version:</label>
+    <div className={`flex min-w-0 items-center gap-2 ${className ?? ''}`}>
+      <label className="shrink-0 text-xs font-medium text-muted-foreground">Firmware:</label>
       <select
-        className="rounded-md border bg-background px-2 py-1 text-sm"
+        className="min-w-0 flex-1 truncate rounded-md border bg-background px-2 py-1 text-sm"
         value={selectedFirmwareId || ''}
         onChange={(e) => setSelectedFirmware(e.target.value || null)}
+        title={unpacked.find((fw) => fw.id === selectedFirmwareId)?.original_filename ?? undefined}
       >
         {unpacked.map((fw) => (
           <option key={fw.id} value={fw.id}>

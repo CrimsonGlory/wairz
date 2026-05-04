@@ -79,14 +79,14 @@ export default function FindingDetail({ finding, onUpdate, onDelete }: FindingDe
   }
 
   return (
-    <div className="space-y-4 overflow-y-auto">
+    <div className="min-w-0 space-y-4">
       {/* Header */}
       <div className="flex items-start gap-3">
         <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded ${sevConfig.bg}`}>
           <Icon className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-semibold leading-tight">{finding.title}</h2>
+          <h2 className="text-lg font-semibold leading-tight break-words">{finding.title}</h2>
           <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
             <Badge className={sevConfig.bg}>{sevConfig.label}</Badge>
             {finding.source && (() => {
@@ -142,19 +142,19 @@ export default function FindingDetail({ finding, onUpdate, onDelete }: FindingDe
 
       {/* File path */}
       {finding.file_path && (
-        <div className="flex items-center gap-2">
-          <FileText className="h-4 w-4 text-muted-foreground" />
+        <div className="flex min-w-0 items-start gap-2">
+          <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <button
             type="button"
             onClick={handleNavigateToFile}
-            className="text-sm font-mono text-primary hover:underline"
+            className="min-w-0 flex-1 break-all text-left text-sm font-mono text-primary hover:underline"
           >
             {finding.file_path}
             {finding.line_number != null && `:${finding.line_number}`}
             <ExternalLink className="ml-1 inline h-3 w-3" />
           </button>
           {isApkFinding && (
-            <span className="text-xs text-muted-foreground">(APK scan)</span>
+            <span className="shrink-0 text-xs text-muted-foreground">(APK scan)</span>
           )}
         </div>
       )}
@@ -233,7 +233,7 @@ export default function FindingDetail({ finding, onUpdate, onDelete }: FindingDe
             className="w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           />
         ) : finding.evidence ? (
-          <pre className="max-h-80 overflow-auto rounded-md bg-muted p-3 text-xs">
+          <pre className="max-h-80 w-full max-w-full overflow-auto whitespace-pre rounded-md bg-muted p-3 text-xs">
             {finding.evidence}
           </pre>
         ) : (
