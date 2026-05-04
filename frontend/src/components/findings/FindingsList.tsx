@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { Finding, Severity, FindingStatus, FindingSource } from '@/types'
 import { formatDate } from '@/utils/format'
-import { SEVERITY_CONFIG, FINDING_STATUS_CONFIG, FINDING_SOURCE_CONFIG } from '@/constants/statusConfig'
+import { SEVERITY_CONFIG, FINDING_STATUS_CONFIG, FINDING_SOURCE_CONFIG, CONFIDENCE_CONFIG } from '@/constants/statusConfig'
 
 /**
  * Fixed row height. Rows are a two-line button:
@@ -253,6 +253,11 @@ function FindingRow({
                 </Badge>
               )
             })()}
+            {f.confidence && (
+              <span className={`shrink-0 text-[10px] font-medium ${CONFIDENCE_CONFIG[f.confidence].textClassName}`}>
+                conf={f.confidence}
+              </span>
+            )}
           </div>
           <div className="mt-0.5 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
             {f.file_path && (

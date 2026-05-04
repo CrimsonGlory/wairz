@@ -14,7 +14,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import type { Finding, FindingUpdate, FindingStatus, FindingSource } from '@/types'
 import { formatDate } from '@/utils/format'
 import { getCweDescription, getCweMitreUrl } from '@/utils/cwe'
-import { SEVERITY_CONFIG, FINDING_STATUS_OPTIONS, FINDING_SOURCE_CONFIG } from '@/constants/statusConfig'
+import { SEVERITY_CONFIG, FINDING_STATUS_OPTIONS, FINDING_SOURCE_CONFIG, CONFIDENCE_CONFIG } from '@/constants/statusConfig'
 
 interface FindingDetailProps {
   finding: Finding
@@ -89,6 +89,11 @@ export default function FindingDetail({ finding, onUpdate, onDelete }: FindingDe
           <h2 className="text-lg font-semibold leading-tight break-words">{finding.title}</h2>
           <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
             <Badge className={sevConfig.bg}>{sevConfig.label}</Badge>
+            {finding.confidence && (
+              <Badge variant="outline" className={`text-xs ${CONFIDENCE_CONFIG[finding.confidence].className}`}>
+                {CONFIDENCE_CONFIG[finding.confidence].label}
+              </Badge>
+            )}
             {finding.source && (() => {
               const srcConfig = FINDING_SOURCE_CONFIG[finding.source as FindingSource] ?? FINDING_SOURCE_CONFIG.manual
               const SrcIcon = srcConfig.icon

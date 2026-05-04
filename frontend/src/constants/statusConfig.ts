@@ -15,7 +15,7 @@ import {
   FileSearch,
   Lock,
 } from 'lucide-react'
-import type { Severity, FindingStatus, FindingSource } from '@/types'
+import type { Severity, FindingStatus, FindingSource, Confidence } from '@/types'
 
 // ── Severity ──
 
@@ -79,6 +79,30 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   'apk-bytecode-scan': { icon: Code, label: 'APK Bytecode', className: 'border-violet-500/50 text-violet-600 dark:text-violet-400' },
   'apk-mobsfscan': { icon: FileSearch, label: 'APK SAST', className: 'border-fuchsia-500/50 text-fuchsia-600 dark:text-fuchsia-400' },
   unpack_audit: { icon: Lock, label: 'Unpack Audit', className: 'border-cyan-500/50 text-cyan-600 dark:text-cyan-400' },
+}
+
+// ── Finding confidence ──
+
+export interface ConfidenceConfigEntry {
+  label: string
+  /** Full outline-badge class — border + text color. For `<Badge variant="outline">` use. */
+  className: string
+  /** Text-color-only class. For plain text suffix use (no border). */
+  textClassName: string
+}
+
+/**
+ * Visual config for `Finding.confidence`.  Hues kept distinct from
+ * SEVERITY_CONFIG (filled) and FINDING_SOURCE_CONFIG (per-source hue) so
+ * the three pieces of metadata don't visually merge in a tight header
+ * row.  `null` confidence is rendered as nothing — call sites use
+ * `?? CONFIDENCE_CONFIG.medium` only when a fallback is desired (per
+ * CLAUDE.md Rule #9).
+ */
+export const CONFIDENCE_CONFIG: Record<Confidence, ConfidenceConfigEntry> = {
+  high:   { label: 'High confidence',   className: 'border-emerald-500/50 text-emerald-600 dark:text-emerald-400', textClassName: 'text-emerald-600 dark:text-emerald-400' },
+  medium: { label: 'Medium confidence', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400',       textClassName: 'text-amber-600 dark:text-amber-400' },
+  low:    { label: 'Low confidence',    className: 'border-slate-500/50 text-slate-600 dark:text-slate-400',       textClassName: 'text-slate-600 dark:text-slate-400' },
 }
 
 // ── Project status (Badge variant) ──
