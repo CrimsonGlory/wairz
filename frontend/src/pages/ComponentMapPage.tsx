@@ -76,13 +76,13 @@ export default function ComponentMapPage() {
   }
 
   return (
-    <div className="-m-6 flex h-[calc(100vh-3.5rem)] flex-col">
+    <div className="-m-6 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
       {firmwareList.filter((fw) => fw.extracted_path).length > 1 && (
-        <div className="shrink-0 border-b border-border px-4 py-2">
-          <FirmwareSelector projectId={projectId!} firmwareList={firmwareList} />
+        <div className="min-w-0 shrink-0 border-b border-border px-4 py-2">
+          <FirmwareSelector projectId={projectId!} firmwareList={firmwareList} className="w-full max-w-md" />
         </div>
       )}
-      <div className="relative min-w-0 flex-1">
+      <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
         <ComponentMap graph={graph} />
       </div>
     </div>

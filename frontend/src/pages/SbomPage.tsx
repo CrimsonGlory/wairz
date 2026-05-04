@@ -227,7 +227,7 @@ export default function SbomPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       {/* Firmware Selector */}
-      {projectId && <FirmwareSelector projectId={projectId} firmwareList={firmwareList} className="mb-2" />}
+      {projectId && <FirmwareSelector projectId={projectId} firmwareList={firmwareList} className="mb-2 max-w-md" />}
 
       {/* Header */}
       <div className="flex items-center justify-between">

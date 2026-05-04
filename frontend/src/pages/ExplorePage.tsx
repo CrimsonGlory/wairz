@@ -88,25 +88,25 @@ export default function ExplorePage() {
   }, [terminalHeight])
 
   return (
-    <div className="-m-6 flex h-[calc(100vh-3.5rem)]">
+    <div className="-m-6 flex h-[calc(100vh-3.5rem)] overflow-hidden">
       {/* Left panel: file tree */}
       {treeOpen && (
-        <div className="flex w-72 shrink-0 flex-col border-r border-border">
+        <div className="flex w-72 shrink-0 flex-col overflow-hidden border-r border-border">
           <div className="flex flex-col border-b border-border">
-            <div className="flex items-center gap-2 px-4 py-2">
-              <FolderTree className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Files</span>
+            <div className="flex min-w-0 items-center gap-2 px-4 py-2">
+              <FolderTree className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="shrink-0 text-sm font-medium">Files</span>
               <button
                 onClick={() => setTreeOpen(false)}
-                className="ml-auto rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                 title="Collapse panel"
               >
                 <PanelLeftClose className="h-4 w-4" />
               </button>
             </div>
             {projectId && firmwareList.filter((fw) => fw.extracted_path).length > 1 && (
-              <div className="px-4 pb-2">
-                <FirmwareSelector projectId={projectId} firmwareList={firmwareList} />
+              <div className="min-w-0 px-4 pb-2">
+                <FirmwareSelector projectId={projectId} firmwareList={firmwareList} className="w-full" />
               </div>
             )}
           </div>
@@ -115,19 +115,18 @@ export default function ExplorePage() {
       )}
 
       {/* Center panel: file viewer + terminal */}
-      <div ref={containerRef} className="relative flex min-w-0 flex-1 flex-col">
-        {!treeOpen && (
-          <button
-            onClick={() => setTreeOpen(true)}
-            className="absolute left-2 top-2 z-10 rounded border border-border bg-background p-1 text-muted-foreground shadow-sm hover:bg-accent hover:text-accent-foreground"
-            title="Show file tree"
-          >
-            <PanelLeftOpen className="h-4 w-4" />
-          </button>
-        )}
-
-        {/* View mode tabs */}
-        <div className="flex items-center gap-1 border-b border-border px-2">
+      <div ref={containerRef} className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Tabs row — docked toolbar with show-tree (when collapsed), view tabs, terminal toggle. No absolute overlays over data. */}
+        <div className="flex shrink-0 items-center gap-1 border-b border-border px-2">
+          {!treeOpen && (
+            <button
+              onClick={() => setTreeOpen(true)}
+              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              title="Show file tree"
+            >
+              <PanelLeftOpen className="h-4 w-4" />
+            </button>
+          )}
           <button
             onClick={() => setViewMode('files')}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
@@ -150,10 +149,22 @@ export default function ExplorePage() {
             <Cpu className="h-3.5 w-3.5" />
             UEFI Modules
           </button>
+          <button
+            onClick={() => setTerminalOpen(!terminalOpen)}
+            className={`ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
+              terminalOpen
+                ? 'border-b-2 border-primary text-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+            title={terminalOpen ? 'Close terminal' : 'Open terminal'}
+          >
+            <TerminalSquare className="h-3.5 w-3.5" />
+            Terminal
+          </button>
         </div>
 
         {/* Content area (takes remaining space) */}
-        <div className="min-h-0 flex-1">
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
           {viewMode === 'files' ? (
             <FileViewer />
           ) : projectId ? (
@@ -161,14 +172,14 @@ export default function ExplorePage() {
           ) : null}
         </div>
 
-        {/* Drag handle + terminal panel */}
+        {/* Drag handle + terminal panel — layout-participating, NOT an overlay over file content. */}
         {terminalOpen && (
           <>
             <div
               onMouseDown={handleDragStart}
               className="h-1 shrink-0 cursor-row-resize border-t border-border bg-background hover:bg-accent"
             />
-            <div style={{ height: terminalHeight }} className="shrink-0">
+            <div style={{ height: terminalHeight }} className="shrink-0 overflow-hidden">
               <TerminalPanel
                 projectId={projectId}
                 isOpen={terminalOpen}
@@ -176,18 +187,6 @@ export default function ExplorePage() {
               />
             </div>
           </>
-        )}
-
-        {/* Terminal toggle — bottom-left */}
-        {!terminalOpen && (
-          <button
-            onClick={() => setTerminalOpen(true)}
-            className="absolute bottom-4 left-4 z-10 flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-muted-foreground shadow-sm hover:bg-accent hover:text-accent-foreground"
-            title="Open terminal"
-          >
-            <TerminalSquare className="h-4 w-4" />
-            Terminal
-          </button>
         )}
       </div>
     </div>

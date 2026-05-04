@@ -384,8 +384,8 @@ export default function EmulationPage() {
               Run firmware binaries or boot the full OS using QEMU
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            <FirmwareSelector projectId={projectId!} firmwareList={firmwareList} />
+          <div className="flex min-w-0 items-center gap-3">
+            <FirmwareSelector projectId={projectId!} firmwareList={firmwareList} className="min-w-0 max-w-xs" />
             <Button variant="outline" size="sm" onClick={loadSessions}>
               <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
               Refresh

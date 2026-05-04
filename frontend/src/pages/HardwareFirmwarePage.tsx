@@ -383,8 +383,8 @@ export default function HardwareFirmwarePage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <FirmwareSelector projectId={projectId} firmwareList={firmwareList} />
+        <div className="flex min-w-0 items-center gap-2">
+          <FirmwareSelector projectId={projectId} firmwareList={firmwareList} className="min-w-0 max-w-xs" />
           <Button
             variant="outline"
             size="sm"

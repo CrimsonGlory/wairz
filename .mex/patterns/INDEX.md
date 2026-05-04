@@ -9,3 +9,4 @@ Lookup table for all pattern files in this directory. Check here before starting
 | [add-rest-endpoint.md](add-rest-endpoint.md) | Adding a new FastAPI route under `/api/v1/projects/{project_id}/...` with service + schema |
 | [debug-mcp-tool-failure.md](debug-mcp-tool-failure.md) | MCP tool invisible, returning empty, corrupting protocol, or leaving stale DB state |
 | [docker-rebuild-backend-worker.md](docker-rebuild-backend-worker.md) | Rebuilding backend + worker together after any Python / dependency / migration change |
+| [layout-containment.md](layout-containment.md) | Split-pane page layout, sidebar form controls, long content, floating action docking — preventing pane bleed and overlap |

@@ -215,7 +215,7 @@ export default function SecurityScanPage() {
       </div>
 
       {/* Firmware Selector */}
-      {projectId && <FirmwareSelector projectId={projectId} firmwareList={firmwareList} />}
+      {projectId && <FirmwareSelector projectId={projectId} firmwareList={firmwareList} className="max-w-md" />}
 
       {/* Tabs */}
       <div className="flex gap-1 border-b">
