@@ -28,6 +28,7 @@ class FindingService:
             line_number=data.line_number,
             cve_ids=data.cve_ids,
             cwe_ids=data.cwe_ids,
+            confidence=data.confidence.value if data.confidence else None,
             source=data.source,
             component_id=data.component_id,
         )

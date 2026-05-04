@@ -285,6 +285,17 @@ async def _run_unpack_background(
                 # decrypt audit on firmwares where detection finished
                 # quickly (e.g. 0 detection roots).
                 if result.success and result.extracted_path:
+                    # Promote unpack-time discoveries (vendor_decryption,
+                    # extraction_diagnostics) to Finding rows. Same post-
+                    # commit-task shape as HW detection below; owns its
+                    # own AsyncSession.
+                    from app.services.unpack_audit_service import (
+                        _run_safe as _run_unpack_audit_safe,
+                    )
+                    asyncio.create_task(
+                        _run_unpack_audit_safe(firmware_id),
+                    )
+
                     from app.workers.unpack import _run_hardware_firmware_detection_safe
                     asyncio.create_task(
                         _run_hardware_firmware_detection_safe(
