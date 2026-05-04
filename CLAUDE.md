@@ -155,6 +155,94 @@ wairz/
 - **Frontend:** Zustand for state, API functions in `src/api/`, pages poll with `useEffect` + `setInterval` for long-running operations (see EmulationPage, FuzzingPage, ProjectDetailPage for the pattern).
 - **Docker:** Backend has access to Docker socket for managing emulation/fuzzing containers. Emulation containers run on an internal `emulation_net` network.
 
+### Standing Operating Principles
+
+These are operating principles, not forensic incidents. They apply to every change. The Learned Rules below give the specific incidents these principles were derived from — cross-references like (Rule #N) point there.
+
+#### Agent Work Loop
+
+For every code change:
+
+1. Read the relevant files before editing.
+2. Identify the root cause before implementing a fix.
+3. Prefer the smallest clean change that fixes the root cause.
+4. Preserve existing behavior unless the task explicitly requires a behavior change.
+5. Check nearby related code paths for the same failure pattern.
+6. Add or update tests for new behavior, changed behavior, and reproducible bug fixes.
+7. Run the validation commands below before handoff.
+8. Summarize what changed, why, what was validated, and what was not.
+
+Do not paper over bugs with arbitrary sleeps, magic pixel offsets, excessive z-index values, broad exception swallowing, disabled tests, or undocumented behavior changes.
+
+#### Testing and Validation Policy
+
+Add or update tests when the change introduces or modifies:
+
+- New behavior, changed behavior, or a bug fix whose failure can be reproduced in isolation.
+- Security-sensitive logic — sandbox path validation, API-key handling, browser-issued URLs, auth middleware, signed-archive trust paths.
+- API contract or persistence — REST endpoints, Pydantic schemas, ORM models, alembic migrations, JSONB shape, status-column transitions.
+- Async / background flows — arq jobs, `asyncio.create_task` detached work, 202+polling endpoints, worker coordination.
+- UI behavior — routes, polling, loading/error/empty states, optimistic updates, layout containment, keyboard navigation.
+
+**Mocks vs live canaries (Rule #35b).** Mock unit tests verify dispatch shape ("X was called"), not value flow ("X was called with the right args AND the persisted row reflects them"). When persistence or service behavior matters, after the mocks pass, run the new code once against a real production row (or a freshly-created fixture row through the real ORM / service path) and SELECT the row to inspect the fields the service explicitly sets. Mocks are fine for boundary contracts; live canaries are required for value flow.
+
+Do not delete, weaken, or skip tests to make a suite pass unless the test is demonstrably wrong AND the reason is documented in the commit message.
+
+#### Required Validation Commands
+
+Run the smallest reliable validation set that proves the change.
+
+**Backend:**
+
+- Targeted `pytest backend/tests/test_<module>.py -v` for the changed module or behavior.
+- Broader pytest when the change touches shared services, models, schemas, migrations, workers, MCP tool dispatch, or security-sensitive code.
+- For migration / model changes: apply via Rule #20 fast iteration (`docker cp` + `alembic upgrade head` via container exec) OR full `docker compose up -d --build backend worker` rebuild.
+
+**Frontend:**
+
+- `npx tsc -b --force` from `frontend/` (NEVER `--noEmit` — Rule #24).
+- Mandatory Rule #24 canary once per session before trusting any "0 errors" output.
+- After any change under `frontend/src/`: `docker compose up -d --build frontend` (NOT `restart` — Rule #26).
+
+**Targeted pytest is INSUFFICIENT** when the change touches: class shape (fields added/removed/renamed on a Pydantic model, dataclass, SQLAlchemy ORM, or `@lru_cache`'d settings); lazy imports (function-body `from <lib> import …` per Rule #30); module-scope constants; cached singletons; alembic migrations; or runtime import paths after a file split. In those cases the Rule #11 backstop applies — run a runtime import smoke (`docker compose exec -T backend python -c "from app.X import Y; print('ok')"`) AND apply the Rule #20 class-shape consideration (restart after `docker cp`, OR full rebuild).
+
+If a validation command cannot be run, say exactly why and provide the next-best validation performed. Do not claim a test, lint, typecheck, build, browser check, or Docker smoke passed unless the result was actually observed.
+
+#### UI Layout, Overlap, and Responsive
+
+When fixing UI overlap, clipping, stacking, scrolling, or positioning:
+
+- Look for systemic causes first — fixed heights, absolute positioning, missing flex/grid constraints, unsafe overflow, incorrect stacking contexts, components unaware of shared reserved space.
+- Do not fix overlap by only increasing `z-index` unless stacking order is genuinely the root cause.
+- Do not fix overlap with arbitrary pixel offsets unless the offset comes from a real layout token, measured element, or shared spacing contract.
+- Examine related regions together — headers, sidebars, drawers, modals, popovers, tooltips, floating buttons, terminal containers, Monaco panels, xterm.js, tables, scroll regions.
+- Verify narrow / medium / wide viewports AND light / dark mode where supported.
+- Verify keyboard focus, tab order, accessible names, and visible focus states for changed interactive controls.
+- Prefer layouts that reserve or negotiate space naturally over fragile positional patches.
+
+When Playwright / `citadel:qa` / `citadel:live-preview` is available, use it. When it isn't, document the manual viewport checks performed (which sizes, which themes) in the commit message or HANDOFF block.
+
+#### Code Size and Structure
+
+- Don't add unrelated responsibilities to an already-large file.
+- Don't add speculative abstractions — three similar lines beats a premature helper.
+- For files ≥1500 LOC that need a refactor, follow Rules #27 (N additive + 1 cut-over) and #28 (`wc -l` re-measure before scoping).
+
+#### Handoff Summary Format
+
+At the end of every task, report:
+
+- **Root cause:**
+- **Changes made:**
+- **Files changed:**
+- **Tests / validation run:**
+- **Tests / validation not run:**
+- **Remaining risks or follow-ups:**
+
+Cross-reference: `/citadel:session-handoff` produces a fuller HANDOFF block for cross-session context transfer; the 6-field summary above is the in-task / per-feature shape that pairs with it. Keep both formats aligned — when one changes, update the other.
+
+Do not claim a test, build, typecheck, browser check, or Docker smoke passed unless it was actually run and the result was observed.
+
 ### Learned Rules (from `.planning/knowledge/`)
 
 These rules were extracted from recurring bugs and failures across 30+ development sessions:

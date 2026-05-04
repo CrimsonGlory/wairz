@@ -18,7 +18,7 @@ edges:
     condition: when the work touches MCP tool handlers, registry, or ToolContext
   - target: patterns/INDEX.md
     condition: when starting a common task — a pattern likely encodes these conventions
-last_updated: 2026-04-30
+last_updated: 2026-05-04
 ---
 
 # Conventions
@@ -95,6 +95,49 @@ Use `app/utils/sandbox.py::safe_walk` when walking firmware — plain `os.walk` 
 ### New Python dependency — update `pyproject.toml` in the same commit (Learned Rule #2)
 
 Then verify in Docker: `docker compose exec backend python -c "import <module>"`. A missing dependency only surfaces on container rebuild.
+
+## Standing Operating Principles
+
+Mirrors CLAUDE.md `### Standing Operating Principles`.  Per Learned
+Rule #21, both update in the same commit.  See CLAUDE.md for the
+canonical full text.
+
+### Agent Work Loop
+
+For every change: read → identify root cause → smallest clean fix → preserve existing behavior → scan for the same pattern nearby → add tests → run validation → summarize.
+
+Do not paper over with arbitrary sleeps, magic pixel offsets, excessive z-index, broad exception swallowing, disabled tests, or undocumented behavior changes.
+
+### Testing and Validation Policy
+
+Tests required for: new / changed behavior; bug fixes with reproducible failure; security-sensitive logic; API / schema / persistence changes; async / background flows; UI behavior changes.
+
+**Mocks vs live canaries (Rule #35b):** mocks verify dispatch shape; live canaries verify value flow.  When persistence or service behavior matters, after mocks pass, run the new code once against a real row and SELECT the persisted result to inspect every field the service explicitly sets.
+
+Do not delete, weaken, or skip tests to make a suite pass unless the test is demonstrably wrong AND the commit message documents why.
+
+### Required Validation Commands
+
+- **Backend:** targeted `pytest backend/tests/test_<module>.py -v`; broader pytest when shared services / models / schemas / migrations / workers / MCP dispatch / security code is touched; migration / class-shape changes apply Rule #20 fast iteration (`docker cp` + alembic) OR full Rule #8 rebuild.
+- **Frontend:** `npx tsc -b --force` ONLY (Rule #24 — never `--noEmit`); Rule #24 canary once per session; `docker compose up -d --build frontend` after any `frontend/src/` change (Rule #26 — never `restart`).
+- **Targeted pytest is INSUFFICIENT** when the change touches class shape, lazy imports (Rule #30), module-scope constants, cached singletons, migrations, or post-split import paths.  Rule #11 runtime import smoke + Rule #20 class-shape consideration apply.
+
+If a command can't be run, say exactly why and document the next-best validation.  Do not claim a test passed unless the result was actually observed.
+
+### UI Layout, Overlap, and Responsive
+
+- Systemic causes first (flex / grid constraints, overflow, stacking context, shared reserved space).  Don't paper over with `z-index` or arbitrary pixel offsets.
+- Examine related regions together — headers, sidebars, drawers, modals, popovers, tooltips, floating buttons, terminal containers, Monaco / xterm.js, tables, scroll regions.
+- Verify narrow / medium / wide viewports + light / dark mode + keyboard focus / tab order / accessible names.
+- Use `citadel:qa` / `citadel:live-preview` (Playwright) when available; document manual viewport checks otherwise.
+
+### Code Size and Structure
+
+Don't add unrelated responsibilities to large files.  Don't add speculative abstractions.  For files ≥1500 LOC that need refactoring, follow Rules #27 (N additive + 1 cut-over) and #28 (`wc -l` re-measure before scoping).
+
+### Handoff Summary Format
+
+Six fields per task: **Root cause / Changes made / Files changed / Tests run / Tests not run / Risks**.  `/citadel:session-handoff` produces the cross-session HANDOFF block — keep both formats aligned (update both when one changes).
 
 ## Verify Checklist
 
