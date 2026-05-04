@@ -130,6 +130,79 @@ def _normalize_vendor_decryption(audit: Any) -> list[dict]:
     return []
 
 
+def recompute_extraction_diagnostics(meta: dict[str, Any]) -> dict[str, Any]:
+    """Recompute ``extraction_diagnostics.partial_extraction`` post-decrypt.
+
+    ``extraction_diagnostics`` is written at UPLOAD time (firmware_service.py)
+    before the vendor-AES auto-decrypt pass runs. ``partial_extraction`` and
+    ``encrypted_archives`` therefore reflect the upload-time state — every
+    archive that failed unblob's first-pass extraction. After auto-decrypt
+    succeeds, the flag is stale: a successfully-decrypted archive is still
+    listed under ``encrypted_archives`` and ``partial_extraction`` is still
+    True even when the residual is empty.
+
+    This helper normalises ``extraction_diagnostics`` against the actual
+    post-decrypt state by computing residual = encrypted \\ decrypted as a
+    set difference on basename. Returns a NEW meta dict (does not mutate);
+    callers should assign back to ``firmware.device_metadata``.
+
+    Mirrors the discipline in ``_extract_partial_extraction_findings`` —
+    the unpack-audit Findings already use this set-difference; the UI's
+    overview banner now does too.
+    """
+    diag = meta.get("extraction_diagnostics") or {}
+    if not diag:
+        return meta
+    encrypted = diag.get("encrypted_archives") or []
+    if not encrypted:
+        return meta
+    decrypted = _normalize_vendor_decryption(meta.get("vendor_decryption"))
+    decrypted_basenames = {
+        (e.get("archive") or "").rsplit("/", 1)[-1]
+        for e in decrypted
+        if e.get("archive")
+    }
+    residual = [
+        e for e in encrypted
+        if (e.get("path") or "").rsplit("/", 1)[-1] not in decrypted_basenames
+    ]
+
+    new_diag = dict(diag)
+    decrypted_count = len(encrypted) - len(residual)
+    if residual:
+        # Some archives still un-extracted — keep the warning, but show
+        # only the unresolved ones and update the summary count.
+        new_diag["partial_extraction"] = True
+        new_diag["encrypted_archives"] = residual
+        vendors = sorted({(e.get("vendor") or "?") for e in residual})
+        new_diag["summary"] = (
+            f"{len(residual)} archive(s) not extracted: "
+            f"{len(residual)} vendor-encrypted ({'/'.join(vendors)})"
+        )
+        # Diagnostic field for the UI to surface the partial-success
+        # context (vs upload-time state).
+        if decrypted_count > 0:
+            new_diag["decrypted_archives_count"] = decrypted_count
+    else:
+        # All encrypted archives decrypted — clear the warning. Retain
+        # the original encrypted_archives history under a separate
+        # key so the operator can see what auto-decrypt resolved.
+        new_diag["partial_extraction"] = False
+        new_diag["encrypted_archives"] = []
+        new_diag["decrypted_archives_count"] = decrypted_count
+        new_diag["summary"] = (
+            f"All {decrypted_count} encrypted archive(s) decrypted via "
+            f"vendor-AES auto-decrypt"
+        )
+        # Preserve original list for audit trail (UI may show "X archives "
+        # were initially encrypted; all resolved").
+        new_diag["originally_encrypted_archives"] = list(encrypted)
+
+    new_meta = dict(meta)
+    new_meta["extraction_diagnostics"] = new_diag
+    return new_meta
+
+
 def _extract_aes_key_findings(
     meta: dict[str, Any], firmware_id: uuid.UUID,
 ) -> list[FindingCreate]:
@@ -334,7 +407,13 @@ def _extract_signed_archive_finding(
     on-device and is out of Wairz's measurement scope.
     """
     diag = meta.get("extraction_diagnostics") or {}
-    encrypted = diag.get("encrypted_archives") or []
+    # After recompute_extraction_diagnostics, ``encrypted_archives`` holds
+    # only the post-decrypt residual; ``originally_encrypted_archives``
+    # holds the upload-time list. The signed-format detection should fire
+    # on EITHER — the bootloader signature surface exists regardless of
+    # whether auto-decrypt later resolved the contents.
+    encrypted = list(diag.get("encrypted_archives") or [])
+    encrypted += list(diag.get("originally_encrypted_archives") or [])
     formats = {ea.get("format") for ea in encrypted if ea.get("format")}
     formats.discard(None)
     if not formats:

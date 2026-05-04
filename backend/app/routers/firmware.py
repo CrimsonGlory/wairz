@@ -257,6 +257,17 @@ async def _run_unpack_background(
                     if result.vendor_decryption:
                         meta = dict(firmware.device_metadata or {})
                         meta["vendor_decryption"] = result.vendor_decryption
+                        # Recompute extraction_diagnostics.partial_extraction
+                        # against the actual post-decrypt residual — see the
+                        # arq_worker mirror at workers/arq_worker.py:122 for
+                        # the same discipline. Without this, the UI's
+                        # partial-extraction banner remains asserted even
+                        # when every encrypted archive was successfully
+                        # decrypted by the auto-AES pass.
+                        from app.services.unpack_audit_service import (
+                            recompute_extraction_diagnostics,
+                        )
+                        meta = recompute_extraction_diagnostics(meta)
                         firmware.device_metadata = meta
                     # Uniform detection_roots write for every successful
                     # unpack — includes primary roots from extracted_path

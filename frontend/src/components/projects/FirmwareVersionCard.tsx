@@ -1,4 +1,5 @@
 import type { RefObject } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Trash2,
   Cpu,
@@ -16,6 +17,8 @@ import {
   Terminal,
   Microchip,
   ShieldAlert,
+  KeyRound,
+  ArrowRight,
 } from 'lucide-react'
 import type { FirmwareSummary, FirmwareDetail } from '@/types'
 import { Badge } from '@/components/ui/badge'
@@ -343,6 +346,41 @@ export default function FirmwareVersionCard({
               <p className="text-muted-foreground mt-2 italic">
                 {fwDetail.device_metadata.extraction_diagnostics.encrypted_archives[0].note}
               </p>
+            )}
+            {fwDetail.project_id && (
+              <Link
+                to={`/projects/${fwDetail.project_id}/findings?firmware_id=${fw.id}&source=unpack_audit`}
+                className="mt-3 inline-flex items-center gap-1 text-amber-700 hover:text-amber-800 dark:text-amber-400 dark:hover:text-amber-300"
+              >
+                View unpack-audit findings <ArrowRight className="h-3 w-3" />
+              </Link>
+            )}
+          </div>
+        )}
+
+        {/* Vendor-AES auto-decrypt success — renders when post-decrypt
+            recompute resolved every encrypted archive. Source of the
+            unpack_audit findings (AES-key triple, IV reuse, cleartext
+            key, signed-container). Click-through to view them. */}
+        {fwDetail?.device_metadata?.extraction_diagnostics
+          && !fwDetail.device_metadata.extraction_diagnostics.partial_extraction
+          && (fwDetail.device_metadata.extraction_diagnostics.decrypted_archives_count ?? 0) > 0
+          && (
+          <div className="mt-3 rounded border border-cyan-500/40 bg-cyan-500/5 p-3 text-xs">
+            <div className="flex items-center gap-2 font-medium text-cyan-700 dark:text-cyan-400 mb-1">
+              <KeyRound className="h-3.5 w-3.5" />
+              Vendor-AES auto-decrypted
+            </div>
+            <p className="text-muted-foreground mb-2">
+              {fwDetail.device_metadata.extraction_diagnostics.summary}
+            </p>
+            {fwDetail.project_id && (
+              <Link
+                to={`/projects/${fwDetail.project_id}/findings?firmware_id=${fw.id}&source=unpack_audit`}
+                className="inline-flex items-center gap-1 text-cyan-700 hover:text-cyan-800 dark:text-cyan-400 dark:hover:text-cyan-300"
+              >
+                View unpack-audit findings <ArrowRight className="h-3 w-3" />
+              </Link>
             )}
           </div>
         )}

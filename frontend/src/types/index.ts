@@ -62,6 +62,10 @@ export interface ExtractionDiagnostics {
   encrypted_archives: ExtractionDiagnostic[]
   unrecognised_archives: ExtractionDiagnostic[]
   summary: string
+  /** Number of encrypted archives the vendor-AES auto-decrypt successfully resolved. Set by the post-decrypt recompute step. */
+  decrypted_archives_count?: number
+  /** Pre-decrypt list of encrypted archives, retained when all were resolved (encrypted_archives is then []). Used to surface the "this firmware was vendor-encrypted but auto-resolved" context in the UI. */
+  originally_encrypted_archives?: ExtractionDiagnostic[]
 }
 
 export interface FirmwareDetail extends FirmwareSummary {

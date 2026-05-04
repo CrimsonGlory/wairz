@@ -122,6 +122,17 @@ async def unpack_firmware_job(
                     if result.vendor_decryption:
                         meta = dict(firmware.device_metadata or {})
                         meta["vendor_decryption"] = result.vendor_decryption
+                        # Recompute extraction_diagnostics.partial_extraction
+                        # against the actual post-decrypt residual — without
+                        # this, the UI's "partial extraction" banner stays
+                        # asserted even when all encrypted archives were
+                        # successfully decrypted (extraction_diagnostics is
+                        # written at upload-time, before this auto-decrypt
+                        # pass runs).
+                        from app.services.unpack_audit_service import (
+                            recompute_extraction_diagnostics,
+                        )
+                        meta = recompute_extraction_diagnostics(meta)
                         firmware.device_metadata = meta
                     # Uniform detection_roots write — single-source-of-
                     # truth helper shared with the in-process /unpack

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { useParams, useLocation } from 'react-router-dom'
+import { useParams, useLocation, useSearchParams } from 'react-router-dom'
 import { ShieldAlert, Loader2 } from 'lucide-react'
 import { listFindings, updateFinding, deleteFinding } from '@/api/findings'
 import { useProjectStore } from '@/stores/projectStore'
@@ -13,7 +13,9 @@ import ReportExport from '@/components/findings/ReportExport'
 export default function FindingsPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
   const selectedFirmwareId = useProjectStore((s) => s.selectedFirmwareId)
+  const setSelectedFirmware = useProjectStore((s) => s.setSelectedFirmware)
   const { firmwareList } = useFirmwareList(projectId)
 
   const [findings, setFindings] = useState<Finding[]>([])
@@ -23,7 +25,23 @@ export default function FindingsPage() {
   )
   const [severityFilter, setSeverityFilter] = useState<Severity | null>(null)
   const [statusFilter, setStatusFilter] = useState<FindingStatus | null>(null)
-  const [sourceFilter, setSourceFilter] = useState<FindingSource | null>(null)
+  const [sourceFilter, setSourceFilter] = useState<FindingSource | null>(
+    (searchParams.get('source') as FindingSource | null) ?? null,
+  )
+
+  // Apply firmware_id query param on mount (deep-link from FirmwareVersionCard
+  // and similar surfaces). Clear the param after applying so it doesn't pin
+  // the firmware against subsequent user changes via the FirmwareSelector.
+  useEffect(() => {
+    const fwParam = searchParams.get('firmware_id')
+    const srcParam = searchParams.get('source')
+    if (fwParam || srcParam) {
+      if (fwParam) setSelectedFirmware(fwParam)
+      // Note: source filter is initialised from the param above. We clear
+      // BOTH params here so re-renders don't re-trigger the firmware reset.
+      setSearchParams({}, { replace: true })
+    }
+  }, [searchParams, setSearchParams, setSelectedFirmware])
 
   const initialLoadDone = useRef(false)
   const fetchFindings = useCallback(async () => {
