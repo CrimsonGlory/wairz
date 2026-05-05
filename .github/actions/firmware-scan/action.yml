@@ -124,47 +124,62 @@ runs:
       id: parse
       if: always()
       shell: bash
+      # CLAUDE.md Rule #35a (verification-artefact-canary): the previous
+      # form was `python3 -c "..." 2>/dev/null || echo 0` for every count.
+      # That deliberately discards the python parse error and silently
+      # reports zero — a broken scan (Python parse error, missing file,
+      # malformed JSON) appeared as "0 critical findings", indistinguishable
+      # from a clean scan.  This step now fails loud: any non-zero python
+      # exit aborts the parse step, the run is marked failed, and the
+      # operator gets the actual diagnostic.  `set -euo pipefail` propagates
+      # exit codes through pipes; missing OUTFILE is itself a hard fail
+      # because the previous step said `report-path=$OUTFILE` and the
+      # absence of that file means the scanner crashed before writing.
+      env:
+        OUTFILE: ${{ steps.outfile.outputs.outfile }}
+        FORMAT: ${{ inputs.format }}
       run: |
-        OUTFILE="${{ steps.outfile.outputs.outfile }}"
-        FORMAT="${{ inputs.format }}"
+        set -euo pipefail
 
-        CRITICAL=0
-        HIGH=0
-        TOTAL=0
+        if [ ! -f "$OUTFILE" ]; then
+          echo "::error::Scan report file '$OUTFILE' not present after the scan step.  The scanner likely crashed before writing.  See the scan step logs."
+          exit 1
+        fi
 
-        if [ -f "$OUTFILE" ]; then
-          if [ "$FORMAT" = "json" ]; then
-            CRITICAL=$(python3 -c "
-        import json, sys
-        data = json.load(open('$OUTFILE'))
-        findings = data.get('findings', [])
-        print(sum(1 for f in findings if f.get('severity') == 'critical'))
-        " 2>/dev/null || echo 0)
-            HIGH=$(python3 -c "
-        import json, sys
-        data = json.load(open('$OUTFILE'))
-        findings = data.get('findings', [])
-        print(sum(1 for f in findings if f.get('severity') == 'high'))
-        " 2>/dev/null || echo 0)
-            TOTAL=$(python3 -c "
-        import json, sys
-        data = json.load(open('$OUTFILE'))
-        print(len(data.get('findings', [])))
-        " 2>/dev/null || echo 0)
-          elif [ "$FORMAT" = "sarif" ]; then
-            CRITICAL=$(python3 -c "
-        import json
-        data = json.load(open('$OUTFILE'))
-        results = data.get('runs', [{}])[0].get('results', [])
-        print(sum(1 for r in results if r.get('level') == 'error'))
-        " 2>/dev/null || echo 0)
-            HIGH=0
-            TOTAL=$(python3 -c "
-        import json
-        data = json.load(open('$OUTFILE'))
-        print(len(data.get('runs', [{}])[0].get('results', [])))
-        " 2>/dev/null || echo 0)
-          fi
+        # One python invocation parses the file once and emits all three
+        # counts space-separated to stdout, so a parse error fails ONCE
+        # (and loudly), and the file is read only once instead of three
+        # times.  No `2>/dev/null || echo 0` — broken parse must surface.
+        # Pattern: `out=$(...)` propagates the python exit code under
+        # `set -e` (a process substitution `< <(...)` does NOT under all
+        # bash versions, which is why we don't use it here).
+        if [ "$FORMAT" = "json" ] || [ "$FORMAT" = "sarif" ]; then
+          PARSE_OUT=$(python3 -c '
+        import json, os
+        outfile = os.environ["OUTFILE"]
+        fmt = os.environ["FORMAT"]
+        with open(outfile) as f:
+            data = json.load(f)
+        if fmt == "json":
+            findings = data.get("findings", [])
+            critical = sum(1 for x in findings if x.get("severity") == "critical")
+            high = sum(1 for x in findings if x.get("severity") == "high")
+            total = len(findings)
+        else:
+            results = data.get("runs", [{}])[0].get("results", [])
+            critical = sum(1 for r in results if r.get("level") == "error")
+            high = 0
+            total = len(results)
+        print(critical, high, total)
+        ')
+          read -r CRITICAL HIGH TOTAL <<< "$PARSE_OUT"
+        else
+          # Markdown / vex etc. don't have a structured parse path here;
+          # the report is still uploaded as an artifact, but the count
+          # outputs are zero since we have no parser.
+          CRITICAL=0
+          HIGH=0
+          TOTAL=0
         fi
 
         echo "findings-critical=$CRITICAL" >> "$GITHUB_OUTPUT"
