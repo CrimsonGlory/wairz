@@ -11,6 +11,8 @@ from app.models.emulation_preset import EmulationPreset
 from app.models.fuzzing import FuzzingCampaign, FuzzingCrash
 from app.models.attack_surface import AttackSurfaceEntry
 from app.models.uart_session import UARTSession
+from app.models.cra_compliance import CraAssessment, CraRequirementResult
+from app.models.hardware_firmware import HardwareFirmwareBlob
 
 __all__ = [
     "Project", "Firmware", "Conversation", "AnalysisCache",
@@ -18,4 +20,5 @@ __all__ = [
     "SbomComponent", "SbomVulnerability", "EmulationSession",
     "EmulationPreset", "FuzzingCampaign", "FuzzingCrash",
     "AttackSurfaceEntry", "UARTSession",
+    "CraAssessment", "CraRequirementResult", "HardwareFirmwareBlob",
 ]
