@@ -1,7 +1,17 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, Numeric, String, Text, func, text
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,7 +29,6 @@ class SbomComponent(Base):
     firmware_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("firmware.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     version: Mapped[str | None] = mapped_column(String(100))
@@ -33,10 +42,23 @@ class SbomComponent(Base):
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, server_default=text("'{}'")
     )
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
     vulnerabilities: Mapped[list["SbomVulnerability"]] = relationship(
         back_populates="component", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("idx_sbom_firmware", "firmware_id"),
+        UniqueConstraint(
+            "firmware_id",
+            "name",
+            "version",
+            "cpe",
+            name="uq_sbom_components_firmware_name_version_cpe",
+        ),
     )
 
 
@@ -61,20 +83,21 @@ class SbomVulnerability(Base):
     blob_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("hardware_firmware_blobs.id", ondelete="CASCADE"),
         nullable=True,
-        index=True,
     )
     cve_id: Mapped[str] = mapped_column(String(20), nullable=False)
     cvss_score: Mapped[float | None] = mapped_column(Numeric(3, 1))
     cvss_vector: Mapped[str | None] = mapped_column(String(255))
     severity: Mapped[str] = mapped_column(String(20), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
-    published_date: Mapped[datetime | None] = mapped_column()
+    published_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finding_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("findings.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
     # Resolution
     resolution_status: Mapped[str] = mapped_column(
