@@ -47,18 +47,23 @@ def find_apk(context: ToolContext, app_name: str | None, path: str | None) -> st
         )
 
     if app_name:
-        for app_dir in APK_DIRS:
-            app_path = os.path.join(context.extracted_path, app_dir, app_name)
-            if not os.path.isdir(app_path):
-                continue
-            for fname in os.listdir(app_path):
-                if fname.lower().endswith(".apk"):
-                    return os.path.join(app_path, fname)
+        # Rule #16: walk every detection root, not just `extracted_path`.
+        # Scatter-zip Android uploads expose multiple sibling partition
+        # directories (system/, vendor/, product/) — APKs only present in
+        # the secondary roots are otherwise invisible.
+        for root in context.get_detection_roots():
+            for app_dir in APK_DIRS:
+                app_path = os.path.join(root, app_dir, app_name)
+                if not os.path.isdir(app_path):
+                    continue
+                for fname in os.listdir(app_path):
+                    if fname.lower().endswith(".apk"):
+                        return os.path.join(app_path, fname)
 
         raise ValueError(
             f"App '{app_name}' not found in standard Android directories "
-            f"({', '.join(APK_DIRS)}). Use list_directory to browse the "
-            "firmware or provide a direct path."
+            f"({', '.join(APK_DIRS)}) under any detection root.  Use "
+            "list_directory to browse the firmware or provide a direct path."
         )
 
     raise ValueError(

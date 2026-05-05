@@ -408,12 +408,23 @@ async def _handle_vulhunt_scan_firmware(
     max_binaries = input.get("max_binaries", 0)
     min_size = input.get("min_size", 4096)
 
-    root = context.extracted_path
-    if not root:
+    # Rule #16: walk every detection root, not just `extracted_path`.
+    # Scatter-zip uploads, multi-archive medical firmware, and nested
+    # unblob output produce sibling directories that `extracted_path`
+    # alone misses (the original DPCS10 / RespArray bug class — same
+    # root cause as Rule #16 but on the next layer up).
+    detection_roots = context.get_detection_roots()
+    if not detection_roots:
         return "No extracted firmware available."
 
-    # Find all scannable binaries
-    binaries = _find_binaries(root, max_count=max_binaries, min_size=min_size)
+    binaries: list[str] = []
+    for root in detection_roots:
+        if max_binaries > 0 and len(binaries) >= max_binaries:
+            break
+        remaining = max_binaries - len(binaries) if max_binaries > 0 else 0
+        binaries.extend(
+            _find_binaries(root, max_count=remaining, min_size=min_size)
+        )
 
     # Also check extraction_dir for UEFI .dump/ body.bin files
     if context.extraction_dir:
