@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { getFirmwareMetadata } from '@/api/firmware'
 import { formatFileSize } from '@/utils/format'
+import { extractErrorMessage } from '@/utils/error'
 import type { FirmwareMetadata } from '@/types'
 
 interface Props {
@@ -26,7 +27,7 @@ export default function FirmwareMetadataCard({ projectId, firmwareId }: Props) {
         if (!cancelled) setMetadata(data)
       })
       .catch((e) => {
-        if (!cancelled) setError(e?.response?.data?.detail || e.message || 'Failed to load metadata')
+        if (!cancelled) setError(extractErrorMessage(e, 'Failed to load metadata'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)

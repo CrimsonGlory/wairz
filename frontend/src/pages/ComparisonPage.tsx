@@ -87,9 +87,8 @@ export default function ComparisonPage() {
     try {
       const result = await diffFirmware(projectId, fwAId, fwBId)
       setFsDiff(result)
-    } catch (e: unknown) {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-      setError(msg || 'Comparison failed')
+    } catch (e) {
+      setError(extractErrorMessage(e, 'Comparison failed'))
     } finally {
       setLoading(false)
     }

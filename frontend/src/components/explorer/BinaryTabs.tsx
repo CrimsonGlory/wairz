@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { listFunctions, listImports, disassembleFunction, decompileFunction, fetchCleanedCode } from '@/api/analysis'
+import { extractErrorMessage } from '@/utils/error'
 import type { FunctionInfo, ImportInfo, FileInfo } from '@/types'
 import HexViewer from './HexViewer'
 import BinaryInfo from './BinaryInfo'
@@ -74,7 +75,7 @@ export default function BinaryTabs({
             if (status === 504 || (typeof detail === 'string' && detail.toLowerCase().includes('timed out'))) {
               setFunctionsError('Analysis timed out — this binary may be too large. Try again or increase GHIDRA_TIMEOUT.')
             } else {
-              setFunctionsError(typeof detail === 'string' ? detail : 'Failed to analyze binary.')
+              setFunctionsError(extractErrorMessage(err, 'Failed to analyze binary.'))
             }
             setFunctions([])
           })
