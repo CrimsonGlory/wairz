@@ -35,7 +35,7 @@ An MCP-compatible AI client (Claude Code/Desktop, Cursor, OpenCode, etc.) launch
 - **Services layer (backend/app/services/*.py)** — business logic. Routers are thin; services call Ghidra headless, radare2, binwalk3/unblob, docker SDK, etc. Async throughout.
 - **Worker (backend/app/workers/arq_worker.py)** — consumes arq jobs for unpack (`unpack.py`, `unpack_linux.py`, `unpack_android.py`), Ghidra, vulnerability scan. Shares the backend Dockerfile and image; both must be rebuilt together.
 - **React SPA (frontend/src/)** — pages under `src/pages/`, Axios clients in `src/api/`, Zustand stores (`projectStore`, `explorerStore`, `vulnerabilityStore`). Long-running ops use `useEffect + setInterval` polling (2s) until status transitions; SSE event bus provides push updates where available.
-- **Sidecar containers** — `emulation` (QEMU multi-arch kernels), `fuzzing` (AFL++ QEMU mode), `system-emulation` (FirmAE, privileged), `vulhunt` (MCP-over-HTTP on 8080), `clamav` (optional profile). All mount `firmware_data` read-only.
+- **Sidecar containers** — `emulation` (QEMU multi-arch kernels), `fuzzing` (AFL++ QEMU mode), `system-emulation` (FirmAE, narrowed cap-set: `NET_ADMIN + SYS_ADMIN + MKNOD + /dev/net/tun`; was `privileged: true` until audit-2026-05-04 F-H-03), `vulhunt` (MCP-over-HTTP on 8080), `clamav` (optional profile). All mount `firmware_data` read-only.
 
 ## External Dependencies
 

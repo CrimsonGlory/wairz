@@ -322,7 +322,19 @@ services:
       context: ./system-emulation
       dockerfile: Dockerfile
     image: wairz-system-emulation
-    privileged: true
+    # Narrowed from `privileged: true` to the minimal cap-set documented
+    # in `system-emulation/Dockerfile:11`.  FirmAE's tap-network bring-up
+    # needs NET_ADMIN (interface config), SYS_ADMIN (mount/clone), and
+    # MKNOD (creating /dev/net/tun-derived nodes for nested namespaces).
+    # If a startup regresses, add caps ONE AT A TIME and document the
+    # specific FirmAE failure that required it — do NOT revert to
+    # `privileged: true` to "see if it works".  Audit-2026-05-04 F-H-03.
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+      - MKNOD
+    devices:
+      - /dev/net/tun:/dev/net/tun
     ports:
       - "5000"
     volumes:
