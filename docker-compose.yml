@@ -279,6 +279,17 @@ services:
       resources:
         limits:
           memory: 4096M
+    healthcheck:
+      # `arq --check` issues a Redis health-check round-trip and exits non-zero
+      # if the worker's heartbeat key is missing/stale. Stronger than `pgrep arq`
+      # because it verifies both (a) the Python process is alive AND (b) Redis
+      # is reachable AND (c) the heartbeat is fresh (default arq health interval
+      # is ~5s).  Audit-2026-05-04 F-H-04 / quick-wins M-8.
+      test: ["CMD", ".venv/bin/arq", "--check", "app.workers.arq_worker.WorkerSettings"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     logging:
       driver: json-file
       options:
@@ -359,6 +370,16 @@ services:
     # Pinned to a digest so 'docker compose pull' cannot silently
     # promote upstream :latest into this stack.  Bump explicitly by
     # setting VULHUNT_IMAGE in .env or replacing the digest below.
+    #
+    # No healthcheck: the upstream image is a Chainguard distroless
+    # build (no /bin/sh, no curl/wget/nc/python — only the `vulhunt-ce`
+    # binary on PATH), and `vulhunt-ce` itself exposes no health
+    # subcommand (only scan/mcp/btp/ba2).  A docker healthcheck has
+    # to run INSIDE the target container, so there is no in-image
+    # probe we can call.  Audit-2026-05-04 F-H-04 / quick-wins M-8.
+    # Future fix would require either upstreaming a `vulhunt-ce
+    # health` subcommand or shipping a side-car ambassador on the
+    # same network — both out of scope for an audit close-out.
     image: ${VULHUNT_IMAGE:-ghcr.io/vulhunt-re/vulhunt@sha256:cf361828e394f61382f0db6b121c3db3224629c89afec1d97681a91425a832ad}
     restart: unless-stopped
     entrypoint: ["vulhunt-ce", "mcp", "--host", "0.0.0.0", "--port", "8080"]
