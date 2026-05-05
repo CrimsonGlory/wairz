@@ -34,6 +34,49 @@ jobs:
         working-directory: frontend
         run: npm run lint
 
+  typecheck-frontend:
+    name: TypeScript (Frontend, Rule #24)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # CLAUDE.md Rule #24: `frontend/tsconfig.json` uses `files: []` + project
+      # references; `tsc --noEmit` silently exits 0 without descending into
+      # referenced projects (Rule #17 silent-CLI-exit instance).  Use
+      # `tsc -b --force` to invoke every referenced project.  Below: a
+      # mandatory Rule #17 / #24 canary that proves the gate is actually
+      # type-checking — a known-bad .ts file MUST cause the canary step to
+      # fail.  If the canary passes silently, `tsc -b --force` isn't really
+      # checking and the gate is fake.
+      - name: Rule #17/#24 canary — typecheck must reject known-bad input
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          echo 'const x: number = "nope"; export default x;' > src/__canary.ts
+          if npx tsc -b --force; then
+            echo "::error::Rule #17/#24 canary failed: tsc -b --force passed on a known-bad .ts file. The typecheck gate is not actually checking."
+            rm src/__canary.ts
+            exit 1
+          fi
+          rm src/__canary.ts
+
+      - name: TypeScript build (Rule #24, tsc -b --force)
+        working-directory: frontend
+        run: npx tsc -b --force
+
   lint-backend:
     name: Ruff + Bandit (Backend)
     runs-on: ubuntu-latest
