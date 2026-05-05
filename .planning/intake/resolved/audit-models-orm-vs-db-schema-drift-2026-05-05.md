@@ -1,9 +1,57 @@
 ---
 title: "Investigate ORM ↔ DB schema drift surfaced by Wave-1 #6 sanity autogenerate"
-status: pending
+status: completed
 priority: medium
 target: backend/app/models/* + backend/alembic/versions/*
 ---
+
+## Progress — autopilot 2026-05-05
+
+**Family A (4 timestamp drift columns) — SHIPPED.**
+
+`hardware_firmware_blobs.created_at`, `sbom_components.created_at`,
+`sbom_vulnerabilities.created_at`, `sbom_vulnerabilities.published_date`
+all updated from `mapped_column(server_default=func.now())` to
+`mapped_column(DateTime(timezone=True), server_default=func.now())` to
+match the DB which already declares `timestamp with time zone` for all
+four.  No migration needed.  Verified via runtime smoke:
+`column.type.timezone == True` on all four.
+
+Re-ran `alembic revision --autogenerate -m "drift sanity check"` after
+the model edits — autogen output dropped from 4 type-narrowing lines +
+many index/UC drift lines to ONLY the index/UC drift (Family B).
+
+**Family B (index/UC drift) — SHIPPED 2026-05-05.**
+
+6 commits, mechanical model edits only, no migrations:
+
+| Commit | Table | Change |
+|---|---|---|
+| f5c0824 | `emulation_sessions` | drop `index=True` on project_id, add 3 Index() to __table_args__ |
+| 04c8be1 | `findings` | add Index("idx_findings_source", "source") to __table_args__ |
+| cb83774 | `firmware` | add UniqueConstraint("project_id", "sha256", ...) to __table_args__ |
+| 7f65908 | `sbom_components` + `sbom_vulnerabilities` | drop phantom `index=True` on firmware_id/blob_id, add idx_sbom_firmware + UC |
+| 8fba6f7 | `attack_surface_entries` | add Index("ix_attack_surface_firmware_id", "firmware_id") to __table_args__ |
+| 49d9d8f | `uart_sessions` | drop phantom `index=True` on firmware_id (DB has no such index) |
+
+Final `alembic revision --autogenerate` after `docker compose up -d
+--build backend worker` (Rule #8 rebuild) produces `def upgrade(): pass`
+and `def downgrade(): pass` — drift is fully closed.
+
+Resolution policy used:
+- "DB has, model doesn't" — added Index/UniqueConstraint to model
+  __table_args__ with the DB-side name; no migration since the DB already
+  has the constraint.
+- "Model has, DB doesn't (different name)" — dropped column-level
+  `index=True`, declared the existing DB-named Index in __table_args__
+  instead. Avoids duplicate-name DDL.
+- "Model has, DB doesn't (no DB-side equivalent)" — only `uart_sessions
+  .firmware_id`. Dropped `index=True` to match DB; uart_sessions is
+  small (per-session, typically <100 rows) so the FK lookup cost is
+  negligible.
+
+CI gate (autogen-empty in pre-commit) is out of scope for this intake
+closer — filed as a follow-up companion to Rule #21 mirror sync.
 
 ## Description
 
