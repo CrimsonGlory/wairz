@@ -1188,7 +1188,7 @@ async def _handle_extract_kernel_config(
 
     # 2. Search for kernel image files and try IKCONFIG extraction
     kernel_files: list[str] = []
-    for dirpath, _dirnames, filenames in safe_walk(extracted_root, extracted_root):
+    for dirpath, _dirnames, filenames in safe_walk(extracted_root):
         for fname in filenames:
             if fname in _KERNEL_IMAGE_NAMES or fname.startswith("vmlinuz"):
                 fpath = os.path.join(dirpath, fname)
