@@ -31,11 +31,18 @@ class TestCompileRules:
         from app.config import get_settings
 
         monkeypatch.setattr(mod, "_RULES_DIR", tmp_path / "nonexistent")
-        # Also patch yara_forge_dir so the fallback doesn't find rules either
-        real_settings = get_settings()
-        monkeypatch.setattr(real_settings, "yara_forge_dir", str(tmp_path / "no-forge"))
-        with pytest.raises(ValueError, match="No YARA rule files found"):
-            compile_rules()
+        # Override yara_forge_dir via env + clear @lru_cache so the next
+        # get_settings() call re-instantiates Settings cleanly. Mutating the
+        # cached instance directly via setattr leaks into sibling tests
+        # whenever the test fails between the mutation and monkeypatch's
+        # restore-on-teardown — Rule #20 anti-pattern.
+        monkeypatch.setenv("YARA_FORGE_DIR", str(tmp_path / "no-forge"))
+        get_settings.cache_clear()
+        try:
+            with pytest.raises(ValueError, match="No YARA rule files found"):
+                compile_rules()
+        finally:
+            get_settings.cache_clear()
 
 
 class TestScanFirmware:
