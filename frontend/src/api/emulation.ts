@@ -138,6 +138,17 @@ export async function deletePreset(
 
 // ── System Emulation (FirmAE) ──
 
+// `POST /emulation/system` does ~60 s of synchronous work (30 s
+// `_wait_for_shim` + 30 s `httpx.post('/start')`) per
+// `system_emulation_service.py:225+237`.  Per CLAUDE.md Rule #29
+// (`frontend_ms ≥ backend_s × 1200`), 60 × 1200 = 72_000 ms minimum;
+// 90_000 ms (×1.5) bakes in grace for cross-arch FirmAE bring-up on
+// slower hosts.  Stop-gap pending the Rule #33 202+polling refactor
+// (intake `audit-system-emulation-timeout-misalignment-2026-05-04.md`
+// Path B) — once that ships the frontend can drop back to the
+// default 30 s axios floor.
+const SYSTEM_EMULATION_START_TIMEOUT = 90_000
+
 export async function startSystemEmulation(
   projectId: string,
   firmwareId: string,
@@ -146,7 +157,10 @@ export async function startSystemEmulation(
   const { data } = await apiClient.post<EmulationSession>(
     `/projects/${projectId}/emulation/system`,
     request ?? {},
-    { params: { firmware_id: firmwareId } },
+    {
+      params: { firmware_id: firmwareId },
+      timeout: SYSTEM_EMULATION_START_TIMEOUT,
+    },
   )
   return data
 }
