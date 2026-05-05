@@ -1159,8 +1159,38 @@ function VirtualizedVulnTable({
     key: [...expandedRows].sort().join(','),
   })
 
+  // Measure available space below the list's top edge (replaces the prior
+  // brittle `calc(100vh - 420px)`, which assumed a fixed 420px of chrome
+  // above the list — broke whenever filter rows wrapped or a banner was
+  // added).  Re-runs on viewport resize AND on parent layout shifts (filter
+  // expansion, bulk-action panel toggle).  See FindingsList.tsx:57 for the
+  // sibling pattern.  Audit-2026-05-04 F-E-03 / quick-wins M-3.
+  const listContainerRef = useRef<HTMLDivElement>(null)
+  const [listHeight, setListHeight] = useState(400)
+  useEffect(() => {
+    const update = () => {
+      const el = listContainerRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      // 32px bottom margin keeps the last row clear of the viewport edge.
+      setListHeight(Math.max(300, window.innerHeight - rect.top - 32))
+    }
+    update()
+    window.addEventListener('resize', update)
+    // Observe the parent so filter-row expansion / bulk-action toggle
+    // (which grow above this element without changing this element's own
+    // size) still triggers a re-measure.
+    const ro = new ResizeObserver(update)
+    const parent = listContainerRef.current?.parentElement
+    if (parent) ro.observe(parent)
+    return () => {
+      window.removeEventListener('resize', update)
+      ro.disconnect()
+    }
+  }, [])
+
   return (
-    <div className="flex flex-col" style={{ minHeight: 400 }}>
+    <div ref={listContainerRef} className="flex flex-col" style={{ minHeight: 400 }}>
       {/* Header row — mirrors COLUMN_TEMPLATE from VulnerabilityRowVirtual */}
       <div
         className="grid items-center gap-0 border-b border-border text-left text-xs text-muted-foreground sticky top-0 z-10 bg-background"
@@ -1192,7 +1222,7 @@ function VirtualizedVulnTable({
         <div className="py-2 pr-4 font-medium">Description</div>
       </div>
 
-      {/* Virtualized body — fixed viewport height; only rows inside it render. */}
+      {/* Virtualized body — height computed at runtime via the effect above. */}
       <List
         rowComponent={VulnerabilityRowVirtual}
         rowCount={sortedVulns.length}
@@ -1206,7 +1236,7 @@ function VirtualizedVulnTable({
           onToggleExpand: toggleExpand,
           onResolve,
         }}
-        style={{ height: 'calc(100vh - 420px)', minHeight: 300 }}
+        style={{ height: listHeight, minHeight: 300 }}
       />
     </div>
   )
