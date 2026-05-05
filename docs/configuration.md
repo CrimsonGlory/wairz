@@ -21,7 +21,7 @@ cp .env.example .env
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MAX_UPLOAD_SIZE_MB` | `500` | Maximum firmware upload size in megabytes |
+| `MAX_UPLOAD_SIZE_MB` | `2048` | Maximum firmware upload size in megabytes |
 | `MAX_TOOL_OUTPUT_KB` | `30` | MCP tool output truncation limit in kilobytes |
 
 ### Ghidra
@@ -30,7 +30,7 @@ cp .env.example .env
 |----------|---------|-------------|
 | `GHIDRA_PATH` | `/opt/ghidra` | Ghidra headless installation path |
 | `GHIDRA_SCRIPTS_PATH` | `/opt/ghidra-scripts` | Custom Ghidra analysis scripts path |
-| `GHIDRA_TIMEOUT` | `120` | Decompilation timeout in seconds |
+| `GHIDRA_TIMEOUT` | `300` | Decompilation timeout in seconds |
 
 ### Emulation
 

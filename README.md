@@ -6,7 +6,7 @@
 
 Upload firmware images, unpack them, explore the filesystem, analyze binaries, and conduct security assessments — all powered by AI analysis via [Model Context Protocol (MCP)](https://modelcontextprotocol.io/).
 
-Connect any MCP-compatible AI agent to Wairz's 160+ analysis tools — [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Claude Desktop](https://claude.ai/download), [OpenCode](https://opencode.ai/), [Codex](https://github.com/openai/codex), [Cursor](https://cursor.com/), [VS Code + Copilot](https://code.visualstudio.com/docs/copilot/), [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Windsurf](https://windsurf.com/), and more.
+Connect any MCP-compatible AI agent to Wairz's 172 analysis tools — [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Claude Desktop](https://claude.ai/download), [OpenCode](https://opencode.ai/), [Codex](https://github.com/openai/codex), [Cursor](https://cursor.com/), [VS Code + Copilot](https://code.visualstudio.com/docs/copilot/), [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Windsurf](https://windsurf.com/), and more.
 
 [Watch the demo video](https://www.youtube.com/watch?v=gDLhtMFMmMM)
 
@@ -34,7 +34,7 @@ Connect any MCP-compatible AI agent to Wairz's 160+ analysis tools — [Claude C
 - **Firmware Update Detection** — Identify SWUpdate, RAUC, Mender, opkg, U-Boot, and custom update mechanisms with security gap analysis
 - **CRA Compliance** — EU Cyber Resilience Act Annex I assessment (20 requirements), auto-populate from existing findings, Article 14 notification export
 - **Live Device UART** — Connect to physical devices via a host-side serial bridge for interactive console access
-- **AI Analysis via MCP** — 160+ analysis tools exposed to any MCP-compatible AI agent for autonomous security research
+- **AI Analysis via MCP** — 172 analysis tools (across 21 categories) exposed to any MCP-compatible AI agent for autonomous security research
 - **Findings & Reports** — Record security findings with severity ratings and evidence, export as Markdown, with full assessment orchestration
 
 ## Architecture
@@ -47,7 +47,7 @@ Claude Code / Claude Desktop / OpenCode
 ┌─────────────────┐     ┌──────────────────────────────────┐
 │   wairz-mcp     │────▶│         FastAPI Backend           │
 │  (MCP server)   │     │                                    │
-│  165+ tools     │     │  Services: firmware, analysis,     │
+│  172 tools      │     │  Services: firmware, analysis,     │
 │                 │     │  emulation, fuzzing, sbom, uart    │
 └─────────────────┘     │                                    │
                         │  Ghidra headless · QEMU · AFL++    │
@@ -165,11 +165,11 @@ Add to your `opencode.json` (project root or `~/.config/opencode/opencode.json`)
 }
 ```
 
-> **Note:** The `timeout` must be increased from the default 5000ms because Wairz registers 165+ tools.
+> **Note:** The `timeout` must be increased from the default 5000ms because Wairz registers 172 tools.
 
 Once connected, your AI agent can autonomously explore firmware, analyze binaries, run emulation, fuzz targets, and generate security findings. The MCP server supports dynamic project switching via the `switch_project` tool — no restart needed to change projects.
 
-### MCP Tools (160+)
+### MCP Tools (172 across 21 categories)
 
 | Category | Count | Tools |
 |----------|-------|-------|
@@ -271,8 +271,8 @@ wairz/
 │   │   ├── schemas/             # Pydantic request/response schemas
 │   │   ├── routers/             # REST API endpoints
 │   │   ├── services/            # Business logic
-│   │   ├── ai/                  # MCP tool registry + 160+ tool implementations
-│   │   │   └── tools/           # 18 category files (filesystem, binary, security, emulation, etc.)
+│   │   ├── ai/                  # MCP tool registry + 172 tool implementations
+│   │   │   └── tools/           # 21 category files (filesystem, binary, security, emulation, hardware_firmware, cwe_checker, vulhunt, attack_surface, network, uefi, taint_llm, etc.)
 │   │   └── utils/               # Path sandboxing, output truncation
 │   ├── alembic/                 # Database migrations
 │   └── pyproject.toml
@@ -310,10 +310,10 @@ All settings are configured via environment variables or `.env` file:
 | `DATABASE_URL` | `postgresql+asyncpg://wairz:wairz@postgres:5432/wairz` | PostgreSQL connection |
 | `REDIS_URL` | `redis://redis:6379/0` | Redis connection |
 | `STORAGE_ROOT` | `/data/firmware` | Firmware storage directory |
-| `MAX_UPLOAD_SIZE_MB` | `500` | Maximum firmware upload size |
+| `MAX_UPLOAD_SIZE_MB` | `2048` | Maximum firmware upload size |
 | `MAX_TOOL_OUTPUT_KB` | `30` | MCP tool output truncation limit |
 | `GHIDRA_PATH` | `/opt/ghidra` | Ghidra installation path |
-| `GHIDRA_TIMEOUT` | `120` | Ghidra decompilation timeout (seconds) |
+| `GHIDRA_TIMEOUT` | `300` | Ghidra decompilation timeout (seconds) |
 | `FUZZING_IMAGE` | `wairz-fuzzing` | Fuzzing container image name |
 | `FUZZING_TIMEOUT_MINUTES` | `120` | Max fuzzing campaign duration |
 | `FUZZING_MAX_CAMPAIGNS` | `1` | Max concurrent fuzzing campaigns |

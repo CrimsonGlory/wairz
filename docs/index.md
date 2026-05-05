@@ -58,7 +58,7 @@ WAIRZ works with any MCP-compatible AI agent — Claude Code, Claude Desktop, Op
 
 - :material-robot: **AI Analysis via MCP**
 
-    60+ analysis tools exposed to any MCP-compatible AI agent for autonomous security research — from filesystem exploration to vulnerability discovery.
+    172 analysis tools (across 21 categories) exposed to any MCP-compatible AI agent for autonomous security research — from filesystem exploration to vulnerability discovery.
 
 - :material-file-document: **Findings & Reports**
 
@@ -71,7 +71,7 @@ WAIRZ works with any MCP-compatible AI agent — Claude Code, Claude Desktop, Op
 !!! warning "Public Beta"
     WAIRZ is currently in **public beta**. You may encounter bugs or rough edges. If you run into any issues, please [open an issue on GitHub](https://github.com/digitalandrew/wairz/issues) or reach out at andrew@digitalandrew.io.
 
-    WAIRZ is currently designed for **embedded Linux** firmware samples. Support for RTOS and bare-metal firmware is planned for future releases.
+    WAIRZ is primarily designed for **embedded Linux** firmware samples. Support for **RTOS and bare-metal** firmware (FreeRTOS, VxWorks, Zephyr, ThreadX, plus companion components like lwIP and FatFs) has shipped — feature coverage is broader for Linux but the RTOS detection + scanning paths are now in mainline.
 
 ---
 
@@ -100,7 +100,7 @@ AI Agent (Claude Code, OpenCode, etc.)
 +------------------+     +------------------------------------+
 |   wairz-mcp      |---->|         FastAPI Backend             |
 |  (MCP server)    |     |                                      |
-|  60+ tools       |     |  Services: firmware, analysis,       |
+|  172 tools       |     |  Services: firmware, analysis,       |
 +------------------+     |  emulation, fuzzing, sbom, uart      |
                          |                                      |
                          |  Ghidra headless - QEMU - AFL++      |
@@ -115,7 +115,7 @@ AI Agent (Claude Code, OpenCode, etc.)
 1. **Upload** a firmware image through the web UI
 2. **WAIRZ unpacks** the firmware automatically (SquashFS, JFFS2, UBIFS, CramFS, ext, CPIO)
 3. **Explore** the extracted filesystem, analyze binaries, and assess security — through the browser or AI
-4. **Connect an AI agent** via MCP to run autonomous analysis with 60+ specialized tools
+4. **Connect an AI agent** via MCP to run autonomous analysis with 172 specialized tools
 
 ---
 

@@ -16,7 +16,7 @@ edges:
     condition: when adding, modifying, or debugging MCP tool handlers
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-04-24
+last_updated: 2026-05-05
 ---
 
 # Session Bootstrap
@@ -28,14 +28,14 @@ Then read this file fully before doing anything else in this session.
 ## Current Project State
 
 **Working:**
-- MCP server (`wairz-mcp`) with 65+ tools across 19 categories (filesystem, binary, security, sbom, emulation, fuzzing, android, android_bytecode, android_sast, uart, uefi, vulhunt, attack_surface, cwe_checker, comparison, documents, network, reporting, strings).
+- MCP server (`wairz-mcp`) with 172 tools across 21 categories (filesystem, binary, security, sbom, emulation, fuzzing, android, android_bytecode, android_sast, uart, uefi, vulhunt, attack_surface, cwe_checker, comparison, documents, network, reporting, strings, hardware_firmware, taint_llm). Source-of-truth count: `find backend/app/ai/tools -name '*.py' | xargs grep -c 'registry\.register' | awk -F: '{s+=$2}END{print s}'`.
 - Firmware upload + unpacking pipeline (binwalk3 + unblob, multi-partition, SquashFS/JFFS2/UBIFS/CramFS/ext/CPIO/Intel HEX).
 - React 19 SPA with pages for Projects, ProjectDetail, Explore (file tree + Monaco viewer), ComponentMap (ReactFlow graph), Emulation, Fuzzing, SBOM, Findings, SecurityScan, SecurityTools, Comparison, DeviceAcquisition, Help.
 - Standalone APK upload + classification (recent commit 370b312).
 - Docker socket-based sidecar launch for QEMU emulation, AFL++ fuzzing, FirmAE system-mode.
 - Host-side UART bridge (port 9999) and device acquisition bridge (port 9998).
 - Redis-backed arq job queue + SSE event bus (polling fallback if Redis is down).
-- 31 learned rules codified in CLAUDE.md, surfaced in `context/conventions.md` Verify Checklist (recent additions: #27 N+1 cut-over refactor shape, #28 re-measure LOC before scoping, #29 axios-timeout derivation, #30 mock-patch-lazy-imports-at-source, #31 grep-width-canary — sessions b56eb487/7e8dd7c3/0801ca27/3d9d854e, 2026-04-21 through 2026-04-24).
+- 35 learned rules codified in CLAUDE.md, surfaced in `context/conventions.md` Verify Checklist (recent additions through 2026-05-04: #32 db.refresh-after-commit no-op, #33 202+polling 4-bullet design contract, #34 unblob --no-sandbox + appendApiKey for browser-issued URLs, #35 verification-artefacts-can-lie — pipe-induced exit obfuscation + mock value-flow + JSONB shape drift).
 - Backend + frontend host ports bound to 127.0.0.1 by default (A.1 mitigation, session 59045370 commit 10872d6). Override file `docker-compose.override.yml` (gitignored) re-exposes them on 0.0.0.0 alongside a dev API_KEY for operator browser access.
 - **B.1 shipped (session 698549d4 commit 3d8aa10):** `APIKeyASGIMiddleware` covers http + websocket scopes. `/ws` terminal + `/{session_id}/terminal` emulation proxy both require `X-API-Key` header OR `api_key` query param; close code 4401 on auth fail. Frontend carries the key via per-request axios interceptor + query param on WS URLs. nginx index.html has explicit `Cache-Control: no-cache`; `/assets/*` has `immutable`. Dockerfile `ARG VITE_API_KEY` bakes the key into the static bundle at build time. B.1.a/b/c (require-api-key gate, slowapi rate limit, streaming upload-size) still pending.
 - Postgres + FirmAE passwords parameterized via env vars with backward-compatible defaults (session 59045370 commit 906cfe2).

@@ -1,6 +1,8 @@
 # MCP Tools Reference
 
-Wairz exposes 60+ tools to Claude via the Model Context Protocol. This page lists all available tools organized by category.
+Wairz exposes 172 tools across 21 categories to Claude via the Model Context Protocol. This page lists all available tools organized by category. Source-of-truth count: `find backend/app/ai/tools -name '*.py' | xargs grep -c 'registry\.register' | awk -F: '{s+=$2}END{print s}'`.
+
+> **Note:** This page documents the historical core categories. For the canonical category breakdown including newer additions (Hardware Firmware, CWE Checker, Vulhunt, Attack Surface, Network, UEFI, Taint LLM), see the table in `CLAUDE.md` § Tool Categories.
 
 ## Project
 

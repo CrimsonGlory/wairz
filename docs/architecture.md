@@ -10,7 +10,7 @@ Claude Code / Claude Desktop
 +------------------+     +------------------------------------+
 |   wairz-mcp      |---->|         FastAPI Backend             |
 |  (MCP server)    |     |                                      |
-|  60+ tools       |     |  Services: firmware, analysis,       |
+|  172 tools       |     |  Services: firmware, analysis,       |
 +------------------+     |  emulation, fuzzing, sbom, uart      |
                          |                                      |
                          |  Ghidra headless - QEMU - AFL++      |
@@ -61,7 +61,7 @@ wairz/
 │   │   ├── schemas/             # Pydantic request/response schemas
 │   │   ├── routers/             # REST API endpoints
 │   │   ├── services/            # Business logic
-│   │   ├── ai/                  # MCP tool registry + 60+ tool implementations
+│   │   ├── ai/                  # MCP tool registry + 172 tool implementations across 21 categories
 │   │   │   └── tools/           # Organized by category
 │   │   └── utils/               # Path sandboxing, output truncation
 │   ├── alembic/                 # Database migrations

@@ -1,6 +1,6 @@
 ---
 name: conventions
-description: How code is written in Wairz — naming, file structure, async patterns, MCP handler rules, schema/model discipline, and the verify checklist derived from 34 learned rules. Load when writing new code or reviewing existing code.
+description: How code is written in Wairz — naming, file structure, async patterns, MCP handler rules, schema/model discipline, and the verify checklist derived from 35 learned rules. Load when writing new code or reviewing existing code.
 triggers:
   - "convention"
   - "pattern"
