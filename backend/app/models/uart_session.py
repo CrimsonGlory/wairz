@@ -23,7 +23,6 @@ class UARTSession(Base):
     firmware_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("firmware.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
     )
     device_path: Mapped[str] = mapped_column(String(255), nullable=False)
     baudrate: Mapped[int] = mapped_column(Integer, default=115200, server_default="115200")
