@@ -6,9 +6,11 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
 
 from app.database import async_session_factory, get_db
 from app.models.firmware import Firmware
+from app.rate_limit import TIER_B_DOCKER, limiter
 from app.routers.deps import resolve_firmware as _resolve_firmware
 from app.schemas.fuzzing import (
     FuzzingCampaignCreateRequest,
@@ -100,7 +102,9 @@ async def create_campaign(
     response_model=FuzzingCampaignResponse,
     status_code=202,
 )
+@limiter.limit(TIER_B_DOCKER)
 async def start_campaign(
+    request: Request,
     project_id: uuid.UUID,
     campaign_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),

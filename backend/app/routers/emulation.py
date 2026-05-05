@@ -9,12 +9,14 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisco
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
 
 from app.config import get_settings
 from app.database import async_session_factory, get_db
 from app.models.emulation_preset import EmulationPreset
 from app.models.emulation_session import EmulationSession
 from app.models.firmware import Firmware
+from app.rate_limit import TIER_B_DOCKER, limiter
 from app.routers.deps import resolve_firmware as _resolve_firmware
 from app.schemas.emulation import (
     EmulationExecRequest,
@@ -106,9 +108,11 @@ async def _run_spawn_background(
 
 
 @router.post("/start", response_model=EmulationSessionResponse, status_code=202)
+@limiter.limit(TIER_B_DOCKER)
 async def start_emulation(
+    request: Request,
     project_id: uuid.UUID,
-    request: EmulationStartRequest,
+    body: EmulationStartRequest,
     firmware: Firmware = Depends(_resolve_firmware),
     db: AsyncSession = Depends(get_db),
 ):
@@ -126,10 +130,10 @@ async def start_emulation(
     try:
         session = await svc.create_pending_session(
             firmware=firmware,
-            mode=request.mode,
-            binary_path=request.binary_path,
-            arguments=request.arguments,
-            port_forwards=[pf.model_dump() for pf in request.port_forwards],
+            mode=body.mode,
+            binary_path=body.binary_path,
+            arguments=body.arguments,
+            port_forwards=[pf.model_dump() for pf in body.port_forwards],
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc))
@@ -147,10 +151,10 @@ async def start_emulation(
             "spawn_emulation_session_job",
             session_id=str(session.id),
             firmware_id=str(firmware.id),
-            kernel_name=request.kernel_name,
-            init_path=request.init_path,
-            pre_init_script=request.pre_init_script,
-            stub_profile=request.stub_profile or "none",
+            kernel_name=body.kernel_name,
+            init_path=body.init_path,
+            pre_init_script=body.pre_init_script,
+            stub_profile=body.stub_profile or "none",
         )
         logger.info(
             "Enqueued spawn_emulation_session_job for session %s via arq",
@@ -161,10 +165,10 @@ async def start_emulation(
             _run_spawn_background(
                 session_id=session.id,
                 firmware_id=firmware.id,
-                kernel_name=request.kernel_name,
-                init_path=request.init_path,
-                pre_init_script=request.pre_init_script,
-                stub_profile=request.stub_profile or "none",
+                kernel_name=body.kernel_name,
+                init_path=body.init_path,
+                pre_init_script=body.pre_init_script,
+                stub_profile=body.stub_profile or "none",
             )
         )
 
@@ -443,22 +447,24 @@ async def delete_preset(
     response_model=SystemEmulationStatusResponse,
     status_code=201,
 )
+@limiter.limit(TIER_B_DOCKER)
 async def start_system_emulation(
+    request: Request,
     project_id: uuid.UUID,
-    request: SystemEmulationStartRequest,
+    body: SystemEmulationStartRequest,
     firmware: Firmware = Depends(_resolve_firmware),
     db: AsyncSession = Depends(get_db),
 ):
     """Start FirmAE full system emulation for the project's firmware."""
     settings = get_settings()
     # Use config timeout unless client explicitly overrides (schema default is 600)
-    timeout = request.timeout if request.timeout != 600 else settings.system_emulation_pipeline_timeout
+    timeout = body.timeout if body.timeout != 600 else settings.system_emulation_pipeline_timeout
     svc = SystemEmulationService(db)
     try:
         session = await svc.start_system_emulation(
             firmware=firmware,
             project_id=project_id,
-            brand=request.brand,
+            brand=body.brand,
             timeout=timeout,
         )
     except ValueError as exc:

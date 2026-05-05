@@ -7,11 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
 
 from app.database import get_db
 from app.models.firmware import Firmware
 from app.models.finding import Finding
 from app.models.project import Project
+from app.rate_limit import TIER_A_HEAVY, limiter
 from app.schemas.finding import FindingResponse, Severity
 from app.services.finding_service import FindingService
 from app.services.security_audit import (
@@ -79,7 +81,9 @@ async def _persist_finding_with_source(
 
 
 @router.post("/audit", response_model=SecurityScanResponse)
+@limiter.limit(TIER_A_HEAVY)
 async def run_audit(
+    request: Request,
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):

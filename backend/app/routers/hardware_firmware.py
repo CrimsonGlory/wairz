@@ -26,11 +26,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy import case, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
 
 from app.database import async_session_factory, get_db
 from app.models.firmware import Firmware
 from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.models.sbom import SbomVulnerability
+from app.rate_limit import TIER_A_HEAVY, limiter
 from app.routers.deps import resolve_firmware as _resolve_firmware
 from app.schemas.hardware_firmware import (
     CveMatchRunResult,
@@ -578,7 +580,9 @@ async def _run_cve_match_background(
 
 
 @router.post("/cve-match", response_model=CveMatchStatusResponse, status_code=202)
+@limiter.limit(TIER_A_HEAVY)
 async def run_cve_match(
+    request: Request,
     force_rescan: bool = False,
     firmware=Depends(_resolve_firmware),
     db: AsyncSession = Depends(get_db),

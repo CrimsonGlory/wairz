@@ -12,9 +12,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
 
 from app.database import get_db
 from app.models.sbom import SbomComponent, SbomVulnerability
+from app.rate_limit import TIER_A_HEAVY, limiter
 from app.routers.deps import resolve_firmware as _resolve_firmware
 from app.schemas.pagination import Page
 from app.schemas.sbom import (
@@ -95,7 +97,9 @@ async def _get_components_with_vuln_counts(
 
 
 @router.post("/generate", response_model=SbomGenerateResponse)
+@limiter.limit(TIER_A_HEAVY)
 async def generate_sbom(
+    request: Request,
     force_rescan: bool = Query(False),
     firmware=Depends(_resolve_firmware),
     db: AsyncSession = Depends(get_db),
@@ -328,7 +332,9 @@ async def export_sbom(
 
 
 @router.post("/vulnerabilities/scan", response_model=VulnerabilityScanResponse)
+@limiter.limit(TIER_A_HEAVY)
 async def scan_vulnerabilities(
+    request: Request,
     project_id: uuid.UUID,
     force_rescan: bool = Query(False),
     firmware=Depends(_resolve_firmware),
