@@ -66,4 +66,5 @@ class AttackSurfaceEntry(Base):
             "firmware_id",
             attack_surface_score.desc(),
         ),
+        Index("ix_attack_surface_firmware_id", "firmware_id"),
     )
