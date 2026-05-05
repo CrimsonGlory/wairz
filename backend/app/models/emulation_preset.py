@@ -27,7 +27,7 @@ class EmulationPreset(Base):
     binary_path: Mapped[str | None] = mapped_column(String(512))
     arguments: Mapped[str | None] = mapped_column(Text)
     architecture: Mapped[str | None] = mapped_column(String(50))
-    port_forwards: Mapped[dict | None] = mapped_column(JSONB, server_default="'[]'")
+    port_forwards: Mapped[list[dict] | None] = mapped_column(JSONB, server_default="'[]'")
     kernel_name: Mapped[str | None] = mapped_column(String(255))
     init_path: Mapped[str | None] = mapped_column(String(512))
     pre_init_script: Mapped[str | None] = mapped_column(Text)

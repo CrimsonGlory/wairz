@@ -32,7 +32,7 @@ class EmulationSession(Base):
     binary_path: Mapped[str | None] = mapped_column(String(512))
     arguments: Mapped[str | None] = mapped_column(Text)
     architecture: Mapped[str | None] = mapped_column(String(50))
-    port_forwards: Mapped[dict | None] = mapped_column(JSONB, server_default="'[]'")
+    port_forwards: Mapped[list[dict] | None] = mapped_column(JSONB, server_default="'[]'")
     container_id: Mapped[str | None] = mapped_column(String(100))
     error_message: Mapped[str | None] = mapped_column(Text)
     logs: Mapped[str | None] = mapped_column(Text)
@@ -43,7 +43,7 @@ class EmulationSession(Base):
     )
 
     # System emulation (FirmAE) columns
-    discovered_services: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    discovered_services: Mapped[list[dict] | None] = mapped_column(JSONB, nullable=True)
     system_emulation_stage: Mapped[str | None] = mapped_column(String(50), nullable=True)
     kernel_used: Mapped[str | None] = mapped_column(String(200), nullable=True)
     firmware_ip: Mapped[str | None] = mapped_column(String(50), nullable=True)
