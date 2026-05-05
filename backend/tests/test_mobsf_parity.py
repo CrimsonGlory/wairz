@@ -1109,8 +1109,10 @@ class TestFirmwareContextParity:
             "correctly does NOT apply severity reduction for this APK "
             "even when is_platform_signed=True. A proper regression test "
             "would need a distinct 'platform_app' mock with those signals; "
-            "see test_manifest_checks_signing.py for the coverage that "
-            "already exists at the unit level."
+            "see test_diva_manifest_scan.py and "
+            "test_insecurebankv2_manifest.py for the unit-level coverage "
+            "that already exercises the heuristic against real fixture "
+            "manifests."
         )
     )
     def test_platform_signed_severity_reduction(self, service, ovaa_apk):
