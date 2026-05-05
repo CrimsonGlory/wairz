@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, useLocation, useSearchParams } from 'react-router-dom'
 import { ShieldAlert, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { listFindings, updateFinding, deleteFinding } from '@/api/findings'
 import { useProjectStore } from '@/stores/projectStore'
 import { useFirmwareList } from '@/hooks/useFirmwareList'
+import { extractErrorMessage } from '@/utils/error'
 import type { Finding, FindingUpdate, Severity, FindingStatus, FindingSource } from '@/types'
 import FirmwareSelector from '@/components/projects/FirmwareSelector'
 import FindingsList from '@/components/findings/FindingsList'
@@ -57,6 +59,7 @@ export default function FindingsPage() {
       setFindings(data)
     } catch (err) {
       console.error('Failed to load findings:', err)
+      toast.error(extractErrorMessage(err, 'Failed to load findings'))
     } finally {
       setLoading(false)
       initialLoadDone.current = true
@@ -81,6 +84,7 @@ export default function FindingsPage() {
         )
       } catch (err) {
         console.error('Failed to update finding:', err)
+        toast.error(extractErrorMessage(err, 'Failed to update finding'))
       }
     },
     [projectId],
@@ -95,6 +99,7 @@ export default function FindingsPage() {
         if (selectedId === findingId) setSelectedId(null)
       } catch (err) {
         console.error('Failed to delete finding:', err)
+        toast.error(extractErrorMessage(err, 'Failed to delete finding'))
       }
     },
     [projectId, selectedId],

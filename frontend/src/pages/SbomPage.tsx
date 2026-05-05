@@ -15,10 +15,12 @@ import {
   ArrowDown,
   Keyboard,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatDate } from '@/utils/format'
+import { extractErrorMessage } from '@/utils/error'
 import {
   generateSbom,
   getSbomComponents,
@@ -133,6 +135,7 @@ export default function SbomPage() {
       await useVulnerabilityStore.getState().loadVulnerabilities(projectId, fwId)
     } catch (err) {
       console.error('SBOM generation failed:', err)
+      toast.error(extractErrorMessage(err, 'SBOM generation failed'))
     } finally {
       setGenerating(false)
     }
@@ -157,6 +160,7 @@ export default function SbomPage() {
       await useVulnerabilityStore.getState().loadVulnerabilities(projectId, fwId)
     } catch (err) {
       console.error('Vulnerability scan failed:', err)
+      toast.error(extractErrorMessage(err, 'Vulnerability scan failed'))
     } finally {
       setScanning(false)
     }
@@ -196,6 +200,7 @@ export default function SbomPage() {
       URL.revokeObjectURL(url)
     } catch (err) {
       console.error('SBOM export failed:', err)
+      toast.error(extractErrorMessage(err, 'SBOM export failed'))
     }
   }, [projectId, selectedFirmwareId])
 
