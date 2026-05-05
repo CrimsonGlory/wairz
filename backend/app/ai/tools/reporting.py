@@ -64,6 +64,19 @@ def register_reporting_tools(registry: ToolRegistry) -> None:
                     "enum": ["ai_discovered", "manual", "sbom_scan", "fuzzing", "security_review"],
                     "description": "How this finding was discovered (default: ai_discovered)",
                 },
+                "confidence": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"],
+                    "description": (
+                        "Matcher certainty (independent of severity). "
+                        "Use 'high' when the finding is verified against a "
+                        "deterministic gate (CVE matches, magic-byte gates, "
+                        "decoded-key extraction); 'medium' for static-"
+                        "analysis or pattern matchers (regex/AST/BAP); "
+                        "'low' for heuristic guesses or single-indicator "
+                        "fingerprints.  Defaults to NULL when omitted."
+                    ),
+                },
             },
             "required": ["title", "severity", "description"],
         },
@@ -209,7 +222,14 @@ def register_reporting_tools(registry: ToolRegistry) -> None:
 
 
 async def _handle_add_finding(input: dict, context: ToolContext) -> str:
+    # Rule #35b / audit-2026-05-04 F-D-03: pre-fix this handler dropped
+    # firmware_id (no scoping to the active firmware) and confidence (no
+    # input schema field).  Both now propagate explicitly through
+    # FindingCreate → FindingService.create() → Finding(...).
+    from app.schemas.finding import Confidence
+
     svc = FindingService(context.db)
+    confidence_in = input.get("confidence")
     data = FindingCreate(
         title=input["title"],
         severity=Severity(input["severity"]),
@@ -220,6 +240,8 @@ async def _handle_add_finding(input: dict, context: ToolContext) -> str:
         cve_ids=input.get("cve_ids"),
         cwe_ids=input.get("cwe_ids"),
         source=input.get("source", "ai_discovered"),
+        firmware_id=context.firmware_id,
+        confidence=Confidence(confidence_in) if confidence_in else None,
     )
     finding = await svc.create(context.project_id, data)
     await context.db.flush()

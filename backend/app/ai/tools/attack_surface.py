@@ -87,11 +87,14 @@ async def _handle_detect_input_vectors(input: dict, context: ToolContext) -> str
         context.db.add(entry)
         entries.append(entry)
 
-        # Create findings
+        # Create findings — Rule #35b explicit confidence (heuristic
+        # listening-port + service-banner inference; "medium" reflects
+        # the matcher class — not a CVE-DB or magic-byte gate).
         for finding_data in r.findings:
             finding = Finding(
                 project_id=context.project_id,
                 firmware_id=context.firmware_id,
+                confidence="medium",
                 title=finding_data["title"],
                 severity=finding_data["severity"],
                 description=finding_data["description"],

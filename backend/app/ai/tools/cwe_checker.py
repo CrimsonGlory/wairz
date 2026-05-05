@@ -229,8 +229,17 @@ async def _generate_findings(result: CweCheckResult, context: ToolContext) -> No
             sym = w.symbols[0] if w.symbols else "unknown"
             evidence_lines.append(f"- {sym} @ {w.address}")
 
+        # Rule #35b / audit-2026-05-04 F-D-08: confidence + firmware_id
+        # MUST be explicit on every Finding() construction outside
+        # FindingService.create() to prevent silent NULL persistence.
+        # Confidence: cwe_checker uses BAP-derived static analysis on
+        # ELF binaries — semantic-level reasoning, lower false positives
+        # than regex matchers but not as authoritative as CVE matches.
+        # "medium" reflects the static-analysis matcher class.
         finding = Finding(
             project_id=context.project_id,
+            firmware_id=context.firmware_id,
+            confidence="medium",
             title=f"{cwe_id}: {cwe_name} in {result.binary_name}",
             description=warnings[0].description,
             severity=severity,

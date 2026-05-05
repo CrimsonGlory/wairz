@@ -292,9 +292,19 @@ class ImportService:
             new_id = uuid.uuid4()
             id_map[old_id] = new_id
 
+            # Rule #35b explicit confidence + firmware_id (audit-2026-05-04
+            # width-canary site).  firmware_id is remapped via id_map
+            # (populated by `_import_firmware` at line 154); confidence
+            # passes through verbatim from the export — None when the
+            # source row predates Rule #35b.
+            old_fw_id = f.get("firmware_id")
+            new_fw_id = id_map.get(old_fw_id) if old_fw_id else None
+
             finding = Finding(
                 id=new_id,
                 project_id=new_project_id,
+                firmware_id=new_fw_id,
+                confidence=f.get("confidence"),
                 title=f["title"],
                 severity=f["severity"],
                 description=f.get("description"),

@@ -478,9 +478,17 @@ async def persist_mobsfscan_findings(
             description = enrich_description(description, fw_ctx)
             evidence = enrich_evidence(evidence, fw_ctx)
 
+        # Rule #35b / audit-2026-05-04 F-A-06: confidence + firmware_id
+        # MUST be explicit on every Finding() construction outside
+        # FindingService.create() to prevent silent NULL persistence.
+        # Confidence: mobsfscan rules are regex / AST pattern matchers
+        # against decompiled bytecode + manifest XML — high false-positive
+        # rate compared to CVE-DB matches; "medium" reflects matcher
+        # uncertainty.  Severity remains nf.severity (impact dimension).
         finding = Finding(
             project_id=project_id,
             firmware_id=firmware_id,
+            confidence="medium",
             title=nf.title,
             severity=nf.severity,
             description=description,

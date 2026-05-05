@@ -228,8 +228,16 @@ async def scan_with_grype(
 
     # Step 5: Create findings for critical/high vulns
     if severity_counts["critical"] + severity_counts["high"] > 0:
+        # Rule #35b / audit-2026-05-04 F-A-06: confidence + firmware_id
+        # MUST be explicit on every Finding() construction outside
+        # FindingService.create() to prevent silent NULL persistence.
+        # Confidence: Grype matches via SBOM components are name+version
+        # against the Grype DB; "high" reflects matcher certainty (the
+        # impact severity is in the `severity` field).
         finding = Finding(
             project_id=project_id,
+            firmware_id=firmware_id,
+            confidence="high",
             title="Vulnerability scan results",
             description=(
                 f"Found {vuln_count} vulnerabilities: "

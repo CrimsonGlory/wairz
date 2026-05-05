@@ -333,9 +333,15 @@ async def _write_missing_firmware_findings(
             "This may indicate an incomplete extraction, a tampered image, or a "
             "driver referencing firmware stored on a different partition."
         )
+        # Rule #35b explicit confidence — driver→firmware-blob graph
+        # analysis is deterministic (a driver's .modinfo string explicitly
+        # names the firmware blob; either the file exists or it doesn't),
+        # so "high" reflects the matcher certainty.  Severity remains
+        # "medium" (impact: missing blob may or may not be exploitable).
         finding = Finding(
             project_id=project_id,
             firmware_id=firmware_id,
+            confidence="high",
             title=title,
             severity="medium",
             description=desc,

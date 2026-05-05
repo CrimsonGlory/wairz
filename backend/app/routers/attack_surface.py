@@ -141,11 +141,17 @@ async def trigger_attack_surface_scan(
         db.add(entry)
         db_entries.append(entry)
 
-        # Auto-findings
+        # Auto-findings — Rule #35b explicit confidence + firmware_id
+        # (audit-2026-05-04 width-canary surfaced this site; the source
+        # `r.findings` carries no confidence signal because attack-
+        # surface heuristics are environment-shaped — listening port
+        # detection + service banner inference; "medium" reflects the
+        # heuristic class).
         for finding_data in r.findings:
             finding = Finding(
                 project_id=project_id,
                 firmware_id=firmware.id,
+                confidence="medium",
                 title=finding_data["title"],
                 severity=finding_data["severity"],
                 description=finding_data["description"],
