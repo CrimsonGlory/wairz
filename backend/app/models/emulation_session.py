@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,7 +19,6 @@ class EmulationSession(Base):
     project_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
     )
     firmware_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("firmware.id", ondelete="CASCADE"),
@@ -53,3 +52,9 @@ class EmulationSession(Base):
     pcap_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="emulation_sessions")  # noqa: F821
+
+    __table_args__ = (
+        Index("idx_emulation_project", "project_id"),
+        Index("idx_emulation_status", "status"),
+        Index("ix_emulation_sessions_container_id", "container_id"),
+    )
