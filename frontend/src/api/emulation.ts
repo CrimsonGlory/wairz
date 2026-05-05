@@ -198,7 +198,9 @@ export function buildSystemEmulationTerminalURL(
 ): string {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const host = window.location.host
-  return `${proto}//${host}/api/v1/projects/${projectId}/emulation/system/${sessionId}/ws/${port}`
+  return appendApiKey(
+    `${proto}//${host}/api/v1/projects/${projectId}/emulation/system/${sessionId}/ws/${port}`,
+  )
 }
 
 // ── Network Traffic Analysis ──
@@ -295,5 +297,7 @@ export function getPcapDownloadUrl(
   projectId: string,
   sessionId: string,
 ): string {
-  return apiUrl(`/api/v1/projects/${projectId}/emulation/system/${sessionId}/pcap`)
+  return appendApiKey(
+    apiUrl(`/api/v1/projects/${projectId}/emulation/system/${sessionId}/pcap`),
+  )
 }

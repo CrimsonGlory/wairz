@@ -1,4 +1,4 @@
-import apiClient from './client'
+import apiClient, { appendApiKey } from './client'
 import { apiUrl } from './config'
 
 export interface HardwareFirmwareBlob {
@@ -234,9 +234,10 @@ export function buildBlobDownloadUrl(
   firmwareId?: string | null,
 ): string {
   const base = apiUrl(`/api/v1/projects/${projectId}/hardware-firmware/${blobId}/download`)
-  return firmwareId
+  const withFirmware = firmwareId
     ? `${base}?firmware_id=${encodeURIComponent(firmwareId)}`
     : base
+  return appendApiKey(withFirmware)
 }
 
 export async function getFirmwareEdges(
