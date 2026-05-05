@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ARRAY, ForeignKey, Integer, String, Text, func
+from sqlalchemy import ARRAY, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -50,3 +50,7 @@ class Finding(Base):
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
 
     project: Mapped["Project"] = relationship(back_populates="findings")  # noqa: F821
+
+    __table_args__ = (
+        Index("idx_findings_source", "source"),
+    )
