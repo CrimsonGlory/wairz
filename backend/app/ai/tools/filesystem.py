@@ -2,6 +2,8 @@ import asyncio
 import os
 from collections import Counter
 
+from sqlalchemy import select
+
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.services import _cache
 from app.services.component_map_service import ComponentMapService
