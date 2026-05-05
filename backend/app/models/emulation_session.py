@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -35,7 +35,6 @@ class EmulationSession(Base):
     architecture: Mapped[str | None] = mapped_column(String(50))
     port_forwards: Mapped[dict | None] = mapped_column(JSONB, server_default="'[]'")
     container_id: Mapped[str | None] = mapped_column(String(100))
-    pid: Mapped[int | None] = mapped_column(Integer)
     error_message: Mapped[str | None] = mapped_column(Text)
     logs: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

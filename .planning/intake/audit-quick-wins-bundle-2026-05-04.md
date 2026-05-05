@@ -12,8 +12,9 @@ target: (multiple files; see per-item)
 | M-1 | ✅ shipped | Created `frontend/src/api/timeouts.ts` canonical module; eliminated 9 redeclarations across 8 API files. Typecheck clean. |
 | M-5 | ⊘ skipped | Audit contradiction: Stream G F-G-05 says "remove (no-op)"; audit-summary.md counter-finding says refresh-after-flush is load-bearing for `onupdate=func.now()`. Verified Finding model line 50: `updated_at` uses `onupdate=func.now()` — refresh is required. Per Rule #19 evidence-first, the production refresh and test assertion are correct as-is. |
 | M-7 | ✅ already shipped | Commit b7250c7 (recent) — skip reason now points to `test_diva_manifest_scan.py` and `test_insecurebankv2_manifest.py` (existing files), no longer references nonexistent `test_manifest_checks_signing.py`. |
+| M-13 | ◐ partial 2026-05-05 | `pid` dropped — alembic revision `e3b1a4f97c5d_drop_emulation_sessions_pid.py`, model field removed, dead `Integer` import removed, `test_emulation_auth.py:40` MagicMock attribute removed. Live SELECT smoke confirms the column is gone from the running DB and the loaded model. `kernel_used` NOT dropped: it has a real read site at `backend/app/ai/tools/emulation.py:2763` and a schema field at `app/schemas/emulation.py:148`. The right close for `kernel_used` is to plumb the write (`system_emulation_service` should record which kernel image FirmAE selected per architecture), which is a separate intake item — defer. |
 | M-14 | ✅ shipped 2026-05-05 | docker-compose.yml clamav healthcheck `["CMD", "clamdcheck"]` → `["CMD", "clamdscan", "--ping=1"]`. `clamdcheck` (no .sh) is not on PATH in clamav/clamav:latest; `clamdscan --ping=1` (clamav ≥0.103) actually pings clamd over the socket and exits non-zero on unresponsive daemon, which is a stronger liveness check than the audit-recommended `--version` (binary-exists only). YAML validated via `docker compose --profile clamav config`. |
-| M-2..M-4, M-6, M-8..M-13 | pending | Pick up opportunistically. |
+| M-2..M-4, M-6, M-8..M-12 | pending | Pick up opportunistically. |
 
 ## Description
 

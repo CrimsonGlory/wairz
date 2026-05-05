@@ -37,7 +37,6 @@ def _make_session(project_id: uuid.UUID, session_id: uuid.UUID) -> MagicMock:
     session.started_at = datetime.now(timezone.utc)
     session.stopped_at = None
     session.created_at = datetime.now(timezone.utc)
-    session.pid = None
     return session
 
 
