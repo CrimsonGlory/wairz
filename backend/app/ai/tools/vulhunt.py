@@ -10,6 +10,7 @@ and exposes an MCP server over HTTP (Streamable HTTP transport). We
 communicate via JSON-RPC over HTTP POST to the /mcp endpoint.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -263,6 +264,78 @@ def _find_binaries(root: str, max_count: int = 0, min_size: int = 4096) -> list[
     return binaries
 
 
+def _collect_scan_targets_sync(
+    detection_roots: list[str],
+    extraction_dir: str | None,
+    max_binaries: int,
+    min_size: int,
+) -> list[tuple[str, bool]]:
+    """Collect ELF/PE32+ binaries to feed VulHunt.
+
+    Walks every detection root (Rule #16) and additionally inspects
+    extraction_dir for UEFIExtract `body.bin` modules. All filesystem I/O
+    lives in this sync helper so the async handler can offload the entire
+    discovery phase via run_in_executor (Rule #5). Returns a list of
+    (path, is_pe) tuples — sniffing the magic byte once during collection
+    avoids re-reading the file from inside the async per-binary scan loop.
+    """
+    binaries: list[tuple[str, bool]] = []
+    # _find_binaries already calls _is_elf/_is_pe to filter, but doesn't
+    # surface which one matched. Reproduce the walk here so we can record
+    # is_pe alongside the path without a second magic-byte read per file.
+    for root in detection_roots:
+        if max_binaries > 0 and len(binaries) >= max_binaries:
+            break
+        for dirpath, _dirs, files in os.walk(root):
+            for fname in files:
+                if max_binaries > 0 and len(binaries) >= max_binaries:
+                    break
+                fpath = os.path.join(dirpath, fname)
+                try:
+                    if os.path.getsize(fpath) < min_size:
+                        continue
+                    if not os.path.isfile(fpath):
+                        continue
+                    if _is_elf(fpath):
+                        binaries.append((fpath, False))
+                    elif _is_pe(fpath):
+                        binaries.append((fpath, True))
+                except OSError:
+                    continue
+
+    # Also check extraction_dir for UEFI .dump/ body.bin files
+    if extraction_dir:
+        for dirpath, _dirs, files in os.walk(extraction_dir):
+            if max_binaries > 0 and len(binaries) >= max_binaries:
+                break
+            if "body.bin" in files:
+                body = os.path.join(dirpath, "body.bin")
+                try:
+                    if os.path.getsize(body) >= min_size:
+                        if _is_elf(body):
+                            binaries.append((body, False))
+                        elif _is_pe(body):
+                            binaries.append((body, True))
+                except OSError:
+                    pass
+    return binaries
+
+
+def _check_binary_signature_sync(real_path: str) -> str:
+    """Return one of 'missing', 'not_binary', 'elf', 'pe' for a single file.
+
+    Bundles the os.path.isfile + ELF/PE magic checks into a single sync
+    helper so _handle_vulhunt_scan_binary can offload them in one hop.
+    """
+    if not os.path.isfile(real_path):
+        return "missing"
+    if _is_elf(real_path):
+        return "elf"
+    if _is_pe(real_path):
+        return "pe"
+    return "not_binary"
+
+
 # ── Scanning via MCP ─────────────────────────────────────────────────
 
 # Lua script that queries VulHunt for vulnerability analysis results
@@ -381,10 +454,15 @@ async def _handle_vulhunt_scan_binary(
         return "Error: 'path' is required."
 
     real_path = context.resolve_path(path)
-    if not os.path.isfile(real_path):
-        return f"File not found: {path}"
 
-    if not (_is_elf(real_path) or _is_pe(real_path)):
+    # Rule #5 — file existence + magic-byte sniff are sync I/O; offload.
+    loop = asyncio.get_running_loop()
+    sig = await loop.run_in_executor(
+        None, _check_binary_signature_sync, real_path
+    )
+    if sig == "missing":
+        return f"File not found: {path}"
+    if sig == "not_binary":
         return f"{path} is not an ELF or PE32+ binary."
 
     try:
@@ -392,7 +470,7 @@ async def _handle_vulhunt_scan_binary(
     except Exception as e:
         return f"VulHunt is not available. Start with: docker compose up -d vulhunt\nError: {e}"
 
-    kind = _infer_uefi_kind(real_path) if _is_pe(real_path) else "DxeDriver"
+    kind = _infer_uefi_kind(real_path) if sig == "pe" else "DxeDriver"
     settings = get_settings()
     findings = await _scan_binary_via_mcp(
         client, real_path, kind=kind, timeout=settings.vulhunt_timeout
@@ -417,29 +495,23 @@ async def _handle_vulhunt_scan_firmware(
     if not detection_roots:
         return "No extracted firmware available."
 
-    binaries: list[str] = []
-    for root in detection_roots:
-        if max_binaries > 0 and len(binaries) >= max_binaries:
-            break
-        remaining = max_binaries - len(binaries) if max_binaries > 0 else 0
-        binaries.extend(
-            _find_binaries(root, max_count=remaining, min_size=min_size)
-        )
-
-    # Also check extraction_dir for UEFI .dump/ body.bin files
-    if context.extraction_dir:
-        for dirpath, _dirs, files in os.walk(context.extraction_dir):
-            if max_binaries > 0 and len(binaries) >= max_binaries:
-                break
-            if "body.bin" in files:
-                body = os.path.join(dirpath, "body.bin")
-                try:
-                    if os.path.getsize(body) >= min_size and (
-                        _is_elf(body) or _is_pe(body)
-                    ):
-                        binaries.append(body)
-                except OSError:
-                    pass
+    # Rule #5 — discovery walks every detection root + extraction_dir for
+    # UEFIExtract body.bin modules; both are sync I/O, possibly across
+    # 10K+ files. Offload the full discovery phase in one hop.
+    loop = asyncio.get_running_loop()
+    binaries = await loop.run_in_executor(
+        None,
+        _collect_scan_targets_sync,
+        detection_roots,
+        context.extraction_dir,
+        max_binaries,
+        min_size,
+    )
+    # Preserve the prior behaviour where `os.path.relpath(binary_path, root)`
+    # used `root` from the last iteration of `detection_roots`. This isn't
+    # strictly correct for binaries discovered in earlier roots, but matches
+    # the pre-refactor output exactly.
+    last_root = detection_roots[-1]
 
     if not binaries:
         return "No ELF or PE32+ binaries found in the firmware."
@@ -472,9 +544,9 @@ async def _handle_vulhunt_scan_firmware(
     except Exception:
         pass  # SSE is best-effort
 
-    for binary_path in binaries:
-        binary_name = os.path.relpath(binary_path, root)
-        kind = _infer_uefi_kind(binary_path) if _is_pe(binary_path) else "DxeDriver"
+    for binary_path, is_pe in binaries:
+        binary_name = os.path.relpath(binary_path, last_root)
+        kind = _infer_uefi_kind(binary_path) if is_pe else "DxeDriver"
         findings = await _scan_binary_via_mcp(
             client, binary_path, kind=kind, timeout=settings.vulhunt_timeout
         )
