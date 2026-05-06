@@ -3,6 +3,7 @@ import mimetypes
 import os
 import uuid
 
+import aiofiles
 from fastapi import UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -222,8 +223,8 @@ class DocumentService:
             if description is not None:
                 existing.description = description
 
-            with open(existing.storage_path, "w", encoding="utf-8") as f:
-                f.write(content)
+            async with aiofiles.open(existing.storage_path, "w", encoding="utf-8") as f:
+                await f.write(content)
 
             await self.db.flush()
             return existing
@@ -250,8 +251,8 @@ class DocumentService:
         os.makedirs(storage_dir, exist_ok=True)
         storage_path = os.path.join(storage_dir, f"{doc_id}_{safe_filename}")
 
-        with open(storage_path, "w", encoding="utf-8") as f:
-            f.write(content)
+        async with aiofiles.open(storage_path, "w", encoding="utf-8") as f:
+            await f.write(content)
 
         document = Document(
             id=doc_id,
@@ -280,8 +281,8 @@ class DocumentService:
         document.sha256 = hashlib.sha256(content_bytes).hexdigest()
         document.file_size = len(content_bytes)
 
-        with open(document.storage_path, "w", encoding="utf-8") as f:
-            f.write(content)
+        async with aiofiles.open(document.storage_path, "w", encoding="utf-8") as f:
+            await f.write(content)
 
         await self.db.flush()
         return document
