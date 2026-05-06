@@ -1799,6 +1799,47 @@ async def _handle_enumerate_services(input: dict, context: ToolContext) -> str:
     return "\n".join(lines)
 
 
+def _troubleshoot_detect_characteristics_sync(
+    fs_root: str,
+) -> tuple[bool, bool, bool]:
+    """Synchronous filesystem inspection for troubleshoot context.
+
+    Returns ``(has_etc_ro, has_webroot, has_mtd_deps)``. Wrapped via
+    ``run_in_executor`` (Rule #5).
+    """
+    has_etc_ro = os.path.isdir(os.path.join(fs_root, "etc_ro"))
+    has_webroot = os.path.isdir(os.path.join(fs_root, "webroot"))
+
+    has_mtd_deps = False
+    # Quick MTD scan on a few key binaries
+    for scan_dir in ["bin", "sbin", "usr/bin", "usr/sbin"]:
+        if has_mtd_deps:
+            break
+        full_dir = os.path.join(fs_root, scan_dir)
+        if not os.path.isdir(full_dir):
+            continue
+        try:
+            for entry in os.scandir(full_dir):
+                if has_mtd_deps:
+                    break
+                if not entry.is_file() or entry.is_symlink():
+                    continue
+                try:
+                    size = entry.stat().st_size
+                    if size < 1000 or size > 50_000_000:
+                        continue
+                    with open(entry.path, "rb") as bf:
+                        data = bf.read(min(size, 500_000))
+                    if b"get_mtd_size" in data or b"get_mtd_num" in data:
+                        has_mtd_deps = True
+                except OSError:
+                    pass
+        except OSError:
+            pass
+
+    return has_etc_ro, has_webroot, has_mtd_deps
+
+
 async def _handle_troubleshoot_emulation(input: dict, context: ToolContext) -> str:
     """Return a firmware-aware troubleshooting guide for emulation issues."""
 
@@ -1819,32 +1860,10 @@ async def _handle_troubleshoot_emulation(input: dict, context: ToolContext) -> s
         arch = firmware.architecture or "unknown"
         fs_root = firmware.extracted_path or ""
         if fs_root and os.path.isdir(fs_root):
-            has_etc_ro = os.path.isdir(os.path.join(fs_root, "etc_ro"))
-            has_webroot = os.path.isdir(os.path.join(fs_root, "webroot"))
-
-            # Quick MTD scan on a few key binaries
-            for scan_dir in ["bin", "sbin", "usr/bin", "usr/sbin"]:
-                full_dir = os.path.join(fs_root, scan_dir)
-                if not os.path.isdir(full_dir):
-                    continue
-                try:
-                    for entry in os.scandir(full_dir):
-                        if has_mtd_deps:
-                            break
-                        if not entry.is_file() or entry.is_symlink():
-                            continue
-                        try:
-                            size = entry.stat().st_size
-                            if size < 1000 or size > 50_000_000:
-                                continue
-                            with open(entry.path, "rb") as bf:
-                                data = bf.read(min(size, 500_000))
-                            if b"get_mtd_size" in data or b"get_mtd_num" in data:
-                                has_mtd_deps = True
-                        except OSError:
-                            pass
-                except OSError:
-                    pass
+            loop = asyncio.get_running_loop()
+            has_etc_ro, has_webroot, has_mtd_deps = await loop.run_in_executor(
+                None, _troubleshoot_detect_characteristics_sync, fs_root,
+            )
 
     # ── Build guide sections ──
 
