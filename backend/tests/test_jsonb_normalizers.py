@@ -27,6 +27,7 @@ from app.services.jsonb_normalizers import (
     _normalize_analysis_cache_result,
     _normalize_conversations_messages,
     _normalize_emulation_sessions_discovered_services,
+    _normalize_emulation_sessions_nvram_state,
     _normalize_emulation_sessions_port_forwards,
     _normalize_firmware_binary_info,
     _normalize_firmware_cve_match_result,
@@ -401,3 +402,32 @@ def test_normalize_emulation_sessions_discovered_services(value, expected):
 
 def test_emulation_sessions_discovered_services_schema_version_constant():
     assert EMULATION_SESSIONS_DISCOVERED_SERVICES_SCHEMA_VERSION == 1
+
+
+# ── _normalize_emulation_sessions_nvram_state ────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical NVRAM key→string dict.
+        ({"wifi_ssid": "MyAP", "wifi_password": "secret"},
+         {"wifi_ssid": "MyAP", "wifi_password": "secret"}),
+        ({}, {}),
+        # None — typical pre-read state — preserved.
+        (None, None),
+        # Wrong type — list — collapse to None.
+        ([], None),
+        # Wrong type — string.
+        ("nvram=value", None),
+    ],
+)
+def test_normalize_emulation_sessions_nvram_state(value, expected):
+    assert _normalize_emulation_sessions_nvram_state(value) == expected
+
+
+def test_normalize_emulation_sessions_nvram_state_idempotent():
+    canonical = {"key": "val"}
+    once = _normalize_emulation_sessions_nvram_state(canonical)
+    twice = _normalize_emulation_sessions_nvram_state(once)
+    assert once == twice == canonical

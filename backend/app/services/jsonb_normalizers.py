@@ -285,3 +285,24 @@ def _normalize_emulation_sessions_discovered_services(value: Any) -> list[dict]:
     if not isinstance(value, list):
         return []
     return [s for s in value if isinstance(s, dict)]
+
+
+# ── emulation_sessions.nvram_state ────────────────────────────────────────────
+#
+# Canonical shape: ``dict[str, str]`` of NVRAM key → value pairs read
+# from FirmAE's libnvram storage. One writer
+# (``system_emulation_service.get_nvram_state``); column is nullable.
+# 2 consumers — normaliser-only strategy per the per-column threshold.
+
+
+def _normalize_emulation_sessions_nvram_state(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``EmulationSession.nvram_state``.
+
+    ``None`` is preserved — semantic load is "NVRAM not yet read".
+    Wrong-typed values collapse to ``None`` to surface as "not yet
+    read" to consumers.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
