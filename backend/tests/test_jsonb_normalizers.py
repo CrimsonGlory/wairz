@@ -16,7 +16,9 @@ from __future__ import annotations
 import pytest
 
 from app.services.jsonb_normalizers import (
+    CONVERSATIONS_MESSAGES_SCHEMA_VERSION,
     FIRMWARE_DEVICE_METADATA_SCHEMA_VERSION,
+    _normalize_conversations_messages,
     _normalize_firmware_device_metadata,
     _stamp_firmware_device_metadata,
 )
@@ -92,3 +94,40 @@ def test_stamp_firmware_device_metadata_mutates_input():
     out = _stamp_firmware_device_metadata(payload)
     assert out is payload  # same dict object
     assert "schema_version" in payload
+
+
+# ── _normalize_conversations_messages ────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical chat-style list-of-dicts.
+        ([{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"}],
+         [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"}]),
+        # Empty list — the column's server default — preserved.
+        ([], []),
+        # None — the column allows it briefly during writes — coerced to [].
+        (None, []),
+        # Wrong type — dict — coerced to [].
+        ({"messages": []}, []),
+        # Wrong type — string — coerced to [].
+        ("not a list", []),
+        # Mixed content — non-dict entries dropped.
+        ([{"role": "user"}, "stray scalar", 42, {"role": "assistant"}],
+         [{"role": "user"}, {"role": "assistant"}]),
+    ],
+)
+def test_normalize_conversations_messages(value, expected):
+    assert _normalize_conversations_messages(value) == expected
+
+
+def test_normalize_conversations_messages_idempotent():
+    canonical = [{"role": "user", "content": "hi"}]
+    once = _normalize_conversations_messages(canonical)
+    twice = _normalize_conversations_messages(once)
+    assert once == twice == canonical
+
+
+def test_conversations_messages_schema_version_constant():
+    assert CONVERSATIONS_MESSAGES_SCHEMA_VERSION == 1

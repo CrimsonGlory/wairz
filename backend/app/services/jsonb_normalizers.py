@@ -74,3 +74,25 @@ def _stamp_firmware_device_metadata(payload: dict | None) -> dict | None:
         return None
     payload["schema_version"] = FIRMWARE_DEVICE_METADATA_SCHEMA_VERSION
     return payload
+
+
+# ── conversations.messages ────────────────────────────────────────────────────
+#
+# Canonical shape: ``list[dict]`` — a chat-style sequence of role/content
+# message dicts. Server default is ``[]``. The column is currently unused
+# at the consumer level (the AI conversation table is dormant) but the
+# normaliser defends future LLM consumers from shape drift on the day
+# they're wired up.
+CONVERSATIONS_MESSAGES_SCHEMA_VERSION = 1
+
+
+def _normalize_conversations_messages(value: Any) -> list[dict]:
+    """Return the canonical ``list[dict]`` shape for ``Conversation.messages``.
+
+    Accepts the canonical list-of-dicts, ``None``, or non-list inputs
+    (returned as the empty list). Drops non-dict elements from a list to
+    survive a future regression where a stray scalar lands in the array.
+    """
+    if not isinstance(value, list):
+        return []
+    return [m for m in value if isinstance(m, dict)]
