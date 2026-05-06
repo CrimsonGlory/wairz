@@ -6,7 +6,7 @@ full vulnerability scans, and batch-assessing vulnerability relevance.
 """
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import func, select
 
@@ -859,7 +859,6 @@ async def _handle_export_sbom(input: dict, context: ToolContext) -> str:
         return json.dumps(summary, indent=2)[:30000]
 
     # Default: CycloneDX 1.7 SBOM
-    from datetime import datetime, timezone
     bom = {
         "bomFormat": "CycloneDX",
         "specVersion": "1.7",
@@ -1020,7 +1019,7 @@ async def _handle_assess_vulnerabilities(
             vuln.resolution_status = new_status
             if new_status in ("resolved", "ignored", "false_positive"):
                 vuln.resolved_by = "ai"
-                vuln.resolved_at = datetime.utcnow()
+                vuln.resolved_at = datetime.now(timezone.utc)
             elif new_status == "open":
                 vuln.resolved_by = None
                 vuln.resolved_at = None
@@ -1088,7 +1087,7 @@ async def _handle_set_vulnerability_status(
 
     if internal_status in ("resolved", "false_positive"):
         vuln.resolved_by = "ai"
-        vuln.resolved_at = datetime.utcnow()
+        vuln.resolved_at = datetime.now(timezone.utc)
     elif internal_status == "open":
         # "affected" and "under_investigation" both map to open
         # but keep justification for context

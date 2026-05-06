@@ -458,7 +458,7 @@ class CRAComplianceService:
             req_result.finding_ids = matched_ids
             req_result.tool_sources = matched_sources
             req_result.related_cves = matched_cves
-            req_result.assessed_at = datetime.utcnow()
+            req_result.assessed_at = datetime.now(timezone.utc)
 
             # Count
             if status == "pass":
@@ -510,7 +510,7 @@ class CRAComplianceService:
             req_result.manual_notes = manual_notes
         if manual_evidence is not None:
             req_result.manual_evidence = manual_evidence
-        req_result.assessed_at = datetime.utcnow()
+        req_result.assessed_at = datetime.now(timezone.utc)
 
         await self.db.flush()
         await self.db.refresh(req_result)

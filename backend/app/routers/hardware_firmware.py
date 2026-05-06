@@ -20,7 +20,7 @@ import logging
 import os
 import traceback
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -496,7 +496,7 @@ async def _run_cve_match_background(
     On exception: flips status to ``failed`` and stores a short
     traceback summary on ``cve_match_error`` for the UI to surface.
     """
-    started = datetime.utcnow()
+    started = datetime.now(timezone.utc)
     try:
         async with async_session_factory() as db:
             try:
@@ -537,7 +537,7 @@ async def _run_cve_match_background(
                 if fw is None:
                     return
                 fw.cve_match_status = "completed"
-                fw.cve_match_finished_at = datetime.utcnow()
+                fw.cve_match_finished_at = datetime.now(timezone.utc)
                 fw.cve_match_result = aggregate.model_dump()
                 fw.cve_match_error = None
                 await db.commit()
@@ -564,7 +564,7 @@ async def _run_cve_match_background(
                     ).scalar_one_or_none()
                     if fail_fw is not None:
                         fail_fw.cve_match_status = "failed"
-                        fail_fw.cve_match_finished_at = datetime.utcnow()
+                        fail_fw.cve_match_finished_at = datetime.now(timezone.utc)
                         fail_fw.cve_match_error = err_summary
                         await fail_db.commit()
                 logger.exception(
