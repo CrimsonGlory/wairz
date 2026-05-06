@@ -513,6 +513,8 @@ async def scan_apk_bytecode_endpoint(
     abs_apk_path = _find_apk_in_firmware(extracted_path, apk_path)
 
     # Check cache first
+    from app.services import _cache
+
     loop = asyncio.get_event_loop()
     sha256 = await loop.run_in_executor(
         None, _compute_sha256, abs_apk_path
