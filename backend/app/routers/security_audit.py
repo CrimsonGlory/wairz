@@ -4,7 +4,6 @@ import asyncio
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
@@ -15,6 +14,17 @@ from app.models.finding import Finding
 from app.models.project import Project
 from app.rate_limit import TIER_A_HEAVY, limiter
 from app.schemas.finding import FindingResponse, Severity
+from app.schemas.security_audit import (
+    AbusechScanResponse,
+    ClamScanResponse,
+    KnownGoodScanResponse,
+    SecurityScanResponse,
+    UefiScanResponse,
+    UpdateMechanismDetail,
+    UpdateMechanismResponse,
+    VtScanResponse,
+    YaraScanResponse,
+)
 from app.services.finding_service import FindingService
 from app.services.security_audit import (
     SecurityFinding,
@@ -34,14 +44,6 @@ router = APIRouter(
     prefix="/api/v1/projects/{project_id}/security",
     tags=["security-audit"],
 )
-
-
-class SecurityScanResponse(BaseModel):
-    status: str
-    checks_run: int
-    findings_created: int
-    total_findings: int
-    errors: list[str] = []
 
 
 async def _persist_finding(
@@ -194,14 +196,6 @@ async def run_audit(
         total_findings=len(all_findings),
         errors=all_errors,
     )
-
-
-class UefiScanResponse(BaseModel):
-    status: str
-    modules_scanned: int
-    findings_created: int
-    summary: dict[str, int] = {}
-    errors: list[str] = []
 
 
 @router.post("/uefi-scan", response_model=UefiScanResponse)
@@ -452,15 +446,6 @@ async def scan_uefi_modules(
     )
 
 
-class YaraScanResponse(BaseModel):
-    status: str
-    rules_loaded: int
-    files_scanned: int
-    files_matched: int
-    findings_created: int
-    errors: list[str] = []
-
-
 @router.post("/yara", response_model=YaraScanResponse)
 async def run_yara_scan(
     project_id: uuid.UUID,
@@ -552,15 +537,6 @@ async def run_yara_scan(
 # ---------------------------------------------------------------------------
 # ClamAV scan
 # ---------------------------------------------------------------------------
-
-
-class ClamScanResponse(BaseModel):
-    status: str
-    files_scanned: int
-    infected_count: int
-    infected_files: list[dict] = []
-    findings_created: int = 0
-    errors: list[str] = []
 
 
 @router.post("/clamav-scan", response_model=ClamScanResponse)
@@ -665,15 +641,6 @@ async def run_clamav_scan_endpoint(
 # ---------------------------------------------------------------------------
 # VirusTotal hash scan
 # ---------------------------------------------------------------------------
-
-
-class VtScanResponse(BaseModel):
-    status: str
-    binaries_checked: int
-    detected_count: int
-    detected_files: list[dict] = []
-    findings_created: int = 0
-    errors: list[str] = []
 
 
 @router.post("/vt-scan", response_model=VtScanResponse)
@@ -792,23 +759,6 @@ async def run_vt_scan(
     )
 
 
-class UpdateMechanismDetail(BaseModel):
-    system: str
-    confidence: str
-    binaries: list[str] = []
-    configs: list[str] = []
-    update_urls: list[str] = []
-    uses_https: bool | None = None
-    has_ab_scheme: bool | None = None
-    findings: list[dict] = []
-
-
-class UpdateMechanismResponse(BaseModel):
-    status: str
-    mechanisms: list[UpdateMechanismDetail]
-    total: int
-
-
 @router.get(
     "/firmware/{firmware_id}/update-mechanisms",
     response_model=UpdateMechanismResponse,
@@ -874,17 +824,6 @@ async def get_update_mechanisms(
 # ---------------------------------------------------------------------------
 # abuse.ch threat intel scan
 # ---------------------------------------------------------------------------
-
-
-class AbusechScanResponse(BaseModel):
-    status: str
-    binaries_checked: int
-    malwarebazaar_hits: int = 0
-    threatfox_hits: int = 0
-    yaraify_hits: int = 0
-    findings_created: int = 0
-    details: dict = {}
-    errors: list[str] = []
 
 
 @router.post("/abusech-scan", response_model=AbusechScanResponse)
@@ -968,15 +907,6 @@ async def run_abusech_scan_endpoint(
 # ---------------------------------------------------------------------------
 # CIRCL Hashlookup (known-good identification)
 # ---------------------------------------------------------------------------
-
-
-class KnownGoodScanResponse(BaseModel):
-    status: str
-    binaries_checked: int
-    known_good_count: int = 0
-    unknown_count: int = 0
-    known_good_files: list[dict] = []
-    errors: list[str] = []
 
 
 @router.post("/known-good-scan", response_model=KnownGoodScanResponse)
