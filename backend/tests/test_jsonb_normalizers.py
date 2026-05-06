@@ -18,6 +18,7 @@ import pytest
 from app.services.jsonb_normalizers import (
     ANALYSIS_CACHE_RESULT_SCHEMA_VERSION,
     CONVERSATIONS_MESSAGES_SCHEMA_VERSION,
+    EMULATION_PRESETS_PORT_FORWARDS_SCHEMA_VERSION,
     EMULATION_SESSIONS_DISCOVERED_SERVICES_SCHEMA_VERSION,
     EMULATION_SESSIONS_PORT_FORWARDS_SCHEMA_VERSION,
     FIRMWARE_BINARY_INFO_SCHEMA_VERSION,
@@ -26,6 +27,7 @@ from app.services.jsonb_normalizers import (
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
     _normalize_analysis_cache_result,
     _normalize_conversations_messages,
+    _normalize_emulation_presets_port_forwards,
     _normalize_emulation_sessions_discovered_services,
     _normalize_emulation_sessions_nvram_state,
     _normalize_emulation_sessions_port_forwards,
@@ -431,3 +433,24 @@ def test_normalize_emulation_sessions_nvram_state_idempotent():
     once = _normalize_emulation_sessions_nvram_state(canonical)
     twice = _normalize_emulation_sessions_nvram_state(once)
     assert once == twice == canonical
+
+
+# ── _normalize_emulation_presets_port_forwards ───────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ([{"host": 8080, "guest": 80}], [{"host": 8080, "guest": 80}]),
+        ([], []),
+        (None, []),
+        ({"host": 80}, []),
+        ([{"host": 22, "guest": 22}, None, "scalar"], [{"host": 22, "guest": 22}]),
+    ],
+)
+def test_normalize_emulation_presets_port_forwards(value, expected):
+    assert _normalize_emulation_presets_port_forwards(value) == expected
+
+
+def test_emulation_presets_port_forwards_schema_version_constant():
+    assert EMULATION_PRESETS_PORT_FORWARDS_SCHEMA_VERSION == 1

@@ -22,6 +22,7 @@ from app.models.project import Project
 from app.models.sbom import SbomComponent, SbomVulnerability
 from app.services.export_service import ARCHIVE_VERSION
 from app.services.jsonb_normalizers import (
+    _normalize_emulation_presets_port_forwards,
     _normalize_fuzzing_campaigns_config,
     _normalize_fuzzing_campaigns_stats,
     _stamp_fuzzing_campaigns_config,
@@ -402,7 +403,7 @@ class ImportService:
                 binary_path=p.get("binary_path"),
                 arguments=p.get("arguments"),
                 architecture=p.get("architecture"),
-                port_forwards=p.get("port_forwards"),
+                port_forwards=_normalize_emulation_presets_port_forwards(p.get("port_forwards")),
                 kernel_name=p.get("kernel_name"),
                 init_path=p.get("init_path"),
                 pre_init_script=p.get("pre_init_script"),

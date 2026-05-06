@@ -15,6 +15,7 @@ from app.models.emulation_session import EmulationSession
 from app.models.firmware import Firmware
 from app.services.emulation import EmulationService
 from app.services.jsonb_normalizers import (
+    _normalize_emulation_presets_port_forwards,
     _normalize_emulation_sessions_discovered_services,
     _normalize_emulation_sessions_port_forwards,
     _normalize_firmware_binary_info,
@@ -2559,8 +2560,9 @@ async def _handle_list_presets(input: dict, context: ToolContext) -> str:
             lines.append(f"    Stubs: {p.stub_profile}")
         if p.pre_init_script:
             lines.append(f"    Pre-init script: {len(p.pre_init_script)} chars")
-        if p.port_forwards:
-            pf_strs = [f"{pf['host']}:{pf['guest']}" for pf in p.port_forwards]
+        preset_pfs = _normalize_emulation_presets_port_forwards(p.port_forwards)
+        if preset_pfs:
+            pf_strs = [f"{pf['host']}:{pf['guest']}" for pf in preset_pfs]
             lines.append(f"    Ports: {', '.join(pf_strs)}")
 
     return "\n".join(lines)
@@ -2602,7 +2604,7 @@ async def _handle_start_from_preset(input: dict, context: ToolContext) -> str:
         "mode": preset.mode,
         "binary_path": preset.binary_path,
         "arguments": preset.arguments,
-        "port_forwards": preset.port_forwards or [],
+        "port_forwards": _normalize_emulation_presets_port_forwards(preset.port_forwards),
         "kernel_name": preset.kernel_name,
         "init_path": preset.init_path,
         "pre_init_script": preset.pre_init_script,

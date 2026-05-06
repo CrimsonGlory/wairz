@@ -23,6 +23,7 @@ from app.models.project import Project
 from app.models.sbom import SbomComponent, SbomVulnerability
 from app.services.jsonb_normalizers import (
     _normalize_analysis_cache_result,
+    _normalize_emulation_presets_port_forwards,
     _normalize_fuzzing_campaigns_config,
     _normalize_fuzzing_campaigns_stats,
 )
@@ -263,7 +264,7 @@ class ExportService:
                 "binary_path": p.binary_path,
                 "arguments": p.arguments,
                 "architecture": p.architecture,
-                "port_forwards": p.port_forwards,
+                "port_forwards": _normalize_emulation_presets_port_forwards(p.port_forwards),
                 "kernel_name": p.kernel_name,
                 "init_path": p.init_path,
                 "pre_init_script": p.pre_init_script,

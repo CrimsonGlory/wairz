@@ -306,3 +306,22 @@ def _normalize_emulation_sessions_nvram_state(value: Any) -> dict | None:
     if isinstance(value, dict):
         return value
     return None
+
+
+# ── emulation_presets.port_forwards ───────────────────────────────────────────
+#
+# Same shape as ``emulation_sessions.port_forwards`` (list[dict] with
+# host/guest keys), but a separate column on the EmulationPreset model
+# storing the preset-level port-forward template. Per the per-column
+# discipline, kept as its own normaliser for boundary clarity.
+EMULATION_PRESETS_PORT_FORWARDS_SCHEMA_VERSION = 1
+
+
+def _normalize_emulation_presets_port_forwards(value: Any) -> list[dict]:
+    """Return the canonical ``list[dict]`` shape for
+    ``EmulationPreset.port_forwards``. Mirror of the EmulationSession
+    helper; same coercion semantics.
+    """
+    if not isinstance(value, list):
+        return []
+    return [pf for pf in value if isinstance(pf, dict)]
