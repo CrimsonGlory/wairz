@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -44,9 +44,11 @@ class CraAssessment(Base):
     not_tested_count: Mapped[int] = mapped_column(
         Integer, default=0, server_default="0"
     )
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
     requirement_results: Mapped[list["CraRequirementResult"]] = relationship(
@@ -92,9 +94,9 @@ class CraRequirementResult(Base):
     related_cves: Mapped[list[str]] = mapped_column(
         JSONB, server_default="[]"
     )
-    assessed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    assessed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
     assessment: Mapped["CraAssessment"] = relationship(

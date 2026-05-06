@@ -105,7 +105,7 @@ class SbomVulnerability(Base):
     )
     resolution_justification: Mapped[str | None] = mapped_column(Text)
     resolved_by: Mapped[str | None] = mapped_column(String(50))  # "user" | "ai"
-    resolved_at: Mapped[datetime | None] = mapped_column()
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # AI-adjusted severity (NVD originals stay as cvss_score / severity)
     adjusted_cvss_score: Mapped[float | None] = mapped_column(Numeric(3, 1))
