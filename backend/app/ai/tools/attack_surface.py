@@ -160,44 +160,43 @@ def _format_table(entries: list, total: int) -> str:
     return "\n".join(lines)
 
 
-async def _handle_analyze_binary_attack_surface(input: dict, context: ToolContext) -> str:
-    """Deep-dive analysis of a single binary's attack surface."""
-    path = input.get("path")
-    if not path:
-        return "Error: 'path' is required"
+def _analyze_binary_sync(resolved: str, real_root: str) -> dict:
+    """Synchronous binary attack-surface analysis.
 
-    resolved = context.resolve_path(path)
+    Performs ELF magic check, stat(), ELF import parsing, init-script
+    enumeration, and protection probes. All filesystem/ELF I/O lives here so
+    the async handler can offload via run_in_executor (Rule #5).
 
-    # Check if already scanned
+    Returns a dict with either {"error": "..."} on failure, or the full
+    signals + score + categories aggregate ready for formatting.
+    """
+    import os
+    import stat as stat_mod
+
     from app.services.attack_surface_service import (
         BinarySignals,
         CGI_PATH_PATTERNS,
-        DANGEROUS_FUNCTIONS,
         KNOWN_NETWORK_DAEMONS,
-        NETWORK_FUNCTIONS,
+        _classify_categories,
         _collect_init_script_binaries,
         _get_binary_protections,
         _get_elf_imports,
         _rel,
         _score_binary,
-        _classify_categories,
     )
-    import os
-    import stat
 
     if not os.path.isfile(resolved):
-        return f"Error: File not found: {path}"
+        return {"error": "not_found"}
 
     # Verify it's ELF
     try:
         with open(resolved, "rb") as f:
             magic = f.read(4)
         if magic != b"\x7fELF":
-            return f"Error: {path} is not an ELF binary"
+            return {"error": "not_elf"}
     except OSError as exc:
-        return f"Error reading file: {exc}"
+        return {"error": f"read_failed:{exc}"}
 
-    real_root = os.path.realpath(context.extracted_path)
     rel_path = _rel(resolved, real_root)
     name = os.path.basename(resolved)
 
@@ -207,8 +206,8 @@ async def _handle_analyze_binary_attack_surface(input: dict, context: ToolContex
     try:
         st = os.stat(resolved)
         signals.file_size = st.st_size
-        signals.is_setuid = bool(st.st_mode & stat.S_ISUID)
-        signals.is_setgid = bool(st.st_mode & stat.S_ISGID)
+        signals.is_setuid = bool(st.st_mode & stat_mod.S_ISUID)
+        signals.is_setgid = bool(st.st_mode & stat_mod.S_ISGID)
     except OSError:
         pass
 
@@ -243,6 +242,56 @@ async def _handle_analyze_binary_attack_surface(input: dict, context: ToolContex
 
     score, breakdown = _score_binary(signals)
     categories = _classify_categories(signals)
+
+    return {
+        "rel_path": rel_path,
+        "name": name,
+        "signals": signals,
+        "score": score,
+        "breakdown": breakdown,
+        "categories": categories,
+        "imports": imports,
+    }
+
+
+async def _handle_analyze_binary_attack_surface(input: dict, context: ToolContext) -> str:
+    """Deep-dive analysis of a single binary's attack surface."""
+    import os
+
+    from app.services.attack_surface_service import (
+        DANGEROUS_FUNCTIONS,
+        NETWORK_FUNCTIONS,
+    )
+
+    path = input.get("path")
+    if not path:
+        return "Error: 'path' is required"
+
+    resolved = context.resolve_path(path)
+    real_root = os.path.realpath(context.extracted_path)
+
+    # Rule #5 — ELF parse + filesystem walks (init-scripts) are sync I/O;
+    # offload to executor so 10K+ file rootfs scans don't stall the loop.
+    loop = asyncio.get_running_loop()
+    aggregate = await loop.run_in_executor(
+        None, _analyze_binary_sync, resolved, real_root
+    )
+
+    err = aggregate.get("error")
+    if err == "not_found":
+        return f"Error: File not found: {path}"
+    if err == "not_elf":
+        return f"Error: {path} is not an ELF binary"
+    if err and err.startswith("read_failed:"):
+        return f"Error reading file: {err.split(':', 1)[1]}"
+
+    rel_path = aggregate["rel_path"]
+    name = aggregate["name"]
+    signals = aggregate["signals"]
+    score = aggregate["score"]
+    breakdown = aggregate["breakdown"]
+    categories = aggregate["categories"]
+    imports = aggregate["imports"]
 
     # Format output
     net_imports = sorted(signals.imported_symbols & NETWORK_FUNCTIONS)

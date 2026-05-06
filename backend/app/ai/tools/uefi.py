@@ -5,6 +5,7 @@ modules, NVRAM variables, and module identification via GUID databases.
 Operates on UEFIExtract output (.dump/ directories).
 """
 
+import asyncio
 import os
 import re
 
@@ -205,18 +206,13 @@ def _extract_guid_from_dirname(dirname: str) -> str | None:
     return m.group(0).upper() if m else None
 
 
-async def _handle_list_firmware_volumes(
-    input: dict, context: ToolContext
-) -> str:
-    dump_dir = _find_dump_dir(context)
-    if not dump_dir:
-        return (
-            "No UEFIExtract output found. This firmware may not be "
-            "UEFI/BIOS type, or extraction has not completed."
-        )
+# ── Sync collectors (Rule #5 — called via run_in_executor) ────────────
 
+
+def _collect_firmware_volumes_sync(dump_dir: str) -> list[str]:
+    """Walk the .dump tree and return formatted firmware-volume lines."""
     volumes: list[str] = []
-    for root, dirs, files in os.walk(dump_dir):
+    for root, dirs, _files in os.walk(dump_dir):
         # Look for directories containing "Volume" in their name
         info_path = os.path.join(root, "info.txt")
         if not os.path.isfile(info_path):
@@ -237,31 +233,21 @@ async def _handle_list_firmware_volumes(
                     line += f" ({name})"
             line += f"  size={size}  modules={child_count}"
             volumes.append(line)
-
-    if not volumes:
-        return "No firmware volumes found in UEFIExtract output."
-
-    return f"Firmware Volumes ({len(volumes)}):\n" + "\n".join(volumes)
+    return volumes
 
 
-async def _handle_list_uefi_modules(
-    input: dict, context: ToolContext
-) -> str:
-    dump_dir = _find_dump_dir(context)
-    if not dump_dir:
-        return "No UEFIExtract output found."
-
-    volume_filter = input.get("volume")
+def _collect_uefi_modules_sync(
+    dump_dir: str, volume_filter: str | None
+) -> list[str]:
+    """Walk the .dump tree and return formatted UEFI module lines."""
     modules: list[str] = []
-
-    for root, dirs, files in os.walk(dump_dir):
+    for root, _dirs, files in os.walk(dump_dir):
         if "info.txt" not in files:
             continue
         if volume_filter and volume_filter not in root:
             continue
 
         info = _parse_info_txt(os.path.join(root, "info.txt"))
-        ftype = info.get("Type", "")
         subtype = info.get("Subtype", "")
 
         # FFS files have a "File GUID" field — this is the definitive marker
@@ -272,7 +258,6 @@ async def _handle_list_uefi_modules(
         if not is_module:
             continue
 
-        rel = os.path.relpath(root, dump_dir)
         guid = file_guid.strip().upper()
         name = _KNOWN_GUIDS.get(guid, "")
         size = info.get("Full size", info.get("Size", "?"))
@@ -285,20 +270,11 @@ async def _handle_list_uefi_modules(
             line += f"  {name}"
         line += f"  ({size})"
         modules.append(line)
-
-    if not modules:
-        return "No UEFI modules found in the extraction output."
-
-    return f"UEFI Modules ({len(modules)}):\n" + "\n".join(modules[:200])
+    return modules
 
 
-async def _handle_extract_nvram_variables(
-    input: dict, context: ToolContext
-) -> str:
-    dump_dir = _find_dump_dir(context)
-    if not dump_dir:
-        return "No UEFIExtract output found."
-
+def _collect_nvram_variables_sync(dump_dir: str) -> list[str]:
+    """Walk the .dump tree and return formatted NVRAM-variable lines."""
     variables: list[str] = []
     secure_boot_guids = {
         "8BE4DF61-93CA-11D2-AA0D-00E098032B8C": "EFI Global Variable",
@@ -306,7 +282,7 @@ async def _handle_extract_nvram_variables(
     }
     secure_boot_vars = {"PK", "KEK", "db", "dbx", "dbt", "SecureBoot", "SetupMode"}
 
-    for root, dirs, files in os.walk(dump_dir):
+    for root, _dirs, files in os.walk(dump_dir):
         if "info.txt" not in files:
             continue
         info = _parse_info_txt(os.path.join(root, "info.txt"))
@@ -314,7 +290,6 @@ async def _handle_extract_nvram_variables(
         ftype = info.get("Type", "")
         if "NVAR" in ftype or "variable" in ftype.lower() or "VSS" in ftype:
             dirname = os.path.basename(root)
-            rel = os.path.relpath(root, dump_dir)
             name = info.get("Name", dirname)
             guid = _extract_guid_from_dirname(dirname) or info.get("GUID", "")
             attrs = info.get("Attributes", "")
@@ -330,74 +305,31 @@ async def _handle_extract_nvram_variables(
                 line += f"  attrs={attrs}"
             line += marker
             variables.append(line)
-
-    if not variables:
-        return (
-            "No NVRAM variables found. This firmware may not have an "
-            "NVRAM region, or UEFIExtract could not parse it."
-        )
-
-    return f"NVRAM Variables ({len(variables)}):\n" + "\n".join(variables[:300])
+    return variables
 
 
-async def _handle_identify_uefi_module(
-    input: dict, context: ToolContext
-) -> str:
-    guid = input.get("guid", "").strip().upper()
-    if not _GUID_RE.match(guid):
-        return f"Invalid GUID format: {guid}. Expected: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
+def _find_uefi_module_sync(dump_dir: str, guid: str) -> list[str]:
+    """Walk the .dump tree looking for the directory whose GUID matches.
 
-    known_name = _KNOWN_GUIDS.get(guid)
-
-    # Search the dump directory for this GUID
-    dump_dir = _find_dump_dir(context)
+    Returns the formatted lines for the first match or [] if not found.
+    """
     found_info: list[str] = []
-    if dump_dir:
-        for root, dirs, files in os.walk(dump_dir):
-            dirname = os.path.basename(root)
-            dir_guid = _extract_guid_from_dirname(dirname)
-            if dir_guid and dir_guid.upper() == guid:
-                rel = os.path.relpath(root, dump_dir)
-                found_info.append(f"Location: {rel}")
-                if "info.txt" in files:
-                    info = _parse_info_txt(os.path.join(root, "info.txt"))
-                    for k, v in info.items():
-                        found_info.append(f"  {k}: {v}")
-                break
-
-    lines = [f"GUID: {guid}"]
-    if known_name:
-        lines.append(f"Known name: {known_name}")
-    else:
-        lines.append("Not found in built-in GUID database.")
-
-    if found_info:
-        lines.append("")
-        lines.extend(found_info)
-
-    return "\n".join(lines)
+    for root, _dirs, files in os.walk(dump_dir):
+        dirname = os.path.basename(root)
+        dir_guid = _extract_guid_from_dirname(dirname)
+        if dir_guid and dir_guid.upper() == guid:
+            rel = os.path.relpath(root, dump_dir)
+            found_info.append(f"Location: {rel}")
+            if "info.txt" in files:
+                info = _parse_info_txt(os.path.join(root, "info.txt"))
+                for k, v in info.items():
+                    found_info.append(f"  {k}: {v}")
+            break
+    return found_info
 
 
-async def _handle_read_uefi_module(
-    input: dict, context: ToolContext
-) -> str:
-    path = input.get("path", "")
-    show_hex = input.get("show_hex", False)
-
-    dump_dir = _find_dump_dir(context)
-    if not dump_dir:
-        return "No UEFIExtract output found."
-
-    full_path = os.path.join(dump_dir, path.lstrip("/"))
-    if not os.path.isdir(full_path):
-        return f"Module directory not found: {path}"
-
-    # Verify path is within dump_dir (sandbox check)
-    real_full = os.path.realpath(full_path)
-    real_dump = os.path.realpath(dump_dir)
-    if not real_full.startswith(real_dump):
-        return "Path traversal detected."
-
+def _read_uefi_module_sync(full_path: str, show_hex: bool) -> list[str]:
+    """Read the module info.txt + listing + optional hex dump synchronously."""
     lines: list[str] = []
 
     # Read info.txt
@@ -441,5 +373,135 @@ async def _handle_read_uefi_module(
                     lines.append(f"  {i:04X}: {hex_part:<48s} {ascii_part}")
             except OSError:
                 lines.append("  (could not read body.bin)")
+
+    return lines
+
+
+# ── Async handlers ────────────────────────────────────────────────────
+
+
+async def _handle_list_firmware_volumes(
+    input: dict, context: ToolContext
+) -> str:
+    dump_dir = _find_dump_dir(context)
+    if not dump_dir:
+        return (
+            "No UEFIExtract output found. This firmware may not be "
+            "UEFI/BIOS type, or extraction has not completed."
+        )
+
+    # Rule #5 — UEFIExtract dump trees can hold thousands of nested module
+    # directories; walking + parsing info.txt is sync I/O. Offload.
+    loop = asyncio.get_running_loop()
+    volumes = await loop.run_in_executor(
+        None, _collect_firmware_volumes_sync, dump_dir
+    )
+
+    if not volumes:
+        return "No firmware volumes found in UEFIExtract output."
+
+    return f"Firmware Volumes ({len(volumes)}):\n" + "\n".join(volumes)
+
+
+async def _handle_list_uefi_modules(
+    input: dict, context: ToolContext
+) -> str:
+    dump_dir = _find_dump_dir(context)
+    if not dump_dir:
+        return "No UEFIExtract output found."
+
+    volume_filter = input.get("volume")
+
+    # Rule #5 — sync walk + per-directory info.txt parse, offload.
+    loop = asyncio.get_running_loop()
+    modules = await loop.run_in_executor(
+        None, _collect_uefi_modules_sync, dump_dir, volume_filter
+    )
+
+    if not modules:
+        return "No UEFI modules found in the extraction output."
+
+    return f"UEFI Modules ({len(modules)}):\n" + "\n".join(modules[:200])
+
+
+async def _handle_extract_nvram_variables(
+    input: dict, context: ToolContext
+) -> str:
+    dump_dir = _find_dump_dir(context)
+    if not dump_dir:
+        return "No UEFIExtract output found."
+
+    # Rule #5 — sync walk + per-directory info.txt parse, offload.
+    loop = asyncio.get_running_loop()
+    variables = await loop.run_in_executor(
+        None, _collect_nvram_variables_sync, dump_dir
+    )
+
+    if not variables:
+        return (
+            "No NVRAM variables found. This firmware may not have an "
+            "NVRAM region, or UEFIExtract could not parse it."
+        )
+
+    return f"NVRAM Variables ({len(variables)}):\n" + "\n".join(variables[:300])
+
+
+async def _handle_identify_uefi_module(
+    input: dict, context: ToolContext
+) -> str:
+    guid = input.get("guid", "").strip().upper()
+    if not _GUID_RE.match(guid):
+        return f"Invalid GUID format: {guid}. Expected: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
+
+    known_name = _KNOWN_GUIDS.get(guid)
+
+    # Search the dump directory for this GUID
+    dump_dir = _find_dump_dir(context)
+    found_info: list[str] = []
+    if dump_dir:
+        # Rule #5 — sync walk over the dump tree, offload.
+        loop = asyncio.get_running_loop()
+        found_info = await loop.run_in_executor(
+            None, _find_uefi_module_sync, dump_dir, guid
+        )
+
+    lines = [f"GUID: {guid}"]
+    if known_name:
+        lines.append(f"Known name: {known_name}")
+    else:
+        lines.append("Not found in built-in GUID database.")
+
+    if found_info:
+        lines.append("")
+        lines.extend(found_info)
+
+    return "\n".join(lines)
+
+
+async def _handle_read_uefi_module(
+    input: dict, context: ToolContext
+) -> str:
+    path = input.get("path", "")
+    show_hex = input.get("show_hex", False)
+
+    dump_dir = _find_dump_dir(context)
+    if not dump_dir:
+        return "No UEFIExtract output found."
+
+    full_path = os.path.join(dump_dir, path.lstrip("/"))
+    if not os.path.isdir(full_path):
+        return f"Module directory not found: {path}"
+
+    # Verify path is within dump_dir (sandbox check)
+    real_full = os.path.realpath(full_path)
+    real_dump = os.path.realpath(dump_dir)
+    if not real_full.startswith(real_dump):
+        return "Path traversal detected."
+
+    # Rule #5 — info.txt read + os.listdir + body.bin read are sync I/O; offload.
+    loop = asyncio.get_running_loop()
+    lines = await loop.run_in_executor(
+        None, _read_uefi_module_sync, full_path, show_hex
+    )
 
     return "\n".join(lines) if lines else "No information available for this module."
