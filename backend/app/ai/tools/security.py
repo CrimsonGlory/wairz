@@ -766,18 +766,15 @@ def _audit_certificate(cert_data: bytes, file_path: str, real_root: str) -> dict
     return info
 
 
-async def _handle_analyze_certificate(input: dict, context: ToolContext) -> str:
-    """Parse and audit X.509 certificates found in the firmware."""
-    input_path = input.get("path") or "/"
-    real_root = context.real_root_for(input_path)
-    search_path = input.get("path")
+def _analyze_certificate_sync(
+    resolved_root: str, real_root: str, search_path: str | None,
+) -> tuple[list[str], list[dict]]:
+    """Synchronous certificate discovery + parse + audit.
 
-    # Resolve the extracted root for cert file searching
-    resolved_root = context.resolve_path("/")
+    Returns (cert_files, results). The async caller wraps this via
+    ``run_in_executor`` (Rule #5).
+    """
     cert_files = _find_cert_files(resolved_root, search_path)
-
-    if not cert_files:
-        return "No certificate files found in the firmware filesystem."
 
     results: list[dict] = []
     for cert_file in cert_files:
@@ -790,6 +787,26 @@ async def _handle_analyze_certificate(input: dict, context: ToolContext) -> str:
         result = _audit_certificate(cert_data, cert_file, real_root)
         if "error" not in result:
             results.append(result)
+
+    return cert_files, results
+
+
+async def _handle_analyze_certificate(input: dict, context: ToolContext) -> str:
+    """Parse and audit X.509 certificates found in the firmware."""
+    input_path = input.get("path") or "/"
+    real_root = context.real_root_for(input_path)
+    search_path = input.get("path")
+
+    # Resolve the extracted root for cert file searching
+    resolved_root = context.resolve_path("/")
+
+    loop = asyncio.get_running_loop()
+    cert_files, results = await loop.run_in_executor(
+        None, _analyze_certificate_sync, resolved_root, real_root, search_path,
+    )
+
+    if not cert_files:
+        return "No certificate files found in the firmware filesystem."
 
     if not results:
         return (
