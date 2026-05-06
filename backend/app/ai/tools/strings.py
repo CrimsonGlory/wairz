@@ -501,17 +501,14 @@ def _analyze_passwd_file(
     return issues
 
 
-async def _handle_find_hardcoded_credentials(
-    input: dict, context: ToolContext
-) -> str:
-    """Find hardcoded passwords, API keys, tokens, and other credentials."""
-    input_path = input.get("path", "/")
-    search_path = context.resolve_path(input_path)
-    real_root = context.real_root_for(input_path)
-    max_results = input.get("max_results", MAX_CRED_RESULTS)
-    if max_results <= 0:
-        max_results = 100000
+def _find_hardcoded_credentials_sync(
+    search_path: str, real_root: str, max_results: int,
+) -> tuple[list[dict[str, str]], list[str]]:
+    """Synchronous shadow/passwd analysis + filesystem walk for credentials.
 
+    Returns (results, auth_issues). The async caller wraps this via
+    ``run_in_executor`` (Rule #5).
+    """
     results: list[dict[str, str]] = []
     auth_issues: list[str] = []
 
@@ -592,6 +589,25 @@ async def _handle_find_hardcoded_credentials(
                                 break  # one match per line
             except (OSError, PermissionError):
                 continue
+
+    return results, auth_issues
+
+
+async def _handle_find_hardcoded_credentials(
+    input: dict, context: ToolContext
+) -> str:
+    """Find hardcoded passwords, API keys, tokens, and other credentials."""
+    input_path = input.get("path", "/")
+    search_path = context.resolve_path(input_path)
+    real_root = context.real_root_for(input_path)
+    max_results = input.get("max_results", MAX_CRED_RESULTS)
+    if max_results <= 0:
+        max_results = 100000
+
+    loop = asyncio.get_running_loop()
+    results, auth_issues = await loop.run_in_executor(
+        None, _find_hardcoded_credentials_sync, search_path, real_root, max_results,
+    )
 
     if not results and not auth_issues:
         return "No hardcoded credentials found."
