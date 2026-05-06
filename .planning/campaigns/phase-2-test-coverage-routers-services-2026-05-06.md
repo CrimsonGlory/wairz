@@ -25,9 +25,9 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 
 ## Active Context
 
-**Mode:** wave-3-shipped — paused for user review before Wave 4
-**Current Wave:** 3 ✅ COMPLETE (5 test files + Wave 2 close-out)
-**Next Wave:** 4 (uart router, documents router, device router, findings router, events router) — pause for user review first
+**Mode:** wave-4-shipped — paused for user review before Wave 5
+**Current Wave:** 4 ✅ COMPLETE (5 test files + Wave 3 close-out)
+**Next Wave:** 5 (projects, health, kernels, export_import, component_map, compliance routers — 6 small files 57-130 LOC) — final router wave; service waves come after
 
 **Wave 1 commits (clean-history):**
 - `d8f1e14` test(sbom_router): 16 cases, +744 LOC
@@ -56,8 +56,16 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 - `bcadb28` test(cra_compliance_router): 7 cases, +343 LOC (cross-project boundary canary, paired with Wave 1 service tests)
 
 **Wave 3 totals: 45 tests across 5 files = 5 commits. (Wave 3 was the smallest wave by LOC since the targets were 219-252 LOC; canaries focused on cross-project boundaries — recurring theme — and the F-A-06 confidence-bypass backstop.)**
-**Cumulative Phase 2 totals: 220 tests + 1 production bug fix + 1 shim hardening = 18 commits across 3 waves.**
-**All Phase 1 + Wave 1-3 tests pass when run together (~321 tests in ~16s).**
+
+**Wave 4 commits (clean-history):**
+- `a538079` test(uart_router): 15 cases, +436 LOC (bridge proxy error matrix + UARTSession canary)
+- `8e2387a` test(documents_router): 7 cases, +350 LOC (cross-project boundary + note canary)
+- `8a2ed8b` test(device_router): 11 cases, +321 LOC (Rule #33a 409 idempotency canary)
+- `ab79069` test(findings_router): 8 cases, +370 LOC (cross-project boundary + finding-create canary)
+- `b11b172` test(events_router): 7 cases, +283 LOC (SSE channel selection + cleanup contract)
+
+**Wave 4 totals: 48 tests across 5 files = 5 commits. (Wave 4 was the smallest by LOC across the campaign so far — targets 144-217 LOC; canaries leaned on already-validated patterns.)**
+**Cumulative Phase 2 totals: 268 tests + 1 production bug fix + 1 shim hardening = 23 commits across 4 waves.**
 
 ## Phase End Conditions
 
@@ -173,6 +181,11 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 | 3 | tests/test_files_router.py | 022554a | 11 | 400 | /download streams real on-disk file bytes through real FileService; Content-Disposition includes basename |
 | 3 | tests/test_attack_surface_router.py | 45e7772 | 5 | 409 | Finding via POST /scan: confidence='medium' (F-A-06 backstop) + source='attack_surface' + firmware_id; AttackSurfaceEntry JSONB dangerous_imports + input_categories |
 | 3 | tests/test_cra_compliance_router.py | bcadb28 | 7 | 343 | Cross-project boundary on GET /assessments/{id}: real CraAssessment in project A → 404 via project B's URL; correct project A → 200 with eager-loaded 20 requirement_results |
+| 4 | tests/test_uart_router.py | a538079 | 15 | 436 | UARTSession via POST /connect: device_path/baudrate(230400 non-default)/status='connected'/connected_at all round-trip through DB |
+| 4 | tests/test_documents_router.py | 8e2387a | 7 | 350 | Document via POST /notes: project_id + original_filename(derived from title) + content_type + file_size round-trip |
+| 4 | tests/test_device_router.py | 8a2ed8b | 11 | 321 | Rule #33a idempotency: 409 with existing dump_id when active dump exists; start_dump asserted NOT called |
+| 4 | tests/test_findings_router.py | ab79069 | 8 | 370 | Finding via POST /findings (real FindingService.create): title/severity/confidence/source/file_path/line_number/cwe_ids/evidence all round-trip |
+| 4 | tests/test_events_router.py | b11b172 | 7 | 283 | SSE channel selection: types=unpacking,fuzzing → SUBSCRIBE only those 2 (NOT all 6); pubsub.unsubscribe + aclose called on disconnect |
 
 ## Decision Log
 
@@ -205,4 +218,5 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 **checkpoint-wave-1: shipped** (commits d8f1e14..49a6d34, 5 test files + 1 fix, 85 cases all passing)
 **checkpoint-wave-2: shipped** (commits dcedd33..2febcc0, 5 test files + 1 shim hardening, 90 cases all passing; cumulative 175 tests across waves 1+2)
 **checkpoint-wave-3: shipped** (commits 1ca2bcf..bcadb28, 5 test files, 45 cases all passing in 4.04s combined; cumulative 220 tests across waves 1+2+3)
-**checkpoint-wave-4: pending** (will set after Wave 4 starts)
+**checkpoint-wave-4: shipped** (commits a538079..b11b172, 5 test files, 48 cases all passing in 3.97s combined; cumulative 268 tests across waves 1-4)
+**checkpoint-wave-5: pending** (will set after Wave 5 starts — final router wave)
