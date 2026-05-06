@@ -9,7 +9,6 @@ checks are instant.
 """
 
 import asyncio
-import hashlib
 import json
 import logging
 import os
@@ -21,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.services import _cache
 from app.utils.docker_client import get_docker_client
+from app.utils.hashing import compute_file_sha256
 
 logger = logging.getLogger(__name__)
 
@@ -58,15 +58,6 @@ class CweCheckResult:
     error: str | None = None
     elapsed_seconds: float = 0.0
     from_cache: bool = False
-
-
-def _sha256_file(path: str) -> str:
-    """Compute SHA-256 of a file."""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def _parse_cwe_json(raw: str) -> list[CweWarning]:
@@ -172,7 +163,8 @@ async def run_cwe_checker(
 
     timeout = timeout or _timeout()
     binary_name = os.path.basename(binary_path)
-    sha256 = _sha256_file(binary_path)
+    loop = asyncio.get_running_loop()
+    sha256 = await loop.run_in_executor(None, compute_file_sha256, binary_path)
 
     # Check cache first
     cached = await _get_cached_result(db, firmware_id, sha256)
