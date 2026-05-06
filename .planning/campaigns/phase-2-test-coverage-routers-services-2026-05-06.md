@@ -25,19 +25,30 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 
 ## Active Context
 
-**Mode:** wave-1-shipped — paused for user review before Wave 2
-**Current Wave:** 1 ✅ COMPLETE (5 test files + 1 router bug fix shipped)
-**Next Wave:** 2 (emulation router, fuzzing_service, androguard_service, analysis router, tools router) — DO NOT START until user signals review complete
+**Mode:** wave-2-shipped — paused for user review before Wave 3
+**Current Wave:** 2 ✅ COMPLETE (5 test files + 1 shim hardening + Wave 1 close-out)
+**Next Wave:** 3 (fuzzing router, comparison router, files router, attack_surface router, cra_compliance router) — pause for user review first
 
-**Wave 1 commits (in order, on `clean-history` branch):**
+**Wave 1 commits (clean-history):**
 - `d8f1e14` test(sbom_router): 16 cases, +744 LOC
 - `4a6357f` fix(apk_scan): _cache import bug uncovered by Phase 2 backfill
 - `fdd549f` test(apk_scan_router): 13 cases, +655 LOC
 - `3f31957` test(cra_compliance_service): 26 cases, +607 LOC
 - `0c71262` test(system_emulation_service): 16 cases, +533 LOC
 - `49a6d34` test(assessment_service): 14 cases, +422 LOC
+- `13ae303` chore(campaign): close Wave 1
 
-**Wave 1 totals: 85 tests, all passing in 8.65s (combined run); 5 test files + 1 fix = 6 commits total; 1 latent production bug surfaced and fixed.**
+**Wave 2 commits (clean-history):**
+- `dcedd33` test(analysis_router): 14 cases, +579 LOC
+- `1d4feed` test(tools_router): 8 cases, +404 LOC
+- `b576d8e` test(emulation_router): 14 cases, +568 LOC
+- `55bf86d` test(androguard_service): 36 cases, +398 LOC (Rule #30 hot zone)
+- `080c10d` test(live_db): harden shim against bare-string JSONB server_default round-trips
+- `2febcc0` test(fuzzing_service): 18 cases, +553 LOC
+
+**Wave 2 totals: 90 tests across 5 files + 1 infrastructure improvement = 6 commits.**
+**Cumulative Phase 2 totals: 175 tests + 1 production bug fix + 1 shim hardening = 13 commits across 2 waves.**
+**All 276 Phase 1 + Phase 2 tests pass in 15.68s combined.**
 
 ## Phase End Conditions
 
@@ -142,6 +153,12 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 | 1 | tests/test_cra_compliance_service.py | 3f31957 | 26 | 607 | CraAssessment + 20 CraRequirementResult rows; status transitions on auto_populate (high→fail, low→partial, no-findings→pass, not_automatable→not_tested); recalc summary on update_requirement |
 | 1 | tests/test_system_emulation_service.py | 0c71262 | 16 | 533 | EmulationSession: mode/architecture/container_id/status/started_at/system_emulation_stage; stop short-circuit (status=stopped, stopped_at) |
 | 1 | tests/test_assessment_service.py | 49a6d34 | 14 | 422 | Finding via _create_finding: source="security_review"/firmware_id/project_id/title/severity/evidence/file_path/line_number/cwe_ids; orchestration shape (skip + error + success branches) |
+| 2 | tests/test_analysis_router.py | dcedd33 | 14 | 579 | analysis_cache.result JSONB round-trip via /cleaned-code (cleaned_code field unwrap) |
+| 2 | tests/test_tools_router.py | 1d4feed | 8 | 404 | ToolContext: project_id/firmware_id/extracted_path/extraction_dir/detection_roots all carry from resolved Firmware row into the registered tool handler's context |
+| 2 | tests/test_emulation_router.py | b576d8e | 14 | 568 | EmulationPreset: name/mode/binary_path/arguments/architecture/stub_profile + JSONB port_forwards; EmulationSession (POST /start): firmware_id/mode/status='pending'/binary_path/arguments/architecture/JSONB port_forwards |
+| 2 | tests/test_androguard_service.py | 55bf86d | 36 | 398 | analyze_apk dict shape: package/version_*/min_sdk/target_sdk/permissions(sorted)/activities/main_activity/is_signed/signatures (Rule #35b applied to non-persistent dict-shape contract) |
+| 2 | tests/_live_db.py (HARDENING) | 080c10d | — | 73 | JSONB→TEXT DDL + tolerant json_deserializer eliminates double-decode on bare-string server_defaults |
+| 2 | tests/test_fuzzing_service.py | 2febcc0 | 18 | 553 | FuzzingCampaign: project_id/firmware_id/binary_path/status='created' + merged JSONB config dict; start_campaign Rule #33 fast-path flips to status='queued' + clears error_message |
 
 ## Decision Log
 
@@ -151,6 +168,9 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 - **2026-05-06: Latent bug surfaced — `apk_scan.py` bytecode endpoint had `_cache` undefined.** Fixed in commit 4a6357f, separate from the test commit (Rule #25 spirit — independently revertable). The bytecode endpoint had zero router-level test coverage before Phase 2, so the bug shipped silently — exactly the Phase-2-justifies-itself outcome the audit predicted.
 - **2026-05-06: SQLite + JSONB server_default = `"'[]'"` workaround.** EmulationSession.port_forwards uses `server_default="'[]'"` (bare-string SQL DEFAULT). When SQLAlchemy round-trips that through SQLite's native JSON column type, the dialect-level JSON processor double-decodes against `tests/_live_db.py`'s bind/result shim and bombs with "Expecting value: line 1 column 1 (char 0)" at flush time. Sbom + cra_compliance JSONB columns use `server_default=text("'{}'")` (text-expression form) and don't hit this. **Workaround applied:** every test EmulationSession constructor passes `port_forwards=[]` explicitly. **Future hardening candidate:** shim JSONB → TEXT (instead of JSON) in `_live_db.py` to eliminate the gotcha entirely. Documented in commit 0c71262 message.
 - **2026-05-06: Inverse Rule #30 case documented.** assessment_service.py imports `get_detection_roots` at MODULE scope (line 26). Patching the SOURCE module (`app.services.firmware_paths.get_detection_roots`) is a silent no-op — the consumer module already holds its own local reference. Patch the CONSUMER module instead. Mirror of the standard Rule #30 case (lazy-imported symbols → patch source) but in reverse: top-level `from X import Y` makes `Y` a CONSUMER-module attribute, not a SOURCE-module one. Documented in test_assessment_service.py:200.
+- **2026-05-06 (Wave 2): _live_db.py shim hardened.** Wave 1's port_forwards workaround was a band-aid. Wave 2 hit FuzzingCampaign.config + .stats with the same `server_default="'{}'"` shape and the workaround would have spread. Permanent fix shipped as commit 080c10d: (a) render JSONB / ARRAY as TEXT in DDL (was JSON) so SQLite's dialect-level JSON processor doesn't fire on top of our shim; (b) pass a tolerant `json_deserializer` to the engine that strips outer single-quotes (the SQL-string-literal artefact) and falls back gracefully on parse failure. Validated against 276 tests in 15.68s — no regressions. Eliminates the gotcha for all current and future bare-string JSONB server_defaults.
+- **2026-05-06 (Wave 2): Wave 2 commit shape (5 tests + 1 infra) instead of 5 tests.** The shim hardening surfaced mid-wave (during fuzzing service canary). Per Rule #25 spirit (per-file commit, independently revertable), shipped the hardening as its own commit (080c10d) BEFORE the fuzzing test commit (2febcc0). Two-line commit message ordering captures the dependency: shim change first, test that depends on it second.
+- **2026-05-06 (Wave 2): Rule #30 source-patch confirmed for androguard.** test_androguard_service.py is the cleanest expression of Rule #30 — every Androguard symbol is lazy-imported INSIDE function bodies (lines 508, 523, 640, 861, 891). Patches MUST hit the SOURCE module (`androguard.misc.AnalyzeAPK`, `androguard.core.apk.APK`). Phase 1's pytest-unblock fleet (session 0801ca27, 2026-04-23) showed +620 tests unlocked once patch targets were corrected — same lesson applied here proactively.
 
 ## Continuation State
 
@@ -167,4 +187,5 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 5. Commit per-file with `test(<module>): <summary> (N cases, +M LOC)`.
 
 **checkpoint-wave-1: shipped** (commits d8f1e14..49a6d34, 5 test files + 1 fix, 85 cases all passing)
-**checkpoint-wave-2: pending** (will set after Wave 2 starts)
+**checkpoint-wave-2: shipped** (commits dcedd33..2febcc0, 5 test files + 1 shim hardening, 90 cases all passing; cumulative 175 tests across waves 1+2)
+**checkpoint-wave-3: pending** (will set after Wave 3 starts)
