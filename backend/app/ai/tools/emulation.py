@@ -14,6 +14,7 @@ from app.models.emulation_preset import EmulationPreset
 from app.models.emulation_session import EmulationSession
 from app.models.firmware import Firmware
 from app.services.emulation import EmulationService
+from app.services.jsonb_normalizers import _normalize_firmware_binary_info
 from app.services.kernel_service import KernelService
 
 from sqlalchemy import select
@@ -959,7 +960,8 @@ async def _handle_start_emulation(input: dict, context: ToolContext) -> str:
     except Exception as exc:
         return f"Error starting emulation: {exc}"
 
-    is_standalone = firmware.binary_info is not None
+    bi = _normalize_firmware_binary_info(firmware.binary_info)
+    is_standalone = bi is not None
     lines = [
         f"Emulation session started successfully.",
         f"  Session ID: {session.id}",
@@ -970,7 +972,6 @@ async def _handle_start_emulation(input: dict, context: ToolContext) -> str:
     if session.binary_path:
         lines.append(f"  Binary: {session.binary_path}")
     if is_standalone:
-        bi = firmware.binary_info or {}
         linking = "static" if bi.get("is_static") else "dynamic"
         lines.append(f"  Linking: {linking}")
         if not bi.get("is_static"):

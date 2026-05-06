@@ -23,6 +23,7 @@ from app.models.firmware import Firmware
 from app.models.project import Project
 from app.services.jsonb_normalizers import (
     _normalize_firmware_device_metadata,
+    _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
 )
 
@@ -118,7 +119,7 @@ async def unpack_firmware_job(
                     firmware.endianness = result.endianness
                     firmware.os_info = result.os_info
                     firmware.kernel_path = result.kernel_path
-                    firmware.binary_info = result.binary_info
+                    firmware.binary_info = _stamp_firmware_binary_info(result.binary_info)
                     firmware.unpack_log = result.unpack_log
                     firmware.unpack_stage = None
                     firmware.unpack_progress = None

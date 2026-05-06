@@ -61,6 +61,7 @@ from app.services.emulation_constants import (
     QEMU_USER_BIN_MAP,
 )
 from app.services.emulation_preset_service import EmulationPresetService
+from app.services.jsonb_normalizers import _normalize_firmware_binary_info
 from app.services.qiling_service import get_rootfs_path, run_binary_async
 from app.services.sysroot_service import get_sysroot_path
 from app.utils.docker_client import get_docker_client
@@ -224,12 +225,13 @@ class EmulationService:
             # Detect standalone binary mode: binary_info is only set for
             # standalone binaries (direct ELF/PE upload or extraction
             # fallback), never for firmware with a proper rootfs.
-            is_standalone = firmware.binary_info is not None
+            bi = _normalize_firmware_binary_info(firmware.binary_info)
+            is_standalone = bi is not None
 
             # Qiling path — PE/Mach-O run in-process; no Docker, no
             # terminal. Runs to completion inline because Qiling is
             # batch-only; the session ends in status=stopped.
-            binary_format = (firmware.binary_info or {}).get("format")
+            binary_format = (bi or {}).get("format")
             use_qiling = (
                 is_standalone
                 and binary_format in ("pe", "macho")
@@ -446,8 +448,9 @@ class EmulationService:
         # spawn_session_background directly because that opens its own
         # AsyncSession; instead, inline the work against self.db to
         # preserve the old single-session semantics.
-        is_standalone = firmware.binary_info is not None
-        binary_format = (firmware.binary_info or {}).get("format")
+        bi = _normalize_firmware_binary_info(firmware.binary_info)
+        is_standalone = bi is not None
+        binary_format = (bi or {}).get("format")
         use_qiling = (
             is_standalone
             and binary_format in ("pe", "macho")

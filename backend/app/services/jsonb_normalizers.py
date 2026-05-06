@@ -133,3 +133,38 @@ def _stamp_analysis_cache_result(payload: dict[str, Any]) -> dict[str, Any]:
     """
     payload["schema_version"] = ANALYSIS_CACHE_RESULT_SCHEMA_VERSION
     return payload
+
+
+# ── firmware.binary_info ──────────────────────────────────────────────────────
+#
+# Canonical shape: ``dict`` of binary-analysis output (architecture,
+# endianness, format, extracted_filename, optional rtos / companion
+# components, optional cpu_rec arch_candidates). Written once during
+# unpack; ``None`` for firmwares whose primary file isn't a single
+# analysable binary (Linux rootfs, Android, multi-partition).
+FIRMWARE_BINARY_INFO_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_binary_info(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.binary_info``.
+
+    ``None`` is preserved — it carries semantic load (the firmware was
+    not analysed as a single binary). Wrong-typed inputs collapse to
+    ``None`` rather than ``{}`` so callers checking
+    ``if firmware.binary_info is not None`` to detect "single binary"
+    aren't fooled by an accidental empty dict.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_binary_info(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.binary_info``. ``None`` is preserved (column is nullable).
+    """
+    if payload is None:
+        return None
+    payload["schema_version"] = FIRMWARE_BINARY_INFO_SCHEMA_VERSION
+    return payload

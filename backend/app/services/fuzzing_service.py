@@ -26,6 +26,7 @@ from app.models.fuzzing import FuzzingCampaign, FuzzingCrash
 from app.services.analysis_service import check_binary_protections
 from app.services.emulation.docker_ops import copy_dir_to_container
 from app.services.event_service import event_service
+from app.services.jsonb_normalizers import _normalize_firmware_binary_info
 from app.services.sysroot_service import get_sysroot_path
 from app.utils.docker_client import get_docker_client
 from app.utils.sandbox import validate_path
@@ -450,8 +451,9 @@ class FuzzingService:
             return campaign
 
         # Detect standalone binary mode
-        is_standalone = firmware.binary_info is not None
-        is_static = (firmware.binary_info or {}).get("is_static", False)
+        bi = _normalize_firmware_binary_info(firmware.binary_info)
+        is_standalone = bi is not None
+        is_static = (bi or {}).get("is_static", False)
 
         settings = self._settings
         client = self._get_docker_client()

@@ -31,7 +31,10 @@ from app.database import async_session_factory
 from app.models.device_dump import DeviceDumpSession
 from app.models.firmware import Firmware
 from app.models.project import Project
-from app.services.jsonb_normalizers import _stamp_firmware_device_metadata
+from app.services.jsonb_normalizers import (
+    _stamp_firmware_binary_info,
+    _stamp_firmware_device_metadata,
+)
 from app.utils.getprop import extract_device_metadata, parse_getprop_txt
 from app.workers.unpack import unpack_firmware
 
@@ -606,7 +609,7 @@ async def _run_import_unpack(
                     firmware.endianness = result.endianness
                     firmware.os_info = result.os_info
                     firmware.kernel_path = result.kernel_path
-                    firmware.binary_info = result.binary_info
+                    firmware.binary_info = _stamp_firmware_binary_info(result.binary_info)
                     firmware.unpack_log = result.unpack_log
                     project.status = "ready"
                 else:

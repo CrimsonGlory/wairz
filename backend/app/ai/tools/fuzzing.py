@@ -13,6 +13,7 @@ from app.config import get_settings
 from app.models.firmware import Firmware
 from app.models.fuzzing import FuzzingCampaign, FuzzingCrash
 from app.services.fuzzing_service import FuzzingService
+from app.services.jsonb_normalizers import _normalize_firmware_binary_info
 from app.utils.docker_client import get_docker_client
 
 
@@ -344,8 +345,8 @@ async def _handle_analyze_target(input: dict, context: ToolContext) -> str:
         lines.append(f"    PIE: {'yes' if prot.get('pie') else 'NO'}")
 
     # Add standalone binary info if applicable
-    if firmware.binary_info:
-        bi = firmware.binary_info
+    bi = _normalize_firmware_binary_info(firmware.binary_info)
+    if bi:
         lines.append("")
         lines.append("  Standalone binary mode:")
         linking = "static" if bi.get("is_static") else "dynamic"

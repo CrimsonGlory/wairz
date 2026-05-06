@@ -24,6 +24,7 @@ from app.services.firmware_paths import get_detection_roots
 from app.services.firmware_service import FirmwareService
 from app.services.jsonb_normalizers import (
     _normalize_firmware_device_metadata,
+    _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
 )
 from app.workers.unpack import detect_kernel, unpack_firmware
@@ -251,7 +252,7 @@ async def _run_unpack_background(
                     firmware.endianness = result.endianness
                     firmware.os_info = result.os_info
                     firmware.kernel_path = result.kernel_path
-                    firmware.binary_info = result.binary_info
+                    firmware.binary_info = _stamp_firmware_binary_info(result.binary_info)
                     firmware.unpack_log = result.unpack_log
                     firmware.unpack_stage = None
                     firmware.unpack_progress = None

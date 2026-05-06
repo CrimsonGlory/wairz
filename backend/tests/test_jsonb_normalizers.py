@@ -18,11 +18,14 @@ import pytest
 from app.services.jsonb_normalizers import (
     ANALYSIS_CACHE_RESULT_SCHEMA_VERSION,
     CONVERSATIONS_MESSAGES_SCHEMA_VERSION,
+    FIRMWARE_BINARY_INFO_SCHEMA_VERSION,
     FIRMWARE_DEVICE_METADATA_SCHEMA_VERSION,
     _normalize_analysis_cache_result,
     _normalize_conversations_messages,
+    _normalize_firmware_binary_info,
     _normalize_firmware_device_metadata,
     _stamp_analysis_cache_result,
+    _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
 )
 
@@ -183,3 +186,54 @@ def test_stamp_analysis_cache_result_idempotent():
     twice = _stamp_analysis_cache_result(once)
     assert once == twice
     assert once["schema_version"] == ANALYSIS_CACHE_RESULT_SCHEMA_VERSION
+
+
+# ── _normalize_firmware_binary_info ──────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical analyse_binary output.
+        ({"architecture": "arm", "endianness": "little", "format": "elf",
+          "extracted_filename": "firmware.bin"},
+         {"architecture": "arm", "endianness": "little", "format": "elf",
+          "extracted_filename": "firmware.bin"}),
+        # Empty dict — preserved (writer's choice).
+        ({}, {}),
+        # None — preserved (semantic load: not analysed as a single binary).
+        (None, None),
+        # Wrong type — list — collapse to None (callers gate on `is not None`).
+        ([1, 2], None),
+        # Wrong type — string.
+        ("elf", None),
+    ],
+)
+def test_normalize_firmware_binary_info(value, expected):
+    assert _normalize_firmware_binary_info(value) == expected
+
+
+def test_normalize_firmware_binary_info_idempotent():
+    canonical = {"architecture": "x86_64", "format": "elf"}
+    once = _normalize_firmware_binary_info(canonical)
+    twice = _normalize_firmware_binary_info(once)
+    assert once == twice == canonical
+
+
+def test_stamp_firmware_binary_info_adds_version():
+    payload = {"architecture": "mips"}
+    out = _stamp_firmware_binary_info(payload)
+    assert out["schema_version"] == FIRMWARE_BINARY_INFO_SCHEMA_VERSION
+    assert out["architecture"] == "mips"
+
+
+def test_stamp_firmware_binary_info_preserves_none():
+    """None payload is preserved — column is nullable for non-binary firmwares."""
+    assert _stamp_firmware_binary_info(None) is None
+
+
+def test_stamp_firmware_binary_info_idempotent():
+    payload = {"architecture": "arm"}
+    once = _stamp_firmware_binary_info(payload)
+    twice = _stamp_firmware_binary_info(once)
+    assert once == twice
