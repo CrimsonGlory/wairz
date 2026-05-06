@@ -260,13 +260,14 @@ async def _handle_analyze_config_security(input: dict, context: ToolContext) -> 
 # ---------------------------------------------------------------------------
 
 
-async def _handle_check_setuid_binaries(input: dict, context: ToolContext) -> str:
-    """Find all setuid/setgid files in the firmware filesystem."""
-    input_path = input.get("path") or "/"
-    search_root = context.resolve_path(input_path)
-    real_root = context.real_root_for(input_path)
-    limit = _get_limit(input)
+def _check_setuid_binaries_sync(
+    search_root: str, real_root: str, limit: int,
+) -> tuple[list[str], list[str]]:
+    """Synchronous walk for setuid/setgid binary detection.
 
+    Returns (setuid_files, setgid_files). The async caller wraps this via
+    ``run_in_executor`` (Rule #5).
+    """
     setuid_files: list[str] = []
     setgid_files: list[str] = []
 
@@ -295,6 +296,21 @@ async def _handle_check_setuid_binaries(input: dict, context: ToolContext) -> st
                 break
         if len(setuid_files) + len(setgid_files) >= limit:
             break
+
+    return setuid_files, setgid_files
+
+
+async def _handle_check_setuid_binaries(input: dict, context: ToolContext) -> str:
+    """Find all setuid/setgid files in the firmware filesystem."""
+    input_path = input.get("path") or "/"
+    search_root = context.resolve_path(input_path)
+    real_root = context.real_root_for(input_path)
+    limit = _get_limit(input)
+
+    loop = asyncio.get_running_loop()
+    setuid_files, setgid_files = await loop.run_in_executor(
+        None, _check_setuid_binaries_sync, search_root, real_root, limit,
+    )
 
     lines: list[str] = []
 
@@ -469,16 +485,16 @@ _SENSITIVE_PATTERNS = re.compile(
 )
 
 
-async def _handle_check_filesystem_permissions(input: dict, context: ToolContext) -> str:
-    """Check for world-writable files and weak permissions on sensitive files."""
-    input_path = input.get("path") or "/"
-    search_root = context.resolve_path(input_path)
-    real_root = context.real_root_for(input_path)
-    limit = _get_limit(input)
+def _check_filesystem_permissions_sync(
+    search_root: str, real_root: str, limit: int,
+) -> tuple[list[str], list[str]]:
+    """Synchronous walk to detect world-writable files and weak perms.
 
+    Returns (world_writable, sensitive_weak). The async caller wraps this via
+    ``run_in_executor`` (Rule #5).
+    """
     world_writable: list[str] = []
     sensitive_weak: list[str] = []
-    world_exec: list[str] = []
 
     for dirpath, dirs, files in safe_walk(search_root):
         for name in files + dirs:
@@ -524,6 +540,21 @@ async def _handle_check_filesystem_permissions(input: dict, context: ToolContext
                 break
         if len(world_writable) + len(sensitive_weak) >= limit:
             break
+
+    return world_writable, sensitive_weak
+
+
+async def _handle_check_filesystem_permissions(input: dict, context: ToolContext) -> str:
+    """Check for world-writable files and weak permissions on sensitive files."""
+    input_path = input.get("path") or "/"
+    search_root = context.resolve_path(input_path)
+    real_root = context.real_root_for(input_path)
+    limit = _get_limit(input)
+
+    loop = asyncio.get_running_loop()
+    world_writable, sensitive_weak = await loop.run_in_executor(
+        None, _check_filesystem_permissions_sync, search_root, real_root, limit,
+    )
 
     lines: list[str] = []
 
@@ -735,18 +766,15 @@ def _audit_certificate(cert_data: bytes, file_path: str, real_root: str) -> dict
     return info
 
 
-async def _handle_analyze_certificate(input: dict, context: ToolContext) -> str:
-    """Parse and audit X.509 certificates found in the firmware."""
-    input_path = input.get("path") or "/"
-    real_root = context.real_root_for(input_path)
-    search_path = input.get("path")
+def _analyze_certificate_sync(
+    resolved_root: str, real_root: str, search_path: str | None,
+) -> tuple[list[str], list[dict]]:
+    """Synchronous certificate discovery + parse + audit.
 
-    # Resolve the extracted root for cert file searching
-    resolved_root = context.resolve_path("/")
+    Returns (cert_files, results). The async caller wraps this via
+    ``run_in_executor`` (Rule #5).
+    """
     cert_files = _find_cert_files(resolved_root, search_path)
-
-    if not cert_files:
-        return "No certificate files found in the firmware filesystem."
 
     results: list[dict] = []
     for cert_file in cert_files:
@@ -759,6 +787,26 @@ async def _handle_analyze_certificate(input: dict, context: ToolContext) -> str:
         result = _audit_certificate(cert_data, cert_file, real_root)
         if "error" not in result:
             results.append(result)
+
+    return cert_files, results
+
+
+async def _handle_analyze_certificate(input: dict, context: ToolContext) -> str:
+    """Parse and audit X.509 certificates found in the firmware."""
+    input_path = input.get("path") or "/"
+    real_root = context.real_root_for(input_path)
+    search_path = input.get("path")
+
+    # Resolve the extracted root for cert file searching
+    resolved_root = context.resolve_path("/")
+
+    loop = asyncio.get_running_loop()
+    cert_files, results = await loop.run_in_executor(
+        None, _analyze_certificate_sync, resolved_root, real_root, search_path,
+    )
+
+    if not cert_files:
+        return "No certificate files found in the firmware filesystem."
 
     if not results:
         return (
@@ -1082,72 +1130,71 @@ def _extract_ikconfig(data: bytes) -> str | None:
     return None
 
 
-async def _handle_extract_kernel_config(
-    input: dict, context: ToolContext
-) -> str:
-    """Extract kernel .config from firmware — either from a kernel binary
-    (IKCONFIG) or from pre-extracted config files."""
-    import glob as globmod
+def _extract_kernel_config_from_path_sync(full_path: str, path: str) -> str:
+    """Synchronously try to extract a kernel config from a single file path.
 
-    extracted_root = os.path.realpath(context.extracted_path)
-    path = input.get("path")
-
-    # If a specific path is provided, try to extract from that binary
-    if path:
-        full_path = context.resolve_path(path)
-        if not os.path.isfile(full_path):
-            return f"Error: '{path}' is not a file."
-
-        # Check if it's a gzip file (e.g. /proc/config.gz)
-        if path.endswith(".gz"):
-            try:
-                with open(full_path, "rb") as f:
-                    config_text = gzip.decompress(f.read()).decode(
-                        "utf-8", errors="replace"
-                    )
-                if "CONFIG_" in config_text:
-                    lines = config_text.splitlines()
-                    return (
-                        f"Extracted kernel config from {path} "
-                        f"({len(lines)} lines):\n\n{config_text}"
-                    )
-            except Exception as e:
-                return f"Error decompressing '{path}': {e}"
-
-        # Check if it's already a text config file
-        try:
-            with open(full_path, "r", errors="replace") as f:
-                head = f.read(4096)
-            if "CONFIG_" in head:
-                with open(full_path, "r", errors="replace") as f:
-                    config_text = f.read(512_000)
-                lines = config_text.splitlines()
-                return (
-                    f"Kernel config from {path} "
-                    f"({len(lines)} lines):\n\n{config_text}"
-                )
-        except Exception:
-            pass
-
-        # Try IKCONFIG extraction from binary
+    Returns the result string for the async handler to return as-is.
+    Mirrors the original three-attempt sequence (gzip / text / IKCONFIG).
+    """
+    # Check if it's a gzip file (e.g. /proc/config.gz)
+    if path.endswith(".gz"):
         try:
             with open(full_path, "rb") as f:
-                data = f.read()
-            config_text = _extract_ikconfig(data)
-            if config_text:
+                config_text = gzip.decompress(f.read()).decode(
+                    "utf-8", errors="replace"
+                )
+            if "CONFIG_" in config_text:
                 lines = config_text.splitlines()
                 return (
-                    f"Extracted IKCONFIG from {path} "
+                    f"Extracted kernel config from {path} "
                     f"({len(lines)} lines):\n\n{config_text}"
                 )
-            return (
-                f"No embedded kernel config (IKCFG_ST) found in '{path}'. "
-                "The kernel may not have been compiled with CONFIG_IKCONFIG."
-            )
         except Exception as e:
-            return f"Error reading '{path}': {e}"
+            return f"Error decompressing '{path}': {e}"
 
-    # Auto-search mode: look in common locations
+    # Check if it's already a text config file
+    try:
+        with open(full_path, "r", errors="replace") as f:
+            head = f.read(4096)
+        if "CONFIG_" in head:
+            with open(full_path, "r", errors="replace") as f:
+                config_text = f.read(512_000)
+            lines = config_text.splitlines()
+            return (
+                f"Kernel config from {path} "
+                f"({len(lines)} lines):\n\n{config_text}"
+            )
+    except Exception:
+        pass
+
+    # Try IKCONFIG extraction from binary
+    try:
+        with open(full_path, "rb") as f:
+            data = f.read()
+        config_text = _extract_ikconfig(data)
+        if config_text:
+            lines = config_text.splitlines()
+            return (
+                f"Extracted IKCONFIG from {path} "
+                f"({len(lines)} lines):\n\n{config_text}"
+            )
+        return (
+            f"No embedded kernel config (IKCFG_ST) found in '{path}'. "
+            "The kernel may not have been compiled with CONFIG_IKCONFIG."
+        )
+    except Exception as e:
+        return f"Error reading '{path}': {e}"
+
+
+def _extract_kernel_config_auto_sync(extracted_root: str) -> str:
+    """Synchronous auto-search for kernel config files + kernel images.
+
+    Returns the result string for the async handler to return as-is.
+    Performs glob over _CONFIG_SEARCH_PATHS and a safe_walk over
+    extracted_root for kernel images.
+    """
+    import glob as globmod
+
     results: list[str] = []
 
     # 1. Check pre-extracted config files
@@ -1223,6 +1270,31 @@ async def _handle_extract_kernel_config(
         "were found in the firmware filesystem.\n"
         "Hint: If you have a vmlinuz path, pass it explicitly via "
         "the 'path' parameter."
+    )
+
+
+async def _handle_extract_kernel_config(
+    input: dict, context: ToolContext
+) -> str:
+    """Extract kernel .config from firmware — either from a kernel binary
+    (IKCONFIG) or from pre-extracted config files."""
+    extracted_root = os.path.realpath(context.extracted_path)
+    path = input.get("path")
+    loop = asyncio.get_running_loop()
+
+    # If a specific path is provided, try to extract from that binary
+    if path:
+        full_path = context.resolve_path(path)
+        if not os.path.isfile(full_path):
+            return f"Error: '{path}' is not a file."
+
+        return await loop.run_in_executor(
+            None, _extract_kernel_config_from_path_sync, full_path, path,
+        )
+
+    # Auto-search mode: look in common locations
+    return await loop.run_in_executor(
+        None, _extract_kernel_config_auto_sync, extracted_root,
     )
 
 
@@ -1875,10 +1947,14 @@ _SC_CWE_MAP: dict[int, tuple[str, str]] = {
 }
 
 
-async def _discover_shell_scripts(
+def _discover_shell_scripts(
     target_path: str, max_files: int
 ) -> list[str]:
-    """Discover shell scripts by extension, shebang, and well-known paths."""
+    """Discover shell scripts by extension, shebang, and well-known paths.
+
+    Synchronous helper — wrap the call in ``run_in_executor`` from any
+    async handler (Rule #5).
+    """
     scripts: list[str] = []
     seen: set[str] = set()
 
@@ -1948,8 +2024,11 @@ async def _handle_shellcheck_scan(input: dict, context: ToolContext) -> str:
     shell = input.get("shell", "sh")
     max_files = input.get("max_files", 100)
 
-    # Discover shell scripts
-    scripts = await _discover_shell_scripts(target_path, max_files)
+    # Discover shell scripts (sync — wrap via executor per Rule #5)
+    loop = asyncio.get_running_loop()
+    scripts = await loop.run_in_executor(
+        None, _discover_shell_scripts, target_path, max_files,
+    )
     if not scripts:
         return "No shell scripts found in the target path."
 
@@ -2067,10 +2146,14 @@ _BANDIT_HIGHLIGHT: dict[str, tuple[str, str]] = {
 }
 
 
-async def _discover_python_scripts(
+def _discover_python_scripts(
     target_path: str, max_files: int
 ) -> list[str]:
-    """Discover Python scripts by extension and shebang."""
+    """Discover Python scripts by extension and shebang.
+
+    Synchronous helper — wrap the call in ``run_in_executor`` from any
+    async handler (Rule #5).
+    """
     scripts: list[str] = []
     seen: set[str] = set()
     py_extensions = {".py", ".pyw"}
@@ -2132,8 +2215,11 @@ async def _handle_bandit_scan(input: dict, context: ToolContext) -> str:
     confidence = input.get("confidence", "medium")
     max_files = input.get("max_files", 100)
 
-    # Discover Python scripts
-    scripts = await _discover_python_scripts(target_path, max_files)
+    # Discover Python scripts (sync — wrap via executor per Rule #5)
+    loop = asyncio.get_running_loop()
+    scripts = await loop.run_in_executor(
+        None, _discover_python_scripts, target_path, max_files,
+    )
     if not scripts:
         return "No Python scripts found in the target path."
 
@@ -2313,15 +2399,16 @@ def _check_weak_cert_cn(cert_data: bytes, file_path: str, real_root: str) -> lis
     return warnings
 
 
-async def _handle_check_secure_boot(input: dict, context: ToolContext) -> str:
-    """Detect and assess secure boot mechanisms in firmware.
+def _check_secure_boot_sync(
+    extracted_root: str, real_root: str,
+) -> tuple[list[dict], list[dict]]:
+    """Synchronously inspect the firmware for secure-boot mechanisms.
 
-    Checks for U-Boot verified boot, dm-verity (Android), and UEFI Secure Boot.
-    Analyzes certificate chains and flags weak/test keys.
+    Performs all 10 safe_walk passes plus per-file reads (FIT/.dtb,
+    kernel config, fstab, build.prop, EFI certs). Returns
+    ``(mechanisms, weak_key_warnings)``. The async caller wraps this via
+    ``run_in_executor`` (Rule #5).
     """
-    extracted_root = os.path.realpath(context.extracted_path)
-    real_root = context.real_root_for(input.get("path", "/"))
-
     mechanisms: list[dict] = []
     weak_key_warnings: list[dict] = []
 
@@ -2602,6 +2689,23 @@ async def _handle_check_secure_boot(input: dict, context: ToolContext) -> str:
 
     mechanisms.append(uefi)
 
+    return mechanisms, weak_key_warnings
+
+
+async def _handle_check_secure_boot(input: dict, context: ToolContext) -> str:
+    """Detect and assess secure boot mechanisms in firmware.
+
+    Checks for U-Boot verified boot, dm-verity (Android), and UEFI Secure Boot.
+    Analyzes certificate chains and flags weak/test keys.
+    """
+    extracted_root = os.path.realpath(context.extracted_path)
+    real_root = context.real_root_for(input.get("path", "/"))
+
+    loop = asyncio.get_running_loop()
+    mechanisms, weak_key_warnings = await loop.run_in_executor(
+        None, _check_secure_boot_sync, extracted_root, real_root,
+    )
+
     # -----------------------------------------------------------------------
     # D. Build report
     # -----------------------------------------------------------------------
@@ -2786,14 +2890,14 @@ def _is_net_dep_text_file(path: str) -> bool:
     return True
 
 
-async def _handle_detect_network_dependencies(input: dict, context: ToolContext) -> str:
-    """Scan firmware for network mounts, cloud endpoints, brokers, and DB connections."""
-    extracted_root = context.extracted_path
-    input_path = input.get("path") or "/"
-    search_root = context.resolve_path(input_path)
-    real_root = context.real_root_for(input_path)
-    limit = _get_limit(input)
+def _detect_network_dependencies_sync(
+    search_root: str, real_root: str, limit: int,
+) -> list:
+    """Synchronously scan firmware for network mount/cloud/DB indicators.
 
+    Returns a list of NetDepFinding dataclass instances. The async caller
+    wraps this via ``run_in_executor`` (Rule #5).
+    """
     from dataclasses import dataclass
 
     @dataclass
@@ -2929,6 +3033,21 @@ async def _handle_detect_network_dependencies(input: dict, context: ToolContext)
                     continue
                 scanned.add(rel_path)
                 _scan_file(abs_path)
+
+    return findings
+
+
+async def _handle_detect_network_dependencies(input: dict, context: ToolContext) -> str:
+    """Scan firmware for network mounts, cloud endpoints, brokers, and DB connections."""
+    input_path = input.get("path") or "/"
+    search_root = context.resolve_path(input_path)
+    real_root = context.real_root_for(input_path)
+    limit = _get_limit(input)
+
+    loop = asyncio.get_running_loop()
+    findings = await loop.run_in_executor(
+        None, _detect_network_dependencies_sync, search_root, real_root, limit,
+    )
 
     if not findings:
         return "No network dependencies detected in the firmware filesystem."
