@@ -1947,10 +1947,14 @@ _SC_CWE_MAP: dict[int, tuple[str, str]] = {
 }
 
 
-async def _discover_shell_scripts(
+def _discover_shell_scripts(
     target_path: str, max_files: int
 ) -> list[str]:
-    """Discover shell scripts by extension, shebang, and well-known paths."""
+    """Discover shell scripts by extension, shebang, and well-known paths.
+
+    Synchronous helper — wrap the call in ``run_in_executor`` from any
+    async handler (Rule #5).
+    """
     scripts: list[str] = []
     seen: set[str] = set()
 
@@ -2020,8 +2024,11 @@ async def _handle_shellcheck_scan(input: dict, context: ToolContext) -> str:
     shell = input.get("shell", "sh")
     max_files = input.get("max_files", 100)
 
-    # Discover shell scripts
-    scripts = await _discover_shell_scripts(target_path, max_files)
+    # Discover shell scripts (sync — wrap via executor per Rule #5)
+    loop = asyncio.get_running_loop()
+    scripts = await loop.run_in_executor(
+        None, _discover_shell_scripts, target_path, max_files,
+    )
     if not scripts:
         return "No shell scripts found in the target path."
 
@@ -2139,10 +2146,14 @@ _BANDIT_HIGHLIGHT: dict[str, tuple[str, str]] = {
 }
 
 
-async def _discover_python_scripts(
+def _discover_python_scripts(
     target_path: str, max_files: int
 ) -> list[str]:
-    """Discover Python scripts by extension and shebang."""
+    """Discover Python scripts by extension and shebang.
+
+    Synchronous helper — wrap the call in ``run_in_executor`` from any
+    async handler (Rule #5).
+    """
     scripts: list[str] = []
     seen: set[str] = set()
     py_extensions = {".py", ".pyw"}
@@ -2204,8 +2215,11 @@ async def _handle_bandit_scan(input: dict, context: ToolContext) -> str:
     confidence = input.get("confidence", "medium")
     max_files = input.get("max_files", 100)
 
-    # Discover Python scripts
-    scripts = await _discover_python_scripts(target_path, max_files)
+    # Discover Python scripts (sync — wrap via executor per Rule #5)
+    loop = asyncio.get_running_loop()
+    scripts = await loop.run_in_executor(
+        None, _discover_python_scripts, target_path, max_files,
+    )
     if not scripts:
         return "No Python scripts found in the target path."
 
