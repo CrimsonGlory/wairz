@@ -67,6 +67,41 @@ async def lifespan(app: FastAPI):
             "CPE dictionary background load failed — fuzzy matching will use local map only"
         )
 
+    # Reap orphan device-dump rows. After a backend crash a row stuck in
+    # 'queued'/'running' would block POST /dumps with a 409 forever (the
+    # runner asyncio task that owned it is gone). Flip them to 'failed'
+    # so the next dump attempt isn't blocked by a phantom. Companion to
+    # the F-A-01 Rule #33 refactor (audit-2026-05-04).
+    try:
+        from datetime import datetime, timezone
+        from sqlalchemy import update
+        from app.database import async_session_factory
+        from app.models.device_dump import DeviceDumpSession
+
+        async with async_session_factory() as db:
+            res = await db.execute(
+                update(DeviceDumpSession)
+                .where(DeviceDumpSession.status.in_(("queued", "running")))
+                .values(
+                    status="failed",
+                    error="Backend restarted; runner state lost",
+                    finished_at=datetime.now(timezone.utc),
+                )
+            )
+            await db.commit()
+            if res.rowcount:
+                import logging
+                logging.getLogger(__name__).info(
+                    "Reaped %d orphan device-dump row(s) on startup", res.rowcount,
+                )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Device-dump orphan reaper failed — phantom rows may block new dumps "
+            "until the next startup",
+            exc_info=True,
+        )
+
     yield
 
     # Shutdown Redis
