@@ -370,7 +370,7 @@ class TestSecurityAuditPersistenceLiveCanary:
             "root::0:0:root:/root:/bin/sh\n",
         )
 
-        async for db in make_live_db():
+        async with make_live_db() as db:
             # Seed a real Project + Firmware row.
             pid = uuid.uuid4()
             project = Project(id=pid, name="live-canary", status="ready")
@@ -459,4 +459,3 @@ class TestSecurityAuditPersistenceLiveCanary:
                 "Rule #35b: firmware_id must round-trip through the DB layer"
             )
             assert row.cwe_ids == ["CWE-521"]
-            break

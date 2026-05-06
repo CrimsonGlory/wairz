@@ -370,7 +370,7 @@ class TestUnpackPersistenceLiveCanary:
         storage_file = tmp_path / "firmware.bin"
         storage_file.write_bytes(b"\x00" * 32)
 
-        async for db in make_live_db():
+        async with make_live_db() as db:
             pid = uuid.uuid4()
             project = Project(id=pid, name="live-canary-unpack", status="ready")
             db.add(project)
@@ -426,4 +426,3 @@ class TestUnpackPersistenceLiveCanary:
                 )
             ).scalar_one()
             assert fw_row.extracted_path is None
-            break

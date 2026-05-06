@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from sqlalchemy.dialects.postgresql import ARRAY as PGARRAY
 from sqlalchemy.dialects.postgresql import JSONB
@@ -125,11 +126,26 @@ def _dedup_indexes() -> None:
             table.indexes.remove(d)
 
 
+@asynccontextmanager
 async def make_live_db() -> AsyncIterator[AsyncSession]:
     """Yield a fresh in-memory SQLite session with production tables created.
 
     The engine is per-call; the in-memory database is destroyed when the
     session closes, so tests are fully isolated from each other.
+
+    Usage::
+
+        async with make_live_db() as db:
+            ...
+
+    Implemented as ``@asynccontextmanager`` (NOT a bare async generator
+    consumed via ``async for ... break``). When a consumer ``break``s out
+    of an async-generator loop, GeneratorExit fires inside an
+    ``async with`` body — and aiosqlite's pool teardown can stall on the
+    pending connection-close awaitable, leaving pytest's session-end
+    teardown blocked indefinitely (observed mid-suite hang on the
+    audit-2026-05-04 Phase 1 backfill sweep). The contextmanager
+    discipline guarantees deterministic ``__aexit__`` cleanup.
     """
     # Importing models triggers SQLAlchemy mapper registration on Base.metadata.
     from app.database import Base
@@ -143,7 +159,23 @@ async def make_live_db() -> AsyncIterator[AsyncSession]:
 
     _dedup_indexes()
 
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    # StaticPool: every operation reuses the SAME aiosqlite connection so the
+    # `:memory:` database persists across `db.execute()` calls within the
+    # session (every connection gets its own in-memory DB otherwise — NullPool
+    # would reset the schema on every operation).
+    #
+    # Why not the default pool: aiosqlite's QueuePool keeps idle connections
+    # in a background thread-pool that pytest's session teardown can't reap
+    # before the runner exits — observed mid-suite hang on the
+    # audit-2026-05-04 Phase 1 backfill where a multi-file sweep would print
+    # the first file's dots and then sit in `ep_poll` indefinitely.
+    # StaticPool's single-connection model has nothing for dispose() to await.
+    from sqlalchemy.pool import StaticPool
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)

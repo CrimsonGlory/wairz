@@ -313,7 +313,7 @@ class TestTerminalReadsFirmwareFromDbLiveCanary:
     async def test_terminal_reads_firmware_row_via_live_session(
         self, auth_set_app,
     ):
-        async for db in make_live_db():
+        async with make_live_db() as db:
             pid = uuid.uuid4()
             project = Project(id=pid, name="rule-34b-canary", status="ready")
             db.add(project)
@@ -377,4 +377,3 @@ class TestTerminalReadsFirmwareFromDbLiveCanary:
             assert row.extracted_path.endswith(
                 "this-path-deliberately-does-not-exist-rule-35b"
             )
-            break

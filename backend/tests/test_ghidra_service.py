@@ -285,7 +285,7 @@ class TestGhidraServiceCacheLiveCanary:
 
     @pytest.mark.asyncio
     async def test_store_then_get_round_trip(self):
-        async for db in make_live_db():
+        async with make_live_db() as db:
             pid = uuid.uuid4()
             project = Project(id=pid, name="ghidra-cache", status="ready")
             db.add(project)
@@ -342,7 +342,6 @@ class TestGhidraServiceCacheLiveCanary:
             )
             assert fetched is not None
             assert fetched.get("decompiled_code") == payload["decompiled_code"]
-            break
 
     @pytest.mark.asyncio
     async def test_decompile_function_caches_after_first_subprocess_call(
@@ -352,7 +351,7 @@ class TestGhidraServiceCacheLiveCanary:
         binary = tmp_path / "init"
         binary.write_bytes(b"\x7fELF" + b"\x00" * 100)
 
-        async for db in make_live_db():
+        async with make_live_db() as db:
             pid = uuid.uuid4()
             project = Project(id=pid, name="ghidra-cache-hit", status="ready")
             db.add(project)
@@ -434,4 +433,3 @@ class TestGhidraServiceCacheLiveCanary:
             assert row.binary_sha256 is not None
             assert len(row.binary_sha256) == 64
             assert row.binary_path == str(binary)
-            break
