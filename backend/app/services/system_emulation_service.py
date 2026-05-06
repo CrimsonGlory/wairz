@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.models.emulation_session import EmulationSession
 from app.models.firmware import Firmware
+from app.services.jsonb_normalizers import _normalize_emulation_sessions_discovered_services
 from app.utils.docker_client import get_docker_client
 
 logger = logging.getLogger(__name__)
@@ -380,7 +381,7 @@ class SystemEmulationService:
                 )
 
             if resp.status_code != 200:
-                return session.discovered_services or []
+                return _normalize_emulation_sessions_discovered_services(session.discovered_services)
 
             data = resp.json()
             ports = data.get("ports", [])
@@ -427,7 +428,7 @@ class SystemEmulationService:
 
         except (httpx.ConnectError, httpx.ReadTimeout) as exc:
             logger.warning("Could not get services for session %s: %s", session_id, exc)
-            return session.discovered_services or []
+            return _normalize_emulation_sessions_discovered_services(session.discovered_services)
 
     async def stop_system_emulation(self, session_id: UUID) -> EmulationSession:
         """Stop FirmAE emulation and remove the sidecar container."""

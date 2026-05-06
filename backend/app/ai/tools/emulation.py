@@ -14,7 +14,11 @@ from app.models.emulation_preset import EmulationPreset
 from app.models.emulation_session import EmulationSession
 from app.models.firmware import Firmware
 from app.services.emulation import EmulationService
-from app.services.jsonb_normalizers import _normalize_firmware_binary_info
+from app.services.jsonb_normalizers import (
+    _normalize_emulation_sessions_discovered_services,
+    _normalize_emulation_sessions_port_forwards,
+    _normalize_firmware_binary_info,
+)
 from app.services.kernel_service import KernelService
 
 from sqlalchemy import select
@@ -2811,9 +2815,10 @@ async def _handle_system_emulation_status(input: dict, context: ToolContext) -> 
     ]
     if session.kernel_used:
         lines.append(f"  Kernel: {session.kernel_used}")
-    if session.discovered_services:
-        lines.append(f"  Services found: {len(session.discovered_services)}")
-        for svc_info in session.discovered_services[:30]:
+    discovered = _normalize_emulation_sessions_discovered_services(session.discovered_services)
+    if discovered:
+        lines.append(f"  Services found: {len(discovered)}")
+        for svc_info in discovered[:30]:
             port = svc_info.get("port")
             service = svc_info.get("service", "unknown")
             host_port = svc_info.get("host_port")

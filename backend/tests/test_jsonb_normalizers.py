@@ -18,6 +18,7 @@ import pytest
 from app.services.jsonb_normalizers import (
     ANALYSIS_CACHE_RESULT_SCHEMA_VERSION,
     CONVERSATIONS_MESSAGES_SCHEMA_VERSION,
+    EMULATION_SESSIONS_DISCOVERED_SERVICES_SCHEMA_VERSION,
     EMULATION_SESSIONS_PORT_FORWARDS_SCHEMA_VERSION,
     FIRMWARE_BINARY_INFO_SCHEMA_VERSION,
     FIRMWARE_DEVICE_METADATA_SCHEMA_VERSION,
@@ -25,6 +26,7 @@ from app.services.jsonb_normalizers import (
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
     _normalize_analysis_cache_result,
     _normalize_conversations_messages,
+    _normalize_emulation_sessions_discovered_services,
     _normalize_emulation_sessions_port_forwards,
     _normalize_firmware_binary_info,
     _normalize_firmware_cve_match_result,
@@ -373,3 +375,29 @@ def test_normalize_emulation_sessions_port_forwards_idempotent():
 
 def test_emulation_sessions_port_forwards_schema_version_constant():
     assert EMULATION_SESSIONS_PORT_FORWARDS_SCHEMA_VERSION == 1
+
+
+# ── _normalize_emulation_sessions_discovered_services ────────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ([{"port": 80, "protocol": "tcp", "service": "http",
+           "host_port": 8080, "url": "http://localhost:8080"}],
+         [{"port": 80, "protocol": "tcp", "service": "http",
+           "host_port": 8080, "url": "http://localhost:8080"}]),
+        ([], []),
+        # None — typical pre-startup-probe state — coerce to empty list.
+        (None, []),
+        ({"port": 80}, []),
+        # Mixed — drop scalar.
+        ([{"port": 22}, "ssh"], [{"port": 22}]),
+    ],
+)
+def test_normalize_emulation_sessions_discovered_services(value, expected):
+    assert _normalize_emulation_sessions_discovered_services(value) == expected
+
+
+def test_emulation_sessions_discovered_services_schema_version_constant():
+    assert EMULATION_SESSIONS_DISCOVERED_SERVICES_SCHEMA_VERSION == 1

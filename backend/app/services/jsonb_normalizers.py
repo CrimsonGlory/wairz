@@ -263,3 +263,25 @@ def _normalize_emulation_sessions_port_forwards(value: Any) -> list[dict]:
     if not isinstance(value, list):
         return []
     return [pf for pf in value if isinstance(pf, dict)]
+
+
+# ── emulation_sessions.discovered_services ────────────────────────────────────
+#
+# Canonical shape: ``list[dict]`` with each dict carrying ``port``,
+# ``protocol``, ``service``, ``host_port``, ``url`` keys (FirmAE shim's
+# /ports response, mapped to host ports via Docker container.attrs).
+# Nullable column (None until the FirmAE startup probe runs).
+EMULATION_SESSIONS_DISCOVERED_SERVICES_SCHEMA_VERSION = 1
+
+
+def _normalize_emulation_sessions_discovered_services(value: Any) -> list[dict]:
+    """Return the canonical ``list[dict]`` shape for
+    ``EmulationSession.discovered_services``.
+
+    Distinct from port_forwards: the column is nullable (None until the
+    FirmAE shim probe completes), but consumers always want a list to
+    iterate. Drops non-dict entries.
+    """
+    if not isinstance(value, list):
+        return []
+    return [s for s in value if isinstance(s, dict)]
