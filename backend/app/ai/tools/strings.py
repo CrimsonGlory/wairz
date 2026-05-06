@@ -753,6 +753,131 @@ def _is_oid_context(text: str, match_start: int) -> bool:
     return bool(re.search(r"\d+\.\d+\.$", prefix))
 
 
+def _classify_files_for_ip_scan_sync(
+    scan_roots: list[str], real_roots: list[str], extracted_path: str | None,
+    include_binaries: bool,
+) -> tuple[list[tuple[str, str, bool, str]], int]:
+    """Walk scan_roots and classify each file as text or binary.
+
+    Returns (file_specs, files_scanned_for_dedup). Each file_spec is
+    (fpath, rel, is_binary, real). De-dupes binary hardlinks/symlinks by
+    realpath. The caller (async handler) then runs binary subprocess work
+    or sync text reads as appropriate.
+    """
+    file_specs: list[tuple[str, str, bool, str]] = []
+    scanned_realpaths: set[str] = set()
+    files_scanned_dedup = 0
+
+    def _relpath_for(fpath: str) -> str:
+        for rr in real_roots:
+            if fpath.startswith(rr + os.sep) or fpath == rr:
+                return "/" + os.path.relpath(fpath, rr)
+        fallback = extracted_path or (real_roots[0] if real_roots else fpath)
+        return "/" + os.path.relpath(fpath, fallback)
+
+    for scan_root in scan_roots:
+        for dirpath, _dirnames, filenames in safe_walk(scan_root):
+            for fname in filenames:
+                fpath = os.path.join(dirpath, fname)
+                rel = _relpath_for(fpath)
+
+                try:
+                    real = os.path.realpath(fpath)
+                    fstat = os.stat(fpath)
+                except OSError:
+                    continue
+                if fstat.st_size > 10 * 1024 * 1024:  # 10MB max
+                    continue
+
+                # Determine if text or binary
+                is_binary = False
+                try:
+                    with open(fpath, "rb") as f:
+                        chunk = f.read(512)
+                    if b"\x00" in chunk:
+                        is_binary = True
+                except OSError:
+                    continue
+
+                if is_binary and not include_binaries:
+                    continue
+
+                # Skip binaries we've already scanned (symlinks/hardlinks)
+                if is_binary and real in scanned_realpaths:
+                    files_scanned_dedup += 1
+                    continue
+                if is_binary:
+                    scanned_realpaths.add(real)
+
+                files_scanned_dedup += 1
+                file_specs.append((fpath, rel, is_binary, real))
+
+    return file_specs, files_scanned_dedup
+
+
+def _read_text_file_sync(fpath: str) -> str | None:
+    """Read a text file synchronously; return None on OSError."""
+    try:
+        with open(fpath, "r", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def _match_ips_in_content_sync(
+    content: str, rel: str, is_binary: bool,
+    include_private: bool, max_results_remaining: int,
+) -> tuple[list[dict], list[str]]:
+    """Run IP regex over content, return (findings, ip_strings_found).
+
+    Returns at most ``max_results_remaining`` findings. Pure CPU work
+    (regex matching + classification); no IO.
+    """
+    findings: list[dict] = []
+    ip_strings: list[str] = []
+
+    for match in _IP_RE.finditer(content):
+        if len(findings) >= max_results_remaining:
+            break
+        ip_str = match.group()
+        category, severity = _classify_ip(ip_str)
+
+        if severity == "skip":
+            continue
+        if not include_private and category == "private_rfc1918":
+            continue
+
+        # False positive filters
+        if _is_version_context(content, match.start()):
+            continue
+        if _is_oid_context(content, match.start()):
+            continue
+
+        ip_strings.append(ip_str)
+
+        # Context-based severity adjustment
+        ctx_start = max(0, match.start() - 60)
+        ctx_end = min(len(content), match.end() + 60)
+        context_str = content[ctx_start:ctx_end].strip()
+
+        if _HIGH_RISK_CONTEXT_RE.search(context_str):
+            if severity == "medium":
+                severity = "high"
+            elif severity == "low":
+                severity = "medium"
+
+        findings.append({
+            "ip": ip_str,
+            "file": rel,
+            "category": category,
+            "severity": severity,
+            "context": context_str[:120],
+            "binary": is_binary,
+        })
+
+    return findings, ip_strings
+
+
 async def _handle_find_hardcoded_ips(input: dict, context: ToolContext) -> str:
     """Scan firmware for hardcoded IP addresses with classification.
 
@@ -780,117 +905,46 @@ async def _handle_find_hardcoded_ips(input: dict, context: ToolContext) -> str:
     real_roots = [os.path.realpath(r) for r in scan_roots if r]
 
     findings: list[dict] = []
-    files_scanned = 0
     ips_found: Counter = Counter()
-    # Track resolved real paths to avoid re-scanning hardlinks/symlinks
-    scanned_realpaths: set[str] = set()
 
-    def _relpath_for(fpath: str) -> str:
-        for rr in real_roots:
-            if fpath.startswith(rr + os.sep) or fpath == rr:
-                return "/" + os.path.relpath(fpath, rr)
-        fallback = context.extracted_path or (real_roots[0] if real_roots else fpath)
-        return "/" + os.path.relpath(fpath, fallback)
+    # Phase 1 (sync via executor): walk + classify files (text vs binary)
+    loop = asyncio.get_running_loop()
+    file_specs, files_scanned = await loop.run_in_executor(
+        None, _classify_files_for_ip_scan_sync,
+        scan_roots, real_roots, context.extracted_path, include_binaries,
+    )
 
-    for scan_root in scan_roots:
-      for dirpath, _dirnames, filenames in safe_walk(scan_root):
-        for fname in filenames:
-            fpath = os.path.join(dirpath, fname)
-            rel = _relpath_for(fpath)
-
-            try:
-                real = os.path.realpath(fpath)
-                fstat = os.stat(fpath)
-            except OSError:
-                continue
-            if fstat.st_size > 10 * 1024 * 1024:  # 10MB max
-                continue
-
-            # Determine if text or binary
-            is_binary = False
-            try:
-                with open(fpath, "rb") as f:
-                    chunk = f.read(512)
-                if b"\x00" in chunk:
-                    is_binary = True
-            except OSError:
-                continue
-
-            if is_binary and not include_binaries:
-                continue
-
-            # Skip binaries we've already scanned (symlinks/hardlinks to same file)
-            if is_binary and real in scanned_realpaths:
-                files_scanned += 1
-                continue
-            if is_binary:
-                scanned_realpaths.add(real)
-
-            files_scanned += 1
-
-            # For text files, read content directly
-            # For binary files, use strings extraction
-            if is_binary:
-                try:
-                    proc = await asyncio.create_subprocess_exec(
-                        "strings", "-n", "7", fpath,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.DEVNULL,
-                    )
-                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
-                    content = stdout.decode("utf-8", errors="replace")
-                except (asyncio.TimeoutError, OSError):
-                    continue
-            else:
-                try:
-                    with open(fpath, "r", errors="replace") as f:
-                        content = f.read()
-                except OSError:
-                    continue
-
-            for match in _IP_RE.finditer(content):
-                ip_str = match.group()
-                category, severity = _classify_ip(ip_str)
-
-                if severity == "skip":
-                    continue
-                if not include_private and category == "private_rfc1918":
-                    continue
-
-                # False positive filters
-                if _is_version_context(content, match.start()):
-                    continue
-                if _is_oid_context(content, match.start()):
-                    continue
-
-                ips_found[ip_str] += 1
-
-                # Context-based severity adjustment
-                ctx_start = max(0, match.start() - 60)
-                ctx_end = min(len(content), match.end() + 60)
-                context_str = content[ctx_start:ctx_end].strip()
-
-                if _HIGH_RISK_CONTEXT_RE.search(context_str):
-                    if severity == "medium":
-                        severity = "high"
-                    elif severity == "low":
-                        severity = "medium"
-
-                findings.append({
-                    "ip": ip_str,
-                    "file": rel,
-                    "category": category,
-                    "severity": severity,
-                    "context": context_str[:120],
-                    "binary": is_binary,
-                })
-
-                if len(findings) >= max_results:
-                    break
-            if len(findings) >= max_results:
-                break
+    # Phase 2: per-file content extraction + regex match.
+    # Binary files use async subprocess (strings); text files use sync
+    # read + match wrapped in executor (Rule #5).
+    for fpath, rel, is_binary, _real in file_specs:
         if len(findings) >= max_results:
             break
+
+        if is_binary:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "strings", "-n", "7", fpath,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+                content = stdout.decode("utf-8", errors="replace")
+            except (asyncio.TimeoutError, OSError):
+                continue
+        else:
+            content = await loop.run_in_executor(None, _read_text_file_sync, fpath)
+            if content is None:
+                continue
+
+        file_findings, file_ip_strings = await loop.run_in_executor(
+            None, _match_ips_in_content_sync,
+            content, rel, is_binary, include_private,
+            max_results - len(findings),
+        )
+        findings.extend(file_findings)
+        for ip_str in file_ip_strings:
+            ips_found[ip_str] += 1
 
     # Format output — group by IP, not by file occurrence
     lines = [f"Scanned {files_scanned} files, found {len(findings)} IP references ({len(ips_found)} unique IPs)\n"]
