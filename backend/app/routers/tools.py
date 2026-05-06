@@ -9,10 +9,8 @@ the UI is used by authenticated local users only.
 """
 
 import uuid
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai import create_tool_registry
@@ -20,6 +18,12 @@ from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.database import get_db
 from app.models.firmware import Firmware
 from app.routers.deps import resolve_firmware
+from app.schemas.tools import (
+    ToolInfo,
+    ToolListResponse,
+    ToolRunRequest,
+    ToolRunResponse,
+)
 
 router = APIRouter(
     prefix="/api/v1/projects/{project_id}/tools",
@@ -177,36 +181,6 @@ def _get_registry() -> ToolRegistry:
 
 
 _registry_cache: ToolRegistry | None = None
-
-
-# ---------------------------------------------------------------------------
-# Schemas
-# ---------------------------------------------------------------------------
-
-
-class ToolRunRequest(BaseModel):
-    tool_name: str = Field(..., description="Name of the MCP tool to execute")
-    input: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Tool input parameters (same schema as MCP tool input)",
-    )
-
-
-class ToolRunResponse(BaseModel):
-    tool: str
-    output: str
-    success: bool
-
-
-class ToolInfo(BaseModel):
-    name: str
-    description: str
-    input_schema: dict[str, Any]
-
-
-class ToolListResponse(BaseModel):
-    tools: list[ToolInfo]
-    count: int
 
 
 # ---------------------------------------------------------------------------
