@@ -1,5 +1,6 @@
 import apiClient, { appendApiKey } from './client'
 import { apiUrl } from './config'
+import { SECURITY_SCAN_TIMEOUT } from './timeouts'
 import type { DirectoryListing, FileContent, FileInfo } from '@/types'
 
 export interface SearchResult {
@@ -97,13 +98,6 @@ export interface UefiScanResult {
   summary: Record<string, number>
   errors: string[]
 }
-
-// UEFI scan iterates every PE32 section in every UEFI module and runs
-// pe-header + string-match checks. Large BIOS images (~32 MB, ~180 modules)
-// comfortably exceed the default axios 30 s timeout; the server continues
-// to completion while the browser surfaces a fake "scan failed". Matches
-// the SECURITY_SCAN_TIMEOUT tier used for security/audit + yara in findings.ts.
-const SECURITY_SCAN_TIMEOUT = 600_000
 
 export async function scanUefiModules(projectId: string): Promise<UefiScanResult> {
   const { data } = await apiClient.post<UefiScanResult>(

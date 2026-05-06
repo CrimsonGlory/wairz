@@ -1,4 +1,5 @@
 import apiClient from './client'
+import { SECURITY_SCAN_TIMEOUT } from './timeouts'
 import type {
   ManifestScanResponse,
   BytecodeScanResponse,
@@ -31,14 +32,6 @@ export type {
 // ---------------------------------------------------------------------------
 // API client functions
 // ---------------------------------------------------------------------------
-
-// APK bytecode scans decompile the DEX and run pattern analysis; the
-// docstring says "typically under 30 s" which sits right at the default
-// axios 30 s boundary — on cold cache / large APKs it crosses it and
-// surfaces a fake "scan failed". APK SAST (jadx + mobsfscan) has a
-// pipeline budget of 180 s server-side, well past the default 30 s.
-// Both get the SECURITY_SCAN_TIMEOUT tier used by sibling files.
-const SECURITY_SCAN_TIMEOUT = 600_000
 
 function basePath(projectId: string, firmwareId: string): string {
   return `/projects/${projectId}/firmware/${firmwareId}/apk-scan`

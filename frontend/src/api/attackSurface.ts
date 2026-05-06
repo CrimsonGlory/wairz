@@ -1,4 +1,5 @@
 import apiClient from './client'
+import { SECURITY_SCAN_TIMEOUT } from './timeouts'
 
 // Backend ``list_attack_surface_entries`` now returns a Page envelope.
 // ``getAttackSurface()`` still returns ``AttackSurfaceEntry[]`` for
@@ -70,13 +71,6 @@ export async function getAttackSurfacePage(
   )
   return data
 }
-
-// Attack-surface scan walks every ELF in the extracted tree, runs header
-// protection checks, identifies dangerous imports, and scores each binary.
-// Large Linux firmware (thousands of binaries) takes minutes; default
-// axios 30 s fires before the server completes. Matches SECURITY_SCAN_TIMEOUT
-// tier in findings.ts (b437095).
-const SECURITY_SCAN_TIMEOUT = 600_000
 
 export async function triggerAttackSurfaceScan(
   projectId: string,

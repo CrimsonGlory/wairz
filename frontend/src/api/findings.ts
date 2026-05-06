@@ -1,4 +1,5 @@
 import apiClient from './client'
+import { HASH_SCAN_TIMEOUT, SECURITY_SCAN_TIMEOUT } from './timeouts'
 import type { Finding, FindingCreate, FindingUpdate } from '@/types'
 
 // Backend ``list_findings`` now returns a Page envelope.  ``listFindings()``
@@ -59,16 +60,6 @@ export interface KnownGoodScanResult {
   known_good_files: KnownGoodFile[]
   errors: string[]
 }
-
-// Security scans walk the entire extracted firmware tree and can take
-// several minutes on large images (observed >2 min on 200 MB Linux-based
-// medical firmware with deeply nested archives). The default 30 s axios
-// timeout in client.ts is far too short — when it fires, the frontend
-// surfaces a fake "Scan failed" while the backend is still running the
-// actual audit. Match the per-call timeouts to the observed worst case
-// plus margin; matches the pattern used in comparison.ts / exportImport.ts.
-const SECURITY_SCAN_TIMEOUT = 600_000 // 10 min — full security audit
-const HASH_SCAN_TIMEOUT = 300_000 // 5 min — binary hash lookups (abuse.ch, hashlookup)
 
 export async function runAbusechScan(
   projectId: string,

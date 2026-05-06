@@ -1,4 +1,5 @@
 import apiClient from './client'
+import { SECURITY_SCAN_TIMEOUT } from './timeouts'
 
 export interface CraRequirementResult {
   id: string
@@ -54,12 +55,6 @@ export async function getCraAssessment(projectId: string, assessmentId: string):
   const { data } = await apiClient.get<CraAssessment>(`/projects/${projectId}/cra/assessments/${assessmentId}`)
   return data
 }
-
-// Auto-populate iterates every CRA requirement against findings + SBOM +
-// CVE state and derives an auto-status per requirement. Takes 1-3 min on
-// a fully-scanned project; default axios 30 s fires and surfaces a fake
-// failure. Matches SECURITY_SCAN_TIMEOUT tier in findings.ts (b437095).
-const SECURITY_SCAN_TIMEOUT = 600_000
 
 export async function autoPopulateCra(projectId: string, assessmentId: string): Promise<CraAssessment> {
   const { data } = await apiClient.post<CraAssessment>(

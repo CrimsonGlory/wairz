@@ -1,4 +1,5 @@
 import apiClient from './client'
+import { DEVICE_BRIDGE_TIMEOUT } from './timeouts'
 import type {
   BridgeStatus,
   DeviceInfo,
@@ -35,21 +36,16 @@ export async function getDeviceInfo(
   return data
 }
 
-// importDump and startDump previously needed a 5 min timeout because the
-// dump POST and the import POST were synchronous: the backend held the
-// HTTP request open while the bridge enumerated partitions / the unpack
-// pipeline kicked off. After the audit-2026-05-04 F-A-01 refactor (Rule
-// #33 202+polling) `POST /dumps` returns within sub-seconds with a row
-// id; the actual partition-dump work runs in `_run_dump_background`. So
-// `startDump` no longer needs an override — the apiClient default 30 s
-// floor is correct.
+// `startDump` no longer needs the DEVICE_BRIDGE_TIMEOUT override —
+// after the audit-2026-05-04 F-A-01 refactor (Rule #33 202+polling) the
+// `POST /dumps` request returns within sub-seconds with a dump_id; the
+// partition-dump work runs in `_run_dump_background`. The apiClient
+// default 30 s floor is now correct.
 //
 // `importDump` still does synchronous SHA-256 + Firmware-row insert
 // before scheduling the unpack background task, so it keeps the long
-// timeout for now (multi-GB dumps stretch the SHA + insert work). A
-// follow-up Rule #33 conversion of /import is in scope for a separate
-// intake; this commit's scope is just the dump-state global removal.
-const DEVICE_BRIDGE_TIMEOUT = 300_000
+// timeout (multi-GB dumps stretch the SHA + insert work). A follow-up
+// Rule #33 conversion of /import is a separate intake.
 
 export async function startDump(
   projectId: string,

@@ -1,4 +1,5 @@
 import apiClient from './client'
+import { SECURITY_SCAN_TIMEOUT } from './timeouts'
 import type {
   SbomComponent,
   SbomGenerateResponse,
@@ -23,15 +24,6 @@ interface PageEnvelope<T> {
 function unwrap<T>(data: PageEnvelope<T> | T[]): T[] {
   return Array.isArray(data) ? data : (data?.items ?? [])
 }
-
-// SBOM generation walks the extracted firmware and runs every SbomStrategy
-// (syft, dpkg, opkg, python_packages, android, kernel, firmware_markers,
-// busybox, c_library, gcc, so_files, binary_strings). On firmware with
-// hundreds of components the call routinely takes 1-3 minutes; the default
-// axios 30 s fires while the backend is still building component_dicts.
-// Matches SECURITY_SCAN_TIMEOUT tier used in findings.ts / attackSurface.ts
-// / craCompliance.ts for the other long-running scans.
-const SECURITY_SCAN_TIMEOUT = 600_000
 
 export async function generateSbom(
   projectId: string,
