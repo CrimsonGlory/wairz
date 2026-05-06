@@ -54,20 +54,39 @@ from sqlalchemy.types import ARRAY as GenARRAY
 
 # ---------------------------------------------------------------------------
 # DDL-time shims: render PG-only types as SQLite-friendly equivalents.
+#
+# Why TEXT and not JSON for JSONB / ARRAY:
+#
+# SQLite has a "JSON" column type since 3.45, and SQLAlchemy's SQLite dialect
+# applies its OWN ``json_deserializer`` result processor on top of the
+# column's bind/result processors when the rendered DDL type is JSON (see
+# sqlalchemy/dialects/sqlite/base.py:1045 → sqltypes.py:2820). Combined with
+# our explicit JSONB.bind_processor / .result_processor below, that produces
+# a double-decode chain that bombs on ``server_default="'{}'"`` round-trips
+# at flush time:
+#
+#     json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+#
+# Discovered Wave 1 (EmulationSession.port_forwards), confirmed Wave 2
+# (FuzzingCampaign.config + .stats). Bare-string server_defaults
+# (``server_default="'{}'"``) trigger this; ``server_default=text("'{}'")``
+# avoids it via a different SQLAlchemy code path. Rendering JSONB / ARRAY
+# as TEXT removes the SQLite-dialect JSON processor entirely, leaving only
+# our shims — single decode, no conflict, ``server_default``s round-trip.
 # ---------------------------------------------------------------------------
 @compiles(JSONB, "sqlite")
 def _compile_jsonb_sqlite(element, compiler, **kw):  # noqa: ARG001
-    return "JSON"
+    return "TEXT"
 
 
 @compiles(PGARRAY, "sqlite")
 def _compile_pg_array_sqlite(element, compiler, **kw):  # noqa: ARG001
-    return "JSON"
+    return "TEXT"
 
 
 @compiles(GenARRAY, "sqlite")
 def _compile_generic_array_sqlite(element, compiler, **kw):  # noqa: ARG001
-    return "JSON"
+    return "TEXT"
 
 
 @compiles(PGUUID, "sqlite")
@@ -87,9 +106,34 @@ def _make_bind(self, dialect):
 
 
 def _make_result(self, dialect, coltype):  # noqa: ARG001
+    """Result processor that survives the bare-string server_default round-trip.
+
+    When a JSONB column declares ``server_default="'{}'"`` (bare-string SQL
+    fragment), the value stored AND read back is the literal string ``'{}'``
+    (with single quotes intact — SQLAlchemy doesn't strip the outer SQL
+    quoting before passing to result processors). Naïve ``json.loads("'{}'")``
+    raises ``JSONDecodeError`` on the unbalanced quotes. Strip the outer
+    quotes and retry; final fallback returns the value as-is so the test
+    surfaces a useful error rather than masking it.
+    """
     if dialect.name != "sqlite":
         return None
-    return lambda v: None if v is None else json.loads(v)
+
+    def _process(v):
+        if v is None:
+            return None
+        if isinstance(v, (list, dict)):
+            return v
+        if isinstance(v, str):
+            if v.startswith("'") and v.endswith("'"):
+                v = v[1:-1]
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, ValueError):
+                return v
+        return v
+
+    return _process
 
 
 JSONB.bind_processor = _make_bind  # type: ignore[method-assign]
@@ -171,10 +215,35 @@ async def make_live_db() -> AsyncIterator[AsyncSession]:
     # the first file's dots and then sit in `ep_poll` indefinitely.
     # StaticPool's single-connection model has nothing for dispose() to await.
     from sqlalchemy.pool import StaticPool
+
+    def _tolerant_json_loads(s):
+        """Tolerant JSON decoder for SQLite server_default round-trips.
+
+        SQLAlchemy's ``JSON.result_processor`` calls
+        ``json_deserializer(value)`` after our shim has already decoded.
+        For columns with bare-string ``server_default="'{}'"``, the value
+        comes back as the literal string ``'{}'`` (with quotes); naïve
+        ``json.loads`` would raise ``JSONDecodeError`` (Wave 1+2 discovery).
+        Strip outer single-quotes (the SQL-string-literal artefact) and
+        retry; final fallback returns the string unchanged so the test
+        surfaces a useful error rather than masking it.
+        """
+        if isinstance(s, (list, dict)):
+            return s
+        if isinstance(s, str):
+            if s.startswith("'") and s.endswith("'"):
+                s = s[1:-1]
+            try:
+                return json.loads(s)
+            except (json.JSONDecodeError, ValueError):
+                return s
+        return s
+
     engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
         poolclass=StaticPool,
         connect_args={"check_same_thread": False},
+        json_deserializer=_tolerant_json_loads,
     )
     try:
         async with engine.begin() as conn:
