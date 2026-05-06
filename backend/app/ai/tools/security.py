@@ -1130,72 +1130,71 @@ def _extract_ikconfig(data: bytes) -> str | None:
     return None
 
 
-async def _handle_extract_kernel_config(
-    input: dict, context: ToolContext
-) -> str:
-    """Extract kernel .config from firmware — either from a kernel binary
-    (IKCONFIG) or from pre-extracted config files."""
-    import glob as globmod
+def _extract_kernel_config_from_path_sync(full_path: str, path: str) -> str:
+    """Synchronously try to extract a kernel config from a single file path.
 
-    extracted_root = os.path.realpath(context.extracted_path)
-    path = input.get("path")
-
-    # If a specific path is provided, try to extract from that binary
-    if path:
-        full_path = context.resolve_path(path)
-        if not os.path.isfile(full_path):
-            return f"Error: '{path}' is not a file."
-
-        # Check if it's a gzip file (e.g. /proc/config.gz)
-        if path.endswith(".gz"):
-            try:
-                with open(full_path, "rb") as f:
-                    config_text = gzip.decompress(f.read()).decode(
-                        "utf-8", errors="replace"
-                    )
-                if "CONFIG_" in config_text:
-                    lines = config_text.splitlines()
-                    return (
-                        f"Extracted kernel config from {path} "
-                        f"({len(lines)} lines):\n\n{config_text}"
-                    )
-            except Exception as e:
-                return f"Error decompressing '{path}': {e}"
-
-        # Check if it's already a text config file
-        try:
-            with open(full_path, "r", errors="replace") as f:
-                head = f.read(4096)
-            if "CONFIG_" in head:
-                with open(full_path, "r", errors="replace") as f:
-                    config_text = f.read(512_000)
-                lines = config_text.splitlines()
-                return (
-                    f"Kernel config from {path} "
-                    f"({len(lines)} lines):\n\n{config_text}"
-                )
-        except Exception:
-            pass
-
-        # Try IKCONFIG extraction from binary
+    Returns the result string for the async handler to return as-is.
+    Mirrors the original three-attempt sequence (gzip / text / IKCONFIG).
+    """
+    # Check if it's a gzip file (e.g. /proc/config.gz)
+    if path.endswith(".gz"):
         try:
             with open(full_path, "rb") as f:
-                data = f.read()
-            config_text = _extract_ikconfig(data)
-            if config_text:
+                config_text = gzip.decompress(f.read()).decode(
+                    "utf-8", errors="replace"
+                )
+            if "CONFIG_" in config_text:
                 lines = config_text.splitlines()
                 return (
-                    f"Extracted IKCONFIG from {path} "
+                    f"Extracted kernel config from {path} "
                     f"({len(lines)} lines):\n\n{config_text}"
                 )
-            return (
-                f"No embedded kernel config (IKCFG_ST) found in '{path}'. "
-                "The kernel may not have been compiled with CONFIG_IKCONFIG."
-            )
         except Exception as e:
-            return f"Error reading '{path}': {e}"
+            return f"Error decompressing '{path}': {e}"
 
-    # Auto-search mode: look in common locations
+    # Check if it's already a text config file
+    try:
+        with open(full_path, "r", errors="replace") as f:
+            head = f.read(4096)
+        if "CONFIG_" in head:
+            with open(full_path, "r", errors="replace") as f:
+                config_text = f.read(512_000)
+            lines = config_text.splitlines()
+            return (
+                f"Kernel config from {path} "
+                f"({len(lines)} lines):\n\n{config_text}"
+            )
+    except Exception:
+        pass
+
+    # Try IKCONFIG extraction from binary
+    try:
+        with open(full_path, "rb") as f:
+            data = f.read()
+        config_text = _extract_ikconfig(data)
+        if config_text:
+            lines = config_text.splitlines()
+            return (
+                f"Extracted IKCONFIG from {path} "
+                f"({len(lines)} lines):\n\n{config_text}"
+            )
+        return (
+            f"No embedded kernel config (IKCFG_ST) found in '{path}'. "
+            "The kernel may not have been compiled with CONFIG_IKCONFIG."
+        )
+    except Exception as e:
+        return f"Error reading '{path}': {e}"
+
+
+def _extract_kernel_config_auto_sync(extracted_root: str) -> str:
+    """Synchronous auto-search for kernel config files + kernel images.
+
+    Returns the result string for the async handler to return as-is.
+    Performs glob over _CONFIG_SEARCH_PATHS and a safe_walk over
+    extracted_root for kernel images.
+    """
+    import glob as globmod
+
     results: list[str] = []
 
     # 1. Check pre-extracted config files
@@ -1271,6 +1270,31 @@ async def _handle_extract_kernel_config(
         "were found in the firmware filesystem.\n"
         "Hint: If you have a vmlinuz path, pass it explicitly via "
         "the 'path' parameter."
+    )
+
+
+async def _handle_extract_kernel_config(
+    input: dict, context: ToolContext
+) -> str:
+    """Extract kernel .config from firmware — either from a kernel binary
+    (IKCONFIG) or from pre-extracted config files."""
+    extracted_root = os.path.realpath(context.extracted_path)
+    path = input.get("path")
+    loop = asyncio.get_running_loop()
+
+    # If a specific path is provided, try to extract from that binary
+    if path:
+        full_path = context.resolve_path(path)
+        if not os.path.isfile(full_path):
+            return f"Error: '{path}' is not a file."
+
+        return await loop.run_in_executor(
+            None, _extract_kernel_config_from_path_sync, full_path, path,
+        )
+
+    # Auto-search mode: look in common locations
+    return await loop.run_in_executor(
+        None, _extract_kernel_config_auto_sync, extracted_root,
     )
 
 
