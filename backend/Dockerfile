@@ -306,5 +306,23 @@ ENV GHIDRA_INSTALL_DIR=/opt/ghidra
 
 EXPOSE 8000
 
-# Entrypoint runs as root to fix Docker socket GID, then drops to wairz.
+# Trade-off: no `USER wairz` directive at image level. PID 1 (entrypoint.sh) runs
+# as root for ONE specific reason — `groupmod -g <host-sock-gid> docker` +
+# `usermod -aG docker wairz` to align the in-container `docker` group with the
+# host's Docker socket GID, which is unknown at build time and varies across
+# hosts. Both calls require CAP_CHOWN/CAP_FOWNER and root-owned /etc/group, so
+# they cannot be performed as the `wairz` user.
+#
+# After the GID fix-up the entrypoint does `exec su -s /bin/sh wairz -c '...'`,
+# REPLACING PID 1 with the unprivileged python uvicorn process — no shell
+# remains as root once exec returns. See entrypoint.sh:1-22 for the full flow,
+# and audit-2026-05-04 finding F-H-01 for the threat-model analysis.
+#
+# Possible future paths (out of scope for the audit-quick-wins close-out):
+#   1. Move the GID fix-up to a separate one-shot privileged init container
+#      (analogous to migrator) that chowns the docker.sock to a known UID and
+#      exits, leaving backend+worker to run as wairz from the start.
+#   2. Pin DOCKER_GID at compose time and rebuild on host change — already the
+#      build-arg path, but the runtime fix-up exists for hosts where rebuild
+#      isn't ergonomic (CI image used on multiple devs' boxes).
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
