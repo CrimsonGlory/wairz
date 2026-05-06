@@ -22,6 +22,10 @@ from app.rate_limit import limiter
 from app.services.firmware_metadata_service import FirmwareMetadataService
 from app.services.firmware_paths import get_detection_roots
 from app.services.firmware_service import FirmwareService
+from app.services.jsonb_normalizers import (
+    _normalize_firmware_device_metadata,
+    _stamp_firmware_device_metadata,
+)
 from app.workers.unpack import detect_kernel, unpack_firmware
 
 logger = logging.getLogger(__name__)
@@ -255,7 +259,7 @@ async def _run_unpack_background(
                     # operator can reproduce the decryption from
                     # device_metadata alone (Rule #16 companion).
                     if result.vendor_decryption:
-                        meta = dict(firmware.device_metadata or {})
+                        meta = dict(_normalize_firmware_device_metadata(firmware.device_metadata))
                         meta["vendor_decryption"] = result.vendor_decryption
                         # Recompute extraction_diagnostics.partial_extraction
                         # against the actual post-decrypt residual — see the
@@ -268,7 +272,7 @@ async def _run_unpack_background(
                             recompute_extraction_diagnostics,
                         )
                         meta = recompute_extraction_diagnostics(meta)
-                        firmware.device_metadata = meta
+                        firmware.device_metadata = _stamp_firmware_device_metadata(meta)
                     # Uniform detection_roots write for every successful
                     # unpack — includes primary roots from extracted_path
                     # + any decrypt-output dirs, realpath-deduplicated.
@@ -460,7 +464,7 @@ async def get_firmware_detection_audit(
     if not firmware or firmware.project_id != project_id:
         raise HTTPException(404, "Firmware not found")
 
-    metadata = dict(firmware.device_metadata or {})
+    metadata = dict(_normalize_firmware_device_metadata(firmware.device_metadata))
     audit = dict(metadata.get("detection_audit") or {})
 
     # Resolve roots up-front — cheap (JSONB cache) and needed for orphan preview.

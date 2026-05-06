@@ -31,6 +31,7 @@ from app.database import async_session_factory
 from app.models.device_dump import DeviceDumpSession
 from app.models.firmware import Firmware
 from app.models.project import Project
+from app.services.jsonb_normalizers import _stamp_firmware_device_metadata
 from app.utils.getprop import extract_device_metadata, parse_getprop_txt
 from app.workers.unpack import unpack_firmware
 
@@ -289,7 +290,7 @@ class DeviceService:
             storage_path=str(first_img),
             extraction_dir=dump.dump_dir,
             version_label=version_label or f"Device dump ({device_id})",
-            device_metadata=device_metadata,
+            device_metadata=_stamp_firmware_device_metadata(device_metadata),
         )
         self._db.add(firmware)
         await self._db.flush()

@@ -46,6 +46,7 @@ from app.models.finding import Finding
 from app.models.firmware import Firmware
 from app.schemas.finding import Confidence, FindingCreate, Severity
 from app.services.finding_service import FindingService
+from app.services.jsonb_normalizers import _normalize_firmware_device_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ async def run(firmware_id: uuid.UUID) -> int:
         if fw is None:
             return 0
 
-        meta = fw.device_metadata or {}
+        meta = _normalize_firmware_device_metadata(fw.device_metadata)
         new_findings: list[FindingCreate] = []
         new_findings.extend(_extract_aes_key_findings(meta, firmware_id))
         new_findings.extend(_extract_partial_extraction_findings(meta, firmware_id))

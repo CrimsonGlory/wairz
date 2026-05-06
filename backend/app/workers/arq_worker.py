@@ -21,6 +21,10 @@ from app.database import async_session_factory
 from app.logging_config import configure_logging
 from app.models.firmware import Firmware
 from app.models.project import Project
+from app.services.jsonb_normalizers import (
+    _normalize_firmware_device_metadata,
+    _stamp_firmware_device_metadata,
+)
 
 # Route worker logs through structlog JSON pipeline (Phase 3 / O3). Called at
 # import time so arq's own boot-phase logs (connection, registered functions)
@@ -120,7 +124,7 @@ async def unpack_firmware_job(
                     firmware.unpack_progress = None
                     # Vendor-AES auto-decrypt audit (Rule #16 companion).
                     if result.vendor_decryption:
-                        meta = dict(firmware.device_metadata or {})
+                        meta = dict(_normalize_firmware_device_metadata(firmware.device_metadata))
                         meta["vendor_decryption"] = result.vendor_decryption
                         # Recompute extraction_diagnostics.partial_extraction
                         # against the actual post-decrypt residual — without
@@ -133,7 +137,7 @@ async def unpack_firmware_job(
                             recompute_extraction_diagnostics,
                         )
                         meta = recompute_extraction_diagnostics(meta)
-                        firmware.device_metadata = meta
+                        firmware.device_metadata = _stamp_firmware_device_metadata(meta)
                     # Uniform detection_roots write — single-source-of-
                     # truth helper shared with the in-process /unpack
                     # runner and the upload-time shortcuts.

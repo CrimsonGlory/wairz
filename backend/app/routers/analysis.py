@@ -13,6 +13,7 @@ from app.services.analysis_service import check_binary_protections
 from app.services.file_service import FileService
 from app.services import ghidra_service
 from app.services.ghidra_service import decompile_function as ghidra_decompile
+from app.services.jsonb_normalizers import _normalize_firmware_device_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ def _resolve_path(firmware, path: str) -> str:
     scatter-dir name resolve correctly.
     """
     extra_roots: list[str] = []
-    meta = getattr(firmware, "device_metadata", None) or {}
+    meta = _normalize_firmware_device_metadata(getattr(firmware, "device_metadata", None))
     cached = meta.get("detection_roots")
     if isinstance(cached, list):
         extra_roots = [p for p in cached if isinstance(p, str)]

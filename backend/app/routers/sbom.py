@@ -28,6 +28,7 @@ from app.schemas.sbom import (
     VulnerabilityScanResponse,
     VulnerabilityUpdateRequest,
 )
+from app.services.jsonb_normalizers import _normalize_firmware_device_metadata
 from app.services.sbom import SbomService
 from app.services.vulnerability_service import VulnerabilityService
 from app.utils.pagination import paginate_query_rows
@@ -266,8 +267,8 @@ async def export_sbom(
     }
 
     # HBOM: embed device metadata when available
-    if firmware.device_metadata:
-        dm = firmware.device_metadata
+    dm = _normalize_firmware_device_metadata(firmware.device_metadata)
+    if dm:
         if dm.get("manufacturer"):
             main_component["manufacturer"] = {"name": dm["manufacturer"]}
         if dm.get("model"):

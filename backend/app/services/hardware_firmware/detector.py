@@ -19,6 +19,10 @@ from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.services.firmware_paths import get_detection_roots
 from app.services.hardware_firmware.classifier import classify
 from app.services.hardware_firmware.parsers import ParsedBlob, get_parser
+from app.services.jsonb_normalizers import (
+    _normalize_firmware_device_metadata,
+    _stamp_firmware_device_metadata,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -406,11 +410,11 @@ async def _stamp_detection_audit(
         fw_row = await db.get(Firmware, firmware_id)
         if fw_row is None:
             return
-        existing = dict(fw_row.device_metadata or {})
+        existing = dict(_normalize_firmware_device_metadata(fw_row.device_metadata))
         merged_audit = dict(existing.get("detection_audit") or {})
         merged_audit.update(audit_update)
         existing["detection_audit"] = merged_audit
-        fw_row.device_metadata = existing
+        fw_row.device_metadata = _stamp_firmware_device_metadata(existing)
         await db.flush()
     except Exception:  # noqa: BLE001
         logger.exception("detection_audit stamp failed")

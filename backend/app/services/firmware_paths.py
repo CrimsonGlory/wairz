@@ -44,6 +44,11 @@ if TYPE_CHECKING:
 
     from app.models.firmware import Firmware
 
+from app.services.jsonb_normalizers import (
+    _normalize_firmware_device_metadata,
+    _stamp_firmware_device_metadata,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -364,7 +369,7 @@ def _cached_roots(firmware: Firmware) -> list[str] | None:
     Returns ``None`` if no cache entry, the cache is empty, or any cached
     path is missing on disk (stale cache).
     """
-    meta = getattr(firmware, "device_metadata", None) or {}
+    meta = _normalize_firmware_device_metadata(getattr(firmware, "device_metadata", None))
     cached = meta.get("detection_roots")
     if not isinstance(cached, list) or not cached:
         return None
@@ -385,11 +390,11 @@ def _persist_roots(
 
     Caller is responsible for flushing the session.
     """
-    existing = getattr(firmware, "device_metadata", None) or {}
+    existing = _normalize_firmware_device_metadata(getattr(firmware, "device_metadata", None))
     # Shallow copy so SQLAlchemy registers the JSONB mutation.
     merged = dict(existing)
     merged["detection_roots"] = list(roots)
-    firmware.device_metadata = merged
+    firmware.device_metadata = _stamp_firmware_device_metadata(merged)
 
 
 def populate_detection_roots(
@@ -498,11 +503,11 @@ async def invalidate_detection_roots(
     No-op when the key is absent. Preserves every other key in
     ``device_metadata``.
     """
-    existing = getattr(firmware, "device_metadata", None) or {}
+    existing = _normalize_firmware_device_metadata(getattr(firmware, "device_metadata", None))
     if "detection_roots" not in existing:
         return
     merged = {k: v for k, v in existing.items() if k != "detection_roots"}
-    firmware.device_metadata = merged or None
+    firmware.device_metadata = _stamp_firmware_device_metadata(merged)
     await db.flush()
 
 
@@ -520,7 +525,7 @@ def get_primary_root(firmware: Firmware) -> str | None:
     MCP tool entry). Callers who need the full list must use
     ``get_detection_roots``.
     """
-    meta = getattr(firmware, "device_metadata", None) or {}
+    meta = _normalize_firmware_device_metadata(getattr(firmware, "device_metadata", None))
     cached = meta.get("detection_roots")
     if isinstance(cached, list) and cached:
         first = cached[0]

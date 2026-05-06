@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.models.firmware import Firmware
 from app.services.firmware_paths import populate_detection_roots
+from app.services.jsonb_normalizers import _stamp_firmware_device_metadata
 from app.workers.safe_extract import safe_extract_zip
 from app.workers.unpack import (
     _run_hardware_firmware_detection_safe,
@@ -662,7 +663,7 @@ class FirmwareService:
             file_size=file_size,
             storage_path=storage_path,
             version_label=version_label,
-            device_metadata=(
+            device_metadata=_stamp_firmware_device_metadata(
                 {"extraction_diagnostics": extraction_diagnostics}
                 if extraction_diagnostics
                 else None

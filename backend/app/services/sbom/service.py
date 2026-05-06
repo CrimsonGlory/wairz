@@ -23,6 +23,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
+from app.services.jsonb_normalizers import _normalize_firmware_device_metadata
 from app.services.sbom.constants import IdentifiedComponent
 from app.services.sbom.enrichment import enrich_cpes
 from app.services.sbom.normalization import ComponentStore
@@ -98,7 +99,7 @@ class SbomService:
                 # helper's cache path — the constructor runs in an
                 # executor so we can't await here). Stale cache falls
                 # back below.
-                meta = getattr(firmware, "device_metadata", None) or {}
+                meta = _normalize_firmware_device_metadata(getattr(firmware, "device_metadata", None))
                 cached = meta.get("detection_roots")
                 if isinstance(cached, list) and all(
                     isinstance(p, str) and os.path.isdir(p) for p in cached

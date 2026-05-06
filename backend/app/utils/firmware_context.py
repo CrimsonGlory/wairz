@@ -19,6 +19,8 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.services.jsonb_normalizers import _normalize_firmware_device_metadata
+
 logger = logging.getLogger(__name__)
 
 
@@ -140,7 +142,7 @@ async def get_firmware_context(
         # Degrade gracefully — still provide APK location context
         return _apk_location_context(apk_path, extracted_root)
 
-    dm = firmware.device_metadata or {}
+    dm = _normalize_firmware_device_metadata(firmware.device_metadata)
 
     # If device_metadata is empty, try parsing build.prop from FS
     if not dm and firmware.extracted_path and os.path.isdir(firmware.extracted_path):
@@ -176,7 +178,7 @@ def build_firmware_context_from_firmware(
 
     Useful in REST endpoint handlers that already have the Firmware loaded.
     """
-    dm = firmware.device_metadata or {}
+    dm = _normalize_firmware_device_metadata(firmware.device_metadata)
 
     # If device_metadata is empty, try parsing build.prop from FS
     if not dm and firmware.extracted_path and os.path.isdir(firmware.extracted_path):

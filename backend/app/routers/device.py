@@ -21,6 +21,7 @@ from app.schemas.device import (
     DumpStatusResponse,
 )
 from app.services.device_service import DeviceService, _normalize_partitions
+from app.services.jsonb_normalizers import _normalize_firmware_device_metadata
 
 router = APIRouter(
     prefix="/api/v1/projects/{project_id}/device",
@@ -179,6 +180,6 @@ async def import_dump(
 
     return DumpImportResponse(
         firmware_id=str(firmware.id),
-        device_metadata=firmware.device_metadata,
+        device_metadata=_normalize_firmware_device_metadata(firmware.device_metadata),
         message="Dump imported — unpack pipeline started",
     )

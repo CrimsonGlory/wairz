@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from app.models.firmware import Firmware
 from app.routers.deps import resolve_firmware
 from app.services.file_service import FileService
+from app.services.jsonb_normalizers import _normalize_firmware_device_metadata
 
 router = APIRouter(prefix="/api/v1/projects/{project_id}/files", tags=["files"])
 
@@ -22,7 +23,7 @@ def get_file_service(
     entries alongside ``rootfs/``.
     """
     extra_roots: list[str] = []
-    meta = getattr(firmware, "device_metadata", None) or {}
+    meta = _normalize_firmware_device_metadata(firmware.device_metadata)
     cached = meta.get("detection_roots")
     if isinstance(cached, list):
         extra_roots = [p for p in cached if isinstance(p, str)]
