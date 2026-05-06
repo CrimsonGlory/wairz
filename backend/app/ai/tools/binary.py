@@ -685,15 +685,26 @@ async def _handle_find_string_refs(input: dict, context: ToolContext) -> str:
     return "\n".join(lines)
 
 
-async def _handle_resolve_import(input: dict, context: ToolContext) -> str:
-    """Find the library implementing a function and decompile it."""
-    path = context.resolve_path(input["binary_path"])
-    function_name = input["function_name"]
-    real_root = context.real_root_for(input["binary_path"])
+def _resolve_import_sync(
+    target_path: str, function_name: str, real_root: str
+) -> dict:
+    """Synchronous DT_NEEDED parse + library symbol search.
 
+    Two-phase ELF inspection: (1) parse the target binary's DT_NEEDED
+    entries, (2) walk each candidate library file in `_STANDARD_LIB_PATHS`
+    looking for an exported `function_name`. All filesystem + ELF I/O
+    lives here so the async handler can offload this whole phase via
+    run_in_executor (Rule #5).
+
+    Returns a dict with one of three statuses:
+      {"status": "read_error", "error": "<str>"}
+      {"status": "static",      "needed_libs": []}
+      {"status": "not_found",   "needed_libs": [...]}
+      {"status": "found",       "needed_libs": [...], "lib_path": "<abs>"}
+    """
     # Step 1: Parse DT_NEEDED from the target binary
     try:
-        with open(path, "rb") as f:
+        with open(target_path, "rb") as f:
             elf = ELFFile(f)
             needed_libs: list[str] = []
             for seg in elf.iter_segments():
@@ -703,10 +714,10 @@ async def _handle_resolve_import(input: dict, context: ToolContext) -> str:
                             needed_libs.append(tag.needed)
                     break
     except Exception as exc:
-        return f"Error reading binary: {exc}"
+        return {"status": "read_error", "error": str(exc)}
 
     if not needed_libs:
-        return f"Binary has no DT_NEEDED entries (statically linked?)."
+        return {"status": "static", "needed_libs": []}
 
     # Step 2: Search each library's exports for the function
     found_lib_path: str | None = None
@@ -736,11 +747,45 @@ async def _handle_resolve_import(input: dict, context: ToolContext) -> str:
             break
 
     if not found_lib_path:
+        return {"status": "not_found", "needed_libs": needed_libs}
+
+    return {
+        "status": "found",
+        "needed_libs": needed_libs,
+        "lib_path": found_lib_path,
+    }
+
+
+async def _handle_resolve_import(input: dict, context: ToolContext) -> str:
+    """Find the library implementing a function and decompile it."""
+    path = context.resolve_path(input["binary_path"])
+    function_name = input["function_name"]
+    real_root = context.real_root_for(input["binary_path"])
+
+    # Rule #5 — DT_NEEDED parse + per-library symbol-table walks are sync
+    # ELF I/O; offload Steps 1+2 in a single executor hop. Step 3
+    # (decompile_function) is genuinely async (Ghidra subprocess) and
+    # stays on the loop.
+    loop = asyncio.get_running_loop()
+    resolution = await loop.run_in_executor(
+        None, _resolve_import_sync, path, function_name, real_root
+    )
+
+    status = resolution["status"]
+    if status == "read_error":
+        return f"Error reading binary: {resolution['error']}"
+    if status == "static":
+        return "Binary has no DT_NEEDED entries (statically linked?)."
+    if status == "not_found":
+        needed_libs = resolution["needed_libs"]
         return (
             f"Function '{function_name}' not found in any linked library.\n"
             f"Searched libraries: {', '.join(needed_libs)}\n"
             f"Search paths: {', '.join(_STANDARD_LIB_PATHS)}"
         )
+
+    # status == "found"
+    found_lib_path = resolution["lib_path"]
 
     # Compute firmware-relative path for display
     rel_lib_path = "/" + os.path.relpath(found_lib_path, real_root)
