@@ -12,8 +12,10 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-# Production stage
-FROM nginx:alpine
+# Production stage — nginx-unprivileged: master + workers run as uid 101 (nginx),
+# not root. Mitigates F-H-02 (audit-2026-05-04). Port 3000 is unprivileged
+# (>1024) so the non-root user can bind it directly; no port remapping needed.
+FROM nginxinc/nginx-unprivileged:alpine
 ENV MAX_UPLOAD_SIZE_MB=2048
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
