@@ -983,8 +983,9 @@ async def _handle_start_emulation(input: dict, context: ToolContext) -> str:
                 lines.append(f"  Dependencies: {', '.join(deps)}")
     if session.error_message:
         lines.append(f"  Error: {session.error_message}")
-    if session.port_forwards:
-        pf_strs = [f"{pf['host']}→{pf['guest']}" for pf in session.port_forwards]
+    pfs = _normalize_emulation_sessions_port_forwards(session.port_forwards)
+    if pfs:
+        pf_strs = [f"{pf['host']}→{pf['guest']}" for pf in pfs]
         lines.append(f"  Port forwards: {', '.join(pf_strs)}")
 
     if session.mode == "system":

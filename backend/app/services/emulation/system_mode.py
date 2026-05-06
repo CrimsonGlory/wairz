@@ -31,6 +31,7 @@ import docker
 import docker.errors
 
 from app.models.emulation_session import EmulationSession
+from app.services.jsonb_normalizers import _normalize_emulation_sessions_port_forwards
 from app.services.emulation.docker_ops import (
     copy_file_to_container,
     read_container_qemu_log,
@@ -110,9 +111,10 @@ async def setup_system_mode_container(
     )
 
     pf_str = ""
-    if session.port_forwards:
+    pfs = _normalize_emulation_sessions_port_forwards(session.port_forwards)
+    if pfs:
         pf_str = ",".join(
-            f"{pf['host']}:{pf['guest']}" for pf in session.port_forwards
+            f"{pf['host']}:{pf['guest']}" for pf in pfs
         )
     cmd = [
         "/opt/scripts/start-system-mode.sh",

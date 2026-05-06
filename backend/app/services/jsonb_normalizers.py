@@ -238,3 +238,28 @@ def _stamp_fuzzing_campaigns_stats(payload: dict[str, Any]) -> dict[str, Any]:
     """Stamp the schema_version onto a writer payload."""
     payload["schema_version"] = FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION
     return payload
+
+
+# ── emulation_sessions.port_forwards ──────────────────────────────────────────
+#
+# Canonical shape: ``list[dict]`` with each dict carrying ``host`` and
+# ``guest`` integer keys (TCP/UDP forwards from the QEMU container to
+# the host network). Server default ``[]``. Same shape used by
+# ``emulation_presets.port_forwards`` (separate normaliser kept per
+# column for consistency).
+EMULATION_SESSIONS_PORT_FORWARDS_SCHEMA_VERSION = 1
+
+
+def _normalize_emulation_sessions_port_forwards(value: Any) -> list[dict]:
+    """Return the canonical ``list[dict]`` shape for
+    ``EmulationSession.port_forwards``.
+
+    Accepts None, non-list, or list-with-stray-elements; returns the
+    canonical list-of-dicts. Drops stray non-dict entries so consumers
+    can ``pf['host']`` safely. The schema_version marker (when stamped)
+    lives at the EmulationSession-level metadata, not embedded in the
+    list — see Rule #35c on list-shaped columns.
+    """
+    if not isinstance(value, list):
+        return []
+    return [pf for pf in value if isinstance(pf, dict)]

@@ -61,7 +61,10 @@ from app.services.emulation_constants import (
     QEMU_USER_BIN_MAP,
 )
 from app.services.emulation_preset_service import EmulationPresetService
-from app.services.jsonb_normalizers import _normalize_firmware_binary_info
+from app.services.jsonb_normalizers import (
+    _normalize_emulation_sessions_port_forwards,
+    _normalize_firmware_binary_info,
+)
 from app.services.qiling_service import get_rootfs_path, run_binary_async
 from app.services.sysroot_service import get_sysroot_path
 from app.utils.docker_client import get_docker_client
@@ -525,8 +528,9 @@ class EmulationService:
 
         # Build port bindings for system mode
         port_bindings: dict[str, list[dict[str, str]]] = {}
-        if session.port_forwards:
-            for pf in session.port_forwards:
+        pfs = _normalize_emulation_sessions_port_forwards(session.port_forwards)
+        if pfs:
+            for pf in pfs:
                 host_ = pf.get("host", 0)
                 if host_:
                     # QEMU listens on the host port INSIDE the container
