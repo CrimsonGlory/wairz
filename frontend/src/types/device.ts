@@ -62,11 +62,41 @@ export interface PartitionStatus {
   path: string | null
 }
 
+/**
+ * Dump-session status enum. Mirrors `DumpStatus = Literal[...]` in
+ * `backend/app/schemas/device.py` and the
+ * `ck_device_dump_sessions_status` CHECK constraint in alembic
+ * `b0c1a2d3e4f5_add_device_dump_sessions.py`. Per CLAUDE.md Rule #33c the
+ * three (Pydantic enum, DB CHECK, frontend union) must stay in sync.
+ *
+ * Distinct from the legacy in-process state ('idle' | 'dumping') —
+ * 'idle' no longer exists because every dump is its own row, and
+ * 'dumping' was renamed to 'running' to align with cve-match /
+ * emulation / fuzzing.
+ */
+export type DumpStatusValue =
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'partial'
+  | 'failed'
+  | 'cancelled'
+
 export interface DumpStatus {
-  status: 'idle' | 'dumping' | 'complete' | 'partial' | 'failed' | 'cancelled'
-  device_id: string | null
+  /**
+   * UUID assigned by `POST /dumps`. Frontend persists this for the duration
+   * of the wizard run and uses it for status polling, cancel, and import.
+   */
+  dump_id: string
+  status: DumpStatusValue
+  device_id: string
   partitions: PartitionStatus[]
+  bytes_written: number
+  total_bytes: number | null
   error: string | null
+  started_at: string | null
+  finished_at: string | null
+  created_at: string | null
 }
 
 export interface ImportResult {

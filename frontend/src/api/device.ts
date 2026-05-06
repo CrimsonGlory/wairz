@@ -35,13 +35,20 @@ export async function getDeviceInfo(
   return data
 }
 
-// startDump() kicks off an ADB dump via the device bridge. The trigger
-// call itself is typically fast, but when the bridge is slow to
-// enumerate partitions or the device is mid-reboot the initial POST can
-// stall past the default axios 30 s and surface a fake "failed to
-// start dump" while the bridge eventually succeeds and the actual dump
-// begins. 5 min matches the HASH_SCAN_TIMEOUT tier used by findings.ts
-// for hashlookup-style bridge calls (b437095).
+// importDump and startDump previously needed a 5 min timeout because the
+// dump POST and the import POST were synchronous: the backend held the
+// HTTP request open while the bridge enumerated partitions / the unpack
+// pipeline kicked off. After the audit-2026-05-04 F-A-01 refactor (Rule
+// #33 202+polling) `POST /dumps` returns within sub-seconds with a row
+// id; the actual partition-dump work runs in `_run_dump_background`. So
+// `startDump` no longer needs an override — the apiClient default 30 s
+// floor is correct.
+//
+// `importDump` still does synchronous SHA-256 + Firmware-row insert
+// before scheduling the unpack background task, so it keeps the long
+// timeout for now (multi-GB dumps stretch the SHA + insert work). A
+// follow-up Rule #33 conversion of /import is in scope for a separate
+// intake; this commit's scope is just the dump-state global removal.
 const DEVICE_BRIDGE_TIMEOUT = 300_000
 
 export async function startDump(
@@ -50,43 +57,41 @@ export async function startDump(
   partitions: string[],
 ): Promise<DumpStatus> {
   const { data } = await apiClient.post<DumpStatus>(
-    `/projects/${projectId}/device/dump`,
+    `/projects/${projectId}/device/dumps`,
     { device_id: deviceId, partitions },
-    { timeout: DEVICE_BRIDGE_TIMEOUT },
   )
   return data
 }
 
 export async function getDumpStatus(
   projectId: string,
+  dumpId: string,
 ): Promise<DumpStatus> {
   const { data } = await apiClient.get<DumpStatus>(
-    `/projects/${projectId}/device/dump/status`,
+    `/projects/${projectId}/device/dumps/${dumpId}/status`,
   )
   return data
 }
 
 export async function cancelDump(
   projectId: string,
-): Promise<void> {
-  await apiClient.post(`/projects/${projectId}/device/dump/cancel`)
+  dumpId: string,
+): Promise<DumpStatus> {
+  const { data } = await apiClient.post<DumpStatus>(
+    `/projects/${projectId}/device/dumps/${dumpId}/cancel`,
+  )
+  return data
 }
 
-// importDump() takes a completed multi-partition dump from the device
-// bridge and ingests it as a firmware revision: hashes each partition,
-// writes the combined scatter layout to STORAGE_ROOT, creates the
-// Firmware row, and kicks off unpacking metadata. With 10+ partitions
-// totalling several GB this routinely exceeds the default axios 30 s
-// and surfaces a fake "import failed" while the backend is still
-// copying bytes. Matches DEVICE_BRIDGE_TIMEOUT tier used for startDump.
 export async function importDump(
   projectId: string,
+  dumpId: string,
   deviceId: string,
   versionLabel?: string,
 ): Promise<ImportResult> {
   const { data } = await apiClient.post<ImportResult>(
     `/projects/${projectId}/device/import`,
-    { device_id: deviceId, version_label: versionLabel },
+    { dump_id: dumpId, device_id: deviceId, version_label: versionLabel },
     { timeout: DEVICE_BRIDGE_TIMEOUT },
   )
   return data

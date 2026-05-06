@@ -74,6 +74,9 @@ export default function DeviceAcquisitionPage() {
 
   // Step 3: Dump progress
   const [dumpStatus, setDumpStatus] = useState<DumpStatus | null>(null)
+  // Captured from POST /dumps's 202 ack; used for status polling, cancel,
+  // and import. Persists for the duration of the wizard run.
+  const [activeDumpId, setActiveDumpId] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
 
   // Step 4: Import
@@ -165,6 +168,7 @@ export default function DeviceAcquisitionPage() {
     setError(null)
     try {
       const status = await startDump(projectId, selectedDevice.serial, Array.from(selectedPartitions))
+      setActiveDumpId(status.dump_id)
       setDumpStatus(status)
       setStep(2)
     } catch (err: unknown) {
@@ -173,18 +177,21 @@ export default function DeviceAcquisitionPage() {
   }
 
   const pollDump = useCallback(async () => {
-    if (!projectId) return
+    if (!projectId || !activeDumpId) return
     try {
-      const status = await getDumpStatus(projectId)
+      const status = await getDumpStatus(projectId, activeDumpId)
       setDumpStatus(status)
-      // Auto-advance when complete
-      if (status.status === 'complete' || status.status === 'partial') {
+      // Auto-advance when the dump reaches a successful terminal state.
+      // 'completed' or 'partial' both mean at least one partition
+      // finished — user can still import. 'failed' / 'cancelled' stay
+      // on the progress page so the operator can see what went wrong.
+      if (status.status === 'completed' || status.status === 'partial') {
         setStep(3)
       }
     } catch {
       // ignore transient errors
     }
-  }, [projectId])
+  }, [projectId, activeDumpId])
 
   useEffect(() => {
     if (step !== 2) return
@@ -193,11 +200,10 @@ export default function DeviceAcquisitionPage() {
   }, [step, pollDump])
 
   const handleCancelDump = async () => {
-    if (!projectId) return
+    if (!projectId || !activeDumpId) return
     setCancelling(true)
     try {
-      await cancelDump(projectId)
-      const status = await getDumpStatus(projectId)
+      const status = await cancelDump(projectId, activeDumpId)
       setDumpStatus(status)
     } catch {
       // ignore
@@ -208,12 +214,13 @@ export default function DeviceAcquisitionPage() {
 
   // -- Step 4: Import --
   const handleImport = async () => {
-    if (!projectId || !selectedDevice) return
+    if (!projectId || !selectedDevice || !activeDumpId) return
     setImporting(true)
     setError(null)
     try {
       const result = await importDump(
         projectId,
+        activeDumpId,
         selectedDevice.serial,
         versionLabel.trim() || undefined,
       )
@@ -233,6 +240,7 @@ export default function DeviceAcquisitionPage() {
     setDeviceDetail(null)
     setSelectedPartitions(new Set())
     setDumpStatus(null)
+    setActiveDumpId(null)
     setError(null)
     setVersionLabel('')
   }
@@ -612,12 +620,12 @@ export default function DeviceAcquisitionPage() {
                   {dumpStatus && (
                     <Badge
                       variant={
-                        dumpStatus.status === 'complete' ? 'default' :
-                        dumpStatus.status === 'failed' ? 'destructive' :
+                        dumpStatus.status === 'completed' ? 'default' :
+                        dumpStatus.status === 'failed' || dumpStatus.status === 'cancelled' ? 'destructive' :
                         'secondary'
                       }
                     >
-                      {dumpStatus.status === 'dumping' && (
+                      {(dumpStatus.status === 'queued' || dumpStatus.status === 'running') && (
                         <Loader2 className="mr-1 h-3 w-3 animate-spin" />
                       )}
                       {dumpStatus.status}
@@ -697,7 +705,10 @@ export default function DeviceAcquisitionPage() {
                   <Button
                     variant="destructive"
                     onClick={handleCancelDump}
-                    disabled={cancelling || dumpStatus?.status !== 'dumping'}
+                    disabled={
+                      cancelling ||
+                      !(dumpStatus?.status === 'queued' || dumpStatus?.status === 'running')
+                    }
                   >
                     {cancelling ? (
                       <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
