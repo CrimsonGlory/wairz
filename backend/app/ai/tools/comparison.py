@@ -1,5 +1,6 @@
 """MCP tools for firmware version comparison."""
 
+import asyncio
 import difflib
 import uuid
 
@@ -58,7 +59,11 @@ async def _handle_diff_firmware(input: dict, context: ToolContext) -> str:
     if isinstance(fw_b, str):
         return fw_b
 
-    result = diff_filesystems(fw_a.extracted_path, fw_b.extracted_path)
+    # Rule #5 — diff_filesystems walks both extraction trees synchronously; offload.
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(
+        None, diff_filesystems, fw_a.extracted_path, fw_b.extracted_path
+    )
 
     lines: list[str] = []
     fw_a_label = fw_a.version_label or fw_a.original_filename or str(fw_a.id)
@@ -141,7 +146,11 @@ async def _handle_diff_binary(input: dict, context: ToolContext) -> str:
     except Exception:
         return f"Error: binary not found in firmware B: {binary_path}"
 
-    result = diff_binary(path_a, path_b, binary_path)
+    # Rule #5 — diff_binary parses ELFs and disassembles synchronously; offload.
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(
+        None, diff_binary, path_a, path_b, binary_path
+    )
 
     lines: list[str] = []
     fw_a_label = fw_a.version_label or fw_a.original_filename or str(fw_a.id)
