@@ -133,12 +133,23 @@ class FirmwareMetadataService:
         if cached:
             return self._from_cache(cached)
 
-        # Parse the firmware image
+        # Parse the firmware image. The three sync helpers each open the file
+        # and read up to 16 MB; running them inline on the event loop blocks
+        # uvicorn for the duration of the reads (Rule #5). Wrap each in a
+        # thread-pool worker via run_in_executor — the helpers stay sync;
+        # only the call site is moved off the loop.
+        loop = asyncio.get_running_loop()
         file_size = os.path.getsize(firmware_storage_path)
         sections = await self._run_binwalk_scan(firmware_storage_path)
-        uboot_header = self._detect_uboot_header(firmware_storage_path)
-        uboot_env = self._extract_uboot_env(firmware_storage_path)
-        mtd_partitions = self._parse_mtd_partitions(firmware_storage_path)
+        uboot_header = await loop.run_in_executor(
+            None, self._detect_uboot_header, firmware_storage_path,
+        )
+        uboot_env = await loop.run_in_executor(
+            None, self._extract_uboot_env, firmware_storage_path,
+        )
+        mtd_partitions = await loop.run_in_executor(
+            None, self._parse_mtd_partitions, firmware_storage_path,
+        )
 
         metadata = FirmwareImageMetadata(
             file_size=file_size,
