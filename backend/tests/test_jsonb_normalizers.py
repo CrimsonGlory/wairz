@@ -28,6 +28,10 @@ from app.services.jsonb_normalizers import (
     FIRMWARE_DEVICE_METADATA_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
+    CRA_REQUIREMENT_RESULTS_FINDING_IDS_SCHEMA_VERSION,
+    CRA_REQUIREMENT_RESULTS_RELATED_CVES_SCHEMA_VERSION,
+    CRA_REQUIREMENT_RESULTS_RELATED_CWES_SCHEMA_VERSION,
+    CRA_REQUIREMENT_RESULTS_TOOL_SOURCES_SCHEMA_VERSION,
     HARDWARE_FIRMWARE_BLOBS_METADATA_SCHEMA_VERSION,
     SBOM_COMPONENTS_METADATA_SCHEMA_VERSION,
     _normalize_analysis_cache_result,
@@ -35,6 +39,10 @@ from app.services.jsonb_normalizers import (
     _normalize_attack_surface_entries_input_categories,
     _normalize_attack_surface_entries_score_breakdown,
     _normalize_conversations_messages,
+    _normalize_cra_requirement_results_finding_ids,
+    _normalize_cra_requirement_results_related_cves,
+    _normalize_cra_requirement_results_related_cwes,
+    _normalize_cra_requirement_results_tool_sources,
     _normalize_emulation_presets_port_forwards,
     _normalize_emulation_sessions_discovered_services,
     _normalize_emulation_sessions_nvram_state,
@@ -580,3 +588,41 @@ def test_stamp_hardware_firmware_blobs_metadata_idempotent():
     once = _stamp_hardware_firmware_blobs_metadata(payload)
     twice = _stamp_hardware_firmware_blobs_metadata(once)
     assert once == twice
+
+
+# ── _normalize_cra_requirement_results_* (4 list[str] columns) ───────────────
+
+
+@pytest.mark.parametrize(
+    "fn,value,expected",
+    [
+        # finding_ids
+        (_normalize_cra_requirement_results_finding_ids,
+         ["uuid1", "uuid2"], ["uuid1", "uuid2"]),
+        (_normalize_cra_requirement_results_finding_ids, [], []),
+        (_normalize_cra_requirement_results_finding_ids, None, []),
+        (_normalize_cra_requirement_results_finding_ids, ["a", 1, None], ["a"]),
+        # tool_sources
+        (_normalize_cra_requirement_results_tool_sources,
+         ["yara", "ghidra", "mobsfscan"],
+         ["yara", "ghidra", "mobsfscan"]),
+        (_normalize_cra_requirement_results_tool_sources, None, []),
+        # related_cwes
+        (_normalize_cra_requirement_results_related_cwes,
+         ["CWE-79", "CWE-89"], ["CWE-79", "CWE-89"]),
+        (_normalize_cra_requirement_results_related_cwes, "CWE-79", []),
+        # related_cves
+        (_normalize_cra_requirement_results_related_cves,
+         ["CVE-2024-1234"], ["CVE-2024-1234"]),
+        (_normalize_cra_requirement_results_related_cves, {"foo": "bar"}, []),
+    ],
+)
+def test_normalize_cra_requirement_results_columns(fn, value, expected):
+    assert fn(value) == expected
+
+
+def test_cra_requirement_results_schema_version_constants():
+    assert CRA_REQUIREMENT_RESULTS_FINDING_IDS_SCHEMA_VERSION == 1
+    assert CRA_REQUIREMENT_RESULTS_TOOL_SOURCES_SCHEMA_VERSION == 1
+    assert CRA_REQUIREMENT_RESULTS_RELATED_CWES_SCHEMA_VERSION == 1
+    assert CRA_REQUIREMENT_RESULTS_RELATED_CVES_SCHEMA_VERSION == 1

@@ -16,6 +16,12 @@ from sqlalchemy.orm import selectinload
 from app.models.cra_compliance import CraAssessment, CraRequirementResult
 from app.models.finding import Finding
 from app.models.sbom import SbomVulnerability
+from app.services.jsonb_normalizers import (
+    _normalize_cra_requirement_results_finding_ids,
+    _normalize_cra_requirement_results_related_cves,
+    _normalize_cra_requirement_results_related_cwes,
+    _normalize_cra_requirement_results_tool_sources,
+)
 
 # ---------------------------------------------------------------------------
 # CRA Annex I Requirement Definitions
@@ -455,9 +461,9 @@ class CRAComplianceService:
             req_result.status = status
             req_result.auto_populated = True
             req_result.evidence_summary = evidence
-            req_result.finding_ids = matched_ids
-            req_result.tool_sources = matched_sources
-            req_result.related_cves = matched_cves
+            req_result.finding_ids = _normalize_cra_requirement_results_finding_ids(matched_ids)
+            req_result.tool_sources = _normalize_cra_requirement_results_tool_sources(matched_sources)
+            req_result.related_cves = _normalize_cra_requirement_results_related_cves(matched_cves)
             req_result.assessed_at = datetime.now(timezone.utc)
 
             # Count
@@ -543,13 +549,13 @@ class CRAComplianceService:
                 "status": req_result.status,
                 "auto_populated": req_result.auto_populated,
                 "evidence_summary": req_result.evidence_summary,
-                "finding_count": len(req_result.finding_ids or []),
-                "finding_ids": req_result.finding_ids or [],
-                "tool_sources": req_result.tool_sources or [],
+                "finding_count": len(_normalize_cra_requirement_results_finding_ids(req_result.finding_ids)),
+                "finding_ids": _normalize_cra_requirement_results_finding_ids(req_result.finding_ids),
+                "tool_sources": _normalize_cra_requirement_results_tool_sources(req_result.tool_sources),
                 "manual_notes": req_result.manual_notes,
                 "manual_evidence": req_result.manual_evidence,
-                "related_cwes": req_result.related_cwes or [],
-                "related_cves": req_result.related_cves or [],
+                "related_cwes": _normalize_cra_requirement_results_related_cwes(req_result.related_cwes),
+                "related_cves": _normalize_cra_requirement_results_related_cves(req_result.related_cves),
                 "not_automatable": req_def.get("not_automatable", False),
                 "assessed_at": (
                     req_result.assessed_at.isoformat()

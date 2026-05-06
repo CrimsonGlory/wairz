@@ -427,3 +427,49 @@ def _stamp_hardware_firmware_blobs_metadata(payload: dict[str, Any]) -> dict[str
     """Stamp the schema_version onto a writer payload."""
     payload["schema_version"] = HARDWARE_FIRMWARE_BLOBS_METADATA_SCHEMA_VERSION
     return payload
+
+
+# ── cra_requirement_results: 4 list[str] columns ──────────────────────────────
+#
+# All four CRA requirement-result columns store homogeneous primitive
+# string arrays. Shared coercion shape; per-column public boundary
+# preserved (Rule #35c "one normaliser per column" discipline). 2
+# consumers each (cra_compliance_service.py reads and writes) →
+# normaliser-only strategy.
+CRA_REQUIREMENT_RESULTS_FINDING_IDS_SCHEMA_VERSION = 1
+CRA_REQUIREMENT_RESULTS_TOOL_SOURCES_SCHEMA_VERSION = 1
+CRA_REQUIREMENT_RESULTS_RELATED_CWES_SCHEMA_VERSION = 1
+CRA_REQUIREMENT_RESULTS_RELATED_CVES_SCHEMA_VERSION = 1
+
+
+def _normalize_str_list(value: Any) -> list[str]:
+    """Internal helper: coerce Any → list[str] for homogeneous string-array
+    JSONB columns. Drops non-string entries; ``None`` / wrong-type → ``[]``.
+    """
+    if not isinstance(value, list):
+        return []
+    return [s for s in value if isinstance(s, str)]
+
+
+def _normalize_cra_requirement_results_finding_ids(value: Any) -> list[str]:
+    """Return canonical ``list[str]`` of Finding row IDs linked to this
+    CRA requirement result. Server default ``[]``."""
+    return _normalize_str_list(value)
+
+
+def _normalize_cra_requirement_results_tool_sources(value: Any) -> list[str]:
+    """Return canonical ``list[str]`` of tool-source labels (``yara``,
+    ``ghidra``, ``mobsfscan``, etc.) that contributed evidence."""
+    return _normalize_str_list(value)
+
+
+def _normalize_cra_requirement_results_related_cwes(value: Any) -> list[str]:
+    """Return canonical ``list[str]`` of CWE IDs (``CWE-79``) linked to
+    this requirement."""
+    return _normalize_str_list(value)
+
+
+def _normalize_cra_requirement_results_related_cves(value: Any) -> list[str]:
+    """Return canonical ``list[str]`` of CVE IDs (``CVE-2024-1234``)
+    linked to this requirement."""
+    return _normalize_str_list(value)
