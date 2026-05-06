@@ -2399,15 +2399,16 @@ def _check_weak_cert_cn(cert_data: bytes, file_path: str, real_root: str) -> lis
     return warnings
 
 
-async def _handle_check_secure_boot(input: dict, context: ToolContext) -> str:
-    """Detect and assess secure boot mechanisms in firmware.
+def _check_secure_boot_sync(
+    extracted_root: str, real_root: str,
+) -> tuple[list[dict], list[dict]]:
+    """Synchronously inspect the firmware for secure-boot mechanisms.
 
-    Checks for U-Boot verified boot, dm-verity (Android), and UEFI Secure Boot.
-    Analyzes certificate chains and flags weak/test keys.
+    Performs all 10 safe_walk passes plus per-file reads (FIT/.dtb,
+    kernel config, fstab, build.prop, EFI certs). Returns
+    ``(mechanisms, weak_key_warnings)``. The async caller wraps this via
+    ``run_in_executor`` (Rule #5).
     """
-    extracted_root = os.path.realpath(context.extracted_path)
-    real_root = context.real_root_for(input.get("path", "/"))
-
     mechanisms: list[dict] = []
     weak_key_warnings: list[dict] = []
 
@@ -2687,6 +2688,23 @@ async def _handle_check_secure_boot(input: dict, context: ToolContext) -> str:
             )
 
     mechanisms.append(uefi)
+
+    return mechanisms, weak_key_warnings
+
+
+async def _handle_check_secure_boot(input: dict, context: ToolContext) -> str:
+    """Detect and assess secure boot mechanisms in firmware.
+
+    Checks for U-Boot verified boot, dm-verity (Android), and UEFI Secure Boot.
+    Analyzes certificate chains and flags weak/test keys.
+    """
+    extracted_root = os.path.realpath(context.extracted_path)
+    real_root = context.real_root_for(input.get("path", "/"))
+
+    loop = asyncio.get_running_loop()
+    mechanisms, weak_key_warnings = await loop.run_in_executor(
+        None, _check_secure_boot_sync, extracted_root, real_root,
+    )
 
     # -----------------------------------------------------------------------
     # D. Build report
