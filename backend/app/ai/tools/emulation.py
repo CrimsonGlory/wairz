@@ -5,6 +5,7 @@ in running sessions, checking session status, listing available kernels,
 reading boot logs, and diagnosing firmware emulation issues.
 """
 
+import asyncio
 import os
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
@@ -1214,30 +1215,24 @@ async def _handle_get_logs(input: dict, context: ToolContext) -> str:
     return f"=== Emulation Boot Logs ===\n{logs}"
 
 
-async def _handle_diagnose_environment(input: dict, context: ToolContext) -> str:
-    """Pre-flight check of firmware filesystem for emulation compatibility."""
-    # Get firmware record
-    result = await context.db.execute(
-        select(Firmware).where(Firmware.id == context.firmware_id)
-    )
-    firmware = result.scalar_one_or_none()
-    if not firmware:
-        return "Error: firmware not found."
+def _diagnose_environment_sync(
+    fs_root: str, arch: str,
+) -> tuple[list[str], list[str], list[str], list[str]]:
+    """Synchronously inspect a firmware filesystem for emulation issues.
 
-    if not firmware.extracted_path:
-        return "Error: firmware has not been unpacked yet."
-
-    fs_root = firmware.extracted_path
-    if not os.path.isdir(fs_root):
-        return f"Error: extracted filesystem not found at {fs_root}"
-
-    arch = firmware.architecture or "unknown"
+    Performs filesystem-only diagnostic checks (broken symlinks, /etc_ro
+    layout, init/busybox/passwd/inittab/rcS presence, MTD-binary scan, ELF
+    architecture, .so availability). Returns
+    ``(issues, info, suggestions, broken_symlinks)``. The kernel-availability
+    check stays in the async caller because ``KernelService`` is also sync
+    and is wrapped in its own executor call by the caller (Rule #5).
+    """
     issues: list[str] = []
     info: list[str] = []
     suggestions: list[str] = []
 
     # --- 1. Check for broken /dev/null symlinks ---
-    broken_symlinks = []
+    broken_symlinks: list[str] = []
     for dirname in ["etc", "tmp", "home", "root", "var", "run",
                      "debug", "webroot", "media"]:
         path = os.path.join(fs_root, dirname)
@@ -1549,9 +1544,42 @@ async def _handle_diagnose_environment(input: dict, context: ToolContext) -> str
             "Dynamically linked binaries will fail to run."
         )
 
-    # --- 11. Check kernel availability ---
-    svc = KernelService()
-    kernels = svc.list_kernels(architecture=arch)
+    return issues, info, suggestions, broken_symlinks
+
+
+def _list_kernels_sync(arch: str) -> list[dict]:
+    """Synchronous wrapper around KernelService.list_kernels (which scans
+    a kernels directory). Wrapped via run_in_executor by the caller."""
+    return KernelService().list_kernels(architecture=arch)
+
+
+async def _handle_diagnose_environment(input: dict, context: ToolContext) -> str:
+    """Pre-flight check of firmware filesystem for emulation compatibility."""
+    # Get firmware record
+    result = await context.db.execute(
+        select(Firmware).where(Firmware.id == context.firmware_id)
+    )
+    firmware = result.scalar_one_or_none()
+    if not firmware:
+        return "Error: firmware not found."
+
+    if not firmware.extracted_path:
+        return "Error: firmware has not been unpacked yet."
+
+    fs_root = firmware.extracted_path
+    if not os.path.isdir(fs_root):
+        return f"Error: extracted filesystem not found at {fs_root}"
+
+    arch = firmware.architecture or "unknown"
+
+    # Sections 1-10: pure filesystem inspection — wrap in executor (Rule #5).
+    loop = asyncio.get_running_loop()
+    issues, info, suggestions, broken_symlinks = await loop.run_in_executor(
+        None, _diagnose_environment_sync, fs_root, arch,
+    )
+
+    # --- 11. Check kernel availability (KernelService is sync; wrap too) ---
+    kernels = await loop.run_in_executor(None, _list_kernels_sync, arch)
     if kernels:
         k = kernels[0]
         initrd_note = " (with initramfs)" if k.get("has_initrd") else " (NO initramfs)"
