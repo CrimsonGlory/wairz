@@ -325,3 +325,63 @@ def _normalize_emulation_presets_port_forwards(value: Any) -> list[dict]:
     if not isinstance(value, list):
         return []
     return [pf for pf in value if isinstance(pf, dict)]
+
+
+# ── attack_surface_entries.score_breakdown ────────────────────────────────────
+#
+# Canonical shape: ``dict`` of scoring component → integer points
+# (network_score, cgi_score, dangerous_score, setuid_score, etc.).
+# Server default ``{}``. NOT NULL.
+ATTACK_SURFACE_ENTRIES_SCORE_BREAKDOWN_SCHEMA_VERSION = 1
+
+
+def _normalize_attack_surface_entries_score_breakdown(value: Any) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``AttackSurfaceEntry.score_breakdown``. Coerces None / non-dict to
+    ``{}`` (the column's server default).
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_attack_surface_entries_score_breakdown(payload: dict[str, Any]) -> dict[str, Any]:
+    """Stamp the schema_version onto a writer payload."""
+    payload["schema_version"] = ATTACK_SURFACE_ENTRIES_SCORE_BREAKDOWN_SCHEMA_VERSION
+    return payload
+
+
+# ── attack_surface_entries.dangerous_imports ──────────────────────────────────
+#
+# Canonical shape: ``list[str]`` of dangerous-import symbol names
+# (e.g. ``["strcpy", "gets", "sprintf"]``). Server default ``[]``.
+ATTACK_SURFACE_ENTRIES_DANGEROUS_IMPORTS_SCHEMA_VERSION = 1
+
+
+def _normalize_attack_surface_entries_dangerous_imports(value: Any) -> list[str]:
+    """Return the canonical ``list[str]`` shape for
+    ``AttackSurfaceEntry.dangerous_imports``.
+
+    Drops non-string entries (forward-discipline against accidental
+    dict/list nesting). Coerces None / non-list to ``[]``.
+    """
+    if not isinstance(value, list):
+        return []
+    return [s for s in value if isinstance(s, str)]
+
+
+# ── attack_surface_entries.input_categories ───────────────────────────────────
+#
+# Canonical shape: ``list[str]`` of input-category labels
+# (e.g. ``["network", "filesystem", "ipc"]``). Server default ``[]``.
+ATTACK_SURFACE_ENTRIES_INPUT_CATEGORIES_SCHEMA_VERSION = 1
+
+
+def _normalize_attack_surface_entries_input_categories(value: Any) -> list[str]:
+    """Return the canonical ``list[str]`` shape for
+    ``AttackSurfaceEntry.input_categories``. Same semantics as
+    dangerous_imports.
+    """
+    if not isinstance(value, list):
+        return []
+    return [s for s in value if isinstance(s, str)]

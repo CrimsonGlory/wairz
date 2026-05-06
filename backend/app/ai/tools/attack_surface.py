@@ -12,6 +12,11 @@ from sqlalchemy import delete, select
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.models.attack_surface import AttackSurfaceEntry
 from app.models.finding import Finding
+from app.services.jsonb_normalizers import (
+    _normalize_attack_surface_entries_dangerous_imports,
+    _normalize_attack_surface_entries_input_categories,
+    _stamp_attack_surface_entries_score_breakdown,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,13 +80,13 @@ async def _handle_detect_input_vectors(input: dict, context: ToolContext) -> str
             architecture=r.architecture,
             file_size=r.file_size,
             attack_surface_score=r.score,
-            score_breakdown=r.breakdown,
+            score_breakdown=_stamp_attack_surface_entries_score_breakdown(dict(r.breakdown)),
             is_setuid=r.is_setuid,
             is_network_listener=r.is_network_listener,
             is_cgi_handler=r.is_cgi_handler,
             has_dangerous_imports=r.has_dangerous_imports,
-            dangerous_imports=r.dangerous_imports,
-            input_categories=r.input_categories,
+            dangerous_imports=_normalize_attack_surface_entries_dangerous_imports(r.dangerous_imports),
+            input_categories=_normalize_attack_surface_entries_input_categories(r.input_categories),
             auto_findings_generated=bool(r.findings),
         )
         context.db.add(entry)
@@ -146,10 +151,10 @@ def _format_table(entries: list, total: int) -> str:
             badge = "LOW"
 
         name = e.binary_name if isinstance(e, AttackSurfaceEntry) else e.binary_name
-        categories = e.input_categories if isinstance(e.input_categories, list) else []
+        categories = _normalize_attack_surface_entries_input_categories(e.input_categories)
         cats = ", ".join(categories[:3]) if categories else "-"
 
-        dangerous = e.dangerous_imports if isinstance(e.dangerous_imports, list) else []
+        dangerous = _normalize_attack_surface_entries_dangerous_imports(e.dangerous_imports)
         imports_str = ", ".join(dangerous[:4]) if dangerous else "-"
 
         lines.append(f"{score:>5} | {badge:<8} | {name:<20} | {cats:<30} | {imports_str}")

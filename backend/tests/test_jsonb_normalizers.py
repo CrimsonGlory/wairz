@@ -17,6 +17,9 @@ import pytest
 
 from app.services.jsonb_normalizers import (
     ANALYSIS_CACHE_RESULT_SCHEMA_VERSION,
+    ATTACK_SURFACE_ENTRIES_DANGEROUS_IMPORTS_SCHEMA_VERSION,
+    ATTACK_SURFACE_ENTRIES_INPUT_CATEGORIES_SCHEMA_VERSION,
+    ATTACK_SURFACE_ENTRIES_SCORE_BREAKDOWN_SCHEMA_VERSION,
     CONVERSATIONS_MESSAGES_SCHEMA_VERSION,
     EMULATION_PRESETS_PORT_FORWARDS_SCHEMA_VERSION,
     EMULATION_SESSIONS_DISCOVERED_SERVICES_SCHEMA_VERSION,
@@ -26,6 +29,9 @@ from app.services.jsonb_normalizers import (
     FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
     _normalize_analysis_cache_result,
+    _normalize_attack_surface_entries_dangerous_imports,
+    _normalize_attack_surface_entries_input_categories,
+    _normalize_attack_surface_entries_score_breakdown,
     _normalize_conversations_messages,
     _normalize_emulation_presets_port_forwards,
     _normalize_emulation_sessions_discovered_services,
@@ -37,6 +43,7 @@ from app.services.jsonb_normalizers import (
     _normalize_fuzzing_campaigns_config,
     _normalize_fuzzing_campaigns_stats,
     _stamp_analysis_cache_result,
+    _stamp_attack_surface_entries_score_breakdown,
     _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
     _stamp_fuzzing_campaigns_config,
@@ -454,3 +461,67 @@ def test_normalize_emulation_presets_port_forwards(value, expected):
 
 def test_emulation_presets_port_forwards_schema_version_constant():
     assert EMULATION_PRESETS_PORT_FORWARDS_SCHEMA_VERSION == 1
+
+
+# ── _normalize_attack_surface_entries_score_breakdown ────────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ({"network_score": 10, "dangerous_score": 8, "setuid_score": 0},
+         {"network_score": 10, "dangerous_score": 8, "setuid_score": 0}),
+        ({}, {}),
+        (None, {}),
+        ([], {}),
+    ],
+)
+def test_normalize_attack_surface_entries_score_breakdown(value, expected):
+    assert _normalize_attack_surface_entries_score_breakdown(value) == expected
+
+
+def test_stamp_attack_surface_entries_score_breakdown_adds_version():
+    payload = {"network_score": 10}
+    out = _stamp_attack_surface_entries_score_breakdown(payload)
+    assert out["schema_version"] == ATTACK_SURFACE_ENTRIES_SCORE_BREAKDOWN_SCHEMA_VERSION
+
+
+# ── _normalize_attack_surface_entries_dangerous_imports ──────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (["strcpy", "gets", "sprintf"], ["strcpy", "gets", "sprintf"]),
+        ([], []),
+        (None, []),
+        # Mixed list — only strings survive.
+        (["strcpy", 42, None, {"sym": "x"}], ["strcpy"]),
+    ],
+)
+def test_normalize_attack_surface_entries_dangerous_imports(value, expected):
+    assert _normalize_attack_surface_entries_dangerous_imports(value) == expected
+
+
+def test_attack_surface_entries_dangerous_imports_schema_version_constant():
+    assert ATTACK_SURFACE_ENTRIES_DANGEROUS_IMPORTS_SCHEMA_VERSION == 1
+
+
+# ── _normalize_attack_surface_entries_input_categories ───────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (["network", "filesystem", "ipc"], ["network", "filesystem", "ipc"]),
+        ([], []),
+        (None, []),
+        (["network", 1, None], ["network"]),
+    ],
+)
+def test_normalize_attack_surface_entries_input_categories(value, expected):
+    assert _normalize_attack_surface_entries_input_categories(value) == expected
+
+
+def test_attack_surface_entries_input_categories_schema_version_constant():
+    assert ATTACK_SURFACE_ENTRIES_INPUT_CATEGORIES_SCHEMA_VERSION == 1

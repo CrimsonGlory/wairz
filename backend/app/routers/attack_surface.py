@@ -19,6 +19,12 @@ from app.schemas.attack_surface import (
     AttackSurfaceSummary,
 )
 from app.schemas.pagination import Page
+from app.services.jsonb_normalizers import (
+    _normalize_attack_surface_entries_dangerous_imports,
+    _normalize_attack_surface_entries_input_categories,
+    _normalize_attack_surface_entries_score_breakdown,
+    _stamp_attack_surface_entries_score_breakdown,
+)
 from app.utils.pagination import paginate_query
 
 logger = logging.getLogger(__name__)
@@ -129,13 +135,13 @@ async def trigger_attack_surface_scan(
             architecture=r.architecture,
             file_size=r.file_size,
             attack_surface_score=r.score,
-            score_breakdown=r.breakdown,
+            score_breakdown=_stamp_attack_surface_entries_score_breakdown(dict(r.breakdown)),
             is_setuid=r.is_setuid,
             is_network_listener=r.is_network_listener,
             is_cgi_handler=r.is_cgi_handler,
             has_dangerous_imports=r.has_dangerous_imports,
-            dangerous_imports=r.dangerous_imports,
-            input_categories=r.input_categories,
+            dangerous_imports=_normalize_attack_surface_entries_dangerous_imports(r.dangerous_imports),
+            input_categories=_normalize_attack_surface_entries_input_categories(r.input_categories),
             auto_findings_generated=bool(r.findings),
         )
         db.add(entry)
@@ -209,7 +215,7 @@ def _build_summary(entries: list) -> AttackSurfaceSummary:
             medium += 1
         else:
             low += 1
-        cats = e.input_categories if isinstance(e.input_categories, list) else []
+        cats = _normalize_attack_surface_entries_input_categories(e.input_categories)
         all_categories.update(cats)
 
     return AttackSurfaceSummary(
