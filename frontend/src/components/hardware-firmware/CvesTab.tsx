@@ -1,6 +1,7 @@
 import { useMemo, useState, type CSSProperties } from 'react'
 import { List, type RowComponentProps } from 'react-window'
 import { Badge } from '@/components/ui/badge'
+import { useResponsiveListHeight } from '@/hooks/useResponsiveListHeight'
 import type { CveRow, HardwareFirmwareBlob } from '@/api/hardwareFirmware'
 import { displayPath, highlightMatches } from './BlobTable'
 
@@ -120,6 +121,10 @@ export default function CvesTab({
 }: CvesTabProps) {
   const [sortKey, setSortKey] = useState<SortKey>('severity')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const { ref: listWrapperRef, height: listHeight } = useResponsiveListHeight({
+    maxHeight: 640,
+    minHeight: 240,
+  })
 
   const blobsById = useMemo(() => {
     const m = new Map<string, HardwareFirmwareBlob>()
@@ -232,19 +237,21 @@ export default function CvesTab({
           <div className="py-2 pr-3 text-right">Blobs</div>
           <div className="py-2 pr-3">Formats</div>
         </div>
-        <List
-          rowComponent={CveRowComponent}
-          rowCount={rows.length}
-          rowHeight={itemSize}
-          rowProps={{
-            rows,
-            toggle,
-            blobsById,
-            onSelectBlob,
-            searchQuery,
-          }}
-          style={{ height: 'min(640px, calc(100vh - 360px))', minHeight: 240 }}
-        />
+        <div ref={listWrapperRef}>
+          <List
+            rowComponent={CveRowComponent}
+            rowCount={rows.length}
+            rowHeight={itemSize}
+            rowProps={{
+              rows,
+              toggle,
+              blobsById,
+              onSelectBlob,
+              searchQuery,
+            }}
+            style={{ height: listHeight, minHeight: 240 }}
+          />
+        </div>
       </div>
     </div>
   )

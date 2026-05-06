@@ -1,6 +1,7 @@
 import { useMemo, useState, type CSSProperties } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { List, type RowComponentProps } from 'react-window'
+import { useResponsiveListHeight } from '@/hooks/useResponsiveListHeight'
 import { Badge } from '@/components/ui/badge'
 import type { FirmwareDriver } from '@/api/hardwareFirmware'
 
@@ -44,6 +45,10 @@ type Row =
 
 export default function DriversTable({ drivers }: DriversTableProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const { ref: listWrapperRef, height: listHeight } = useResponsiveListHeight({
+    maxHeight: 560,
+    minHeight: 240,
+  })
 
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = []
@@ -101,13 +106,15 @@ export default function DriversTable({ drivers }: DriversTableProps) {
         <div className="py-2 pr-3 text-right">Resolved</div>
         <div className="py-2 pr-3 text-right">Unresolved</div>
       </div>
-      <List
-        rowComponent={DriverRowComponent}
-        rowCount={rows.length}
-        rowHeight={itemSize}
-        rowProps={{ rows, toggle }}
-        style={{ height: 'min(560px, calc(100vh - 360px))', minHeight: 240 }}
-      />
+      <div ref={listWrapperRef}>
+        <List
+          rowComponent={DriverRowComponent}
+          rowCount={rows.length}
+          rowHeight={itemSize}
+          rowProps={{ rows, toggle }}
+          style={{ height: listHeight, minHeight: 240 }}
+        />
+      </div>
     </div>
   )
 }

@@ -16,6 +16,7 @@ import {
 } from '@/api/findings'
 import { runTool } from '@/api/tools'
 import { useFirmwareList } from '@/hooks/useFirmwareList'
+import { useResponsiveListHeight } from '@/hooks/useResponsiveListHeight'
 import { useProjectStore } from '@/stores/projectStore'
 import { extractErrorMessage } from '@/utils/error'
 import FirmwareSelector from '@/components/projects/FirmwareSelector'
@@ -71,6 +72,10 @@ export default function SecurityScanPage() {
   const [findings, setFindings] = useState<Finding[]>([])
   const [loadingFindings, setLoadingFindings] = useState(false)
   const vulhuntEventSourceRef = useRef<EventSource | null>(null)
+  const { ref: findingsListWrapperRef, height: findingsListHeight } = useResponsiveListHeight({
+    maxHeight: 560,
+    minHeight: 240,
+  })
 
   // Clean up EventSource on unmount
   useEffect(() => {
@@ -489,19 +494,21 @@ export default function SecurityScanPage() {
                   <div className="pb-2 pt-2 pr-3 font-medium">Title</div>
                   <div className="pb-2 pt-2 pr-3 font-medium">File</div>
                 </div>
-                <List
-                  rowComponent={FindingRow}
-                  rowCount={findings.length}
-                  rowHeight={FINDINGS_ROW_HEIGHT}
-                  rowProps={{
-                    findings,
-                    projectId: projectId ?? '',
-                  }}
-                  style={{
-                    height: 'min(560px, calc(100vh - 360px))',
-                    minHeight: 240,
-                  }}
-                />
+                <div ref={findingsListWrapperRef}>
+                  <List
+                    rowComponent={FindingRow}
+                    rowCount={findings.length}
+                    rowHeight={FINDINGS_ROW_HEIGHT}
+                    rowProps={{
+                      findings,
+                      projectId: projectId ?? '',
+                    }}
+                    style={{
+                      height: findingsListHeight,
+                      minHeight: 240,
+                    }}
+                  />
+                </div>
               </div>
             </div>
           )}

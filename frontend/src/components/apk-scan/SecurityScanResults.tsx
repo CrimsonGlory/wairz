@@ -29,6 +29,7 @@ import {
   SortDesc,
 } from 'lucide-react'
 import { List, useListRef, type RowComponentProps } from 'react-window'
+import { useResponsiveListHeight } from '@/hooks/useResponsiveListHeight'
 import { cn } from '@/lib/utils'
 import { SeverityBadge } from './SeverityBadge'
 import { CategoryTag } from './CategoryTag'
@@ -498,6 +499,11 @@ export default function SecurityScanResults({
   // imperative `scrollToRow` API instead, after the group+finding expansion
   // has been written into state and the row array rebuilt.
   const listRef = useListRef(null)
+  const { ref: listWrapperRef, height: listHeight } = useResponsiveListHeight({
+    maxHeight: 720,
+    minHeight: 320,
+    bottomMargin: 40,
+  })
   const deepLinkHandled = useRef(false)
   const pendingScrollId = useRef<string | null>(null)
 
@@ -581,7 +587,7 @@ export default function SecurityScanResults({
 
       {/* ── Grouped findings — virtualised via react-window ── */}
       {hasResults ? (
-        <div className="rounded-lg border bg-card overflow-hidden">
+        <div ref={listWrapperRef} className="rounded-lg border bg-card overflow-hidden">
           <List
             listRef={listRef}
             rowComponent={VirtFindingRow}
@@ -596,7 +602,7 @@ export default function SecurityScanResults({
               onViewSource,
             }}
             style={{
-              height: 'min(720px, calc(100vh - 400px))',
+              height: listHeight,
               minHeight: 320,
             }}
           />

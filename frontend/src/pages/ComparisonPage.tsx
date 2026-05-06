@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useFirmwareList } from '@/hooks/useFirmwareList'
+import { useResponsiveListHeight } from '@/hooks/useResponsiveListHeight'
 import { diffFirmware, diffBinary, diffTextFile, diffInstructions, diffDecompilation } from '@/api/comparison'
 import { formatFileSize } from '@/utils/format'
 import { extractErrorMessage } from '@/utils/error'
@@ -57,6 +58,10 @@ export default function ComparisonPage() {
   const [textDiff, setTextDiff] = useState<TextDiff | null>(null)
   const [textLoading, setTextLoading] = useState(false)
   const [tab, setTab] = useState<Tab>('files')
+  const { ref: fileDiffWrapperRef, height: fileDiffHeight } = useResponsiveListHeight({
+    maxHeight: 640,
+    minHeight: 240,
+  })
   const [error, setError] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [expandedFunc, setExpandedFunc] = useState<string | null>(null)
@@ -418,19 +423,21 @@ export default function ComparisonPage() {
                         <div className="pb-2 pt-2 pr-3 font-medium text-right">Delta</div>
                         <div className="pb-2 pt-2 pr-3 font-medium">SHA256</div>
                       </div>
-                      <List
-                        rowComponent={FileDiffRow}
-                        rowCount={filteredEntries.length}
-                        rowHeight={FILE_DIFF_ROW_HEIGHT}
-                        rowProps={{
-                          entries: filteredEntries,
-                          onTextDiff: handleTextDiff,
-                        }}
-                        style={{
-                          height: 'min(640px, calc(100vh - 360px))',
-                          minHeight: 240,
-                        }}
-                      />
+                      <div ref={fileDiffWrapperRef}>
+                        <List
+                          rowComponent={FileDiffRow}
+                          rowCount={filteredEntries.length}
+                          rowHeight={FILE_DIFF_ROW_HEIGHT}
+                          rowProps={{
+                            entries: filteredEntries,
+                            onTextDiff: handleTextDiff,
+                          }}
+                          style={{
+                            height: fileDiffHeight,
+                            minHeight: 240,
+                          }}
+                        />
+                      </div>
                     </div>
                   )}
                 </div>

@@ -1,6 +1,7 @@
 import { Fragment, type CSSProperties, type ReactNode } from 'react'
 import { List, type RowComponentProps } from 'react-window'
 import { Badge } from '@/components/ui/badge'
+import { useResponsiveListHeight } from '@/hooks/useResponsiveListHeight'
 import type { HardwareFirmwareBlob } from '@/api/hardwareFirmware'
 
 interface BlobTableProps {
@@ -103,6 +104,11 @@ export default function BlobTable({
   onSelect,
   searchQuery,
 }: BlobTableProps) {
+  const { ref: listWrapperRef, height: listHeight } = useResponsiveListHeight({
+    maxHeight: 640,
+    minHeight: 240,
+  })
+
   if (blobs.length === 0) {
     return (
       <div className="py-6 text-center text-xs text-muted-foreground">
@@ -127,13 +133,15 @@ export default function BlobTable({
         <div className="py-2 pr-3">CVEs</div>
         <div className="py-2 pr-3">Signed</div>
       </div>
-      <List
-        rowComponent={BlobRow}
-        rowCount={blobs.length}
-        rowHeight={ROW_HEIGHT}
-        rowProps={{ blobs, selectedId, onSelect, searchQuery }}
-        style={{ height: 'min(640px, calc(100vh - 360px))', minHeight: 240 }}
-      />
+      <div ref={listWrapperRef}>
+        <List
+          rowComponent={BlobRow}
+          rowCount={blobs.length}
+          rowHeight={ROW_HEIGHT}
+          rowProps={{ blobs, selectedId, onSelect, searchQuery }}
+          style={{ height: listHeight, minHeight: 240 }}
+        />
+      </div>
     </div>
   )
 }
