@@ -4,6 +4,7 @@ Uses the Docker SDK to spawn isolated containers running AFL++ in QEMU mode
 for cross-architecture firmware binary fuzzing.
 """
 
+import asyncio
 import base64
 import io
 import logging
@@ -173,6 +174,51 @@ class FuzzingService:
 
         return None
 
+    @staticmethod
+    def _parse_elf_sync(full_path: str) -> tuple[list[str], int]:
+        """Parse ELF imports + function count from disk (sync).
+
+        Called via ``loop.run_in_executor`` from ``analyze_target`` so the
+        pyelftools work runs on a thread-pool worker rather than blocking
+        the uvicorn event loop. Multi-MB binaries with thousands of symbols
+        can stall the loop for hundreds of ms — Rule #5 mandates threading.
+        """
+        from elftools.elf.elffile import ELFFile
+        from elftools.elf.sections import SymbolTableSection
+
+        imports: list[str] = []
+        function_count = 0
+
+        with open(full_path, "rb") as f:
+            elf = ELFFile(f)
+
+            # Get dynamic imports
+            dynsym = elf.get_section_by_name(".dynsym")
+            if dynsym and isinstance(dynsym, SymbolTableSection):
+                for symbol in dynsym.iter_symbols():
+                    if (
+                        symbol.entry["st_info"]["type"] == "STT_FUNC"
+                        and symbol.entry["st_shndx"] == "SHN_UNDEF"
+                        and symbol.name
+                    ):
+                        imports.append(symbol.name)
+
+            # Count defined functions
+            symtab = elf.get_section_by_name(".symtab")
+            if symtab and isinstance(symtab, SymbolTableSection):
+                for symbol in symtab.iter_symbols():
+                    if symbol.entry["st_info"]["type"] == "STT_FUNC":
+                        function_count += 1
+            elif dynsym and isinstance(dynsym, SymbolTableSection):
+                for symbol in dynsym.iter_symbols():
+                    if (
+                        symbol.entry["st_info"]["type"] == "STT_FUNC"
+                        and symbol.entry["st_shndx"] != "SHN_UNDEF"
+                    ):
+                        function_count += 1
+
+        return imports, function_count
+
     async def analyze_target(
         self, firmware: Firmware, binary_path: str
     ) -> dict:
@@ -189,41 +235,14 @@ class FuzzingService:
         if not os.path.isfile(full_path):
             raise ValueError(f"Binary not found: {binary_path}")
 
-        # Parse ELF imports using pyelftools
-        imports: list[str] = []
-        function_count = 0
+        # Parse ELF imports using pyelftools — sync work moved to a thread
+        # pool worker so this async handler does not block the uvicorn event
+        # loop on multi-MB binaries with thousands of symbols (Rule #5).
+        loop = asyncio.get_running_loop()
         try:
-            from elftools.elf.elffile import ELFFile
-            from elftools.elf.sections import SymbolTableSection
-
-            with open(full_path, "rb") as f:
-                elf = ELFFile(f)
-
-                # Get dynamic imports
-                dynsym = elf.get_section_by_name(".dynsym")
-                if dynsym and isinstance(dynsym, SymbolTableSection):
-                    for symbol in dynsym.iter_symbols():
-                        if (
-                            symbol.entry["st_info"]["type"] == "STT_FUNC"
-                            and symbol.entry["st_shndx"] == "SHN_UNDEF"
-                            and symbol.name
-                        ):
-                            imports.append(symbol.name)
-
-                # Count defined functions
-                symtab = elf.get_section_by_name(".symtab")
-                if symtab and isinstance(symtab, SymbolTableSection):
-                    for symbol in symtab.iter_symbols():
-                        if symbol.entry["st_info"]["type"] == "STT_FUNC":
-                            function_count += 1
-                elif dynsym and isinstance(dynsym, SymbolTableSection):
-                    for symbol in dynsym.iter_symbols():
-                        if (
-                            symbol.entry["st_info"]["type"] == "STT_FUNC"
-                            and symbol.entry["st_shndx"] != "SHN_UNDEF"
-                        ):
-                            function_count += 1
-
+            imports, function_count = await loop.run_in_executor(
+                None, self._parse_elf_sync, full_path,
+            )
         except Exception as exc:
             logger.warning("Failed to parse ELF %s: %s", binary_path, exc)
             return {
@@ -237,8 +256,10 @@ class FuzzingService:
         found_input = [i for i in imports if i in INPUT_FUNCTIONS]
         found_network = [i for i in imports if i in NETWORK_FUNCTIONS]
 
-        # Get binary protections
-        protections = check_binary_protections(full_path)
+        # Get binary protections (sync open + parse — wrap in executor)
+        protections = await loop.run_in_executor(
+            None, check_binary_protections, full_path,
+        )
 
         # Calculate fuzzing score (0-100)
         score = 0

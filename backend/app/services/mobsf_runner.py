@@ -32,13 +32,15 @@ All methods are async.
 
 from __future__ import annotations
 
-import hashlib
+import asyncio
 import json
 import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from app.utils.hashing import compute_file_sha256
 
 logger = logging.getLogger(__name__)
 
@@ -304,7 +306,8 @@ class MobsfRunner:
                 error=f"APK file not found: {apk_path}",
             )
 
-        apk_hash = _compute_sha256(p)
+        loop = asyncio.get_running_loop()
+        apk_hash = await loop.run_in_executor(None, compute_file_sha256, str(p))
         t0 = time.monotonic()
 
         try:
@@ -969,18 +972,6 @@ def _map_rule_to_check(
 
     # Fallback: unmapped rule
     return "MANIFEST-UNK", []
-
-
-def _compute_sha256(path: Path) -> str:
-    """Compute SHA256 hash of a file."""
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        while True:
-            chunk = f.read(65536)
-            if not chunk:
-                break
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def _elapsed_ms(t0: float) -> int:
