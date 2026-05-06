@@ -12,6 +12,17 @@ if [ -S /var/run/docker.sock ]; then
     fi
 fi
 
+# Ensure /tmp/wairz-dumps exists and is writable by the wairz user. The
+# directory is a host bind-mount (docker-compose.yml backend + worker
+# services) shared with the host-side device-acquisition bridge. When
+# the host directory is created by root (or hasn't been created at all)
+# the in-container wairz UID can't write into it, so device dumps fail
+# at the first write. mkdir -p is idempotent; chown is non-recursive
+# (cheap, and the per-dump-id subdirs created by the bridge are already
+# correctly owned).
+mkdir -p /tmp/wairz-dumps
+chown wairz:wairz /tmp/wairz-dumps 2>/dev/null || true
+
 # Use the pre-built venv directly instead of `uv run` which recreates the
 # venv and wipes manually-installed packages (Qiling, keystone-engine).
 #
