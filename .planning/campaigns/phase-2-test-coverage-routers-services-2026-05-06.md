@@ -25,9 +25,9 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 
 ## Active Context
 
-**Mode:** wave-2-shipped — paused for user review before Wave 3
-**Current Wave:** 2 ✅ COMPLETE (5 test files + 1 shim hardening + Wave 1 close-out)
-**Next Wave:** 3 (fuzzing router, comparison router, files router, attack_surface router, cra_compliance router) — pause for user review first
+**Mode:** wave-3-shipped — paused for user review before Wave 4
+**Current Wave:** 3 ✅ COMPLETE (5 test files + Wave 2 close-out)
+**Next Wave:** 4 (uart router, documents router, device router, findings router, events router) — pause for user review first
 
 **Wave 1 commits (clean-history):**
 - `d8f1e14` test(sbom_router): 16 cases, +744 LOC
@@ -47,8 +47,17 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 - `2febcc0` test(fuzzing_service): 18 cases, +553 LOC
 
 **Wave 2 totals: 90 tests across 5 files + 1 infrastructure improvement = 6 commits.**
-**Cumulative Phase 2 totals: 175 tests + 1 production bug fix + 1 shim hardening = 13 commits across 2 waves.**
-**All 276 Phase 1 + Phase 2 tests pass in 15.68s combined.**
+
+**Wave 3 commits (clean-history):**
+- `1ca2bcf` test(fuzzing_router): 13 cases, +591 LOC (Rule #33 fast-path canary)
+- `ae990cb` test(comparison_router): 9 cases, +420 LOC (cross-project boundary canary)
+- `022554a` test(files_router): 11 cases, +400 LOC (real-bytes download canary)
+- `45e7772` test(attack_surface_router): 5 cases, +409 LOC (F-A-06 confidence backstop)
+- `bcadb28` test(cra_compliance_router): 7 cases, +343 LOC (cross-project boundary canary, paired with Wave 1 service tests)
+
+**Wave 3 totals: 45 tests across 5 files = 5 commits. (Wave 3 was the smallest wave by LOC since the targets were 219-252 LOC; canaries focused on cross-project boundaries — recurring theme — and the F-A-06 confidence-bypass backstop.)**
+**Cumulative Phase 2 totals: 220 tests + 1 production bug fix + 1 shim hardening = 18 commits across 3 waves.**
+**All Phase 1 + Wave 1-3 tests pass when run together (~321 tests in ~16s).**
 
 ## Phase End Conditions
 
@@ -159,6 +168,11 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 | 2 | tests/test_androguard_service.py | 55bf86d | 36 | 398 | analyze_apk dict shape: package/version_*/min_sdk/target_sdk/permissions(sorted)/activities/main_activity/is_signed/signatures (Rule #35b applied to non-persistent dict-shape contract) |
 | 2 | tests/_live_db.py (HARDENING) | 080c10d | — | 73 | JSONB→TEXT DDL + tolerant json_deserializer eliminates double-decode on bare-string server_defaults |
 | 2 | tests/test_fuzzing_service.py | 2febcc0 | 18 | 553 | FuzzingCampaign: project_id/firmware_id/binary_path/status='created' + merged JSONB config dict; start_campaign Rule #33 fast-path flips to status='queued' + clears error_message |
+| 3 | tests/test_fuzzing_router.py | 1ca2bcf | 13 | 591 | FuzzingCampaign via POST /campaigns: binary_path + JSONB config from request fields; POST /start (Rule #33): status='queued' COMMITTED before 202 ack so background task sees it |
+| 3 | tests/test_comparison_router.py | ae990cb | 9 | 420 | Cross-project boundary on _get_firmware: real Firmware in project A → 404 via project B's URL (security canary) |
+| 3 | tests/test_files_router.py | 022554a | 11 | 400 | /download streams real on-disk file bytes through real FileService; Content-Disposition includes basename |
+| 3 | tests/test_attack_surface_router.py | 45e7772 | 5 | 409 | Finding via POST /scan: confidence='medium' (F-A-06 backstop) + source='attack_surface' + firmware_id; AttackSurfaceEntry JSONB dangerous_imports + input_categories |
+| 3 | tests/test_cra_compliance_router.py | bcadb28 | 7 | 343 | Cross-project boundary on GET /assessments/{id}: real CraAssessment in project A → 404 via project B's URL; correct project A → 200 with eager-loaded 20 requirement_results |
 
 ## Decision Log
 
@@ -171,6 +185,8 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 - **2026-05-06 (Wave 2): _live_db.py shim hardened.** Wave 1's port_forwards workaround was a band-aid. Wave 2 hit FuzzingCampaign.config + .stats with the same `server_default="'{}'"` shape and the workaround would have spread. Permanent fix shipped as commit 080c10d: (a) render JSONB / ARRAY as TEXT in DDL (was JSON) so SQLite's dialect-level JSON processor doesn't fire on top of our shim; (b) pass a tolerant `json_deserializer` to the engine that strips outer single-quotes (the SQL-string-literal artefact) and falls back gracefully on parse failure. Validated against 276 tests in 15.68s — no regressions. Eliminates the gotcha for all current and future bare-string JSONB server_defaults.
 - **2026-05-06 (Wave 2): Wave 2 commit shape (5 tests + 1 infra) instead of 5 tests.** The shim hardening surfaced mid-wave (during fuzzing service canary). Per Rule #25 spirit (per-file commit, independently revertable), shipped the hardening as its own commit (080c10d) BEFORE the fuzzing test commit (2febcc0). Two-line commit message ordering captures the dependency: shim change first, test that depends on it second.
 - **2026-05-06 (Wave 2): Rule #30 source-patch confirmed for androguard.** test_androguard_service.py is the cleanest expression of Rule #30 — every Androguard symbol is lazy-imported INSIDE function bodies (lines 508, 523, 640, 861, 891). Patches MUST hit the SOURCE module (`androguard.misc.AnalyzeAPK`, `androguard.core.apk.APK`). Phase 1's pytest-unblock fleet (session 0801ca27, 2026-04-23) showed +620 tests unlocked once patch targets were corrected — same lesson applied here proactively.
+- **2026-05-06 (Wave 3): Cross-project security boundary is a recurring canary pattern.** Three Wave 3 files canary the same shape (Firmware in project A → 404 via project B URL, CraAssessment same shape, EmulationSession same shape covered in Wave 2 emulation_router). The pattern is generic: any router with `<X>.project_id != project_id → 404` is a security boundary that mock tests trivially defeat (any UUID matches). Real-DB canary discipline catches the inverse: an unintentional comparison-operator flip (`==` → `!=`, or removing the check entirely) would silently leak rows to wrong-project URLs. Future router waves should default-canary this shape.
+- **2026-05-06 (Wave 3): F-A-06 confidence-bypass backstop generalised.** Wave 3's test_attack_surface_router.py canaries the explicit `confidence="medium"` kwarg added by Stream A (audit-2026-05-04). The pattern recurs across persistence sites (Wave 1 vulnerability_service, Wave 1 attack_surface_router, Wave 1 apk_scan_router, Wave 1 assessment_service). Every site that constructs `Finding(...)` directly (not via `FindingService.create()`) needs an explicit confidence canary; the audit cited 5 such sites. Wave 3 closes the attack_surface site; Wave 1 covered the apk_scan and assessment_service sites; Wave 1 closed the vulnerability_service site. Remaining sites (if any) will be flagged in subsequent wave triage.
 
 ## Continuation State
 
@@ -188,4 +204,5 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 
 **checkpoint-wave-1: shipped** (commits d8f1e14..49a6d34, 5 test files + 1 fix, 85 cases all passing)
 **checkpoint-wave-2: shipped** (commits dcedd33..2febcc0, 5 test files + 1 shim hardening, 90 cases all passing; cumulative 175 tests across waves 1+2)
-**checkpoint-wave-3: pending** (will set after Wave 3 starts)
+**checkpoint-wave-3: shipped** (commits 1ca2bcf..bcadb28, 5 test files, 45 cases all passing in 4.04s combined; cumulative 220 tests across waves 1+2+3)
+**checkpoint-wave-4: pending** (will set after Wave 4 starts)
