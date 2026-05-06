@@ -21,6 +21,12 @@ from app.models.fuzzing import FuzzingCampaign, FuzzingCrash
 from app.models.project import Project
 from app.models.sbom import SbomComponent, SbomVulnerability
 from app.services.export_service import ARCHIVE_VERSION
+from app.services.jsonb_normalizers import (
+    _normalize_fuzzing_campaigns_config,
+    _normalize_fuzzing_campaigns_stats,
+    _stamp_fuzzing_campaigns_config,
+    _stamp_fuzzing_campaigns_stats,
+)
 
 
 def _parse_dt(val) -> datetime | None:
@@ -534,8 +540,12 @@ class ImportService:
                 firmware_id=new_fw_id,
                 binary_path=c["binary_path"],
                 status=imported_status,
-                config=c.get("config"),
-                stats=c.get("stats"),
+                config=_stamp_fuzzing_campaigns_config(
+                    _normalize_fuzzing_campaigns_config(c.get("config"))
+                ),
+                stats=_stamp_fuzzing_campaigns_stats(
+                    _normalize_fuzzing_campaigns_stats(c.get("stats"))
+                ),
                 crashes_count=c.get("crashes_count", 0),
                 error_message=c.get("error_message"),
                 started_at=_parse_dt(c.get("started_at")),

@@ -191,3 +191,50 @@ def _normalize_firmware_cve_match_result(value: Any) -> dict | None:
     if isinstance(value, dict):
         return value
     return None
+
+
+# ── fuzzing_campaigns.config ──────────────────────────────────────────────────
+#
+# Canonical shape: ``dict`` of AFL++ campaign configuration (timeout,
+# memory_limit, dictionary, seed_corpus). Server default is ``{}``.
+FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION = 1
+
+
+def _normalize_fuzzing_campaigns_config(value: Any) -> dict:
+    """Return the canonical ``dict`` shape for ``FuzzingCampaign.config``.
+
+    ``None`` and wrong-typed values coerce to ``{}`` so consumers can
+    ``.get()`` safely. Server default is ``{}``, so the empty dict is
+    the natural floor.
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_fuzzing_campaigns_config(payload: dict[str, Any]) -> dict[str, Any]:
+    """Stamp the schema_version onto a writer payload."""
+    payload["schema_version"] = FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION
+    return payload
+
+
+# ── fuzzing_campaigns.stats ───────────────────────────────────────────────────
+#
+# Canonical shape: ``dict`` of AFL++ runtime stats (execs_per_sec,
+# total_execs, corpus_count, saved_crashes, saved_hangs, stability,
+# bitmap_cvg, last_find, run_time). Server default is ``{}``; populated
+# every poll interval by the campaign runner.
+FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION = 1
+
+
+def _normalize_fuzzing_campaigns_stats(value: Any) -> dict:
+    """Return the canonical ``dict`` shape for ``FuzzingCampaign.stats``."""
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_fuzzing_campaigns_stats(payload: dict[str, Any]) -> dict[str, Any]:
+    """Stamp the schema_version onto a writer payload."""
+    payload["schema_version"] = FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION
+    return payload

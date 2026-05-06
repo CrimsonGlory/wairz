@@ -26,7 +26,12 @@ from app.models.fuzzing import FuzzingCampaign, FuzzingCrash
 from app.services.analysis_service import check_binary_protections
 from app.services.emulation.docker_ops import copy_dir_to_container
 from app.services.event_service import event_service
-from app.services.jsonb_normalizers import _normalize_firmware_binary_info
+from app.services.jsonb_normalizers import (
+    _normalize_firmware_binary_info,
+    _normalize_fuzzing_campaigns_config,
+    _stamp_fuzzing_campaigns_config,
+    _stamp_fuzzing_campaigns_stats,
+)
 from app.services.sysroot_service import get_sysroot_path
 from app.utils.docker_client import get_docker_client
 from app.utils.sandbox import validate_path
@@ -359,7 +364,7 @@ class FuzzingService:
             firmware_id=firmware.id,
             binary_path=binary_path,
             status="created",
-            config=campaign_config,
+            config=_stamp_fuzzing_campaigns_config(campaign_config),
         )
         self.db.add(campaign)
         await self.db.flush()
@@ -467,7 +472,7 @@ class FuzzingService:
             volumes[host_path] = {"bind": "/firmware", "mode": "ro"}
 
         arch = firmware.architecture or "arm"
-        config = campaign.config or {}
+        config = _normalize_fuzzing_campaigns_config(campaign.config)
 
         try:
             container = client.containers.run(
@@ -746,7 +751,7 @@ class FuzzingService:
                     except ValueError:
                         stats[key] = value
 
-            campaign.stats = {
+            campaign.stats = _stamp_fuzzing_campaigns_stats({
                 "execs_per_sec": stats.get("execs_per_sec", 0),
                 "total_execs": stats.get("execs_done", 0),
                 "corpus_count": stats.get("corpus_count", stats.get("paths_total", 0)),
@@ -756,7 +761,7 @@ class FuzzingService:
                 "bitmap_cvg": stats.get("bitmap_cvg", "N/A"),
                 "last_find": stats.get("last_find", 0),
                 "run_time": stats.get("run_time", 0),
-            }
+            })
 
         except docker.errors.NotFound:
             pass

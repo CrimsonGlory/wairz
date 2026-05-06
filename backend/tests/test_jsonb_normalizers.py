@@ -20,14 +20,20 @@ from app.services.jsonb_normalizers import (
     CONVERSATIONS_MESSAGES_SCHEMA_VERSION,
     FIRMWARE_BINARY_INFO_SCHEMA_VERSION,
     FIRMWARE_DEVICE_METADATA_SCHEMA_VERSION,
+    FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION,
+    FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
     _normalize_analysis_cache_result,
     _normalize_conversations_messages,
     _normalize_firmware_binary_info,
     _normalize_firmware_cve_match_result,
     _normalize_firmware_device_metadata,
+    _normalize_fuzzing_campaigns_config,
+    _normalize_fuzzing_campaigns_stats,
     _stamp_analysis_cache_result,
     _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
+    _stamp_fuzzing_campaigns_config,
+    _stamp_fuzzing_campaigns_stats,
 )
 
 
@@ -266,3 +272,70 @@ def test_normalize_firmware_cve_match_result_idempotent():
     once = _normalize_firmware_cve_match_result(canonical)
     twice = _normalize_firmware_cve_match_result(once)
     assert once == twice == canonical
+
+
+# ── _normalize_fuzzing_campaigns_config ──────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical AFL++ config dict.
+        ({"timeout": 1000, "memory_limit": 256, "dictionary": None,
+          "seed_corpus": "/seeds"},
+         {"timeout": 1000, "memory_limit": 256, "dictionary": None,
+          "seed_corpus": "/seeds"}),
+        # Empty dict — server default.
+        ({}, {}),
+        # None — coerce to {} so consumers .get() safely.
+        (None, {}),
+        # Wrong type — list — coerce to {}.
+        ([1, 2], {}),
+    ],
+)
+def test_normalize_fuzzing_campaigns_config(value, expected):
+    assert _normalize_fuzzing_campaigns_config(value) == expected
+
+
+def test_stamp_fuzzing_campaigns_config_adds_version():
+    payload = {"timeout": 2000}
+    out = _stamp_fuzzing_campaigns_config(payload)
+    assert out["schema_version"] == FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION
+
+
+def test_stamp_fuzzing_campaigns_config_idempotent():
+    payload = {"timeout": 2000}
+    once = _stamp_fuzzing_campaigns_config(payload)
+    twice = _stamp_fuzzing_campaigns_config(once)
+    assert once == twice
+
+
+# ── _normalize_fuzzing_campaigns_stats ───────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical AFL++ stats.
+        ({"execs_per_sec": 5000, "total_execs": 1000000, "saved_crashes": 3},
+         {"execs_per_sec": 5000, "total_execs": 1000000, "saved_crashes": 3}),
+        ({}, {}),
+        (None, {}),
+        ([], {}),
+    ],
+)
+def test_normalize_fuzzing_campaigns_stats(value, expected):
+    assert _normalize_fuzzing_campaigns_stats(value) == expected
+
+
+def test_stamp_fuzzing_campaigns_stats_adds_version():
+    payload = {"total_execs": 100}
+    out = _stamp_fuzzing_campaigns_stats(payload)
+    assert out["schema_version"] == FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION
+
+
+def test_stamp_fuzzing_campaigns_stats_idempotent():
+    payload = {"total_execs": 100}
+    once = _stamp_fuzzing_campaigns_stats(payload)
+    twice = _stamp_fuzzing_campaigns_stats(once)
+    assert once == twice

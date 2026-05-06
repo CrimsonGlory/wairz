@@ -21,7 +21,11 @@ from app.models.firmware import Firmware
 from app.models.fuzzing import FuzzingCampaign, FuzzingCrash
 from app.models.project import Project
 from app.models.sbom import SbomComponent, SbomVulnerability
-from app.services.jsonb_normalizers import _normalize_analysis_cache_result
+from app.services.jsonb_normalizers import (
+    _normalize_analysis_cache_result,
+    _normalize_fuzzing_campaigns_config,
+    _normalize_fuzzing_campaigns_stats,
+)
 
 ARCHIVE_VERSION = 1
 
@@ -353,8 +357,8 @@ class ExportService:
                 "firmware_id": str(c.firmware_id),
                 "binary_path": c.binary_path,
                 "status": c.status,
-                "config": c.config,
-                "stats": c.stats,
+                "config": _normalize_fuzzing_campaigns_config(c.config),
+                "stats": _normalize_fuzzing_campaigns_stats(c.stats),
                 "crashes_count": c.crashes_count,
                 "error_message": c.error_message,
                 "started_at": c.started_at,

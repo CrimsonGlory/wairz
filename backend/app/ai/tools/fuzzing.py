@@ -13,7 +13,11 @@ from app.config import get_settings
 from app.models.firmware import Firmware
 from app.models.fuzzing import FuzzingCampaign, FuzzingCrash
 from app.services.fuzzing_service import FuzzingService
-from app.services.jsonb_normalizers import _normalize_firmware_binary_info
+from app.services.jsonb_normalizers import (
+    _normalize_firmware_binary_info,
+    _normalize_fuzzing_campaigns_config,
+    _normalize_fuzzing_campaigns_stats,
+)
 from app.utils.docker_client import get_docker_client
 
 
@@ -805,7 +809,7 @@ async def _handle_check_status(input: dict, context: ToolContext) -> str:
             f"  Status: {campaign.status}",
         ]
 
-        stats = campaign.stats
+        stats = _normalize_fuzzing_campaigns_stats(campaign.stats)
         if stats:
             lines.append(f"  Execs/sec: {stats.get('execs_per_sec', 0)}")
             lines.append(f"  Total execs: {stats.get('total_execs', 0)}")
@@ -864,9 +868,10 @@ async def _handle_stop_campaign(input: dict, context: ToolContext) -> str:
         return f"Error: {exc}"
 
     lines = [f"Campaign {campaign.id} stopped."]
-    if campaign.stats:
-        lines.append(f"  Total execs: {campaign.stats.get('total_execs', 0)}")
-        lines.append(f"  Crashes: {campaign.stats.get('saved_crashes', 0)}")
+    stats = _normalize_fuzzing_campaigns_stats(campaign.stats)
+    if stats:
+        lines.append(f"  Total execs: {stats.get('total_execs', 0)}")
+        lines.append(f"  Crashes: {stats.get('saved_crashes', 0)}")
     lines.append(f"  Final crash count: {campaign.crashes_count}")
 
     return "\n".join(lines)
@@ -922,8 +927,8 @@ async def _handle_diagnose_campaign(input: dict, context: ToolContext) -> str:
     except ValueError as exc:
         return f"Error: {exc}"
 
-    config = campaign.config or {}
-    stats = campaign.stats or {}
+    config = _normalize_fuzzing_campaigns_config(campaign.config)
+    stats = _normalize_fuzzing_campaigns_stats(campaign.stats)
     lines: list[str] = [
         f"Fuzzing Campaign Diagnostics: {campaign.id}",
         f"  Binary: {campaign.binary_path}",
