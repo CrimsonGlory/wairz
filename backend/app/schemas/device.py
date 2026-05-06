@@ -1,5 +1,7 @@
 """Pydantic schemas for device acquisition endpoints."""
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -54,6 +56,13 @@ class DumpPartitionRequest(BaseModel):
     partitions: list[str] = Field(..., min_length=1, description="Partition names to dump")
 
 
+# Pydantic enum mirroring the DB CHECK constraint
+# (ck_device_dump_sessions_status). Keep these two in sync per Rule #33c.
+DumpStatus = Literal[
+    "queued", "running", "completed", "partial", "failed", "cancelled",
+]
+
+
 class DumpPartitionStatus(BaseModel):
     partition: str
     status: str  # pending, active, complete, failed, skipped
@@ -67,13 +76,27 @@ class DumpPartitionStatus(BaseModel):
 
 
 class DumpStatusResponse(BaseModel):
-    status: str  # idle, dumping, complete, failed
-    device_id: str | None = None
+    """Full dump-session view returned by POST /dumps and GET /dumps/{id}/status.
+
+    The ``status`` field uses the Rule #33c Literal so OpenAPI clients pick
+    up the closed enum and any unknown value at the API boundary triggers a
+    422 instead of leaking through.
+    """
+
+    dump_id: str
+    status: DumpStatus
+    device_id: str
     partitions: list[DumpPartitionStatus] = []
+    bytes_written: int = 0
+    total_bytes: int | None = None
     error: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    created_at: str | None = None
 
 
 class DumpImportRequest(BaseModel):
+    dump_id: str = Field(..., description="Dump session id from POST /dumps")
     device_id: str = Field(..., description="ADB serial number")
     version_label: str | None = None
 
