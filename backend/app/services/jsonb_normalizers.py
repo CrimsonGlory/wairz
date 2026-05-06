@@ -168,3 +168,26 @@ def _stamp_firmware_binary_info(payload: dict[str, Any] | None) -> dict[str, Any
         return None
     payload["schema_version"] = FIRMWARE_BINARY_INFO_SCHEMA_VERSION
     return payload
+
+
+# ── firmware.cve_match_result ─────────────────────────────────────────────────
+#
+# Canonical shape: ``CveMatchRunResult.model_dump()`` — a dict of CVE
+# match aggregate per the Pydantic schema in
+# ``schemas/hardware_firmware.py``. Written by the 202+polling
+# cve-match background runner (Rule #33), read by ``_firmware_to_status``.
+# Two consumers — normaliser-only strategy (no schema_version stamp; the
+# Pydantic model itself is the schema).
+
+
+def _normalize_firmware_cve_match_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.cve_match_result``.
+
+    ``None`` is preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None`` (treat as "unusable
+    persisted result"; the next run will overwrite).
+    """
+    if isinstance(value, dict):
+        return value
+    return None

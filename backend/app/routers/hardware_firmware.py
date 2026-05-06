@@ -75,6 +75,7 @@ _KERNEL_TIERS = {"kernel_cpe", "kernel_subsystem"}
 from app.services.hardware_firmware.cve_matcher import match_firmware_cves
 from app.services.hardware_firmware.graph import build_driver_firmware_graph
 from app.services.hardware_firmware.hbom_export import build_hbom
+from app.services.jsonb_normalizers import _normalize_firmware_cve_match_result
 
 router = APIRouter(
     prefix="/api/v1/projects/{project_id}/hardware-firmware",
@@ -468,7 +469,7 @@ def _firmware_to_status(firmware: Firmware) -> CveMatchStatusResponse:
     render survives a page reload without an extra `/cve-aggregate`
     round-trip.
     """
-    raw = firmware.cve_match_result
+    raw = _normalize_firmware_cve_match_result(firmware.cve_match_result)
     return CveMatchStatusResponse(
         firmware_id=firmware.id,
         status=firmware.cve_match_status,

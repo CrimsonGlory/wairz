@@ -23,6 +23,7 @@ from app.services.jsonb_normalizers import (
     _normalize_analysis_cache_result,
     _normalize_conversations_messages,
     _normalize_firmware_binary_info,
+    _normalize_firmware_cve_match_result,
     _normalize_firmware_device_metadata,
     _stamp_analysis_cache_result,
     _stamp_firmware_binary_info,
@@ -237,3 +238,31 @@ def test_stamp_firmware_binary_info_idempotent():
     once = _stamp_firmware_binary_info(payload)
     twice = _stamp_firmware_binary_info(once)
     assert once == twice
+
+
+# ── _normalize_firmware_cve_match_result ─────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical CveMatchRunResult.model_dump() shape — one slice.
+        ({"summary": {"total": 5}, "tier_4": [], "tier_3": []},
+         {"summary": {"total": 5}, "tier_4": [], "tier_3": []}),
+        # None — preserved (no completed run).
+        (None, None),
+        # Wrong type — list — collapses to None.
+        ([], None),
+        # Empty dict — preserved (legitimate empty aggregate).
+        ({}, {}),
+    ],
+)
+def test_normalize_firmware_cve_match_result(value, expected):
+    assert _normalize_firmware_cve_match_result(value) == expected
+
+
+def test_normalize_firmware_cve_match_result_idempotent():
+    canonical = {"summary": {"total": 0}}
+    once = _normalize_firmware_cve_match_result(canonical)
+    twice = _normalize_firmware_cve_match_result(once)
+    assert once == twice == canonical
