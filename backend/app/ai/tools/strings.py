@@ -264,12 +264,15 @@ async def _handle_search_strings(input: dict, context: ToolContext) -> str:
     return header + "\n".join(results)
 
 
-async def _handle_find_crypto_material(input: dict, context: ToolContext) -> str:
-    """Find cryptographic keys, certificates, and related files."""
-    input_path = input.get("path", "/")
-    search_path = context.resolve_path(input_path)
-    real_root = context.real_root_for(input_path)
+def _find_crypto_material_sync(
+    search_path: str, real_root: str,
+) -> dict[str, list[str]]:
+    """Synchronous filesystem walk for cryptographic material.
 
+    Walks ``search_path`` and classifies files by SSH key name, PEM header
+    contents, or crypto-related extension. Returns the findings dict; the
+    async caller wraps this via ``run_in_executor`` (Rule #5).
+    """
     findings: dict[str, list[str]] = {
         "private_keys": [],
         "certificates": [],
@@ -314,6 +317,20 @@ async def _handle_find_crypto_material(input: dict, context: ToolContext) -> str
             # Fall back to extension-based detection
             if not pem_matched and ext in _CRYPTO_EXTENSIONS:
                 findings["crypto_files"].append(f"{rel_path} ({ext})")
+
+    return findings
+
+
+async def _handle_find_crypto_material(input: dict, context: ToolContext) -> str:
+    """Find cryptographic keys, certificates, and related files."""
+    input_path = input.get("path", "/")
+    search_path = context.resolve_path(input_path)
+    real_root = context.real_root_for(input_path)
+
+    loop = asyncio.get_running_loop()
+    findings = await loop.run_in_executor(
+        None, _find_crypto_material_sync, search_path, real_root,
+    )
 
     # Build output
     total = sum(len(v) for v in findings.values())
