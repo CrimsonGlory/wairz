@@ -2890,14 +2890,14 @@ def _is_net_dep_text_file(path: str) -> bool:
     return True
 
 
-async def _handle_detect_network_dependencies(input: dict, context: ToolContext) -> str:
-    """Scan firmware for network mounts, cloud endpoints, brokers, and DB connections."""
-    extracted_root = context.extracted_path
-    input_path = input.get("path") or "/"
-    search_root = context.resolve_path(input_path)
-    real_root = context.real_root_for(input_path)
-    limit = _get_limit(input)
+def _detect_network_dependencies_sync(
+    search_root: str, real_root: str, limit: int,
+) -> list:
+    """Synchronously scan firmware for network mount/cloud/DB indicators.
 
+    Returns a list of NetDepFinding dataclass instances. The async caller
+    wraps this via ``run_in_executor`` (Rule #5).
+    """
     from dataclasses import dataclass
 
     @dataclass
@@ -3033,6 +3033,21 @@ async def _handle_detect_network_dependencies(input: dict, context: ToolContext)
                     continue
                 scanned.add(rel_path)
                 _scan_file(abs_path)
+
+    return findings
+
+
+async def _handle_detect_network_dependencies(input: dict, context: ToolContext) -> str:
+    """Scan firmware for network mounts, cloud endpoints, brokers, and DB connections."""
+    input_path = input.get("path") or "/"
+    search_root = context.resolve_path(input_path)
+    real_root = context.real_root_for(input_path)
+    limit = _get_limit(input)
+
+    loop = asyncio.get_running_loop()
+    findings = await loop.run_in_executor(
+        None, _detect_network_dependencies_sync, search_root, real_root, limit,
+    )
 
     if not findings:
         return "No network dependencies detected in the firmware filesystem."
