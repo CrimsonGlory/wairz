@@ -102,6 +102,44 @@ async def lifespan(app: FastAPI):
             exc_info=True,
         )
 
+    # Reap orphan cve-match firmware rows. Same shape as the device-dump
+    # reaper above: POST /cve-match's idempotency check (Rule #33a)
+    # returns 409 while ``cve_match_status`` sits in 'queued'/'running',
+    # and after a crash the asyncio runner that owned the row is gone.
+    # Flip stuck rows to 'failed' so the next run isn't blocked. Like
+    # device dumps the runner is in-process only (no Docker container
+    # side), so STARTUP cleanup is sufficient — no cron needed.
+    try:
+        from datetime import datetime, timezone
+        from sqlalchemy import update
+        from app.database import async_session_factory
+        from app.models.firmware import Firmware
+
+        async with async_session_factory() as db:
+            res = await db.execute(
+                update(Firmware)
+                .where(Firmware.cve_match_status.in_(("queued", "running")))
+                .values(
+                    cve_match_status="failed",
+                    cve_match_error="Backend restarted; runner state lost",
+                    cve_match_finished_at=datetime.now(timezone.utc),
+                )
+            )
+            await db.commit()
+            if res.rowcount:
+                import logging
+                logging.getLogger(__name__).info(
+                    "Reaped %d orphan cve-match firmware row(s) on startup",
+                    res.rowcount,
+                )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning(
+            "cve-match orphan reaper failed — phantom rows may block new "
+            "cve-match runs until the next startup",
+            exc_info=True,
+        )
+
     yield
 
     # Shutdown Redis
