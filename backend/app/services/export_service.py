@@ -26,6 +26,7 @@ from app.services.jsonb_normalizers import (
     _normalize_emulation_presets_port_forwards,
     _normalize_fuzzing_campaigns_config,
     _normalize_fuzzing_campaigns_stats,
+    _normalize_sbom_components_metadata,
 )
 
 ARCHIVE_VERSION = 1
@@ -315,7 +316,7 @@ class ExportService:
                 "detection_source": c.detection_source,
                 "detection_confidence": c.detection_confidence,
                 "file_paths": c.file_paths,
-                "metadata": c.metadata_,
+                "metadata": _normalize_sbom_components_metadata(c.metadata_),
                 "created_at": c.created_at,
             }
             for c in components

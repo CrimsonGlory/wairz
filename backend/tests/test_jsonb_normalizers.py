@@ -28,6 +28,8 @@ from app.services.jsonb_normalizers import (
     FIRMWARE_DEVICE_METADATA_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
+    HARDWARE_FIRMWARE_BLOBS_METADATA_SCHEMA_VERSION,
+    SBOM_COMPONENTS_METADATA_SCHEMA_VERSION,
     _normalize_analysis_cache_result,
     _normalize_attack_surface_entries_dangerous_imports,
     _normalize_attack_surface_entries_input_categories,
@@ -42,12 +44,15 @@ from app.services.jsonb_normalizers import (
     _normalize_firmware_device_metadata,
     _normalize_fuzzing_campaigns_config,
     _normalize_fuzzing_campaigns_stats,
+    _normalize_hardware_firmware_blobs_metadata,
+    _normalize_sbom_components_metadata,
     _stamp_analysis_cache_result,
     _stamp_attack_surface_entries_score_breakdown,
     _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
     _stamp_fuzzing_campaigns_config,
     _stamp_fuzzing_campaigns_stats,
+    _stamp_hardware_firmware_blobs_metadata,
 )
 
 
@@ -525,3 +530,53 @@ def test_normalize_attack_surface_entries_input_categories(value, expected):
 
 def test_attack_surface_entries_input_categories_schema_version_constant():
     assert ATTACK_SURFACE_ENTRIES_INPUT_CATEGORIES_SCHEMA_VERSION == 1
+
+
+# ── _normalize_sbom_components_metadata ──────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ({"package": "openssl", "epoch": "1"}, {"package": "openssl", "epoch": "1"}),
+        ({}, {}),
+        (None, {}),
+        ([], {}),
+    ],
+)
+def test_normalize_sbom_components_metadata(value, expected):
+    assert _normalize_sbom_components_metadata(value) == expected
+
+
+def test_sbom_components_metadata_schema_version_constant():
+    assert SBOM_COMPONENTS_METADATA_SCHEMA_VERSION == 1
+
+
+# ── _normalize_hardware_firmware_blobs_metadata ──────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ({"kernel_semver": "5.4.224", "known_vulnerabilities": []},
+         {"kernel_semver": "5.4.224", "known_vulnerabilities": []}),
+        ({}, {}),
+        (None, {}),
+        ([1, 2], {}),
+    ],
+)
+def test_normalize_hardware_firmware_blobs_metadata(value, expected):
+    assert _normalize_hardware_firmware_blobs_metadata(value) == expected
+
+
+def test_stamp_hardware_firmware_blobs_metadata_adds_version():
+    payload = {"kernel_semver": "5.4.224"}
+    out = _stamp_hardware_firmware_blobs_metadata(payload)
+    assert out["schema_version"] == HARDWARE_FIRMWARE_BLOBS_METADATA_SCHEMA_VERSION
+
+
+def test_stamp_hardware_firmware_blobs_metadata_idempotent():
+    payload = {"foo": "bar"}
+    once = _stamp_hardware_firmware_blobs_metadata(payload)
+    twice = _stamp_hardware_firmware_blobs_metadata(once)
+    assert once == twice

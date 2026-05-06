@@ -21,7 +21,9 @@ from app.services.hardware_firmware.classifier import classify
 from app.services.hardware_firmware.parsers import ParsedBlob, get_parser
 from app.services.jsonb_normalizers import (
     _normalize_firmware_device_metadata,
+    _normalize_hardware_firmware_blobs_metadata,
     _stamp_firmware_device_metadata,
+    _stamp_hardware_firmware_blobs_metadata,
 )
 
 logger = logging.getLogger(__name__)
@@ -322,7 +324,9 @@ async def detect_hardware_firmware(
             # postgresql.insert(<MappedClass>).values() resolves attribute
             # names, not column names — use "metadata_" or it collides with
             # Base.metadata (MetaData object) and raises AttributeError.
-            "metadata_": row.get("metadata") or {},
+            "metadata_": _stamp_hardware_firmware_blobs_metadata(
+                _normalize_hardware_firmware_blobs_metadata(row.get("metadata"))
+            ),
         })
 
     # Chunk bulk insert — asyncpg caps bind parameters at 32767 per statement.

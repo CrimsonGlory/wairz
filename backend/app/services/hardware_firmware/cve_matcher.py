@@ -47,6 +47,7 @@ from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.models.sbom import SbomComponent, SbomVulnerability
 from app.services.cpe_dictionary_service import get_cpe_dictionary_service
 from app.services.hardware_firmware import kernel_vulns_index as kvi
+from app.services.jsonb_normalizers import _normalize_hardware_firmware_blobs_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +185,7 @@ def _match_parser_detected(
     """
     matches: list[CveMatch] = []
     for blob in blobs:
-        known = (blob.metadata_ or {}).get("known_vulnerabilities") or []
+        known = _normalize_hardware_firmware_blobs_metadata(blob.metadata_).get("known_vulnerabilities") or []
         if not isinstance(known, list):
             continue
         for v in known:
@@ -216,7 +217,7 @@ def _match_curated(
     blob_category = (blob.category or "").lower()
     blob_version = blob.version or ""
     blob_chipset = blob.chipset_target or ""
-    metadata_values = _stringify_metadata(blob.metadata_ or {})
+    metadata_values = _stringify_metadata(_normalize_hardware_firmware_blobs_metadata(blob.metadata_))
 
     for fam in families:
         if fam.get("vendor", "").lower() != blob_vendor:
@@ -555,7 +556,7 @@ async def _match_kernel_subsystem(
         if not subsystem:
             continue
 
-        kernel_version = (blob.metadata_ or {}).get("kernel_semver")
+        kernel_version = _normalize_hardware_firmware_blobs_metadata(blob.metadata_).get("kernel_semver")
         if not kernel_version:
             continue
 

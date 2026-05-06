@@ -16,6 +16,7 @@ from sqlalchemy import select
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.services.hardware_firmware.cve_matcher import CveMatch
+from app.services.jsonb_normalizers import _normalize_hardware_firmware_blobs_metadata
 
 
 async def _handle_list_hardware_firmware(input: dict, context: ToolContext) -> str:
@@ -100,7 +101,7 @@ async def _handle_analyze_hardware_firmware(input: dict, context: ToolContext) -
     lines.append(f"- **Detection source:** {blob.detection_source}")
     lines.append(f"- **Detection confidence:** {blob.detection_confidence}")
 
-    md = blob.metadata_
+    md = _normalize_hardware_firmware_blobs_metadata(blob.metadata_)
     if md:
         lines.append("")
         lines.append("## Parser metadata")

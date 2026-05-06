@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.finding import Finding
 from app.models.firmware import Firmware
 from app.models.hardware_firmware import HardwareFirmwareBlob
+from app.services.jsonb_normalizers import _normalize_hardware_firmware_blobs_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +112,7 @@ async def build_driver_firmware_graph(
     for blob in blobs:
         if blob.format != "ko":
             continue
-        fw_deps = (blob.metadata_ or {}).get("firmware_deps") or []
+        fw_deps = _normalize_hardware_firmware_blobs_metadata(blob.metadata_).get("firmware_deps") or []
         if not fw_deps:
             continue
         kmod_drivers += 1
@@ -147,7 +148,7 @@ async def build_driver_firmware_graph(
     for blob in blobs:
         if blob.format not in ("dtb", "dtbo"):
             continue
-        fw_names = (blob.metadata_ or {}).get("firmware_names") or []
+        fw_names = _normalize_hardware_firmware_blobs_metadata(blob.metadata_).get("firmware_names") or []
         if not fw_names:
             continue
         dtb_sources += 1

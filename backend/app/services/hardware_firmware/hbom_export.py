@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.firmware import Firmware
 from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.models.sbom import SbomVulnerability
+from app.services.jsonb_normalizers import _normalize_hardware_firmware_blobs_metadata
 
 # CycloneDX v1.6 severity enum — any value outside this set is coerced to
 # "unknown" so downstream consumers validating against the schema don't
@@ -138,7 +139,7 @@ def _build_firmware_component(blob: HardwareFirmwareBlob) -> dict:
     # Flatten top-level string/int metadata into properties too so
     # parser-specific fields (kernel_semver, product, fw_version_raw, ...)
     # survive into the HBOM.
-    md = blob.metadata_ or {}
+    md = _normalize_hardware_firmware_blobs_metadata(blob.metadata_)
     for key, value in md.items():
         if isinstance(value, (str, int, float, bool)):
             _add_prop(f"hw-firmware:meta:{key}", str(value))

@@ -385,3 +385,45 @@ def _normalize_attack_surface_entries_input_categories(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [s for s in value if isinstance(s, str)]
+
+
+# ── sbom_components.metadata ──────────────────────────────────────────────────
+#
+# Canonical shape: ``dict`` of detector-specific metadata
+# (e.g. ``{"package": "openssl", "epoch": "1"}`` for dpkg / opkg /
+# busybox-shipped components). Server default ``{}``. 1 reader
+# (export_service serialisation); normaliser-only.
+SBOM_COMPONENTS_METADATA_SCHEMA_VERSION = 1
+
+
+def _normalize_sbom_components_metadata(value: Any) -> dict:
+    """Return the canonical ``dict`` shape for ``SbomComponent.metadata_``.
+    Coerces None / non-dict to ``{}`` (the column's server default).
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+# ── hardware_firmware_blobs.metadata ──────────────────────────────────────────
+#
+# Canonical shape: ``dict`` of parser-specific metadata. Heavily
+# consumed (kernel_semver, known_vulnerabilities, firmware_deps,
+# firmware_names, vendor-specific keys). Server default ``{}``.
+# ≥3 readers → schema_version.
+HARDWARE_FIRMWARE_BLOBS_METADATA_SCHEMA_VERSION = 1
+
+
+def _normalize_hardware_firmware_blobs_metadata(value: Any) -> dict:
+    """Return the canonical ``dict`` shape for ``HardwareFirmwareBlob.metadata_``.
+    Coerces None / non-dict to ``{}`` so consumers can ``meta.get(...)`` safely.
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_hardware_firmware_blobs_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    """Stamp the schema_version onto a writer payload."""
+    payload["schema_version"] = HARDWARE_FIRMWARE_BLOBS_METADATA_SCHEMA_VERSION
+    return payload

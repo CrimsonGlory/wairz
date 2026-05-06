@@ -75,7 +75,10 @@ _KERNEL_TIERS = {"kernel_cpe", "kernel_subsystem"}
 from app.services.hardware_firmware.cve_matcher import match_firmware_cves
 from app.services.hardware_firmware.graph import build_driver_firmware_graph
 from app.services.hardware_firmware.hbom_export import build_hbom
-from app.services.jsonb_normalizers import _normalize_firmware_cve_match_result
+from app.services.jsonb_normalizers import (
+    _normalize_firmware_cve_match_result,
+    _normalize_hardware_firmware_blobs_metadata,
+)
 
 router = APIRouter(
     prefix="/api/v1/projects/{project_id}/hardware-firmware",
@@ -117,7 +120,7 @@ def _blob_to_response(
         chipset_target=blob.chipset_target,
         driver_references=blob.driver_references,
         sbom_component_id=blob.sbom_component_id,
-        metadata=blob.metadata_ or {},
+        metadata=_normalize_hardware_firmware_blobs_metadata(blob.metadata_),
         detection_source=blob.detection_source,
         detection_confidence=blob.detection_confidence,
         created_at=blob.created_at,
