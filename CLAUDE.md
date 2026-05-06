@@ -122,6 +122,7 @@ wairz/
    - Foreign keys with `cascade="all, delete-orphan"` on relationships
 2. Create Alembic migration: `alembic revision --autogenerate -m "description"`
 3. Migrations run automatically on container startup
+4. **Every JSONB column** gets a boundary normaliser in `backend/app/services/jsonb_normalizers.py` (Rule #35c). Add `_normalize_<table>_<column>(value: Any) -> <canonical>`; if the column is read by ≥3 consumer files, also add a `<TABLE>_<COLUMN>_SCHEMA_VERSION = 1` constant + `_stamp_<table>_<column>(payload)` writer helper. Route every consumer access through these — `_normalize_*` at read sites, `_stamp_*` at write sites. Add a test in `backend/tests/test_jsonb_normalizers.py` covering canonical pass-through, defensive coercion (`None` / wrong-type), and idempotency.
 
 ### Adding a Frontend Page
 
