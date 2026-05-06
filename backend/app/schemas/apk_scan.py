@@ -139,3 +139,75 @@ class BytecodeScanResponse(BaseModel):
     firmware_context: FirmwareContextResponse | None = None
 
     model_config = {"from_attributes": True}
+
+
+# ---------------------------------------------------------------------------
+# Phase 2b: mobsfscan SAST scan response schemas
+# ---------------------------------------------------------------------------
+
+
+class SastFindingResponse(BaseModel):
+    """A single SAST finding from mobsfscan."""
+    rule_id: str
+    title: str
+    description: str
+    severity: str
+    file_path: str | None = None
+    source_file: str | None = None  # Java/Kotlin source path for source viewer
+    line_number: int | None = None
+    cwe_ids: list[str] = Field(default_factory=list)
+    owasp_mobile: str = ""
+    masvs: str = ""
+
+    model_config = {"from_attributes": True}
+
+
+class SastScanTimingResponse(BaseModel):
+    """Pipeline timing breakdown."""
+    total_elapsed_ms: int = 0
+    jadx_elapsed_ms: int = 0
+    mobsfscan_elapsed_ms: int = 0
+
+
+class SastScanSummary(BaseModel):
+    """Summary statistics for a SAST scan."""
+    total_findings: int = 0
+    by_severity: dict[str, int] = Field(default_factory=dict)
+    files_scanned: int = 0
+    normalized_findings: int = 0
+    persisted_count: int = 0
+    suppressed_rule_count: int = 0
+    suppressed_path_count: int = 0
+
+
+class SastScanResponse(BaseModel):
+    """Full response for a SAST (jadx+mobsfscan) scan."""
+    success: bool = True
+    findings: list[SastFindingResponse] = Field(default_factory=list)
+    summary: SastScanSummary = Field(default_factory=SastScanSummary)
+    timing: SastScanTimingResponse = Field(default_factory=SastScanTimingResponse)
+    cached: bool = False
+    error: str | None = None
+    firmware_context: FirmwareContextResponse | None = None
+
+    model_config = {"from_attributes": True}
+
+
+# ---------------------------------------------------------------------------
+# Decompiled source viewer
+# ---------------------------------------------------------------------------
+
+
+class SourceFileResponse(BaseModel):
+    """Decompiled Java/Kotlin source code for a single file."""
+    path: str
+    source: str
+    apk_path: str
+    line_count: int
+
+
+class SourceFileListResponse(BaseModel):
+    """List of available decompiled source files for an APK."""
+    apk_path: str
+    files: list[str]
+    total: int
