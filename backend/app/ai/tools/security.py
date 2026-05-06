@@ -260,13 +260,14 @@ async def _handle_analyze_config_security(input: dict, context: ToolContext) -> 
 # ---------------------------------------------------------------------------
 
 
-async def _handle_check_setuid_binaries(input: dict, context: ToolContext) -> str:
-    """Find all setuid/setgid files in the firmware filesystem."""
-    input_path = input.get("path") or "/"
-    search_root = context.resolve_path(input_path)
-    real_root = context.real_root_for(input_path)
-    limit = _get_limit(input)
+def _check_setuid_binaries_sync(
+    search_root: str, real_root: str, limit: int,
+) -> tuple[list[str], list[str]]:
+    """Synchronous walk for setuid/setgid binary detection.
 
+    Returns (setuid_files, setgid_files). The async caller wraps this via
+    ``run_in_executor`` (Rule #5).
+    """
     setuid_files: list[str] = []
     setgid_files: list[str] = []
 
@@ -295,6 +296,21 @@ async def _handle_check_setuid_binaries(input: dict, context: ToolContext) -> st
                 break
         if len(setuid_files) + len(setgid_files) >= limit:
             break
+
+    return setuid_files, setgid_files
+
+
+async def _handle_check_setuid_binaries(input: dict, context: ToolContext) -> str:
+    """Find all setuid/setgid files in the firmware filesystem."""
+    input_path = input.get("path") or "/"
+    search_root = context.resolve_path(input_path)
+    real_root = context.real_root_for(input_path)
+    limit = _get_limit(input)
+
+    loop = asyncio.get_running_loop()
+    setuid_files, setgid_files = await loop.run_in_executor(
+        None, _check_setuid_binaries_sync, search_root, real_root, limit,
+    )
 
     lines: list[str] = []
 
@@ -469,16 +485,16 @@ _SENSITIVE_PATTERNS = re.compile(
 )
 
 
-async def _handle_check_filesystem_permissions(input: dict, context: ToolContext) -> str:
-    """Check for world-writable files and weak permissions on sensitive files."""
-    input_path = input.get("path") or "/"
-    search_root = context.resolve_path(input_path)
-    real_root = context.real_root_for(input_path)
-    limit = _get_limit(input)
+def _check_filesystem_permissions_sync(
+    search_root: str, real_root: str, limit: int,
+) -> tuple[list[str], list[str]]:
+    """Synchronous walk to detect world-writable files and weak perms.
 
+    Returns (world_writable, sensitive_weak). The async caller wraps this via
+    ``run_in_executor`` (Rule #5).
+    """
     world_writable: list[str] = []
     sensitive_weak: list[str] = []
-    world_exec: list[str] = []
 
     for dirpath, dirs, files in safe_walk(search_root):
         for name in files + dirs:
@@ -524,6 +540,21 @@ async def _handle_check_filesystem_permissions(input: dict, context: ToolContext
                 break
         if len(world_writable) + len(sensitive_weak) >= limit:
             break
+
+    return world_writable, sensitive_weak
+
+
+async def _handle_check_filesystem_permissions(input: dict, context: ToolContext) -> str:
+    """Check for world-writable files and weak permissions on sensitive files."""
+    input_path = input.get("path") or "/"
+    search_root = context.resolve_path(input_path)
+    real_root = context.real_root_for(input_path)
+    limit = _get_limit(input)
+
+    loop = asyncio.get_running_loop()
+    world_writable, sensitive_weak = await loop.run_in_executor(
+        None, _check_filesystem_permissions_sync, search_root, real_root, limit,
+    )
 
     lines: list[str] = []
 
