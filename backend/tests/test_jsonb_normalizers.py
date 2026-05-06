@@ -16,10 +16,13 @@ from __future__ import annotations
 import pytest
 
 from app.services.jsonb_normalizers import (
+    ANALYSIS_CACHE_RESULT_SCHEMA_VERSION,
     CONVERSATIONS_MESSAGES_SCHEMA_VERSION,
     FIRMWARE_DEVICE_METADATA_SCHEMA_VERSION,
+    _normalize_analysis_cache_result,
     _normalize_conversations_messages,
     _normalize_firmware_device_metadata,
+    _stamp_analysis_cache_result,
     _stamp_firmware_device_metadata,
 )
 
@@ -131,3 +134,52 @@ def test_normalize_conversations_messages_idempotent():
 
 def test_conversations_messages_schema_version_constant():
     assert CONVERSATIONS_MESSAGES_SCHEMA_VERSION == 1
+
+
+# ── _normalize_analysis_cache_result ─────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical Ghidra-style decompilation cache.
+        ({"decompilation": "void main() { ... }", "function": "main"},
+         {"decompilation": "void main() { ... }", "function": "main"}),
+        # Canonical mobsfscan-style report.
+        ({"results": [{"id": "X", "severity": "HIGH"}]},
+         {"results": [{"id": "X", "severity": "HIGH"}]}),
+        # Empty dict — preserved (writer's choice to store-empty is honoured).
+        ({}, {}),
+        # None — distinct from device_metadata: NULL means "not yet computed",
+        # not "no data" — preserve None.
+        (None, None),
+        # Wrong type — list — collapses to None ("no usable cache").
+        ([1, 2, 3], None),
+        # Wrong type — string — collapses to None.
+        ("not a dict", None),
+    ],
+)
+def test_normalize_analysis_cache_result(value, expected):
+    assert _normalize_analysis_cache_result(value) == expected
+
+
+def test_normalize_analysis_cache_result_idempotent():
+    canonical = {"results": [{"id": "X"}], "schema_version": 1}
+    once = _normalize_analysis_cache_result(canonical)
+    twice = _normalize_analysis_cache_result(once)
+    assert once == twice == canonical
+
+
+def test_stamp_analysis_cache_result_adds_version():
+    payload = {"results": []}
+    out = _stamp_analysis_cache_result(payload)
+    assert out["schema_version"] == ANALYSIS_CACHE_RESULT_SCHEMA_VERSION
+    assert out["results"] == []
+
+
+def test_stamp_analysis_cache_result_idempotent():
+    payload = {"results": []}
+    once = _stamp_analysis_cache_result(payload)
+    twice = _stamp_analysis_cache_result(once)
+    assert once == twice
+    assert once["schema_version"] == ANALYSIS_CACHE_RESULT_SCHEMA_VERSION

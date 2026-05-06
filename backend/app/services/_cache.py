@@ -43,6 +43,10 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.analysis_cache import AnalysisCache
+from app.services.jsonb_normalizers import (
+    _normalize_analysis_cache_result,
+    _stamp_analysis_cache_result,
+)
 
 
 async def exists_cached(
@@ -99,9 +103,7 @@ async def get_cached(
 
     stmt = select(AnalysisCache.result).where(*conditions).limit(1)
     row = (await db.execute(stmt)).scalars().first()
-    if isinstance(row, dict):
-        return row
-    return None
+    return _normalize_analysis_cache_result(row)
 
 
 async def store_cached(
@@ -136,7 +138,7 @@ async def store_cached(
             binary_path=binary_path,
             binary_sha256=binary_sha256,
             operation=operation,
-            result=result,
+            result=_stamp_analysis_cache_result(result),
         )
     )
     await db.flush()

@@ -21,6 +21,7 @@ from app.models.firmware import Firmware
 from app.models.fuzzing import FuzzingCampaign, FuzzingCrash
 from app.models.project import Project
 from app.models.sbom import SbomComponent, SbomVulnerability
+from app.services.jsonb_normalizers import _normalize_analysis_cache_result
 
 ARCHIVE_VERSION = 1
 
@@ -283,7 +284,7 @@ class ExportService:
                 "binary_path": r.binary_path,
                 "binary_sha256": r.binary_sha256,
                 "operation": r.operation,
-                "result": r.result,
+                "result": _normalize_analysis_cache_result(r.result),
                 "created_at": r.created_at,
             }
             for r in rows

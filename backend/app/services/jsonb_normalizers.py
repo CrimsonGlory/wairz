@@ -96,3 +96,40 @@ def _normalize_conversations_messages(value: Any) -> list[dict]:
     if not isinstance(value, list):
         return []
     return [m for m in value if isinstance(m, dict)]
+
+
+# ── analysis_cache.result ─────────────────────────────────────────────────────
+#
+# Canonical shape: ``dict`` of analysis-tool-specific output. Same column
+# stores Ghidra decompilations, radare2 protections, mobsfscan reports,
+# CWE-checker findings — keyed by ``(firmware_id, binary_sha256, operation)``
+# so the per-row shape is governed by ``operation``. The normaliser only
+# guards the column-level dict shape; the per-operation interpretation is
+# the caller's responsibility (and they read keys of their own choosing).
+ANALYSIS_CACHE_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_analysis_cache_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``AnalysisCache.result``.
+
+    Distinct from ``device_metadata``: a missing cache row legitimately
+    means "not yet computed" — so ``None`` is preserved rather than
+    coerced to ``{}``. Wrong-typed values (a list / string accidentally
+    written) collapse to ``None`` too, signalling "no usable cache".
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_analysis_cache_result(payload: dict[str, Any]) -> dict[str, Any]:
+    """Stamp the schema_version onto an analysis_cache.result writer payload.
+
+    Mutates-in-place and returns the same dict. Idempotent. Always
+    receives a non-None dict (the column is nullable but writers always
+    pass a populated result), so this helper is unconditionally
+    additive.
+    """
+    payload["schema_version"] = ANALYSIS_CACHE_RESULT_SCHEMA_VERSION
+    return payload
