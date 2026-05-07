@@ -103,9 +103,9 @@ EXTRACTION_CAPABILITY: dict[DetectedFormat, ExtractionCapability] = {
     DetectedFormat.WINDOWS_INSTALLER_ISO: ExtractionCapability.PARTIAL,
     DetectedFormat.PE_EXECUTABLE: ExtractionCapability.PARTIAL,
     DetectedFormat.ISO_9660: ExtractionCapability.FULL,
+    DetectedFormat.WIM_ARCHIVE: ExtractionCapability.FULL,
     DetectedFormat.ACRONIS_BACKUP: ExtractionCapability.NONE,
     DetectedFormat.QNX_IFS: ExtractionCapability.NONE,
-    DetectedFormat.WIM_ARCHIVE: ExtractionCapability.NONE,
     DetectedFormat.UNKNOWN: ExtractionCapability.NONE,
 }
 
@@ -124,11 +124,9 @@ CAPABILITY_NOTES: dict[DetectedFormat, str] = {
         "Use a QNX-aware tool (mount_ifs, dumpifs) to extract the rootfs and "
         "re-upload as a tar archive."
     ),
-    DetectedFormat.WIM_ARCHIVE: (
-        "Windows Imaging Format archive detected. Use 7-Zip or wimlib to "
-        "extract individual files and re-upload as a tar/zip if you need "
-        "filesystem-level analysis."
-    ),
+    # WIM_ARCHIVE has no note — capability is FULL via wimlib-imagex
+    # (Phase 2 handler 2). The full image list goes into the per-upload
+    # unpack_log; the user-facing capability surface stays clean.
     DetectedFormat.WINDOWS_INSTALLER_ISO: (
         "Windows installer ISO detected. wairz can extract the ISO contents "
         "(boot loaders, manifests) but cannot expand the inner WIM payloads "
