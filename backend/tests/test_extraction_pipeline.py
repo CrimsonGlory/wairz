@@ -11,10 +11,13 @@ Covers:
    None, the dispatcher consults the file's magic bytes via
    :func:`detect_format`.
 4. Rule #35b live canary — a real :class:`Firmware` ORM row stamped
-   with ``detected_format='wim_archive'`` runs end-to-end through
+   with ``detected_format='acronis_backup'`` runs end-to-end through
    :func:`run_unpack`, persists no extraction, and returns an
-   :class:`UnpackResult` whose log carries the WIM-format workaround
-   text from :data:`CAPABILITY_NOTES`.
+   :class:`UnpackResult` whose log carries the Acronis-format
+   workaround text from :data:`CAPABILITY_NOTES`. (Pre Phase-2
+   handler 2, this canary used WIM_ARCHIVE — but WIM now routes to
+   unpack_wim, so the no-handler canary moved to ACRONIS_BACKUP,
+   which remains capability=NONE.)
 5. ``unpack_no_handler`` direct contract — fixture ``.tibx`` file
    produces ``success=False`` with the Acronis workaround text.
 6. ``UNKNOWN`` passes through to the default strategy (the unpack
@@ -80,7 +83,6 @@ def test_strategies_table_covers_every_detected_format():
 @pytest.mark.parametrize(
     "fmt",
     [
-        DetectedFormat.WIM_ARCHIVE,
         DetectedFormat.QNX_IFS,
         DetectedFormat.ACRONIS_BACKUP,
     ],
@@ -109,6 +111,12 @@ def test_iso_9660_routes_to_unpack_iso9660():
     """Phase 2 handler 1 — ISO 9660 routes to the dedicated 7z worker."""
     from app.workers.unpack_iso9660 import unpack_iso9660
     assert get_strategy(DetectedFormat.ISO_9660) is unpack_iso9660
+
+
+def test_wim_archive_routes_to_unpack_wim():
+    """Phase 2 handler 2 — WIM_ARCHIVE routes to the dedicated wimlib worker."""
+    from app.workers.unpack_wim import unpack_wim
+    assert get_strategy(DetectedFormat.WIM_ARCHIVE) is unpack_wim
 
 
 def test_unknown_format_routes_to_default_not_no_handler():
@@ -158,9 +166,13 @@ async def test_resolve_strategy_handles_unparseable_detected_format(
     tmp_path: Path,
 ):
     """A garbage value in ``firmware.detected_format`` falls back to fresh detection."""
-    blob = tmp_path / "wim.bin"
-    # MSWIM\x00\x00\x00 → WIM_ARCHIVE
-    blob.write_bytes(b"MSWIM\x00\x00\x00" + b"\x00" * 64)
+    # Use a still-NONE format so the assertion stays meaningful: a
+    # garbage column value should resolve via fresh magic-byte detection
+    # (here: Acronis extension) and route to unpack_no_handler. WIM
+    # would be a less useful canary now that it routes to a real worker.
+    blob = tmp_path / "image.tibx"
+    # Acronis has no published magic — detect_format falls back to extension.
+    blob.write_bytes(b"\xff" * 256)
 
     fw = Firmware(
         id=uuid.uuid4(),
@@ -171,7 +183,7 @@ async def test_resolve_strategy_handles_unparseable_detected_format(
     )
 
     fmt, strategy = await resolve_strategy(fw)
-    assert fmt is DetectedFormat.WIM_ARCHIVE
+    assert fmt is DetectedFormat.ACRONIS_BACKUP
     assert strategy is unpack_no_handler
 
 
@@ -180,10 +192,10 @@ async def test_resolve_strategy_handles_unparseable_detected_format(
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_run_unpack_live_canary_wim_archive_routes_to_no_handler(
+async def test_run_unpack_live_canary_acronis_routes_to_no_handler(
     tmp_path: Path,
 ):
-    """Round-trip: persist a Firmware row with detected_format='wim_archive',
+    """Round-trip: persist a Firmware row with detected_format='acronis_backup',
     call run_unpack(), assert the no-handler workaround text appears.
 
     Verifies the value-flow contract: the persisted column drives the
@@ -191,12 +203,15 @@ async def test_run_unpack_live_canary_wim_archive_routes_to_no_handler(
     workaround text. Mock-only tests cannot catch a regression where
     the dispatcher reads the wrong column or the strategy returns the
     wrong format's note.
+
+    (Pre Phase-2 handler 2 this canary used WIM_ARCHIVE; WIM now routes
+    to unpack_wim, so the no-handler canary moved to ACRONIS_BACKUP.)
     """
-    storage_file = tmp_path / "firmware.wim"
-    # Real WIM magic so the unpack_no_handler's fresh detect_format()
-    # also lands on WIM_ARCHIVE — confirms detect-time and dispatch-time
-    # agree.
-    storage_file.write_bytes(b"MSWIM\x00\x00\x00" + b"\x00" * 64)
+    storage_file = tmp_path / "firmware.tibx"
+    # Acronis has no public magic — fresh detect_format() falls back to
+    # the .tibx extension and lands on ACRONIS_BACKUP. Confirms the
+    # detect-time + dispatch-time + workaround-text triple all agree.
+    storage_file.write_bytes(b"\xff" * 256)
 
     async with make_live_db() as db:
         pid = uuid.uuid4()
@@ -209,7 +224,7 @@ async def test_run_unpack_live_canary_wim_archive_routes_to_no_handler(
             project_id=pid,
             sha256="c" * 64,
             storage_path=str(storage_file),
-            detected_format=DetectedFormat.WIM_ARCHIVE.value,
+            detected_format=DetectedFormat.ACRONIS_BACKUP.value,
         )
         db.add(firmware)
         await db.commit()
@@ -220,7 +235,7 @@ async def test_run_unpack_live_canary_wim_archive_routes_to_no_handler(
         row = (
             await db.execute(select(Firmware).where(Firmware.id == firmware.id))
         ).scalar_one()
-        assert row.detected_format == DetectedFormat.WIM_ARCHIVE.value
+        assert row.detected_format == DetectedFormat.ACRONIS_BACKUP.value
 
         result = await run_unpack(
             row,
@@ -231,13 +246,13 @@ async def test_run_unpack_live_canary_wim_archive_routes_to_no_handler(
     assert result.success is False
     assert result.error is not None
     assert "no extraction handler" in result.error.lower()
-    # CAPABILITY_NOTES integration: the WIM-specific workaround
-    # mentions wimlib AND 7-Zip. If the test trips because copy
-    # changed, update CAPABILITY_NOTES and this assertion in lock-
-    # step (Rule #21 sync discipline).
+    # CAPABILITY_NOTES integration: the Acronis workaround mentions
+    # the proprietary format + Acronis True Image. If the test trips
+    # because copy changed, update CAPABILITY_NOTES and this assertion
+    # in lock-step (Rule #21 sync discipline).
     log_lower = result.unpack_log.lower()
-    assert "wimlib" in log_lower or "7-zip" in log_lower, (
-        f"WIM workaround note missing from unpack_log: {result.unpack_log!r}"
+    assert "acronis" in log_lower, (
+        f"Acronis workaround note missing from unpack_log: {result.unpack_log!r}"
     )
 
 
@@ -267,9 +282,15 @@ async def test_unpack_no_handler_acronis_backup(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_unpack_no_handler_invokes_progress_callback(tmp_path: Path):
-    """The strategy contract includes calling progress_callback if provided."""
-    backup = tmp_path / "boot.wim"
-    backup.write_bytes(b"MSWIM\x00\x00\x00" + b"\x00" * 64)
+    """The strategy contract includes calling progress_callback if provided.
+
+    Uses a QNX-magic blob — QNX_IFS remains capability=NONE so the
+    no-handler path is the right routing target. (Pre Phase-2 handler 2
+    this used a WIM-magic blob; WIM now routes to unpack_wim.)
+    """
+    backup = tmp_path / "image.ifs"
+    # QNX IFS startup-header magic.
+    backup.write_bytes(b"\xeb\x7e\xff\x7e" + b"\x00" * 64)
 
     progress = AsyncMock()
     result = await unpack_no_handler(
