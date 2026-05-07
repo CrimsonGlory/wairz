@@ -279,23 +279,28 @@ def _parse_finding_source_config_keys() -> set[str]:
 # (a) it treated `fuzzing` and `fuzzing_scan` as both DB-only, but
 # `fuzzing` is also in the FE union (so it's NOT drifting); (b) it
 # missed `security_review` on the FE-only side.  Classic Rule #31
-# narrow-grep miscounting; corrected here.
+# narrow-grep miscounting; corrected then.
+#
+# Closure landed 2026-05-06 in alembic revision
+# `61b147189fcf_close_findings_source_drift.py` + matching frontend
+# changes:
+#   - DB ADD: `security_review` (assessment_service ASSESSMENT_SOURCE),
+#     `ai_discovered` (MCP add_finding default).
+#   - DB DROP: `fuzzing_scan` (legacy duplicate, 0 rows / 0 SET sites).
+#   - FE ADD: `attack_surface`, `clamav_scan`, `cwe_checker`,
+#     `hardware_firmware_graph`, `uefi_scan`, `vt_scan` (all already in
+#     DB, missing from frontend union/config).
+#   - FE DROP: `known_good_scan` (dead UI; `run_known_good_scan` in
+#     `services/security_audit/hash_lookups.py` produces SecurityFinding
+#     objects which `_persist_finding` writes with
+#     `source='security_audit'`, never `'known_good_scan'`).
+#
+# Both baselines are now empty; the alignment tests act as a hard
+# forward-drift gate.
 
-_KNOWN_DB_ONLY_DRIFT: frozenset[str] = frozenset({
-    "attack_surface",
-    "clamav_scan",
-    "cwe_checker",
-    "fuzzing_scan",          # legacy duplicate of `fuzzing`?  Needs classification.
-    "hardware_firmware_graph",
-    "uefi_scan",
-    "vt_scan",
-})
+_KNOWN_DB_ONLY_DRIFT: frozenset[str] = frozenset()
 
-_KNOWN_FE_ONLY_DRIFT: frozenset[str] = frozenset({
-    "ai_discovered",
-    "known_good_scan",
-    "security_review",       # missed by the intake — found by Rule #31 grep-canary at test time.
-})
+_KNOWN_FE_ONLY_DRIFT: frozenset[str] = frozenset()
 
 
 def test_finding_source_config_is_exhaustive():
