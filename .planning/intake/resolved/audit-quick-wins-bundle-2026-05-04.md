@@ -1,9 +1,22 @@
 ---
 title: "Audit quick-wins bundle 2026-05-04 — 14 medium/low items"
-status: in-progress
+status: completed
 priority: medium
 target: (multiple files; see per-item)
+resolved: 2026-05-07
 ---
+
+## Closure summary (2026-05-07)
+
+All actionable items shipped. 11 ✅ + 1 ⊘ skipped (Rule #19 — refresh IS load-bearing for `onupdate=func.now()`) + 3 ◐ partial-with-documented-deferrals = 14/14 dispositioned.
+
+**Documented deferrals** (each requires substantially more design than a quick-win and remain open as separate intake candidates if priority warrants):
+
+- **M-13 partial:** `EmulationSession.kernel_used` not dropped — has a real read site at `app/ai/tools/emulation.py:2763`. Plumbing the write (recording which kernel image FirmAE selected per architecture) needs a separate intake.
+- **M-8 partial:** `vulhunt` healthcheck blocked by Chainguard distroless upstream image — no shell, no `health` subcommand on `vulhunt-ce`. Either upstream a `vulhunt-ce health` subcommand or ship a side-car ambassador. Out-of-scope for an audit close-out.
+- **M-10 partial:** Backend non-root blocked by entrypoint-level `groupmod`/`usermod` GID fix-up that requires root. Either privileged init container or build-time-only DOCKER_GID — both larger than a quick-win.
+
+Per-item commit references are in the per-item rows above.
 
 ## Progress — autopilot 2026-05-05
 
