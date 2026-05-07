@@ -25,9 +25,9 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 
 ## Active Context
 
-**Mode:** WAVE 6 SHIPPED — pause for review per user directive
-**Current Wave:** 6 ✅ COMPLETE — first service wave (top-5 by LOC)
-**Next Wave:** 7 (services — firmware_metadata_service 481, compliance_service 481, kernel_service 381, report_service 365, selinux_service 355) when user gives go-ahead
+**Mode:** WAVE 7 SHIPPED — pause for review per user directive
+**Current Wave:** 7 ✅ COMPLETE — second service wave (next-5 by LOC)
+**Next Wave:** 8 (services — cpe_dictionary_service 355, abusech_service 326, cwe_checker_service 318, document_service 317, qiling_service 279) when user gives go-ahead
 
 **Wave 1 commits (clean-history):**
 - `d8f1e14` test(sbom_router): 16 cases, +744 LOC
@@ -85,7 +85,18 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 - `7ae2358` test(binary_analysis_service): Rule #30 hot zone — lief/pefile/cpu_rec SOURCE-patch (23 cases, +540 LOC)
 
 **Wave 6 totals: 142 tests across 5 files all passing in 5.82s combined; 5 commits, +2,398 LOC of test code (production code unchanged).**
-**Cumulative Phase 2 totals: 443 tests + 1 production bug fix + 1 shim hardening = 35 commits across 6 waves.**
+
+**Wave 7 commits (clean-history) — second service wave (next-5 by LOC):**
+- `a5c1862` test(firmware_metadata_service): U-Boot/MTD/binwalk parser + cache canary (35 cases, +815 LOC) — Rule #35c JSONB hot zone with schema_version pop-and-assert
+- `bffca93` test(compliance_service): ETSI EN 303 645 mapping + cross-project canary (31 cases, +627 LOC) — pure-logic service, recurring cross-project boundary canary
+- `7edc860` test(kernel_service): filesystem kernel mgmt + SSRF + lifecycle canary (61 cases, +734 LOC) — full upload→initrd→list→get→delete cycle
+- `f753a6f` test(report_service): markdown/HTML/PDF report rendering + Rule 30 weasyprint (29 cases, +619 LOC) — XSS canary on project.name AND firmware.original_filename; Rule #30 SOURCE-patch via sys.modules
+- `8f8847e` test(selinux_service): policy walker + Rule 30 setools source-patch (32 cases, +727 LOC) — realistic Android tree fixture; explicit hasattr-sentinel against future inverse-Rule-30 drift
+
+**Wave 7 totals: 188 tests across 5 files all passing in <2s combined per file; 5 commits, +3,522 LOC of test code (production code unchanged).**
+**Cumulative Phase 2 totals: 631 tests + 1 production bug fix + 1 shim hardening = 40 commits across 7 waves.**
+
+**Wave 7 full-suite smoke (suite-green wave-end gate):** `2605 passed / 6 skipped / 1 xfailed / 0 failed in 68.05s` (host-side) — was 2417 before Wave 7, +188 = exact match against the 5 wave files. No regression in any prior test file.
 
 ## Phase End Conditions
 
@@ -217,6 +228,11 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 | 6 | tests/test_jadx_service.py | 114c249 | 18 | 452 | AnalysisCache rows: jadx_decompilation sentinel + jadx_source_tree + jadx_source:Main.java + jadx_all_sources; binary_sha256 lookup key; sentinel.status='complete' / jadx_returncode=0 / stats.total_source_files=1 round-trip; Rule #29 cache-HIT contract (call_count==1 after second call); Rule #30 source-patch on shutil.which |
 | 6 | tests/test_import_service.py | 5196448 | 14 | 414 | Round-trip via real .wairz archive → ImportService → SELECT 7 ORM rows; UUID remapping (project/firmware/finding/document/preset/sbom_component all NEW); Finding.confidence 'medium' + None round-trip (F-A-06 width-canary on import path); Firmware storage_path + extracted_path use NEW IDs; FuzzingCampaign.status 'running'→'stopped' coercion; SBOM component FK remap |
 | 6 | tests/test_binary_analysis_service.py | 7ae2358 | 23 | 540 | analyze_binary on /bin/ls (real x86_64 PIE ELF): format/arch/endianness/bits/is_static=False/is_pie=True/interpreter/libc-in-deps/entry_point all asserted; mocked-LIEF value-flow on _analyze_elf_lief (ARM dynamic / MIPS→mipsel coercion / static x86_64); check_pe_protections decodes all 6 DllCharacteristics flags via mocked pefile; cpu_rec source-patch + heuristic fallback; **Rule #30 hot zone documented** (3 lazy-imports, dedicated TestRule30LiefSourcePatch class) |
+| 7 | tests/test_firmware_metadata_service.py | a5c1862 | 35 | 815 | Real on-disk firmware (uImage header + env block + mtdparts=) → scan_firmware_image → AnalysisCache row keyed by (firmware_id, op='firmware_metadata', binary_sha256 IS NULL); triage-pattern-#4 pop-and-assert on schema_version stamp (Rule #35c); 5-field payload round-trip through JSONB; cache-HIT contract (call_count==1 across 2 scans) — regression backstop for cache-key drift; Rule #30 inverse-consumer-patch class on `_cache.get_cached` |
+| 7 | tests/test_compliance_service.py | bffca93 | 31 | 627 | 4 Findings across 2 Projects + 3 Firmware → generate_report walks real ORM; provision counts (pass/fail/partial/not_tested) sum to 13; cross-project boundary canary (project B's CWE-798 finding NEVER appears in project A's provision-1); firmware_id filter strict-subset canary; empty-project = 9 pass + 4 not_tested; created_at DESC ordering |
+| 7 | tests/test_kernel_service.py | 7edc860 | 61 | 734 | Filesystem-as-DB lifecycle: upload kernel + initrd → list_kernels round-trip (architecture/description/uploaded_at/file_size/has_initrd) → get/find_kernel_for_arch → delete (binary AND sidecar removed atomically); SSRF matrix (private/loopback/link-local IPs rejected; gaierror; non-http(s); too-long URL); download_kernel happy path with real uImage bytes + HTTP error matrix (404 / size cap / empty / invalid format / RequestError) |
+| 7 | tests/test_report_service.py | f753a6f | 29 | 619 | Real Project + Firmware + 4 Findings (severity tier × 4) → generate_markdown_report and generate_html_report contain every persisted field VALUE (project name/desc, sha256, original_filename, file_size as MB, every finding.title/cve_ids/cwe_ids/file_path:line_number/description/evidence); severity-section ordering canary (critical→info); XSS escaping canary on project.name AND firmware.original_filename; Rule #30 SOURCE-patch on weasyprint via sys.modules injection (verifies HTML(string=<rendered>).write_pdf() chain) |
+| 7 | tests/test_selinux_service.py | 8f8847e | 32 | 727 | Realistic Android extracted tree (5 partitions, build.prop, plat_sepolicy.cil + vendor_sepolicy.cil + precompiled_sepolicy + odm policy.conf) → analyze_policy() end-to-end: typepermissive dedup across files, cil_stats counts (4 type / 2 allow / 1 neverallow / 1 transition / 3 typepermissive), enforcement source resolution (ro.boot.selinux precedence over ro.build.selinux), policy_files discovery (.cil + .conf + sepolicy/precompiled_sepolicy by exact filename); Rule #30 SOURCE-patch on lazy `import setools` via sys.modules + hasattr-sentinel against future top-level promotion |
 
 ## Decision Log
 
@@ -238,6 +254,14 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 
 - **2026-05-06 (Wave 6): LIEF arch-map autouse-prime fixture.** `_LIEF_ELF_ARCH_MAP` and `_LIEF_PE_ARCH_MAP` are module-level dicts that start EMPTY at import (line 16-17) and lazy-populate via `_ensure_lief()`. Test `test_second_call_short_circuits` legitimately sets `_lief_loaded=True` to exercise the short-circuit branch — but if that runs before any test that calls `analyze_binary`, the maps are empty and `architecture` returns None. Solution: an autouse fixture (`_prime_lief_maps`) that resets `_lief_loaded=False`, clears both maps, and re-runs `_ensure_lief()` before each test. Pattern applies to any service with module-level lazy-init state that tests can inadvertently corrupt. Documented in test_binary_analysis_service.py:160.
 
+- **2026-05-07 (Wave 7): Wave 7 distribution = 3 inverse-Rule-30 + 2 source-patch (matches Wave 6 exactly).** firmware_metadata_service / compliance_service / kernel_service all import their dependencies at MODULE scope → CONSUMER-module patch shape; report_service / selinux_service both lazy-import (`weasyprint` at line 362, `setools` at line 283) → SOURCE-module patch via `patch.dict(sys.modules, {"<lib>": fake})`. The 3-inverse + 2-source split persisted across both service waves with zero outliers — strong evidence the pattern is the natural distribution and not a sampling artifact. Future waves should NOT assume a particular distribution; grep the imports per Rule #30 mechanical check before authoring each test.
+
+- **2026-05-07 (Wave 7): `sys.modules` injection is the canonical Rule #30 SOURCE-patch for lazy-imported third-party modules.** Wave 6 jadx used `patch.object(jadx_service, "get_settings", ...)` for its lazy-imported `shutil.which`; Wave 7 introduces a stronger pattern for full-module replacement: `with patch.dict(sys.modules, {"weasyprint": fake_weasyprint})` and `{"setools": fake_setools}`. The `import weasyprint` / `import setools` inside the function body resolves through `sys.modules` first, so the fake module is picked up cleanly. **Companion sentinel test** documented in test_selinux_service.py:`TestRule30SetoolsSourcePatch.test_consumer_module_has_no_setools_attribute` — explicit `not hasattr(slx_mod, "setools")` assertion that catches a future refactor promoting the import to top-level (which would flip the patch shape to inverse-Rule-30 and silently break the existing patches). The sentinel pattern generalises: any test using sys.modules-injection should pair it with a hasattr-sentinel that fails LOUDLY when the consumer module grows the symbol.
+
+- **2026-05-07 (Wave 7): Triage-pattern-#4 schema_version pop-and-assert applied prophylactically to JSONB-stamped cache rows.** `firmware_metadata_service.scan_firmware_image` writes through `_cache.store_cached`, which calls `_stamp_analysis_cache_result` (jsonb_normalizers.py:134). Tests asserting on the persisted `result` dict use `persisted = dict(row.result); stamp = persisted.pop("schema_version"); assert stamp == ANALYSIS_CACHE_RESULT_SCHEMA_VERSION` — the pattern from the test-maintenance-triage Group A fix. When the schema bumps to 2, the assertion fails with a specific stamp-mismatch signal rather than a confusing 5-field structural diff. Audit consumers across the codebase have to walk concurrently, but the test side is now already future-proof. Applies to: any test asserting on a JSONB column wrapped in a stamper helper.
+
+- **2026-05-07 (Wave 7): Pre-existing tests audit — no new triage candidates surfaced.** Full-suite smoke (Wave 7) returned 2605 passed / 6 skipped / 1 xfailed / 0 failed in 68.05s. Delta vs the 2417-passed baseline (post-Wave-6 triage cleanup at commit a607908) is exactly +188 = 35+31+61+29+32 — accounting for every Wave 7 test with no regression in any prior-wave file. The triage-pattern-#1 (full-suite as wave-end gate) discipline is paying off: a clean delta confirms no new drift was introduced AND no pre-existing drift surfaced from the new test files. Wave 8 starts from a clean 2605-pass baseline.
+
 ## Continuation State
 
 **Next session pick-up:**
@@ -258,4 +282,5 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 **checkpoint-wave-4: shipped** (commits a538079..b11b172, 5 test files, 48 cases all passing in 3.97s combined; cumulative 268 tests across waves 1-4)
 **checkpoint-wave-5: shipped** — **ROUTER HALF COMPLETE** (commits 18fbf74..be70ef0, 6 test files, 33 cases all passing in 3.41s combined; cumulative 301 tests across waves 1-5; all 21 audit-cited untested routers now covered)
 **checkpoint-wave-6: shipped** — first service wave (commits e3e6a6c..7ae2358, 5 test files, 142 cases all passing in 5.82s combined; cumulative 443 tests across waves 1-6; top-5 services by LOC × value-flow surface now have full live-canary coverage). Distribution: 3 inverse-Rule-30 services (component_map / pcap_analysis / import) + 2 source-patch services (jadx + binary_analysis). Pause for review per user directive.
-**checkpoint-wave-7: pending** (firmware_metadata_service 481, compliance_service 481, kernel_service 381, report_service 365, selinux_service 355 — next 5 by LOC desc)
+**checkpoint-wave-7: shipped** — second service wave (commits a5c1862..8f8847e, 5 test files, 188 cases all passing; cumulative 631 tests across waves 1-7; firmware_metadata + compliance + kernel + report + selinux services now have full live-canary coverage). Distribution: 3 inverse-Rule-30 services (firmware_metadata / compliance / kernel) + 2 source-patch services (report / selinux) — exact match to Wave 6 distribution. Full-suite smoke 2605 passed / 6 skipped / 1 xfailed / 0 failed in 68.05s — exactly +188 over baseline. Pause for review per user directive.
+**checkpoint-wave-8: pending** (cpe_dictionary_service 355, abusech_service 326, cwe_checker_service 318, document_service 317, qiling_service 279 — next 5 by LOC desc)
