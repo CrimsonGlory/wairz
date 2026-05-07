@@ -226,7 +226,7 @@ def register_sbom_tools(registry: ToolRegistry) -> None:
                                     "high",
                                     "medium",
                                     "low",
-                                    "info",
+                                    "unknown",
                                 ],
                                 "description": "Context-adjusted severity (optional)",
                             },
