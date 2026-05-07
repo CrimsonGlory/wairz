@@ -116,6 +116,26 @@ RUN git clone --depth 1 https://github.com/onekey-sec/sasquatch.git /tmp/sasquat
     && rm -rf /tmp/sasquatch \
     && sasquatch -version 2>&1 | head -1
 
+# Build jtang613/qnx_dumpers/ifsdump for QNX IFS extraction (Phase 2 handler 5).
+# Pinned to jtang613/qnx_dumpers@c621029e3495f3881407d6487735d44155c75f98 per
+# Rule #19 evidence-first license check (MIT per source-file headers; see
+# .planning/knowledge/qnx-ifs-extraction-research-2026-05-07.md). Other QNX
+# extractors (askac/dumpifs, ttepatti/dumpifs-linux, ReverseEngDotDev/dump_hbcifs)
+# carry the proprietary $QNXLicenseC$ header verbatim and CANNOT be bundled in
+# a public container image. build-essential + zlib1g-dev + liblzo2-dev are
+# already installed in the base apt block above; only libucl-dev is added here.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libucl-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && git clone https://github.com/jtang613/qnx_dumpers.git /tmp/qnx_dumpers \
+    && cd /tmp/qnx_dumpers \
+    && git checkout c621029e3495f3881407d6487735d44155c75f98 \
+    && make ifsdump \
+    && install -D -m 755 ifsdump /usr/local/bin/ifsdump \
+    && rm -rf /tmp/qnx_dumpers \
+    && /usr/local/bin/ifsdump -h 2>&1 | head -1 \
+    || echo "WARN: ifsdump build failed — QNX IFS extraction handler will soft-fail to no_handler"
+
 # Install OpenJDK 21 for Ghidra + Android firmware extraction tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openjdk-21-jdk-headless \
