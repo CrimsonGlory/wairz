@@ -81,8 +81,19 @@ class ExtractionCapability(str, Enum):
     NONE = "none"
 
 
-# Per-format capability mapping. Audit grep when adding a new format:
-# `grep -rn 'EXTRACTION_CAPABILITY\|DetectedFormat\.' backend/`
+# Per-format capability mapping. Single source of truth for what wairz
+# CAN do per format from the user's perspective. Aligned with the
+# strategy registry in ``app/workers/extraction_strategies.py`` — when
+# a new handler ships, both this map and the registry update in the
+# same commit. ``FULL`` / ``PARTIAL`` capabilities should route to a
+# real extraction worker; ``NONE`` capabilities route to
+# ``unpack_no_handler``. The Rule #21 mirror-discipline applies: a
+# capability change without a registry update produces UI claims that
+# don't match runtime behaviour.
+#
+# Audit grep when adding a new format:
+#   grep -rn 'EXTRACTION_CAPABILITY\|DetectedFormat\.' backend/
+#   grep -rn 'STRATEGIES\b' backend/app/workers/extraction_strategies.py
 EXTRACTION_CAPABILITY: dict[DetectedFormat, ExtractionCapability] = {
     DetectedFormat.LINUX_FIRMWARE_BLOB: ExtractionCapability.FULL,
     DetectedFormat.ANDROID_APK: ExtractionCapability.FULL,
