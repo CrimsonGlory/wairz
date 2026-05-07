@@ -1,11 +1,45 @@
 ---
-title: "Repair broken alembic revision chain (5 dangling parents, 5 disconnected heads)"
-status: pending
+title: "Repair broken alembic revision chain (1 dangling parent, single 1-line fix)"
+status: resolved
 priority: high
 target: backend/alembic/versions/
 discovered: 2026-05-07
+resolved: 2026-05-07
 discovered_by: vuln-scan-timeout-fix session (Phase 2 blocker)
+resolved_by: deep-research session (post-investigation correction)
+resolution_commit: TBD
 ---
+
+## Resolution (2026-05-07)
+
+**The original intake overstated the problem 5×.** Deep investigation showed:
+
+- **1 dangling parent**, not 5. Only `e3b1a4f97c5d_drop_emulation_sessions_pid.py` had a broken `down_revision = "89007f64cfb0"` (no migration file defines that revision). Other suggested dangling parents (`8da8627326d4`, `a3b4c5d6e7f8`, `b7d3f1a2c4e5`, `c2d3e4f5a6b7`) ARE all valid revisions defined by their respective migration files.
+- **Effective heads at the time of repair: 1**, not 5. `b0c1a2d3e4f5` is the single production-stamped head; `d8e9c4b5f7a2` was a transient sibling (the file added 2h before `e3b1a4f97c5d` and was the head AT AUTHORING TIME of the broken migration).
+- **Corrected target was `d8e9c4b5f7a2`, not `54c8864fbe0c`.** The original intake suggested fixing `e3b1a4f97c5d.down_revision` to `54c8864fbe0c` based on the commit message's "(status-check-constraints head)" phrasing. Tracing the commit timeline shows the actual head when commit `2fd0380` was authored (2026-05-05 07:29:58) was `d8e9c4b5f7a2` (added 2h prior in commit `5d11c50`). Production DB schema confirms this linearization (firmware has `cve_match_status` from `e6f7a8b9c0d1`; fuzzing_campaigns CHECK includes 'queued' from `d8e9c4b5f7a2`; both are downstream of `54c8864fbe0c`). Setting `down_revision = "54c8864fbe0c"` would have created a fork at `54c8864fbe0c` requiring a separate `merge` revision; setting it to `d8e9c4b5f7a2` makes the chain linear with no merge needed.
+
+**Fix:** 1-character change in 1 file:
+
+```diff
+-down_revision: Union[str, None] = "89007f64cfb0"
++down_revision: Union[str, None] = "d8e9c4b5f7a2"
+```
+
+**Verification (all 4 acceptance criteria met):**
+- `alembic current` → `b0c1a2d3e4f5 (head)` ✓
+- `alembic heads` → `b0c1a2d3e4f5 (head)` (single head, no merge required) ✓
+- `alembic upgrade head` → no-op (stamp already matches) ✓
+- `alembic revision -m "smoke"` → generated cleanly with ID `98dcf99aef46`, single resolved `down_revision` (deleted post-test) ✓
+
+**Migrator container** still serves the pre-fix image (built before the edit) and will exit 0 after its next `--build` rebuild. The Phase 2 backend+worker rebuild (Rule #8) naturally rebakes the migrator image in the same compose-up cycle.
+
+**Lesson** (filed for post-campaign knowledge extraction):
+
+When an intake describes a problem in terms of a count ("5 dangling parents"), the count itself deserves Rule #19 evidence-first verification before scoping the repair. The original intake was authored mid-blocker by a panicking diagnostic — it conflated parse failures (regex too loose, picked up docstring text) with genuine graph corruption and ALSO conflated the chain-of-revisions topology (where downstream revs naturally have unique parents at authoring time but not after merges). A 30-second `comm -23 all_downs.txt all_revs.txt` against a clean grep ran the truth in seconds.
+
+---
+
+## Original Problem (preserved for record — see Resolution above for what was actually wrong)
 
 ## Problem
 
