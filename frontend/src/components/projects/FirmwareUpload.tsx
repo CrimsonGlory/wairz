@@ -1,15 +1,20 @@
-import { useCallback, useRef, useState } from 'react'
-import { Upload, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Upload, CheckCircle, AlertCircle, Loader2, Info } from 'lucide-react'
 import { useProjectStore } from '@/stores/projectStore'
-import { uploadFirmware as apiUploadFirmware, unpackFirmware as apiUnpackFirmware } from '@/api/firmware'
+import {
+  uploadFirmware as apiUploadFirmware,
+  unpackFirmware as apiUnpackFirmware,
+  getFirmwareUploadStatus,
+} from '@/api/firmware'
 import { getProject } from '@/api/projects'
 import { extractErrorMessage } from '@/utils/error'
 import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import type { FirmwareUploadStatus, UploadStage } from '@/types'
 
-type Phase = 'idle' | 'uploading' | 'done' | 'error'
+type Phase = 'idle' | 'uploading' | 'processing' | 'done' | 'error'
 
 interface FirmwareUploadProps {
   projectId: string
@@ -17,44 +22,123 @@ interface FirmwareUploadProps {
   showVersionLabel?: boolean
 }
 
+// Map backend upload_stage values to the human-readable label rendered
+// below the spinner. Linked to UploadStage in types/index.ts and to the
+// CHECK constraint ck_firmware_upload_stage on the backend.
+const STAGE_LABELS: Record<UploadStage, string> = {
+  uploading: 'Uploading bytes',
+  hashing: 'Computing hash',
+  detecting: 'Detecting format',
+  extracting: 'Extracting archive',
+  analyzing: 'Analyzing filesystem',
+  ready: 'Ready',
+  failed: 'Failed',
+}
+
+function stageLabel(stage: UploadStage | undefined): string {
+  if (!stage) return 'Working...'
+  return STAGE_LABELS[stage] ?? stage
+}
+
 export default function FirmwareUpload({ projectId, onComplete, showVersionLabel }: FirmwareUploadProps) {
   const [phase, setPhase] = useState<Phase>('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const [dragActive, setDragActive] = useState(false)
   const [versionLabel, setVersionLabel] = useState('')
+  const [statusSnapshot, setStatusSnapshot] = useState<FirmwareUploadStatus | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const { uploadProgress } = useProjectStore()
   const setStore = useProjectStore.setState
+
+  // Stop polling on unmount or terminal-state transition.
+  useEffect(() => {
+    return () => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current)
+        pollTimerRef.current = null
+      }
+    }
+  }, [])
+
+  const finishWithSuccess = useCallback(
+    async (firmwareId: string) => {
+      // Auto-trigger /unpack so existing UX (immediate "unpacking" state
+      // on the project page) is preserved post-Rule-#33-refactor.
+      await apiUnpackFirmware(projectId, firmwareId).catch(() => {})
+      const project = await getProject(projectId)
+      setStore({ currentProject: project })
+      setPhase('done')
+      onComplete?.()
+    },
+    [projectId, onComplete, setStore],
+  )
+
+  const startPolling = useCallback(
+    (firmwareId: string) => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current)
+      }
+      // 2 s cadence matches the firmware-unpack precedent and the SBOM
+      // vuln-scan polling shape (commit 7da91a6).
+      pollTimerRef.current = setInterval(async () => {
+        try {
+          const snap = await getFirmwareUploadStatus(projectId, firmwareId)
+          setStatusSnapshot(snap)
+          if (snap.upload_stage === 'ready') {
+            if (pollTimerRef.current) {
+              clearInterval(pollTimerRef.current)
+              pollTimerRef.current = null
+            }
+            await finishWithSuccess(firmwareId)
+          } else if (snap.upload_stage === 'failed') {
+            if (pollTimerRef.current) {
+              clearInterval(pollTimerRef.current)
+              pollTimerRef.current = null
+            }
+            setErrorMsg(snap.upload_stage_error || 'Upload post-processing failed')
+            setPhase('error')
+          }
+        } catch (e) {
+          // Transient poll failures are non-fatal — the next tick retries.
+          // Persistent failures will eventually surface as the user-visible
+          // error via the spinner staying stuck; future enhancement could
+          // count consecutive failures and surface after N.
+          // eslint-disable-next-line no-console
+          console.warn('upload-status poll failed', e)
+        }
+      }, 2000)
+    },
+    [projectId, finishWithSuccess],
+  )
 
   const handleFile = useCallback(
     async (file: File) => {
       setPhase('uploading')
       setErrorMsg('')
+      setStatusSnapshot(null)
       try {
         setStore({ uploading: true, uploadProgress: 0 })
-        const fw = await apiUploadFirmware(
+        const ack = await apiUploadFirmware(
           projectId,
           file,
           versionLabel || undefined,
           (pct) => setStore({ uploadProgress: pct }),
         )
         setStore({ uploading: false, uploadProgress: 100 })
-        // Unpack returns 202 immediately — await it so the server sets status
-        // to "unpacking" before we refresh the project
-        await apiUnpackFirmware(projectId, fw.id).catch(() => {})
-        // Refresh project to pick up "unpacking" status
-        const project = await getProject(projectId)
-        setStore({ currentProject: project })
-        setPhase('done')
-        onComplete?.()
+        // 202 ack returned: backend is now post-processing. Switch the
+        // UI to the polling phase and let the timer drive the rest.
+        setStatusSnapshot(ack)
+        setPhase('processing')
+        startPolling(ack.id)
       } catch (e) {
         setStore({ uploading: false })
         setErrorMsg(extractErrorMessage(e, 'Upload failed'))
         setPhase('error')
       }
     },
-    [projectId, versionLabel, onComplete, setStore],
+    [projectId, versionLabel, setStore, startPolling],
   )
 
   const onDrop = useCallback(
@@ -78,6 +162,7 @@ export default function FirmwareUpload({ projectId, onComplete, showVersionLabel
   const retry = () => {
     setPhase('idle')
     setErrorMsg('')
+    setStatusSnapshot(null)
   }
 
   if (phase === 'done') {
@@ -85,6 +170,9 @@ export default function FirmwareUpload({ projectId, onComplete, showVersionLabel
       <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed p-8">
         <CheckCircle className="h-8 w-8 text-green-500" />
         <p className="text-sm font-medium">Firmware uploaded — unpacking in progress</p>
+        {statusSnapshot?.detected_format && (
+          <FormatBanner status={statusSnapshot} />
+        )}
       </div>
     )
   }
@@ -108,6 +196,23 @@ export default function FirmwareUpload({ projectId, onComplete, showVersionLabel
         <p className="text-sm font-medium">Uploading firmware...</p>
         <Progress value={uploadProgress} className="w-full max-w-xs" />
         <p className="text-xs text-muted-foreground">{uploadProgress}%</p>
+      </div>
+    )
+  }
+
+  if (phase === 'processing') {
+    const stage = statusSnapshot?.upload_stage
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed p-8">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <p className="text-sm font-medium">{stageLabel(stage)}…</p>
+        <p className="text-xs text-muted-foreground">
+          The upload is on the server. wairz is processing it now — feel free to navigate away;
+          this will continue running.
+        </p>
+        {statusSnapshot?.detected_format && (
+          <FormatBanner status={statusSnapshot} />
+        )}
       </div>
     )
   }
@@ -142,10 +247,46 @@ export default function FirmwareUpload({ projectId, onComplete, showVersionLabel
         <div className="text-center">
           <p className="text-sm font-medium">Drop firmware file here or click to browse</p>
           <p className="text-xs text-muted-foreground mt-1">
-            Supports .bin, .img, .hex, .chk, .trx, .zip, and other firmware formats
+            Multi-OS: Linux / Android / Windows installer ISO / QNX / RTOS. wairz detects the
+            format and tells you what it can extract.
           </p>
         </div>
         <input ref={inputRef} type="file" className="hidden" onChange={onInputChange} />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Format-detection banner. Renders a per-capability message under the
+ * upload spinner once the backend has classified the upload. Copy comes
+ * from CAPABILITY_NOTES in app/services/format_detection.py — keeping
+ * the user-facing message near the detection logic so the two evolve
+ * together.
+ */
+function FormatBanner({ status }: { status: FirmwareUploadStatus }) {
+  const cap = status.extraction_capability
+  if (!cap || cap === 'full') {
+    // 'full' capability: no banner needed — the standard flow proceeds
+    // without a UX nudge. Same for unknown capability shapes.
+    return null
+  }
+  const tone =
+    cap === 'none'
+      ? 'border-amber-500/50 bg-amber-500/5 text-amber-700 dark:text-amber-400'
+      : 'border-blue-500/50 bg-blue-500/5 text-blue-700 dark:text-blue-400'
+  const label = cap === 'none' ? 'No native extractor' : 'Partial extraction'
+  return (
+    <div
+      className={`mt-2 flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${tone}`}
+      role="status"
+    >
+      <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+      <div className="space-y-1">
+        <p className="font-medium">
+          {label} — detected format: {status.detected_format}
+        </p>
+        {status.capability_note && <p>{status.capability_note}</p>}
       </div>
     </div>
   )

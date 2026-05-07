@@ -24,6 +24,44 @@ export interface FirmwareSummary {
   created_at: string
 }
 
+/**
+ * Upload-stage state machine (Rule #29 + Rule #33). Mirrors the
+ * Pydantic Literal in app/schemas/firmware.py:UploadStage and the DB
+ * CHECK constraint ck_firmware_upload_stage (alembic d2e3f4a5b6c7).
+ */
+export type UploadStage =
+  | 'uploading'
+  | 'hashing'
+  | 'detecting'
+  | 'extracting'
+  | 'analyzing'
+  | 'ready'
+  | 'failed'
+
+export type ExtractionCapability = 'full' | 'partial' | 'none'
+
+/**
+ * Response from POST /firmware (the 202 ack) and GET /firmware/{id}/upload-status
+ * (the 2 s polling endpoint). Frontend renders stage labels + format
+ * banner directly from this shape.
+ */
+export interface FirmwareUploadStatus {
+  id: string
+  upload_stage: UploadStage
+  upload_stage_error: string | null
+  detected_format: string | null
+  extraction_capability: ExtractionCapability | string | null
+  capability_note: string | null
+  extracted_path: string | null
+  architecture: string | null
+  os_info: string | null
+  upload_stage_started_at: string | null
+  upload_stage_finished_at: string | null
+  sha256: string | null
+  file_size: number | null
+  original_filename: string | null
+}
+
 export interface ArchCandidate {
   architecture: string
   raw_name: string

@@ -1,14 +1,20 @@
 import apiClient from './client'
-import type { FirmwareDetail, FirmwareMetadata, FirmwareSummary } from '@/types'
+import type {
+  FirmwareDetail,
+  FirmwareMetadata,
+  FirmwareUploadStatus,
+} from '@/types'
 
-// Firmware uploads commonly run to MAX_UPLOAD_SIZE_MB (default 2 GB). On a
-// 100 Mbps link a 2 GB upload is ~3 min of wall-clock; the default axios
-// 30 s timeout in client.ts fires mid-upload and surfaces a fake
-// "upload failed" while the backend is still streaming bytes to disk.
-// Matches SECURITY_SCAN_TIMEOUT tier (10 min) used in findings.ts /
-// exportImport.ts — same order of magnitude, same "backend is still
-// doing work" UX contract. Applies to POST /firmware and
-// POST /firmware/{id}/upload-rootfs (rootfs can be similarly large).
+// Firmware UPLOADS still need a long timeout because the multipart body
+// itself takes minutes to stream over a 100 Mbps link for a 2 GB file.
+// Post-Rule-#33 refactor (commit 847eae9) the BACKEND ack is now <1 s
+// after the body finishes — but axios's onUploadProgress + the actual
+// network upload still need a generous ceiling. Matches the
+// SECURITY_SCAN_TIMEOUT tier already established in findings.ts /
+// exportImport.ts.
+//
+// Applies to POST /firmware (now returns 202 with FirmwareUploadStatus)
+// and POST /firmware/{id}/upload-rootfs (rootfs can be similarly large).
 const UPLOAD_TIMEOUT = 600_000
 
 export async function uploadFirmware(
@@ -16,14 +22,14 @@ export async function uploadFirmware(
   file: File,
   versionLabel?: string,
   onProgress?: (percent: number) => void,
-): Promise<FirmwareSummary> {
+): Promise<FirmwareUploadStatus> {
   const form = new FormData()
   form.append('file', file)
   if (versionLabel) {
     form.append('version_label', versionLabel)
   }
 
-  const { data } = await apiClient.post<FirmwareSummary>(
+  const { data } = await apiClient.post<FirmwareUploadStatus>(
     `/projects/${projectId}/firmware`,
     form,
     {
@@ -35,6 +41,22 @@ export async function uploadFirmware(
         }
       },
     },
+  )
+  return data
+}
+
+/**
+ * Poll the upload-stage state machine after a 202 from POST /firmware.
+ * Frontend should poll every 2 s until ``upload_stage`` flips to
+ * ``ready`` or ``failed``. Mirrors the firmware-unpack and SBOM
+ * vuln-scan polling shape.
+ */
+export async function getFirmwareUploadStatus(
+  projectId: string,
+  firmwareId: string,
+): Promise<FirmwareUploadStatus> {
+  const { data } = await apiClient.get<FirmwareUploadStatus>(
+    `/projects/${projectId}/firmware/${firmwareId}/upload-status`,
   )
   return data
 }
