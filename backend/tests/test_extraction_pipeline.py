@@ -100,7 +100,6 @@ def test_no_handler_formats_route_to_unpack_no_handler(fmt: DetectedFormat):
         DetectedFormat.ANDROID_OTA,
         DetectedFormat.ZIP_ARCHIVE,
         DetectedFormat.PE_EXECUTABLE,
-        DetectedFormat.WINDOWS_INSTALLER_ISO,
     ],
 )
 def test_default_formats_route_to_unpack_firmware(fmt: DetectedFormat):
@@ -117,6 +116,22 @@ def test_wim_archive_routes_to_unpack_wim():
     """Phase 2 handler 2 — WIM_ARCHIVE routes to the dedicated wimlib worker."""
     from app.workers.unpack_wim import unpack_wim
     assert get_strategy(DetectedFormat.WIM_ARCHIVE) is unpack_wim
+
+
+def test_windows_installer_iso_routes_to_unpack_windows_installer_iso():
+    """Phase 2 handler 3 — WINDOWS_INSTALLER_ISO routes to the recursive
+    ISO+WIM composite worker (not the unpack_firmware monolith).
+
+    Lockstep with extraction_strategies.STRATEGIES; Rule #21 sync
+    discipline applies (capability map + registry move together).
+    """
+    from app.workers.unpack_windows_installer_iso import (
+        unpack_windows_installer_iso,
+    )
+    assert (
+        get_strategy(DetectedFormat.WINDOWS_INSTALLER_ISO)
+        is unpack_windows_installer_iso
+    )
 
 
 def test_unknown_format_routes_to_default_not_no_handler():
