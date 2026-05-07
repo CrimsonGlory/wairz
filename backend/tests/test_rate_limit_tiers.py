@@ -25,7 +25,7 @@ _REPO_BACKEND = Path(__file__).parent.parent
 _EXPECTED_TIERS: dict[tuple[str, str], str] = {
     ("app/routers/security_audit.py", r'@router\.post\("/audit"'): "TIER_A_HEAVY",
     ("app/routers/sbom.py", r'@router\.post\("/generate"'): "TIER_A_HEAVY",
-    ("app/routers/sbom.py", r'@router\.post\("/vulnerabilities/scan"'): "TIER_A_HEAVY",
+    ("app/routers/sbom.py", r'@router\.post\(\s*\n?\s*"/vulnerabilities/scan"'): "TIER_A_HEAVY",
     ("app/routers/hardware_firmware.py", r'@router\.post\("/cve-match"'): "TIER_A_HEAVY",
     ("app/routers/fuzzing.py", r'@router\.post\(\s*\n?\s*"/campaigns/\{campaign_id\}/start"'): "TIER_B_DOCKER",
     ("app/routers/emulation.py", r'@router\.post\("/start"'): "TIER_B_DOCKER",
