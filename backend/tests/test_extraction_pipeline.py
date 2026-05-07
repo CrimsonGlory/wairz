@@ -83,7 +83,6 @@ def test_strategies_table_covers_every_detected_format():
 @pytest.mark.parametrize(
     "fmt",
     [
-        DetectedFormat.QNX_IFS,
         DetectedFormat.ACRONIS_BACKUP,
     ],
 )
@@ -116,6 +115,19 @@ def test_wim_archive_routes_to_unpack_wim():
     """Phase 2 handler 2 — WIM_ARCHIVE routes to the dedicated wimlib worker."""
     from app.workers.unpack_wim import unpack_wim
     assert get_strategy(DetectedFormat.WIM_ARCHIVE) is unpack_wim
+
+
+def test_qnx_ifs_routes_to_unpack_qnx_ifs():
+    """Phase 2 handler 5 — QNX_IFS routes to the dedicated ifsdump worker.
+
+    Lockstep with extraction_strategies.STRATEGIES; Rule #21 sync
+    discipline applies (capability map + registry move together).
+    Capability is PARTIAL (not FULL) because the pinned upstream tool
+    has unverified format-coverage breadth — see
+    .planning/knowledge/qnx-ifs-extraction-research-2026-05-07.md.
+    """
+    from app.workers.unpack_qnx_ifs import unpack_qnx_ifs
+    assert get_strategy(DetectedFormat.QNX_IFS) is unpack_qnx_ifs
 
 
 def test_windows_installer_iso_routes_to_unpack_windows_installer_iso():
@@ -299,13 +311,15 @@ async def test_unpack_no_handler_acronis_backup(tmp_path: Path):
 async def test_unpack_no_handler_invokes_progress_callback(tmp_path: Path):
     """The strategy contract includes calling progress_callback if provided.
 
-    Uses a QNX-magic blob — QNX_IFS remains capability=NONE so the
-    no-handler path is the right routing target. (Pre Phase-2 handler 2
-    this used a WIM-magic blob; WIM now routes to unpack_wim.)
+    Uses an Acronis ``.tibx`` blob — ACRONIS_BACKUP remains
+    capability=NONE so the no-handler path is the right routing
+    target. (Pre Phase-2 handler 5 this used a QNX-magic blob; QNX_IFS
+    now routes to unpack_qnx_ifs at PARTIAL capability. Pre Phase-2
+    handler 2 this used a WIM-magic blob; WIM now routes to unpack_wim.)
     """
-    backup = tmp_path / "image.ifs"
-    # QNX IFS startup-header magic.
-    backup.write_bytes(b"\xeb\x7e\xff\x7e" + b"\x00" * 64)
+    backup = tmp_path / "image.tibx"
+    # Acronis has no public magic; detection falls back to extension.
+    backup.write_bytes(b"\xff" * 256)
 
     progress = AsyncMock()
     result = await unpack_no_handler(

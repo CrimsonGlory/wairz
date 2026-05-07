@@ -29,6 +29,7 @@ from app.workers.unpack import unpack_firmware
 from app.workers.unpack_common import UnpackResult
 from app.workers.unpack_iso9660 import unpack_iso9660
 from app.workers.unpack_no_handler import unpack_no_handler
+from app.workers.unpack_qnx_ifs import unpack_qnx_ifs
 from app.workers.unpack_wim import unpack_wim
 from app.workers.unpack_windows_installer_iso import unpack_windows_installer_iso
 
@@ -62,9 +63,9 @@ STRATEGIES: dict[DetectedFormat, Strategy] = {
     DetectedFormat.ISO_9660: unpack_iso9660,          # Phase 2 handler 1 — 7z extraction (FULL)
     DetectedFormat.WIM_ARCHIVE: unpack_wim,           # Phase 2 handler 2 — wimlib-imagex (FULL)
     DetectedFormat.WINDOWS_INSTALLER_ISO: unpack_windows_installer_iso,  # Phase 2 handler 3 — recursive ISO+WIM (FULL)
+    DetectedFormat.QNX_IFS: unpack_qnx_ifs,           # Phase 2 handler 5 — ifsdump (jtang613/qnx_dumpers, PARTIAL)
     DetectedFormat.UNKNOWN: _DEFAULT,                 # let unblob have a try
     DetectedFormat.ACRONIS_BACKUP: unpack_no_handler,
-    DetectedFormat.QNX_IFS: unpack_no_handler,
 }
 
 
