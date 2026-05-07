@@ -118,6 +118,25 @@ def _mock_upload(path: Path, filename: str):
     return fake
 
 
+def _mock_db_no_duplicates() -> AsyncMock:
+    """Build an ``AsyncSession``-shaped mock whose ``db.execute(...)``
+    returns a result whose ``scalar_one_or_none()`` is ``None``.
+
+    Required because ``FirmwareService.upload`` issues a same-content
+    reupload guard (firmware_service.py:362-381 — ``SELECT Firmware.id
+    WHERE project_id == ? AND sha256 == ?``) and a bare ``AsyncMock()``
+    returns a non-None ``MagicMock`` from the chained ``.scalar_one_or_none()``,
+    which the service interprets as "duplicate exists" → 409.
+    """
+    db = AsyncMock()
+    db.add = MagicMock()
+    db.flush = AsyncMock()
+    no_match_result = MagicMock()
+    no_match_result.scalar_one_or_none = MagicMock(return_value=None)
+    db.execute = AsyncMock(return_value=no_match_result)
+    return db
+
+
 def _make_settings(storage_root: Path):
     s = MagicMock()
     s.storage_root = str(storage_root)
@@ -133,9 +152,7 @@ async def test_tar_of_fat_image_does_not_shortcut(tmp_path: Path):
     tar_path = tmp_path / "vendor.tar"
     _make_tar_of_image(tar_path)
 
-    db = AsyncMock()
-    db.add = MagicMock()
-    db.flush = AsyncMock()
+    db = _mock_db_no_duplicates()
 
     svc = FirmwareService(db)
     with patch("app.services.firmware_service.get_settings", return_value=_make_settings(storage_root)):
@@ -160,9 +177,7 @@ async def test_zip_of_fat_image_does_not_shortcut(tmp_path: Path):
     zip_path = tmp_path / "vendor.zip"
     _make_zip_of_image(zip_path)
 
-    db = AsyncMock()
-    db.add = MagicMock()
-    db.flush = AsyncMock()
+    db = _mock_db_no_duplicates()
 
     svc = FirmwareService(db)
     with patch("app.services.firmware_service.get_settings", return_value=_make_settings(storage_root)):
@@ -185,9 +200,7 @@ async def test_pure_rootfs_tar_still_shortcuts_with_detection_roots(tmp_path: Pa
     tar_path = tmp_path / "device_dump.tar"
     _make_rootfs_tar(tar_path)
 
-    db = AsyncMock()
-    db.add = MagicMock()
-    db.flush = AsyncMock()
+    db = _mock_db_no_duplicates()
 
     svc = FirmwareService(db)
     with patch("app.services.firmware_service.get_settings", return_value=_make_settings(storage_root)):
