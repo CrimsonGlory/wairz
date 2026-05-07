@@ -25,9 +25,9 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 
 ## Active Context
 
-**Mode:** ROUTER-HALF-COMPLETE — paused before service waves
-**Current Wave:** 5 ✅ COMPLETE — **all 21 untested routers now covered**
-**Next Wave:** 6 (services — component_map_service 701, pcap_analysis_service 594, jadx_service 592, import_service 586, binary_analysis_service 556) — different mental model from routers; consider fresh session
+**Mode:** WAVE 6 SHIPPED — pause for review per user directive
+**Current Wave:** 6 ✅ COMPLETE — first service wave (top-5 by LOC)
+**Next Wave:** 7 (services — firmware_metadata_service 481, compliance_service 481, kernel_service 381, report_service 365, selinux_service 355) when user gives go-ahead
 
 **Wave 1 commits (clean-history):**
 - `d8f1e14` test(sbom_router): 16 cases, +744 LOC
@@ -76,7 +76,16 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 
 **Wave 5 totals: 33 tests across 6 files = 6 commits.**
 **🎉 ROUTER HALF OF PHASE 2 COMPLETE — all 21 untested routers (audit F-G-03) now have HTTP-layer coverage.**
-**Cumulative Phase 2 totals: 301 tests + 1 production bug fix + 1 shim hardening = 30 commits across 5 waves.**
+
+**Wave 6 commits (clean-history) — first service wave (top-5 by LOC):**
+- `e3e6a6c` test(component_map_service): graph builder + Phase 3b partition prefix (56 cases, +543 LOC)
+- `a8487af` test(pcap_analysis_service): scapy pipeline + 13 insecure-protocol rules (31 cases, +449 LOC)
+- `114c249` test(jadx_service): subprocess CLI + cache hit/miss contract (18 cases, +452 LOC)
+- `5196448` test(import_service): archive validation + remapped-UUID round-trip (14 cases, +414 LOC)
+- `7ae2358` test(binary_analysis_service): Rule #30 hot zone — lief/pefile/cpu_rec SOURCE-patch (23 cases, +540 LOC)
+
+**Wave 6 totals: 142 tests across 5 files all passing in 5.82s combined; 5 commits, +2,398 LOC of test code (production code unchanged).**
+**Cumulative Phase 2 totals: 443 tests + 1 production bug fix + 1 shim hardening = 35 commits across 6 waves.**
 
 ## Phase End Conditions
 
@@ -203,6 +212,11 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 | 5 | tests/test_export_import_router.py | 90f2310 | 7 | 215 | export streams ZIP with sanitized Content-Disposition (NO slashes); import accepts .wairz AND .zip; wrong extension rejected with helpful detail |
 | 5 | tests/test_component_map_router.py | 7b57ac5 | 4 | 283 | cache-hit short-circuit (ComponentMapService NOT constructed); empty graph NOT cached (no stale-empty trap); non-empty IS cached |
 | 5 | tests/test_compliance_router.py | be70ef0 | 3 | 168 | project + cross-project firmware_id boundaries on ETSI report endpoint |
+| 6 | tests/test_component_map_service.py | e3e6a6c | 56 | 543 | ComponentNode (id/label/type/path/size/metadata.endianness/bits) + ComponentEdge (executes/configures) round-trip from real on-disk firmware tree; Phase 3b partition prefix; Rule #30 inverse case (CONSUMER patch on ELFFile) |
+| 6 | tests/test_pcap_analysis_service.py | a8487af | 31 | 449 | PcapAnalysis from real wrpcap → PcapReader pipeline: total_packets exact, protocol_breakdown counts (Telnet=3 / HTTP=2 / DNS=2 / ICMP=1), every InsecureProtocolFinding (severity/port/packet_count/evidence), DnsQuery (domain/query_type/resolved_ips); MAX_PACKETS cap canary; Rule #30 inverse-case CONSUMER patch on PcapReader proven |
+| 6 | tests/test_jadx_service.py | 114c249 | 18 | 452 | AnalysisCache rows: jadx_decompilation sentinel + jadx_source_tree + jadx_source:Main.java + jadx_all_sources; binary_sha256 lookup key; sentinel.status='complete' / jadx_returncode=0 / stats.total_source_files=1 round-trip; Rule #29 cache-HIT contract (call_count==1 after second call); Rule #30 source-patch on shutil.which |
+| 6 | tests/test_import_service.py | 5196448 | 14 | 414 | Round-trip via real .wairz archive → ImportService → SELECT 7 ORM rows; UUID remapping (project/firmware/finding/document/preset/sbom_component all NEW); Finding.confidence 'medium' + None round-trip (F-A-06 width-canary on import path); Firmware storage_path + extracted_path use NEW IDs; FuzzingCampaign.status 'running'→'stopped' coercion; SBOM component FK remap |
+| 6 | tests/test_binary_analysis_service.py | 7ae2358 | 23 | 540 | analyze_binary on /bin/ls (real x86_64 PIE ELF): format/arch/endianness/bits/is_static=False/is_pie=True/interpreter/libc-in-deps/entry_point all asserted; mocked-LIEF value-flow on _analyze_elf_lief (ARM dynamic / MIPS→mipsel coercion / static x86_64); check_pe_protections decodes all 6 DllCharacteristics flags via mocked pefile; cpu_rec source-patch + heuristic fallback; **Rule #30 hot zone documented** (3 lazy-imports, dedicated TestRule30LiefSourcePatch class) |
 
 ## Decision Log
 
@@ -217,6 +231,12 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 - **2026-05-06 (Wave 2): Rule #30 source-patch confirmed for androguard.** test_androguard_service.py is the cleanest expression of Rule #30 — every Androguard symbol is lazy-imported INSIDE function bodies (lines 508, 523, 640, 861, 891). Patches MUST hit the SOURCE module (`androguard.misc.AnalyzeAPK`, `androguard.core.apk.APK`). Phase 1's pytest-unblock fleet (session 0801ca27, 2026-04-23) showed +620 tests unlocked once patch targets were corrected — same lesson applied here proactively.
 - **2026-05-06 (Wave 3): Cross-project security boundary is a recurring canary pattern.** Three Wave 3 files canary the same shape (Firmware in project A → 404 via project B URL, CraAssessment same shape, EmulationSession same shape covered in Wave 2 emulation_router). The pattern is generic: any router with `<X>.project_id != project_id → 404` is a security boundary that mock tests trivially defeat (any UUID matches). Real-DB canary discipline catches the inverse: an unintentional comparison-operator flip (`==` → `!=`, or removing the check entirely) would silently leak rows to wrong-project URLs. Future router waves should default-canary this shape.
 - **2026-05-06 (Wave 3): F-A-06 confidence-bypass backstop generalised.** Wave 3's test_attack_surface_router.py canaries the explicit `confidence="medium"` kwarg added by Stream A (audit-2026-05-04). The pattern recurs across persistence sites (Wave 1 vulnerability_service, Wave 1 attack_surface_router, Wave 1 apk_scan_router, Wave 1 assessment_service). Every site that constructs `Finding(...)` directly (not via `FindingService.create()`) needs an explicit confidence canary; the audit cited 5 such sites. Wave 3 closes the attack_surface site; Wave 1 covered the apk_scan and assessment_service sites; Wave 1 closed the vulnerability_service site. Remaining sites (if any) will be flagged in subsequent wave triage.
+
+- **2026-05-06 (Wave 6): Inverse-Rule-30 case generalises beyond assessment_service.** Three of the five Wave 6 services exhibit the inverse-Rule-30 shape: `component_map_service.py` imports `elftools.elf.elffile.ELFFile` at module scope; `pcap_analysis_service.py` imports every scapy symbol (`PcapReader`, `IP`, `TCP`, `UDP`, `DNS`, `Raw`, `ARP`, `ICMP`, `DNSQR`) at module scope; `import_service.py` imports its full ORM model surface at module scope. For all three, patches MUST hit the CONSUMER module — `app.services.<X>.<Symbol>` — not the SOURCE. Per the Wave 1 documentation in `test_assessment_service.py:200`, the test_pcap_analysis_service.py adds a dedicated `TestRule30InverseConsumerPatch` class proving the consumer patch is the correct target. **Distribution observed in Wave 6: 3 inverse-case + 2 source-case = 5/5 services. The campaign now has reference exemplars for both shapes.** The Rule #30 wording in CLAUDE.md may benefit from a follow-up "Inverse Rule #30" sub-rule covering module-scope imports, but Wave 6 documents the pattern in-line for now.
+
+- **2026-05-06 (Wave 6): Real-binary canary stronger than synthetic ELF.** `test_binary_analysis_service.py` initially used synthetic ELF byte fixtures (`_build_real_elf` helper writing a minimal ELF header). LIEF parsed them but `binary.header.machine_type` returned a raw int instead of the `lief.ELF.ARCH` enum, so the architecture map miss returned `None`. Switched to `/bin/ls` from the container — a real x86_64 PIE ELF with libselinux/libcap/libc deps + /lib64/ld-linux-x86-64.so.2 interpreter. Every field in `analyze_binary`'s result dict round-trips against actual production attributes. Companion lesson to Rule #35b: when the canary requires real binary parsing, use a real binary in the test environment rather than a synthetic fixture — synthetic fixtures pass syntactically but fail value-flow assertions because parsers don't recognise their malformed enums. Filed as a candidate Rule for the post-campaign knowledge extraction.
+
+- **2026-05-06 (Wave 6): LIEF arch-map autouse-prime fixture.** `_LIEF_ELF_ARCH_MAP` and `_LIEF_PE_ARCH_MAP` are module-level dicts that start EMPTY at import (line 16-17) and lazy-populate via `_ensure_lief()`. Test `test_second_call_short_circuits` legitimately sets `_lief_loaded=True` to exercise the short-circuit branch — but if that runs before any test that calls `analyze_binary`, the maps are empty and `architecture` returns None. Solution: an autouse fixture (`_prime_lief_maps`) that resets `_lief_loaded=False`, clears both maps, and re-runs `_ensure_lief()` before each test. Pattern applies to any service with module-level lazy-init state that tests can inadvertently corrupt. Documented in test_binary_analysis_service.py:160.
 
 ## Continuation State
 
@@ -237,4 +257,5 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 **checkpoint-wave-3: shipped** (commits 1ca2bcf..bcadb28, 5 test files, 45 cases all passing in 4.04s combined; cumulative 220 tests across waves 1+2+3)
 **checkpoint-wave-4: shipped** (commits a538079..b11b172, 5 test files, 48 cases all passing in 3.97s combined; cumulative 268 tests across waves 1-4)
 **checkpoint-wave-5: shipped** — **ROUTER HALF COMPLETE** (commits 18fbf74..be70ef0, 6 test files, 33 cases all passing in 3.41s combined; cumulative 301 tests across waves 1-5; all 21 audit-cited untested routers now covered)
-**checkpoint-wave-6: pending** (service waves — different mental model from routers; consider fresh session)
+**checkpoint-wave-6: shipped** — first service wave (commits e3e6a6c..7ae2358, 5 test files, 142 cases all passing in 5.82s combined; cumulative 443 tests across waves 1-6; top-5 services by LOC × value-flow surface now have full live-canary coverage). Distribution: 3 inverse-Rule-30 services (component_map / pcap_analysis / import) + 2 source-patch services (jadx + binary_analysis). Pause for review per user directive.
+**checkpoint-wave-7: pending** (firmware_metadata_service 481, compliance_service 481, kernel_service 381, report_service 365, selinux_service 355 — next 5 by LOC desc)
