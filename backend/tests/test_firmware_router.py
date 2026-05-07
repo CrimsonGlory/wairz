@@ -117,6 +117,12 @@ def _make_firmware_row(project_id: uuid.UUID, **overrides) -> MagicMock:
     fw.binary_info = None
     fw.device_metadata = None
     fw.created_at = datetime.now(timezone.utc)
+    # Rule #29 + Rule #33 upload-stage state machine fields.
+    fw.upload_stage = "detecting"
+    fw.upload_stage_started_at = datetime.now(timezone.utc)
+    fw.upload_stage_finished_at = None
+    fw.upload_stage_error = None
+    fw.detected_format = None
     for key, value in overrides.items():
         setattr(fw, key, value)
     return fw
@@ -127,37 +133,54 @@ def _make_firmware_row(project_id: uuid.UUID, **overrides) -> MagicMock:
 # ---------------------------------------------------------------------------
 
 class TestUploadFirmware:
-    """``POST /api/v1/projects/{pid}/firmware`` — multipart upload."""
+    """``POST /api/v1/projects/{pid}/firmware`` — multipart upload (Rule #33 202+polling)."""
 
     @pytest.mark.asyncio
-    async def test_happy_path_returns_201_with_response_schema(
+    async def test_happy_path_returns_202_with_status_response(
         self, client, project_id,
     ):
-        """Upload returns 201 + the FirmwareUploadResponse fields."""
-        # Service mock — actual bytes go nowhere.
+        """Upload returns 202 + FirmwareUploadStatusResponse fields.
+
+        Post-Rule-#33-refactor (commit 847eae9): the endpoint now returns
+        202 Accepted with a status-response shape. The router spawns
+        ``_run_upload_post_processing_background`` via asyncio.create_task;
+        the test patches that target so the background task is a no-op
+        (the ack itself is what we're verifying).
+        """
         firmware_row = _make_firmware_row(project_id)
         svc = MagicMock()
-        svc.upload = AsyncMock(return_value=firmware_row)
+        svc.upload_bytes_only = AsyncMock(return_value=firmware_row)
 
         app.dependency_overrides[get_firmware_service] = lambda: svc
 
         files = {"file": ("test.bin", b"\x00" * 64, "application/octet-stream")}
-        resp = await client.post(
-            f"/api/v1/projects/{project_id}/firmware",
-            files=files,
-        )
+        with patch(
+            "app.routers.firmware._run_upload_post_processing_background",
+            new=AsyncMock(),
+        ):
+            resp = await client.post(
+                f"/api/v1/projects/{project_id}/firmware",
+                files=files,
+            )
 
-        assert resp.status_code == 201, resp.text
+        assert resp.status_code == 202, resp.text
         body = resp.json()
-        # FirmwareUploadResponse fields (schemas/firmware.py:7).
-        for key in ("id", "original_filename", "sha256", "file_size", "created_at"):
+        # FirmwareUploadStatusResponse fields (schemas/firmware.py).
+        for key in (
+            "id",
+            "upload_stage",
+            "detected_format",
+            "extraction_capability",
+            "capability_note",
+            "sha256",
+        ):
             assert key in body, f"upload response missing '{key}'"
+        assert body["upload_stage"] == "detecting"
         assert body["sha256"] == "a" * 64
-        assert body["file_size"] == 1024
 
-        # Service was called with the right project_id + multipart UploadFile.
-        assert svc.upload.await_count == 1
-        await_args = svc.upload.await_args
+        # Service was called with the right project_id.
+        assert svc.upload_bytes_only.await_count == 1
+        await_args = svc.upload_bytes_only.await_args
         assert await_args.args[0] == project_id
 
     @pytest.mark.asyncio
@@ -426,3 +449,204 @@ class TestUnpackPersistenceLiveCanary:
                 )
             ).scalar_one()
             assert fw_row.extracted_path is None
+
+
+# ---------------------------------------------------------------------------
+# POST /firmware (Rule #33 202+polling) — upload-stage state machine
+# ---------------------------------------------------------------------------
+
+class TestUploadStateMachineLiveCanary:
+    """End-to-end checks for the upload-stage state machine (Rule #33)."""
+
+    @pytest.mark.asyncio
+    async def test_upload_status_endpoint_round_trips_persisted_fields(
+        self, client, project_id, tmp_path: Path,
+    ):
+        """GET /upload-status returns the row's stage + detected_format.
+
+        Rule #35b live canary: seeds a Firmware row with the new columns
+        populated, hits the GET endpoint, asserts the response carries
+        the same values back. This catches Pydantic schema/ORM mismatch
+        regressions (Rule #4) on the new columns.
+        """
+        async with make_live_db() as db:
+            pid = uuid.uuid4()
+            project = Project(id=pid, name="live-canary-upload-status", status="ready")
+            db.add(project)
+            await db.flush()
+
+            firmware = Firmware(
+                id=uuid.uuid4(),
+                project_id=pid,
+                sha256="b" * 64,
+                storage_path=str(tmp_path / "x.bin"),
+                upload_stage="extracting",
+                detected_format="linux_firmware_blob",
+            )
+            db.add(firmware)
+            await db.flush()
+
+            app.dependency_overrides[get_db] = lambda: db
+            from app.services.firmware_service import FirmwareService
+            app.dependency_overrides[get_firmware_service] = lambda: FirmwareService(db)
+
+            resp = await client.get(
+                f"/api/v1/projects/{pid}/firmware/{firmware.id}/upload-status"
+            )
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            assert body["upload_stage"] == "extracting"
+            assert body["detected_format"] == "linux_firmware_blob"
+            # Linux firmware blob → 'full' capability per the mapping in
+            # services/format_detection.py:EXTRACTION_CAPABILITY.
+            assert body["extraction_capability"] == "full"
+
+    @pytest.mark.asyncio
+    async def test_upload_status_404_on_wrong_project(
+        self, client, project_id, tmp_path: Path,
+    ):
+        """firmware_id from a different project returns 404 (404-on-mismatch contract)."""
+        async with make_live_db() as db:
+            pid = uuid.uuid4()
+            other_pid = uuid.uuid4()
+            db.add(Project(id=pid, name="owner-proj", status="ready"))
+            db.add(Project(id=other_pid, name="other-proj", status="ready"))
+            firmware = Firmware(
+                id=uuid.uuid4(),
+                project_id=pid,
+                sha256="c" * 64,
+                storage_path=str(tmp_path / "y.bin"),
+                upload_stage="ready",
+            )
+            db.add(firmware)
+            await db.flush()
+
+            app.dependency_overrides[get_db] = lambda: db
+            from app.services.firmware_service import FirmwareService
+            app.dependency_overrides[get_firmware_service] = lambda: FirmwareService(db)
+
+            # Ask for the firmware under the WRONG project — should 404.
+            resp = await client.get(
+                f"/api/v1/projects/{other_pid}/firmware/{firmware.id}/upload-status"
+            )
+            assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_capability_banner_for_acronis_backup(
+        self, client, project_id, tmp_path: Path,
+    ):
+        """detected_format='acronis_backup' surfaces capability='none' + note.
+
+        Verifies the round-trip through CAPABILITY_NOTES + EXTRACTION_CAPABILITY
+        in services/format_detection.py — closes the value-flow contract per
+        Rule #35b's 'mocks verify dispatch shape, not value flow' lesson.
+        """
+        async with make_live_db() as db:
+            pid = uuid.uuid4()
+            db.add(Project(id=pid, name="acronis-banner", status="ready"))
+            firmware = Firmware(
+                id=uuid.uuid4(),
+                project_id=pid,
+                sha256="e" * 64,
+                storage_path=str(tmp_path / "backup.tibx"),
+                upload_stage="ready",
+                detected_format="acronis_backup",
+            )
+            db.add(firmware)
+            await db.flush()
+
+            app.dependency_overrides[get_db] = lambda: db
+            from app.services.firmware_service import FirmwareService
+            app.dependency_overrides[get_firmware_service] = lambda: FirmwareService(db)
+
+            resp = await client.get(
+                f"/api/v1/projects/{pid}/firmware/{firmware.id}/upload-status"
+            )
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["extraction_capability"] == "none"
+            assert body["capability_note"] is not None
+            assert "Acronis" in body["capability_note"]
+
+
+class TestUploadStageStateMachine:
+    """Round-trip every legal upload_stage value through the live DB.
+
+    Mirrors the vuln-scan precedent at test_sbom_router.py:932 — the
+    DB CHECK constraint ``ck_firmware_upload_stage`` lives in the
+    alembic migration (revision d2e3f4a5b6c7), not in the SQLAlchemy
+    Base.metadata, so ``make_live_db``'s SQLite shim doesn't enforce it
+    here. What the canary does verify: every legal stage round-trips
+    through the ORM column without coercion, and the transitions match
+    the ``UploadStage`` Literal contract on the response schema.
+
+    PostgreSQL in production rejects out-of-band stage values via the
+    CHECK constraint — the migration carries the authoritative
+    enforcement. The Pydantic ``Literal`` on
+    ``FirmwareUploadStatusResponse.upload_stage`` is the API-side gate.
+    Together they implement Rule #33 (c)'s 'two gates' discipline.
+    """
+
+    @pytest.mark.asyncio
+    async def test_every_legal_upload_stage_round_trips(
+        self, tmp_path: Path,
+    ):
+        async with make_live_db() as db:
+            pid = uuid.uuid4()
+            db.add(Project(id=pid, name="stage-roundtrip", status="ready"))
+            await db.flush()
+
+            stages = [
+                "uploading", "hashing", "detecting", "extracting",
+                "analyzing", "ready", "failed",
+            ]
+            for stage in stages:
+                firmware = Firmware(
+                    id=uuid.uuid4(),
+                    project_id=pid,
+                    sha256=stage[:1] * 64,
+                    storage_path=str(tmp_path / f"{stage}.bin"),
+                    upload_stage=stage,
+                )
+                db.add(firmware)
+                await db.flush()
+
+                row = (
+                    await db.execute(
+                        select(Firmware).where(Firmware.id == firmware.id)
+                    )
+                ).scalar_one()
+                assert row.upload_stage == stage, (
+                    f"upload_stage='{stage}' did not round-trip; got "
+                    f"'{row.upload_stage}' from the DB"
+                )
+
+    @pytest.mark.asyncio
+    async def test_check_constraint_present_in_migration(self):
+        """Verify the alembic migration declares ck_firmware_upload_stage.
+
+        The constraint can't fire in the SQLite test shim (it's added by
+        op.create_check_constraint, not by the ORM Base.metadata) — but
+        the migration file IS the source of truth in production. This
+        test guards against accidental constraint deletion in future
+        migrations.
+        """
+        from pathlib import Path as _Path
+        migration_dir = _Path(__file__).parent.parent / "alembic" / "versions"
+        target = migration_dir / "d2e3f4a5b6c7_add_upload_stage_to_firmware.py"
+        assert target.is_file(), f"migration not found: {target}"
+        body = target.read_text()
+        assert "ck_firmware_upload_stage" in body
+        assert "create_check_constraint" in body
+        # All seven legal stage values must appear in the migration's
+        # UPLOAD_STAGE_VALUES tuple — the migration joins them at
+        # runtime into the IN clause, so we check for the bare string
+        # literal in the source rather than the rendered SQL.
+        for stage in (
+            "uploading", "hashing", "detecting", "extracting",
+            "analyzing", "ready", "failed",
+        ):
+            assert f'"{stage}"' in body, (
+                f"stage value '{stage}' missing from CHECK migration "
+                "UPLOAD_STAGE_VALUES tuple"
+            )
