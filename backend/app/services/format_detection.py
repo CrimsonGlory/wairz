@@ -105,7 +105,7 @@ EXTRACTION_CAPABILITY: dict[DetectedFormat, ExtractionCapability] = {
     DetectedFormat.ISO_9660: ExtractionCapability.FULL,
     DetectedFormat.WIM_ARCHIVE: ExtractionCapability.FULL,
     DetectedFormat.ACRONIS_BACKUP: ExtractionCapability.NONE,
-    DetectedFormat.QNX_IFS: ExtractionCapability.NONE,
+    DetectedFormat.QNX_IFS: ExtractionCapability.PARTIAL,
     DetectedFormat.UNKNOWN: ExtractionCapability.NONE,
 }
 
@@ -120,9 +120,8 @@ CAPABILITY_NOTES: dict[DetectedFormat, str] = {
         "export the recovered filesystem as a tar/zip, and re-upload."
     ),
     DetectedFormat.QNX_IFS: (
-        "QNX IFS image detected. wairz does not yet have a QNX extractor. "
-        "Use a QNX-aware tool (mount_ifs, dumpifs) to extract the rootfs and "
-        "re-upload as a tar archive."
+        "Listing-only via jtang613/qnx_dumpers; for full extraction use "
+        "host-side QNX SDP dumpifs."
     ),
     # WIM_ARCHIVE has no note — capability is FULL via wimlib-imagex
     # (Phase 2 handler 2). The full image list goes into the per-upload
