@@ -102,7 +102,7 @@ EXTRACTION_CAPABILITY: dict[DetectedFormat, ExtractionCapability] = {
     DetectedFormat.ZIP_ARCHIVE: ExtractionCapability.FULL,
     DetectedFormat.WINDOWS_INSTALLER_ISO: ExtractionCapability.PARTIAL,
     DetectedFormat.PE_EXECUTABLE: ExtractionCapability.PARTIAL,
-    DetectedFormat.ISO_9660: ExtractionCapability.PARTIAL,
+    DetectedFormat.ISO_9660: ExtractionCapability.FULL,
     DetectedFormat.ACRONIS_BACKUP: ExtractionCapability.NONE,
     DetectedFormat.QNX_IFS: ExtractionCapability.NONE,
     DetectedFormat.WIM_ARCHIVE: ExtractionCapability.NONE,
@@ -140,11 +140,9 @@ CAPABILITY_NOTES: dict[DetectedFormat, str] = {
         "decompilation) is available, but there is no firmware filesystem to "
         "extract."
     ),
-    DetectedFormat.ISO_9660: (
-        "ISO 9660 image detected. Surface-level extraction is available; "
-        "specialised installer payloads (Windows WIM, Linux squashfs inside "
-        "the ISO) may need a second-pass extraction."
-    ),
+    # ISO_9660 has no note — capability is FULL via 7z (Phase 2 handler 1).
+    # Inner-WIM caveats live on WINDOWS_INSTALLER_ISO's note instead, which
+    # is the format users actually need a workaround for.
 }
 
 
