@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
@@ -100,6 +101,31 @@ class VulnerabilityScanResponse(BaseModel):
     total_vulnerabilities_found: int
     findings_created: int
     vulns_by_severity: dict[str, int]
+
+
+# Rule #33 (c): both a Pydantic Literal AND a DB CHECK constraint.
+# Mirrors ck_firmware_vuln_scan_status added in revision c1d2e3f4a5b6.
+VulnScanStatus = Literal["idle", "queued", "running", "completed", "failed"]
+
+
+class VulnerabilityScanStatusResponse(BaseModel):
+    """Polling-shape response for the 202+polling vulnerability scan flow.
+
+    POST /sbom/vulnerabilities/scan returns this with status="queued";
+    the frontend polls GET /sbom/vulnerabilities/scan/status every 2 s
+    until status flips to "completed" or "failed". The summary field is
+    built per-request from a count query against sbom_vulnerabilities
+    when status == "completed" — the persisted vuln rows ARE the result,
+    so no JSONB result column on firmware is required.
+    """
+
+    firmware_id: uuid.UUID
+    status: VulnScanStatus
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error: str | None = None
+    summary: VulnerabilityScanResponse | None = None
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SbomSummaryResponse(BaseModel):

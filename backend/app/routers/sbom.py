@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import traceback
 import uuid
 from datetime import datetime, timezone
 
@@ -14,7 +15,8 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
-from app.database import get_db
+from app.database import async_session_factory, get_db
+from app.models.firmware import Firmware
 from app.models.sbom import SbomComponent, SbomVulnerability
 from app.rate_limit import TIER_A_HEAVY, limiter
 from app.routers.deps import resolve_firmware as _resolve_firmware
@@ -26,6 +28,7 @@ from app.schemas.sbom import (
     SbomVulnerabilityResponse,
     VulnerabilityResolutionStatus,
     VulnerabilityScanResponse,
+    VulnerabilityScanStatusResponse,
     VulnerabilityUpdateRequest,
 )
 from app.services.jsonb_normalizers import _normalize_firmware_device_metadata
@@ -332,7 +335,183 @@ async def export_sbom(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/vulnerabilities/scan", response_model=VulnerabilityScanResponse)
+async def _build_vuln_scan_summary(
+    db: AsyncSession, firmware_id: uuid.UUID
+) -> VulnerabilityScanResponse:
+    """Build the last-completed-result summary for a finished vuln scan.
+
+    Aggregated from the persisted ``sbom_vulnerabilities`` rows — those
+    rows ARE the result of the scan (Rule #33 (b): persistence on the
+    same row used for status, and the rows that ALREADY exist count).
+
+    No separate JSONB ``vuln_scan_result`` column is required because
+    the row count + per-severity breakdown is cheap to recompute, and
+    the user data (5,104 SbomVulnerability rows for the user's affected
+    firmware) round-trips through this helper unchanged.
+    """
+    total_components = await db.scalar(
+        select(func.count(SbomComponent.id)).where(
+            SbomComponent.firmware_id == firmware_id
+        )
+    ) or 0
+    total_vulns = await db.scalar(
+        select(func.count(SbomVulnerability.id)).where(
+            SbomVulnerability.firmware_id == firmware_id
+        )
+    ) or 0
+    findings_created = await db.scalar(
+        select(func.count(SbomVulnerability.id)).where(
+            SbomVulnerability.firmware_id == firmware_id,
+            SbomVulnerability.finding_id.is_not(None),
+        )
+    ) or 0
+    severity_rows = (await db.execute(
+        select(SbomVulnerability.severity, func.count(SbomVulnerability.id))
+        .where(SbomVulnerability.firmware_id == firmware_id)
+        .group_by(SbomVulnerability.severity)
+    )).all()
+    vulns_by_severity: dict[str, int] = {sev or "unknown": cnt for sev, cnt in severity_rows}
+    return VulnerabilityScanResponse(
+        status="completed",
+        total_components_scanned=total_components,
+        total_vulnerabilities_found=total_vulns,
+        findings_created=findings_created,
+        vulns_by_severity=vulns_by_severity,
+    )
+
+
+async def _firmware_to_vuln_scan_status(
+    db: AsyncSession, firmware: Firmware
+) -> VulnerabilityScanStatusResponse:
+    """Build a status response from a Firmware row.
+
+    Hydrates the ``summary`` field from a count query against
+    ``sbom_vulnerabilities`` when status == "completed" so the
+    frontend's last-known-result render survives a page reload
+    without an extra GET round-trip.
+    """
+    summary: VulnerabilityScanResponse | None = None
+    if firmware.vuln_scan_status == "completed":
+        summary = await _build_vuln_scan_summary(db, firmware.id)
+    return VulnerabilityScanStatusResponse(
+        firmware_id=firmware.id,
+        status=firmware.vuln_scan_status,
+        started_at=firmware.vuln_scan_started_at,
+        finished_at=firmware.vuln_scan_finished_at,
+        error=firmware.vuln_scan_error,
+        summary=summary,
+    )
+
+
+async def _run_vuln_scan_background(
+    firmware_id: uuid.UUID,
+    project_id: uuid.UUID,
+    force_rescan: bool,
+) -> None:
+    """Detached vulnerability-scan runner.
+
+    Owns its own ``AsyncSession`` so the FastAPI request that returned
+    the 202 can close cleanly. Mirrors ``_run_cve_match_background`` in
+    ``routers/hardware_firmware.py`` and ``_run_unpack_background`` in
+    ``routers/firmware.py``.
+
+    On entry: flips ``vuln_scan_status`` from ``queued`` → ``running``.
+    On clean return: persists the scan summary fields and flips status
+    to ``completed``. On exception: flips status to ``failed`` on a
+    fresh session and stores a short traceback summary on
+    ``vuln_scan_error`` for the UI to surface.
+    """
+    from app.config import get_settings
+    from app.services.grype_service import grype_available, scan_with_grype
+
+    started = datetime.now(timezone.utc)
+    try:
+        async with async_session_factory() as db:
+            try:
+                fw = (
+                    await db.execute(
+                        select(Firmware).where(Firmware.id == firmware_id)
+                    )
+                ).scalar_one_or_none()
+                if fw is None:
+                    logger.warning(
+                        "vuln-scan background: firmware %s vanished before run",
+                        firmware_id,
+                    )
+                    return
+                fw.vuln_scan_status = "running"
+                fw.vuln_scan_started_at = started
+                fw.vuln_scan_error = None
+                await db.commit()
+
+                settings = get_settings()
+                use_grype = (
+                    settings.vulnerability_backend == "grype"
+                    and grype_available()
+                )
+
+                if use_grype:
+                    summary = await scan_with_grype(
+                        firmware_id=firmware_id,
+                        project_id=project_id,
+                        db=db,
+                    )
+                else:
+                    vuln_svc = VulnerabilityService(db)
+                    summary = await vuln_svc.scan_components(
+                        firmware_id=firmware_id,
+                        project_id=project_id,
+                        force_rescan=force_rescan,
+                    )
+                await db.commit()
+
+                fw = (
+                    await db.execute(
+                        select(Firmware).where(Firmware.id == firmware_id)
+                    )
+                ).scalar_one_or_none()
+                if fw is None:
+                    return
+                fw.vuln_scan_status = "completed"
+                fw.vuln_scan_finished_at = datetime.now(timezone.utc)
+                fw.vuln_scan_error = None
+                await db.commit()
+                logger.info(
+                    "vuln-scan background: firmware %s completed (vulns=%d)",
+                    firmware_id,
+                    summary.get("total_vulnerabilities_found", -1),
+                )
+            except Exception as exc:
+                await db.rollback()
+                err_summary = "\n".join(
+                    traceback.format_exception(type(exc), exc, exc.__traceback__)
+                )[-2000:]
+                async with async_session_factory() as fail_db:
+                    fail_fw = (
+                        await fail_db.execute(
+                            select(Firmware).where(Firmware.id == firmware_id)
+                        )
+                    ).scalar_one_or_none()
+                    if fail_fw is not None:
+                        fail_fw.vuln_scan_status = "failed"
+                        fail_fw.vuln_scan_finished_at = datetime.now(timezone.utc)
+                        fail_fw.vuln_scan_error = err_summary
+                        await fail_db.commit()
+                logger.exception(
+                    "vuln-scan background: firmware %s failed", firmware_id
+                )
+    except Exception:
+        logger.exception(
+            "vuln-scan background: unrecoverable error for firmware %s",
+            firmware_id,
+        )
+
+
+@router.post(
+    "/vulnerabilities/scan",
+    response_model=VulnerabilityScanStatusResponse,
+    status_code=202,
+)
 @limiter.limit(TIER_A_HEAVY)
 async def scan_vulnerabilities(
     request: Request,
@@ -340,16 +519,27 @@ async def scan_vulnerabilities(
     force_rescan: bool = Query(False),
     firmware=Depends(_resolve_firmware),
     db: AsyncSession = Depends(get_db),
-):
-    """Trigger a vulnerability scan for all SBOM components.
+) -> VulnerabilityScanStatusResponse:
+    """Enqueue a vulnerability scan for the resolved firmware (Rule #29 + #33).
 
-    Uses Grype (local, fast) by default. Falls back to NVD API if Grype
-    is unavailable. Configure via VULNERABILITY_BACKEND=grype|nvd.
+    Returns 202 Accepted with the firmware row in
+    ``vuln_scan_status="queued"``. The frontend polls
+    ``GET /sbom/vulnerabilities/scan/status`` every 2 s
+    (firmware-unpack precedent) until ``status`` flips to ``completed``
+    (success — read ``summary``) or ``failed`` (read ``error``).
+
+    Why 202 rather than 200: a single synchronous run on 72 components
+    held the TCP connection idle for ~4m10s; with the 16 GB Illumisite
+    image incoming the wall-time blows past the SECURITY_SCAN_TIMEOUT
+    (600s) ceiling and exceeds Cloudflare's 100s origin timeout in any
+    proxied deployment. See CLAUDE.md Rule #29.
+
+    Idempotency: a POST while the firmware's status is already
+    ``queued`` or ``running`` returns 409 with the in-flight status
+    rather than spawning a second run. The frontend should poll
+    ``/sbom/vulnerabilities/scan/status`` to observe the existing run.
     """
-    from app.config import get_settings
-    from app.services.grype_service import grype_available, scan_with_grype
-
-    # Ensure SBOM exists
+    # Ensure SBOM exists — preserves the prior 400 contract.
     comp_count = await db.scalar(
         select(func.count(SbomComponent.id)).where(
             SbomComponent.firmware_id == firmware.id
@@ -360,27 +550,47 @@ async def scan_vulnerabilities(
             400, "No SBOM generated yet. Run POST /generate first."
         )
 
-    settings = get_settings()
-    use_grype = settings.vulnerability_backend == "grype" and grype_available()
+    if firmware.vuln_scan_status in ("queued", "running"):
+        raise HTTPException(
+            409,
+            f"vuln-scan already {firmware.vuln_scan_status} for this firmware",
+        )
 
-    try:
-        if use_grype:
-            summary = await scan_with_grype(
-                firmware_id=firmware.id,
-                project_id=project_id,
-                db=db,
-            )
-        else:
-            vuln_svc = VulnerabilityService(db)
-            summary = await vuln_svc.scan_components(
-                firmware_id=firmware.id,
-                project_id=project_id,
-                force_rescan=force_rescan,
-            )
-    except Exception as e:
-        raise HTTPException(500, f"Vulnerability scan failed: {e}")
+    firmware.vuln_scan_status = "queued"
+    firmware.vuln_scan_started_at = None
+    firmware.vuln_scan_finished_at = None
+    firmware.vuln_scan_error = None
+    # Commit before scheduling the background task so its fresh session
+    # observes the queued row.
+    await db.commit()
 
-    return VulnerabilityScanResponse(**summary)
+    # Rule #33 (d) rubric: in-process Grype subprocess + DB writes =
+    # asyncio.create_task is correct (cve-match precedent). No worker
+    # resource coordination needed; intermediate state is incrementally
+    # persisted by VulnerabilityService.scan_components / scan_with_grype.
+    asyncio.create_task(
+        _run_vuln_scan_background(firmware.id, project_id, force_rescan)
+    )
+    return await _firmware_to_vuln_scan_status(db, firmware)
+
+
+@router.get(
+    "/vulnerabilities/scan/status",
+    response_model=VulnerabilityScanStatusResponse,
+)
+async def get_vuln_scan_status(
+    firmware=Depends(_resolve_firmware),
+    db: AsyncSession = Depends(get_db),
+) -> VulnerabilityScanStatusResponse:
+    """Return the current vuln-scan status snapshot for the resolved firmware.
+
+    The frontend polls this every 2 s after a 202 from
+    ``POST /sbom/vulnerabilities/scan`` until ``status`` flips to
+    ``completed`` or ``failed``. Mirrors the firmware-unpack polling
+    shape used by ProjectDetailPage and the cve-match polling shape
+    used by the hardware-firmware page.
+    """
+    return await _firmware_to_vuln_scan_status(db, firmware)
 
 
 @router.get(
