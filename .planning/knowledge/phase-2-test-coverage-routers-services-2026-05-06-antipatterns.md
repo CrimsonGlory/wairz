@@ -1,6 +1,7 @@
-# Anti-patterns: Phase 2 Test Coverage Backfill — Router Half (Waves 1-5)
+# Anti-patterns: Phase 2 Test Coverage Backfill — Through Wave 7
 
-> Extracted: 2026-05-07
+> Extracted: 2026-05-07 (initial — Waves 1-5)
+> Last updated: 2026-05-07 (Wave 6 — entry 7; Wave 7 — entries 8-9)
 > Campaign: .planning/campaigns/phase-2-test-coverage-routers-services-2026-05-06.md
 
 ## Failed Patterns
@@ -50,3 +51,15 @@
 - **Failure mode:** `_classify_file` accepts the magic bytes (correctly identifies as ELF), but LIEF rejects the malformed program/section headers downstream and reports `binary.header.machine_type` as a raw `int` instead of a `lief.ELF.ARCH` enum. The arch-map lookup `_LIEF_ELF_ARCH_MAP.get(binary.header.machine_type)` returns `None`, every architecture-dependent assertion silently fails (test author sees `assert architecture == 'arm'` fail with `assert None == 'arm'` and assumes the test expectation is wrong, not the fixture).
 - **Evidence:** 6 of 23 tests in the initial test_binary_analysis_service.py draft. Same anti-pattern applies to PE fixtures (pefile rejects minimal PE32 with no rich relocations) and Mach-O. Mechanical signature: a test asserts on `architecture`/`endianness`/`bits` after parsing a `tmp_path`-created binary file; if the test fails with `None` on what should be a "happy path", check whether the fixture is a real binary or synthetic bytes.
 - **How to avoid:** Use real binaries from the test container (`/bin/ls` for x86_64 ELF; see Pattern #10). LIEF returns proper enums, the arch-map lookup succeeds, and value-flow assertions fire correctly. Synthetic bytes are appropriate ONLY for testing the magic-byte classifier itself (`_classify_file`); any test that exercises post-classification value flow MUST use a real binary.
+
+### 8. Tight coupling between test inputs and validator branch order (Wave 7)
+- **What was done:** Wrote 4 negative-path tests for `_validate_kernel_name` (kernel_service.py) using inputs `..hidden`, `../etc/passwd`, `../bad`, `../etc/passwd` and asserting `pytest.raises(ValueError, match="must not contain")`. The validator's branch order is empty → dot-prefix → slash/backslash/dotdot → regex; ALL 4 inputs trip the dot-prefix branch FIRST (because `..hidden`, `../etc/passwd`, etc. all start with `.`), which raises "must not start with '.'" — never reaching the "must not contain" branch.
+- **Failure mode:** 4 tests fail with `Regex pattern did not match. Expected regex: 'must not contain'. Actual message: "Kernel name must not start with '.'"`. Confusing because the inputs LOOK like they would test path traversal; in fact they all test dot-prefix.
+- **Evidence:** test_kernel_service.py first iteration (4 of 61 tests). Caught immediately because pytest's regex match shows the actual message; cost ~30 seconds of triage + 4 single-line edits.
+- **How to avoid:** Before writing negative tests for a multi-branch validator, READ the validator's branch order (1 second). Construct one input per branch, with each input designed to ONLY match its target branch (no leading dot for the `..` test; no `..` for the `/` test; etc.). Generalises pattern #6 in the patterns file (schema-check before authoring): the principle is "read the production code BEFORE constructing the test inputs that depend on it".
+
+### 9. Counting raw `<` characters in escaped-HTML output without accounting for surrounding tags (Wave 7)
+- **What was done:** test_report_service.test_html_special_chars_escaped_in_label asserted `html.count("<") == 1` to prove the escaped label content didn't contain a raw `<`, expecting "only the opening `<span>` tag has a raw `<`."
+- **Failure mode:** The full output is `<span ...>&lt;script&gt;</span>` — the closing `</span>` ALSO contains a raw `<`, so the count is 2, not 1. Test failed with `assert 2 == 1`.
+- **Evidence:** test_report_service.py first iteration (1 of 29 tests). Caught immediately on first run.
+- **How to avoid:** When asserting on the absence of unescaped content, prefer NEGATIVE assertions over count assertions: `assert "<script>" not in html` is tighter, more readable, and harder to misread than `html.count("<") == 1`. The count assertion has to walk through "what raw `<` characters appear and how many" mentally; the negative assertion just says "the dangerous string MUST NOT be there." Generalises: prefer `not in` over `count() == N` whenever the goal is "this dangerous substring is absent".

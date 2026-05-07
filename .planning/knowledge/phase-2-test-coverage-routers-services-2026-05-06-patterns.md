@@ -1,9 +1,10 @@
-# Patterns: Phase 2 Test Coverage Backfill — Router Half (Waves 1-5)
+# Patterns: Phase 2 Test Coverage Backfill — Through Wave 7
 
-> Extracted: 2026-05-07
+> Extracted: 2026-05-07 (initial — Waves 1-5)
+> Last updated: 2026-05-07 (Wave 6 — entries 9-11; Wave 7 — entries 12-16)
 > Campaign: .planning/campaigns/phase-2-test-coverage-routers-services-2026-05-06.md
-> Postmortem: not found (campaign mid-flight; extracted at "router half complete" milestone)
-> Scope: 21 router test files + 5 service test files = 30 commits, 301 cases, 1 production bug fixed, 1 shim hardening
+> Postmortem: not found (campaign mid-flight; harvested at wave-end milestones)
+> Scope: 21 router test files + 10 service test files = 40 commits, 631 cases, 1 production bug fixed, 1 shim hardening, 0 wave-attributed regressions in full-suite smoke
 
 ## Successful Patterns
 
@@ -62,6 +63,31 @@
 - **Evidence:** `test_binary_analysis_service.py:160` `_prime_lief_maps` fixture. Eliminates cross-test state leakage from the lazy-init short-circuit test without sacrificing the short-circuit-branch coverage.
 - **Applies when:** any service uses module-level lazy-init dicts/maps gated by a `_loaded`/`_initialized` sentinel AND the test suite needs to exercise BOTH the populated and unpopulated branches. The autouse fixture is cheaper and more durable than per-test setup/teardown.
 
+### 12. Triage-pattern-#4 schema_version pop-and-assert applied prophylactically (Wave 7)
+- **Description:** When a test asserts on a JSONB column that goes through a `_stamp_<column>` helper from `app.services.jsonb_normalizers`, write the assertion as: `persisted = dict(row.<column>); stamp = persisted.pop("schema_version"); assert stamp == <X>_SCHEMA_VERSION; assert persisted == writer_supplied_payload`. Imported wholesale from the test-maintenance-triage 2026-05-06 Group A fix (`98cc0fd`) — when the schema bumps from 1 to 2, the assertion fails with a specific stamp-mismatch signal rather than a confusing 5-field structural diff. Forward-compat at zero cost.
+- **Evidence:** `test_firmware_metadata_service.py::TestScanFirmwareImageLiveCanary::test_first_scan_persists_stamped_cache_row` — the canary uses `dict(row.result).pop("schema_version")` against `ANALYSIS_CACHE_RESULT_SCHEMA_VERSION` (currently 1). Future cache writes that drop the stamp will fail with KeyError; future bumps fail with a clear mismatch.
+- **Applies when:** any test that writes and reads back a JSONB column wrapped in a `_stamp_<column>` helper. The 5 boundary normalisers from audit-2026-05-04 are all candidates.
+
+### 13. `sys.modules` injection as canonical Rule #30 SOURCE-patch for lazy-imported third-party modules (Wave 7)
+- **Description:** When a service does `import <lib>` INSIDE a function body (Rule #30 source-patch territory), the canonical patch shape is `with patch.dict(sys.modules, {"<lib>": fake_module}):`. Python's import system consults `sys.modules` BEFORE searching the path/finders, so the fake gets picked up cleanly. Stronger than `patch("<lib>.<symbol>")` because it covers the case where the consumer module imports a different attribute on each call (e.g. `weasyprint.HTML(...)` vs `weasyprint.CSS(...)`).
+- **Evidence:** `test_report_service.py::TestGeneratePdfReport::test_source_patch_on_weasyprint_html` injects a fake `weasyprint` module; `test_selinux_service.py::TestRule30SetoolsSourcePatch::test_source_patch_via_sys_modules_works` injects a fake `setools` module. Both verify the consumer's lazy import resolves to the fake AND that the assertion picks up the right attribute access.
+- **Applies when:** any test for a service with a function-body `import <heavy_third_party>` (Rule #30). Pair with pattern #14 below.
+
+### 14. Hasattr-sentinel paired with sys.modules injection (Wave 7)
+- **Description:** When a Rule #30 source-patch test uses `patch.dict(sys.modules, ...)`, add a separate sentinel test: `assert not hasattr(<consumer_module>, "<lib>")`. The sentinel fails LOUDLY when a future refactor promotes the lazy import to top-level — at which point the patches must flip to inverse-Rule-30 (`patch.object(consumer_module, "<lib>", ...)`). Without the sentinel, the refactor silently breaks the existing patches AND the tests still pass (because the real lib runs, often producing valid-looking output). Generalises the discipline: any sys.modules-injection test should be guarded by a hasattr-sentinel that catches the inverse-Rule-30 flip.
+- **Evidence:** `test_selinux_service.py::TestRule30SetoolsSourcePatch::test_consumer_module_has_no_setools_attribute` — explicit sentinel with comment naming the failure mode and pointing at the corrective patch shape.
+- **Applies when:** any sys.modules-injection test in the project. Cheap (1-line assertion); high signal (catches the silent class of regression Rule #30 was added to prevent).
+
+### 15. Validation-branch ordering awareness when authoring negative tests (Wave 7)
+- **Description:** Multi-branch validators (e.g. `_validate_kernel_name` in kernel_service.py: empty / dot-prefix / slash / backslash / dotdot / regex) check branches in a specific order; the FIRST failing branch raises. Tests that assume a specific error message must construct inputs that ONLY match the target branch. Example: `..hidden` triggers the "must not start with '.'" branch (not the "must not contain `..`" branch) because dot-prefix is checked first. Mechanical fix: read the validator's branch order, then construct one input per branch. `kernel..bad` for the `..` substring check (no leading dot); `bad/path` for the `/` check (no leading dot, no `..`); `.dotfile` for the leading-dot check.
+- **Evidence:** Wave 7 file 3 (`test_kernel_service.py`) — 4 negative-path tests initially used inputs (`..hidden`, `../etc/passwd`, `../bad`) that all triggered the dot-prefix branch first; fixed in-band before commit by re-targeting per-branch.
+- **Applies when:** any test for a multi-branch validator that asserts on a specific error message. Cheaper to read the validator's branch order ONCE and design inputs accordingly than to discover the wrong branch via test failure.
+
+### 16. Realistic-on-disk-tree fixture for filesystem walkers (Wave 7)
+- **Description:** When testing a filesystem walker (e.g. `_find_policy_files`, `list_kernels`, `_compute_roots_sync`), build a fixture that mirrors the real production layout — multiple partition prefixes, multiple file extensions, mix of binary and text content. Mock-only or single-file fixtures cannot prove the partition-prefix list is complete; only the on-disk walker can fail when a prefix drops out. Companion to pattern #6 (component_map_service partition-prefix canary in Wave 6).
+- **Evidence:** `test_selinux_service.py::TestAnalyzePolicyLiveCanary::test_realistic_android_tree_full_walk` builds a 5-partition Android extracted root: system/build.prop + system/etc/selinux/plat_sepolicy.cil + vendor/etc/selinux/vendor_sepolicy.cil + vendor/etc/selinux/precompiled_sepolicy (binary) + odm/etc/selinux/policy.conf. The test exercises typepermissive dedup, cil_stats accumulation, enforcement source resolution, and the discovery of all three policy file extensions (.cil, .conf, exact-name binary). 32 cases total; the live canary catches a regression where a partition prefix drops or a file extension stops matching.
+- **Applies when:** any service whose primary input is a filesystem tree (extracted firmware, kernel directory, source code repository).
+
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
@@ -74,3 +100,7 @@
 | PATCH happy-path canary on Project intentionally omitted | aiosqlite + `onupdate=func.now()` triggers refresh that needs greenlet context test client doesn't provide; production runs PostgreSQL | 5 cases shipped (vs 6 planned); 404 boundary still covered |
 | Inverse Rule #30 documented | Module-imported symbol → patch CONSUMER module; lazy-imported → patch SOURCE | Both shapes now have explicit reference in test_assessment_service.py + test_androguard_service.py |
 | Cross-project boundary canary as recurring pattern | 3 of 5 Wave 3 files + 4 of 5 Wave 4 files use the same shape | Generalized into the SUCCESSFUL-PATTERNS section here |
+| Wave 7 distribution = 3 inverse + 2 source | Exact match to Wave 6 across 10 service tests | Strong evidence the pattern is project-natural; future waves should grep imports per file but expect ~60/40 split |
+| sys.modules injection over patch.object on source | More robust against module-reload races; covers multi-attribute access cleanly | Codified in pattern #13 + sentinel in pattern #14 |
+| Triage-pattern-#4 schema_version pop-and-assert applied prophylactically | Future-proof against Rule #35c stamp version bumps at zero cost | Codified in pattern #12 |
+| Pre-existing tests audit clean (Wave 7 +188 = exact wave delta) | Suite-green wave-end gate (triage pattern #1) is paying off | Wave 8 starts from 2605-pass baseline, no new triage candidates surfaced |
