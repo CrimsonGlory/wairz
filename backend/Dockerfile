@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     e2fsprogs \
     cpio \
     p7zip-full \
+    wimtools \
     cabextract \
     lzop \
     lz4 \
