@@ -1,9 +1,43 @@
 from datetime import UTC, datetime
 from html import escape
 
+import bleach
+import markdown as md_lib
+
 from app.models.finding import Finding
 from app.models.firmware import Firmware
 from app.models.project import Project
+
+_MD_ALLOWED_TAGS = {
+    "p", "br", "strong", "em", "code", "pre", "blockquote",
+    "ul", "ol", "li", "a", "h1", "h2", "h3", "h4", "h5", "h6",
+    "table", "thead", "tbody", "tr", "th", "td", "hr", "span", "div",
+}
+_MD_ALLOWED_ATTRS = {
+    "a": ["href", "title"],
+    "code": ["class"],
+    "span": ["class"],
+    "div": ["class"],
+    "th": ["align"],
+    "td": ["align"],
+}
+
+
+def _markdown_to_safe_html(text: str) -> str:
+    if not text:
+        return ""
+    raw = md_lib.markdown(
+        text,
+        extensions=["extra", "sane_lists", "tables", "fenced_code"],
+        output_format="html5",
+    )
+    return bleach.clean(
+        raw,
+        tags=_MD_ALLOWED_TAGS,
+        attributes=_MD_ALLOWED_ATTRS,
+        strip=True,
+        strip_comments=True,
+    )
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 SEVERITY_EMOJI = {"critical": "!!!", "high": "!!", "medium": "!", "low": "-", "info": "i"}
@@ -224,7 +258,10 @@ def generate_html_report(
             )
 
             if f.description:
-                findings_html += f"<p>{e(f.description)}</p>"
+                findings_html += (
+                    f'<div class="finding-description">'
+                    f"{_markdown_to_safe_html(f.description)}</div>"
+                )
             if f.evidence:
                 findings_html += (
                     f"<div><strong>Evidence:</strong></div>"
@@ -297,14 +334,31 @@ def generate_html_report(
     color: #e2e8f0;
     padding: 12px 16px;
     border-radius: 6px;
-    overflow-x: auto;
-    font-size: 12px;
+    font-size: 11px;
     line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
   }}
   pre code {{
     background: none;
     padding: 0;
     color: inherit;
+    white-space: inherit;
+    word-break: inherit;
+    overflow-wrap: inherit;
+  }}
+  .finding-description p {{
+    margin: 0 0 8px 0;
+  }}
+  .finding-description ul,
+  .finding-description ol {{
+    margin: 4px 0 8px 0;
+    padding-left: 22px;
+  }}
+  .finding-description code {{
+    word-break: break-word;
+    overflow-wrap: anywhere;
   }}
   .finding-card {{
     border: 1px solid #e5e7eb;
