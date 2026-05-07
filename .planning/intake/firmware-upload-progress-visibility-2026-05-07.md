@@ -1,7 +1,9 @@
 ---
 title: "Firmware upload UX: surface post-write stages (hash / extract / detect) instead of silent 100%"
-status: pending
+status: shipped
 priority: high
+shipped: 2026-05-07
+shipped_by: prior session (commits 847eae9 refactor(firmware): convert upload to 202+polling per Rule #33; 64e1d85 feat(frontend/firmware): poll upload status with stage labels + format banner; f93508d test(firmware): Rule #33 upload-stage state machine + format-detection coverage); upload now returns 202 with the row's upload_stage column polled by the frontend every 2s through hash → detect → extract stages
 target: backend/app/routers/firmware.py + backend/app/services/firmware_service.py + frontend upload UI
 discovered: 2026-05-07
 discovered_by: Illumisite 16 GB upload session — user observed UI shows "Uploading firmware... 100%" while backend silently runs ~5+ min of post-write work

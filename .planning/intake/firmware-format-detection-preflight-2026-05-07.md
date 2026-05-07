@@ -1,7 +1,9 @@
 ---
 title: "Firmware format detection pre-flight: surface unsupported-by-current-extractors content before user clicks Unpack"
-status: pending
+status: shipped
 priority: high
+shipped: 2026-05-07
+shipped_by: prior session (commit 35a754f feat(format_detection): magic-byte service for Linux/Android/Windows/Acronis/QNX); 18 tests in test_format_detection.py; frontend banner integration in FirmwareVersionCard + FirmwareUpload
 target: backend/app/services/firmware_service.py + backend/app/services/format_detection.py (new) + backend/app/models/firmware.py + frontend/src/pages/FirmwarePage.tsx (or wherever the Unpack button lives)
 discovered: 2026-05-07
 discovered_by: Illumisite 16 GB upload session — uploaded firmware turned out to be a WinPE recovery USB containing 15.6 GB of proprietary Acronis .tibx archives; unblob has nothing to extract; user only learned this AFTER spending 10+ minutes on upload

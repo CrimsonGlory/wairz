@@ -1,10 +1,21 @@
 ---
 title: "Multi-OS firmware extractor roadmap — Acronis .tibx, QNX .ifs, WIM, eCos / FreeRTOS / Zephyr / VxWorks"
-status: pending
+status: in-progress
 priority: medium
 target: backend/app/workers/unpack_*.py (new per-format) + backend/app/services/format_detection.py (companion intake) + backend/app/services/extraction_pipeline.py (new dispatch layer)
 discovered: 2026-05-07
 discovered_by: Illumisite 16 GB upload session + user clarification that wairz scope is multi-OS, not Linux-only
+progress_2026_05_07_session2: |
+  Phase 1 (dispatch infrastructure) shipped: extraction_pipeline.py + extraction_strategies.py + unpack_no_handler.py + router/arq cut-over (commits 8b01723..502efbb, 6 commits, 20 tests).
+  Phase 2 handler 1 (ISO 9660 via 7z) shipped: ISO_9660 capability PARTIAL→FULL (commits a4bea55..a340e24, 4 commits, 10 tests).
+  Phase 2 handler 2 (WIM via wimlib-imagex) shipped: WIM_ARCHIVE capability NONE→FULL (commits 9a0a7cc..f866b2d, 5 commits, 11 tests; backend Dockerfile gained `wimtools` apt install).
+  Phase 2 handler 3 (Windows installer ISO recursive — composes ISO 9660 + WIM) shipped: WINDOWS_INSTALLER_ISO capability PARTIAL→FULL (commits 9a5c500..f2423f3, 4 commits, 17 tests).
+  Capability snapshot: 8 of 12 detected formats now FULL (66.7% coverage). Remaining NONE: ACRONIS_BACKUP (deferred — documentation-as-mitigation per prior session decision; no public magic), QNX_IFS (research-pending; new intake task #9), UNKNOWN (intentional — fallback to monolith). Remaining PARTIAL: PE_EXECUTABLE (binary-analysis enhancement, different shape from extraction handlers; deferred to a binary-analysis-focused session).
+remaining_2026_05_07_session2: |
+  - Phase 2 handler 4 (PE_EXECUTABLE deep): binary analysis enhancement — LIEF imports/exports/.NET tables. Different shape (extends binary_analysis_service.py + ai/tools/binary.py); not an extraction worker. ~1 week. File as separate intake when picked up.
+  - Phase 2 handler 5 (QNX_IFS): research-only dispatch in-flight as task #9 of session 2026-05-07-session2. QNX SDK licensing + community alternatives (dumpifs port, ifsdump). Refined Go/No-Go intake to follow.
+  - Phase 2 handler 6 (ACRONIS_BACKUP): deferred per prior session's documentation-as-mitigation decision. Re-open when an open-source .tibx extractor lands.
+  - Phase 3 (RTOS): unchanged — demand-driven; existing rtos_blob path covers some FreeRTOS/eCos/Zephyr/VxWorks via classify_firmware fast paths.
 ---
 
 ## Problem
