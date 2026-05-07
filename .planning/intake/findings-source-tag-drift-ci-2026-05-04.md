@@ -1,7 +1,8 @@
 ---
 title: "CI check: DB ck_findings_source CHECK ↔ frontend FindingSource union must agree"
-status: pending
+status: completed
 priority: low
+shipped: 2026-05-04 in commits 6e47a9a + 38eda51 (test_finding_source_alignment.py)
 target: backend/tests/test_finding_source_alignment.py (new) OR scripts/check_finding_source_alignment.py (new) + .github/workflows/ if any
 ---
 
