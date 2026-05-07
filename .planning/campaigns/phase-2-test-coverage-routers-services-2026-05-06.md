@@ -25,9 +25,9 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 
 ## Active Context
 
-**Mode:** wave-4-shipped — paused for user review before Wave 5
-**Current Wave:** 4 ✅ COMPLETE (5 test files + Wave 3 close-out)
-**Next Wave:** 5 (projects, health, kernels, export_import, component_map, compliance routers — 6 small files 57-130 LOC) — final router wave; service waves come after
+**Mode:** ROUTER-HALF-COMPLETE — paused before service waves
+**Current Wave:** 5 ✅ COMPLETE — **all 21 untested routers now covered**
+**Next Wave:** 6 (services — component_map_service 701, pcap_analysis_service 594, jadx_service 592, import_service 586, binary_analysis_service 556) — different mental model from routers; consider fresh session
 
 **Wave 1 commits (clean-history):**
 - `d8f1e14` test(sbom_router): 16 cases, +744 LOC
@@ -65,7 +65,18 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 - `b11b172` test(events_router): 7 cases, +283 LOC (SSE channel selection + cleanup contract)
 
 **Wave 4 totals: 48 tests across 5 files = 5 commits. (Wave 4 was the smallest by LOC across the campaign so far — targets 144-217 LOC; canaries leaned on already-validated patterns.)**
-**Cumulative Phase 2 totals: 268 tests + 1 production bug fix + 1 shim hardening = 23 commits across 4 waves.**
+
+**Wave 5 commits (clean-history):**
+- `18fbf74` test(projects_router): 5 cases, +234 LOC (create-project canary persists 2 default docs)
+- `64bc3e0` test(health_router): 7 cases, +298 LOC (shallow + deep + ready probe parity)
+- `72a7c38` test(kernels_router): 7 cases, +240 LOC (architecture whitelist)
+- `90f2310` test(export_import_router): 7 cases, +215 LOC (ZIP streaming + import validation)
+- `7b57ac5` test(component_map_router): 4 cases, +283 LOC (cache hit/miss + empty-graph no-cache)
+- `be70ef0` test(compliance_router): 3 cases, +168 LOC (FINAL ROUTER WAVE — ETSI boundaries)
+
+**Wave 5 totals: 33 tests across 6 files = 6 commits.**
+**🎉 ROUTER HALF OF PHASE 2 COMPLETE — all 21 untested routers (audit F-G-03) now have HTTP-layer coverage.**
+**Cumulative Phase 2 totals: 301 tests + 1 production bug fix + 1 shim hardening = 30 commits across 5 waves.**
 
 ## Phase End Conditions
 
@@ -186,6 +197,12 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 | 4 | tests/test_device_router.py | 8a2ed8b | 11 | 321 | Rule #33a idempotency: 409 with existing dump_id when active dump exists; start_dump asserted NOT called |
 | 4 | tests/test_findings_router.py | ab79069 | 8 | 370 | Finding via POST /findings (real FindingService.create): title/severity/confidence/source/file_path/line_number/cwe_ids/evidence all round-trip |
 | 4 | tests/test_events_router.py | b11b172 | 7 | 283 | SSE channel selection: types=unpacking,fuzzing → SUBSCRIBE only those 2 (NOT all 6); pubsub.unsubscribe + aclose called on disconnect |
+| 5 | tests/test_projects_router.py | 18fbf74 | 5 | 234 | POST / persists Project + WAIRZ.md + SCRATCHPAD.md (2 default Documents); a regression dropping one create_note call would silently break new-project bootstrap |
+| 5 | tests/test_health_router.py | 64bc3e0 | 7 | 298 | All 4 deep-probe checks (db/redis/docker/storage) reported in body; per-component failure surfaces 503 with degraded status; /ready alias parity |
+| 5 | tests/test_kernels_router.py | 72a7c38 | 7 | 240 | architecture whitelist (z80 → 400); empty file 400; service ValueError 400; happy path 201 |
+| 5 | tests/test_export_import_router.py | 90f2310 | 7 | 215 | export streams ZIP with sanitized Content-Disposition (NO slashes); import accepts .wairz AND .zip; wrong extension rejected with helpful detail |
+| 5 | tests/test_component_map_router.py | 7b57ac5 | 4 | 283 | cache-hit short-circuit (ComponentMapService NOT constructed); empty graph NOT cached (no stale-empty trap); non-empty IS cached |
+| 5 | tests/test_compliance_router.py | be70ef0 | 3 | 168 | project + cross-project firmware_id boundaries on ETSI report endpoint |
 
 ## Decision Log
 
@@ -219,4 +236,5 @@ parent_intake: .planning/intake/audit-test-coverage-routers-services-2026-05-04.
 **checkpoint-wave-2: shipped** (commits dcedd33..2febcc0, 5 test files + 1 shim hardening, 90 cases all passing; cumulative 175 tests across waves 1+2)
 **checkpoint-wave-3: shipped** (commits 1ca2bcf..bcadb28, 5 test files, 45 cases all passing in 4.04s combined; cumulative 220 tests across waves 1+2+3)
 **checkpoint-wave-4: shipped** (commits a538079..b11b172, 5 test files, 48 cases all passing in 3.97s combined; cumulative 268 tests across waves 1-4)
-**checkpoint-wave-5: pending** (will set after Wave 5 starts — final router wave)
+**checkpoint-wave-5: shipped** — **ROUTER HALF COMPLETE** (commits 18fbf74..be70ef0, 6 test files, 33 cases all passing in 3.41s combined; cumulative 301 tests across waves 1-5; all 21 audit-cited untested routers now covered)
+**checkpoint-wave-6: pending** (service waves — different mental model from routers; consider fresh session)
