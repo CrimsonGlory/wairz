@@ -285,6 +285,18 @@
         "pattern": "2>/dev/null\\s*\\|\\|\\s*echo\\s+0",
         "filePattern": ".github/**/*.{yml,yaml}",
         "message": "Learned from audit-intakes-wave1-wave2-2026-05-05 (Rule #35a generalisation): the `2>/dev/null || echo 0` pattern in CI parse steps deliberately discards subprocess errors and reports a falsy zero — a broken scan / parse / count appears 'clean' indistinguishably from a real green run. Replace with: `set -euo pipefail` at the top of the run-block, capture via `out=$(cmd)` (NOT process substitution which decouples the inner exit code), let non-zero exits abort the step. If a count genuinely defaults to 0 in some condition, branch in python with explicit try/except + sys.exit(non-zero) on parse failure. See .planning/knowledge/audit-intakes-wave1-wave2-2026-05-05-antipatterns.md anti-pattern #1."
+      },
+      {
+        "name": "auto-phase-2-test-coverage-2026-05-06-lazy-import-patch-target",
+        "pattern": "patch\\s*\\(\\s*[\"\\']app\\.services\\.\\w+_service\\.(weasyprint|setools|pypdf|clamd|rapidfuzz|jadx|lief|pefile|cpu_rec|qiling)[\"\\']",
+        "filePattern": "backend/tests/**/*.py",
+        "message": "Learned from phase-2-test-coverage-routers-services-2026-05-06 (extends Rule #30 androguard rule to the broader lazy-imported library family). These libraries (weasyprint / setools / pypdf / clamd / rapidfuzz / jadx / lief / pefile / cpu_rec / qiling) are typically lazy-imported inside service function bodies — patching them at the service module is a silent no-op. Use SOURCE-patch: `patch.dict(sys.modules, {\"<libname>\": fake_module})` for full-module replacement, paired with a `not hasattr(consumer_module, \"<libname>\")` sentinel that fails LOUDLY if a future refactor promotes the import to top-level. See .planning/knowledge/phase-2-test-coverage-routers-services-patterns.md pattern #2 + .planning/knowledge/phase-2-test-coverage-routers-services-antipatterns.md anti-pattern #3."
+      },
+      {
+        "name": "auto-phase-2-test-coverage-2026-05-06-stale-nested-tests-docker-cp",
+        "pattern": "docker\\s+cp\\s+(?:[^/\\s]+/)*tests/[^\\s]+\\s+\\S+:/app/tests/(?:tests/)?[^\\s]+",
+        "filePattern": "**/*.{md,sh,yml,yaml}",
+        "message": "Learned from phase-2-test-coverage-routers-services-2026-05-06 anti-pattern #5: relative-path `docker cp tests/test_X.py <container>:/app/tests/test_X.py` invocations from inside `backend/` land files at `/app/tests/tests/test_X.py` (nested) instead of `/app/tests/test_X.py` due to host-CWD-prefix interpretation. The stale dir accumulates outdated test files across sessions and produces phantom failures in full-suite smoke runs. Use HOST-ABSOLUTE paths in `docker cp`: `docker cp /home/<user>/code/wairz/backend/tests/test_X.py <container>:/app/tests/test_X.py`. See .planning/knowledge/phase-2-test-coverage-routers-services-antipatterns.md anti-pattern #5."
       }
     ]
   },
@@ -347,7 +359,7 @@
     "sessions": 0,
     "campaigns": 0,
     "override": null,
-    "sessions_completed": 174
+    "sessions_completed": 175
   },
   "consent": {
     "externalActions": "session-allow"
