@@ -62,7 +62,7 @@ async def unpack_firmware_job(
     inside the arq worker process rather than inside an ``asyncio.create_task``
     on the web server.
     """
-    from app.workers.unpack import unpack_firmware  # local import to avoid circular
+    from app.services.extraction_pipeline import run_unpack  # local import to avoid circular
 
     pid = uuid.UUID(project_id)
     fid = uuid.UUID(firmware_id)
@@ -95,7 +95,25 @@ async def unpack_firmware_job(
 
     try:
         output_base = os.path.dirname(storage_path)
-        result = await unpack_firmware(storage_path, output_base, _update_progress, firmware_id=fid)
+        # Fetch the firmware row so the dispatcher can consult
+        # firmware.detected_format. Short-lived session that closes
+        # before the (potentially multi-minute) unpack runs.
+        async with async_session_factory() as db:
+            fw_lookup = await db.execute(
+                select(Firmware).where(Firmware.id == fid)
+            )
+            dispatch_firmware = fw_lookup.scalar_one_or_none()
+
+        if dispatch_firmware is None:
+            logger.error("arq unpack job: firmware %s missing at dispatch time", firmware_id)
+            return
+
+        result = await run_unpack(
+            dispatch_firmware,
+            output_base,
+            _update_progress,
+            firmware_id=fid,
+        )
 
         async with async_session_factory() as db:
             try:

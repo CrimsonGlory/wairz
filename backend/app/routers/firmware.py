@@ -26,6 +26,7 @@ from app.services.firmware_service import (
     FirmwareService,
     _run_upload_post_processing_background,
 )
+from app.services.extraction_pipeline import run_unpack
 from app.services.format_detection import (
     CAPABILITY_NOTES,
     EXTRACTION_CAPABILITY,
@@ -36,7 +37,7 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
 )
-from app.workers.unpack import detect_kernel, unpack_firmware
+from app.workers.unpack import detect_kernel
 
 logger = logging.getLogger(__name__)
 
@@ -323,7 +324,28 @@ async def _run_unpack_background(
 
     try:
         output_base = os.path.dirname(storage_path)
-        result = await unpack_firmware(storage_path, output_base, _update_progress, firmware_id=firmware_id)
+        # Fetch the firmware row up-front so the dispatcher can consult
+        # firmware.detected_format. Uses a short-lived session that
+        # closes before the (potentially multi-minute) unpack runs;
+        # progress updates and the post-extraction commit each open
+        # their own sessions so the long-running unpack doesn't hold a
+        # DB connection idle.
+        async with async_session_factory() as db:
+            fw_lookup = await db.execute(
+                select(Firmware).where(Firmware.id == firmware_id)
+            )
+            dispatch_firmware = fw_lookup.scalar_one_or_none()
+
+        if dispatch_firmware is None:
+            logger.error("Background unpack: firmware %s missing at dispatch time", firmware_id)
+            return
+
+        result = await run_unpack(
+            dispatch_firmware,
+            output_base,
+            _update_progress,
+            firmware_id=firmware_id,
+        )
 
         async with async_session_factory() as db:
             try:
