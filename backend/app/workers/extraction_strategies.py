@@ -27,6 +27,7 @@ from typing import TypeAlias
 from app.services.format_detection import DetectedFormat
 from app.workers.unpack import unpack_firmware
 from app.workers.unpack_common import UnpackResult
+from app.workers.unpack_iso9660 import unpack_iso9660
 from app.workers.unpack_no_handler import unpack_no_handler
 
 ProgressCallback: TypeAlias = Callable[[str, int], Awaitable[None]]
@@ -56,7 +57,7 @@ STRATEGIES: dict[DetectedFormat, Strategy] = {
     DetectedFormat.TAR_ARCHIVE: _DEFAULT,
     DetectedFormat.ZIP_ARCHIVE: _DEFAULT,
     DetectedFormat.PE_EXECUTABLE: _DEFAULT,           # existing pe_binary fast path
-    DetectedFormat.ISO_9660: _DEFAULT,                # unblob can crack open ISOs (PARTIAL until handler 1)
+    DetectedFormat.ISO_9660: unpack_iso9660,          # Phase 2 handler 1 — 7z extraction (FULL)
     DetectedFormat.WINDOWS_INSTALLER_ISO: _DEFAULT,   # unblob can pull individual files (PARTIAL)
     DetectedFormat.UNKNOWN: _DEFAULT,                 # let unblob have a try
     DetectedFormat.ACRONIS_BACKUP: unpack_no_handler,

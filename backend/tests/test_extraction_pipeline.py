@@ -98,12 +98,17 @@ def test_no_handler_formats_route_to_unpack_no_handler(fmt: DetectedFormat):
         DetectedFormat.ANDROID_OTA,
         DetectedFormat.ZIP_ARCHIVE,
         DetectedFormat.PE_EXECUTABLE,
-        DetectedFormat.ISO_9660,
         DetectedFormat.WINDOWS_INSTALLER_ISO,
     ],
 )
 def test_default_formats_route_to_unpack_firmware(fmt: DetectedFormat):
     assert get_strategy(fmt) is unpack_firmware
+
+
+def test_iso_9660_routes_to_unpack_iso9660():
+    """Phase 2 handler 1 — ISO 9660 routes to the dedicated 7z worker."""
+    from app.workers.unpack_iso9660 import unpack_iso9660
+    assert get_strategy(DetectedFormat.ISO_9660) is unpack_iso9660
 
 
 def test_unknown_format_routes_to_default_not_no_handler():
