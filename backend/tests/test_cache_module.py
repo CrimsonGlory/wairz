@@ -187,7 +187,13 @@ class TestStoreCached:
         assert entry.operation == "cwe_checker"
         assert entry.binary_sha256 == "abc"
         assert entry.binary_path == "/bin/foo"
-        assert entry.result == {"warnings": []}
+        # store_cached stamps the result with `schema_version` via
+        # _stamp_analysis_cache_result (jsonb_normalizers.py:134). Pop
+        # the stamp before comparing the writer-supplied payload.
+        result = dict(entry.result)
+        stamp = result.pop("schema_version", None)
+        assert stamp == 1
+        assert result == {"warnings": []}
         db.flush.assert_awaited_once()
 
     @pytest.mark.asyncio
