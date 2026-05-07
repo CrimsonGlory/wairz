@@ -46,6 +46,21 @@ _FRONTEND_TYPES = _REPO_ROOT / "frontend" / "src" / "types" / "index.ts"
 _FRONTEND_STATUS_CONFIG = _REPO_ROOT / "frontend" / "src" / "constants" / "statusConfig.ts"
 _ALEMBIC_VERSIONS = _BACKEND_DIR / "alembic" / "versions"
 
+# Cross-stack contract test: requires both backend/ AND frontend/ source
+# trees. The backend container at /app/ has only `backend/` mounted (no
+# `frontend/`), so the FRONTEND_TYPES + FRONTEND_STATUS_CONFIG paths
+# don't resolve when pytest runs inside the container. Skip the entire
+# module in that environment — host-side CI / dev runs still execute
+# the alignment checks.
+pytestmark = pytest.mark.skipif(
+    not _FRONTEND_TYPES.exists() or not _FRONTEND_STATUS_CONFIG.exists(),
+    reason=(
+        "frontend/ source tree not accessible — this is a cross-stack "
+        "alignment test that requires both backend/ and frontend/ "
+        "checked out (host-side, not in the backend container)"
+    ),
+)
+
 
 def _alembic_chain() -> dict[str, tuple[Path, str | None]]:
     """Map every revision to (file path, down_revision)."""
