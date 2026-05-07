@@ -1,10 +1,12 @@
 ---
 title: "Audit DB-vs-alembic chain drift (orphan DDL inventory)"
-status: pending
+status: completed
 priority: low
 target: backend/alembic/versions/ + production wairz database (read-only audit)
 discovered: 2026-05-07
 discovered_by: Fleet Wave 1 Stream β (audit-db-alembic-chain-drift)
+closed: 2026-05-07
+closed_by: shipping `backend/tests/test_alembic_autogenerate_empty.py` — the durable backstop this audit recommended in "Suggested closure path". Audit's 0-orphan finding remains the snapshot; the test prevents regression of the F-C-05 class continuously.
 ---
 
 ## Background
