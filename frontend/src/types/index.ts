@@ -325,6 +325,25 @@ export interface VulnerabilityScanResult {
   vulns_by_severity: Record<string, number>
 }
 
+// 202+polling response shape. Mirrors VulnerabilityScanStatusResponse in
+// backend/app/schemas/sbom.py (Rule #33 (c): Pydantic Literal). The
+// summary field is populated only when status === "completed".
+export type VulnScanStatusValue =
+  | 'idle'
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+
+export interface VulnerabilityScanStatus {
+  firmware_id: string
+  status: VulnScanStatusValue
+  started_at: string | null
+  finished_at: string | null
+  error: string | null
+  summary: VulnerabilityScanResult | null
+}
+
 // ── Document types ──
 
 export interface ProjectDocument {

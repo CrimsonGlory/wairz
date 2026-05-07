@@ -26,6 +26,7 @@ import {
   getSbomComponents,
   exportSbom,
   runVulnerabilityScan,
+  getVulnerabilityScanStatus,
   getVulnerabilitySummary,
 } from '@/api/sbom'
 import { useFirmwareList } from '@/hooks/useFirmwareList'
@@ -42,6 +43,7 @@ import type {
   Severity,
   VulnerabilityResolutionStatus,
   VulnerabilityScanResult,
+  VulnerabilityScanStatus,
 } from '@/types'
 import { SEVERITY_CONFIG } from '@/constants/statusConfig'
 
@@ -141,30 +143,86 @@ export default function SbomPage() {
     }
   }, [projectId, selectedFirmwareId])
 
-  // Run vulnerability scan
+  // Vulnerability scan now uses Rule #33 202+polling.
+  // POST returns immediately with status="queued"; the polling effect
+  // below watches the status endpoint until "completed" or "failed",
+  // matching the firmware-unpack / cve-match cadence (2 s interval).
+  const reloadAfterScanCompleted = useCallback(async () => {
+    if (!projectId) return
+    const fwId = selectedFirmwareId || undefined
+    const [comps, s] = await Promise.all([
+      getSbomComponents(projectId, { firmware_id: fwId }),
+      getVulnerabilitySummary(projectId, fwId),
+    ])
+    setComponents(comps)
+    setSummary(s)
+    await useVulnerabilityStore.getState().loadVulnerabilities(projectId, fwId)
+  }, [projectId, selectedFirmwareId])
+
   const handleScan = useCallback(async (force = false) => {
     if (!projectId) return
     setScanning(true)
     setScanResult(null)
     const fwId = selectedFirmwareId || undefined
     try {
-      const result = await runVulnerabilityScan(projectId, force, fwId)
-      setScanResult(result)
-      // Reload data
-      const [comps, s] = await Promise.all([
-        getSbomComponents(projectId, { firmware_id: fwId }),
-        getVulnerabilitySummary(projectId, fwId),
-      ])
-      setComponents(comps)
-      setSummary(s)
-      await useVulnerabilityStore.getState().loadVulnerabilities(projectId, fwId)
-    } catch (err) {
-      console.error('Vulnerability scan failed:', err)
-      toast.error(extractErrorMessage(err, 'Vulnerability scan failed'))
-    } finally {
-      setScanning(false)
+      // POST returns 202 with status="queued"; polling effect picks it up.
+      await runVulnerabilityScan(projectId, force, fwId)
+    } catch (err: unknown) {
+      // 409 = scan already in flight for this firmware. Fall through to
+      // the polling loop, which will observe the existing run rather
+      // than spawning a second one.
+      const isConflict =
+        typeof err === 'object'
+        && err !== null
+        && 'response' in err
+        && (err as { response?: { status?: number } }).response?.status === 409
+      if (!isConflict) {
+        console.error('Vulnerability scan failed to start:', err)
+        toast.error(extractErrorMessage(err, 'Vulnerability scan failed to start'))
+        setScanning(false)
+      }
     }
   }, [projectId, selectedFirmwareId])
+
+  // Poll the vuln-scan status while a scan is in flight. Mirrors the
+  // firmware-unpack and cve-match polling shapes — 2 s interval,
+  // mounted-state-guarded cleanup via the useEffect cleanup function.
+  useEffect(() => {
+    if (!projectId || !scanning) return
+    let cancelled = false
+    const fwId = selectedFirmwareId || undefined
+
+    const tick = async () => {
+      if (cancelled) return
+      try {
+        const status: VulnerabilityScanStatus = await getVulnerabilityScanStatus(
+          projectId, fwId,
+        )
+        if (cancelled) return
+        if (status.status === 'completed') {
+          if (status.summary) setScanResult(status.summary)
+          await reloadAfterScanCompleted()
+          if (!cancelled) setScanning(false)
+        } else if (status.status === 'failed') {
+          toast.error(status.error || 'Vulnerability scan failed')
+          if (!cancelled) setScanning(false)
+        }
+      } catch (err) {
+        // Transient polling errors should not kill the loop; the next
+        // tick will retry. Surface only on the final timeout.
+        console.warn('vuln-scan status poll transient error:', err)
+      }
+    }
+
+    // Fire one immediate tick so the UI reflects existing in-flight
+    // runs (after a 409 short-circuit) without waiting 2 s.
+    void tick()
+    const id = window.setInterval(tick, 2000)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [projectId, scanning, selectedFirmwareId, reloadAfterScanCompleted])
 
   // Export SBOM
   const [exportOpen, setExportOpen] = useState(false)

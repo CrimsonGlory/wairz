@@ -6,7 +6,7 @@ import type {
   SbomSummary,
   SbomVulnerability,
   VulnerabilityUpdate,
-  VulnerabilityScanResult,
+  VulnerabilityScanStatus,
 } from '@/types'
 
 // Backend list endpoints return a Page envelope
@@ -79,24 +79,34 @@ export async function exportSbom(
   return data
 }
 
-// Vulnerability scan iterates every SBOM component and queries NVD (or the
-// local cache) for each PURL. On firmware with ~200 components and a cold
-// NVD cache the call routinely takes 2-5 minutes; the default axios 30 s
-// fires and surfaces a fake "scan failed". Matches SECURITY_SCAN_TIMEOUT
-// tier used in findings.ts for the other full-tree security scans.
+// Vulnerability scan now returns 202 immediately and runs in the background
+// (Rule #33 / commit 8f54a24). The frontend polls
+// /sbom/vulnerabilities/scan/status every 2 s — see SbomPage.handleScan.
+// No timeout override needed: the 202 ack is sub-second so the default
+// 30 s axios floor on apiClient is correct.
 
 export async function runVulnerabilityScan(
   projectId: string,
   forceRescan = false,
   firmwareId?: string,
-): Promise<VulnerabilityScanResult> {
-  const { data } = await apiClient.post<VulnerabilityScanResult>(
+): Promise<VulnerabilityScanStatus> {
+  const { data } = await apiClient.post<VulnerabilityScanStatus>(
     `/projects/${projectId}/sbom/vulnerabilities/scan`,
     null,
     {
       params: { force_rescan: forceRescan, firmware_id: firmwareId },
-      timeout: SECURITY_SCAN_TIMEOUT,
     },
+  )
+  return data
+}
+
+export async function getVulnerabilityScanStatus(
+  projectId: string,
+  firmwareId?: string,
+): Promise<VulnerabilityScanStatus> {
+  const { data } = await apiClient.get<VulnerabilityScanStatus>(
+    `/projects/${projectId}/sbom/vulnerabilities/scan/status`,
+    { params: { firmware_id: firmwareId } },
   )
   return data
 }
