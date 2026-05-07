@@ -58,6 +58,11 @@ def _alembic_heads(chain: dict[str, tuple[Path, str | None]]) -> list[str]:
     return [rev for rev in chain if rev not in referenced_as_parent]
 
 
+_CK_FUZZING_QUOTED = re.compile(
+    r'["\']ck_fuzzing_campaigns_status["\']',
+)
+
+
 def _latest_status_check_migration_path() -> Path:
     chain = _alembic_chain()
     heads = _alembic_heads(chain)
@@ -71,9 +76,22 @@ def _latest_status_check_migration_path() -> Path:
             seen.add(rev)
             path, down = chain[rev]
             text = path.read_text()
+            # Require the constraint name in QUOTED form (excludes
+            # markdown-backtick docstring references). Also require
+            # that quoted name to appear as the FIRST positional arg
+            # to create_check_constraint (not just anywhere in the
+            # file). This prevents matching unrelated migrations that
+            # cite the constraint as historical precedent in a
+            # docstring (e.g. b0c1a2d3e4f5_add_device_dump_sessions.py
+            # which creates ck_device_dump_sessions_status while
+            # referencing ck_fuzzing_campaigns_status by name).
             if (
-                "ck_fuzzing_campaigns_status" in text
-                and "create_check_constraint" in text
+                _CK_FUZZING_QUOTED.search(text)
+                and re.search(
+                    r'create_check_constraint\s*\(\s*\n?\s*'
+                    r'["\']ck_fuzzing_campaigns_status["\']',
+                    text,
+                )
             ):
                 candidates.add(path)
                 break
