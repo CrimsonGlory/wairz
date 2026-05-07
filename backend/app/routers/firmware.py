@@ -16,12 +16,21 @@ from app.schemas.firmware import (
     FirmwareMetadataResponse,
     FirmwareUpdate,
     FirmwareUploadResponse,
+    FirmwareUploadStatusResponse,
 )
 from app.config import get_settings
 from app.rate_limit import limiter
 from app.services.firmware_metadata_service import FirmwareMetadataService
 from app.services.firmware_paths import get_detection_roots
-from app.services.firmware_service import FirmwareService
+from app.services.firmware_service import (
+    FirmwareService,
+    _run_upload_post_processing_background,
+)
+from app.services.format_detection import (
+    CAPABILITY_NOTES,
+    EXTRACTION_CAPABILITY,
+    DetectedFormat,
+)
 from app.services.jsonb_normalizers import (
     _normalize_firmware_device_metadata,
     _stamp_firmware_binary_info,
@@ -77,7 +86,45 @@ def get_firmware_service(db: AsyncSession = Depends(get_db)) -> FirmwareService:
     return FirmwareService(db)
 
 
-@router.post("", response_model=FirmwareUploadResponse, status_code=201)
+def _firmware_to_upload_status(firmware: Firmware) -> FirmwareUploadStatusResponse:
+    """Build an upload-status response from a Firmware row.
+
+    Derives ``extraction_capability`` and ``capability_note`` from the
+    ``detected_format`` value via ``EXTRACTION_CAPABILITY`` and
+    ``CAPABILITY_NOTES`` in ``services/format_detection.py`` — keeping the
+    canonical mapping in one place so the frontend banner copy never
+    drifts from the detection logic.
+    """
+    capability: str | None = None
+    note: str | None = None
+    if firmware.detected_format:
+        try:
+            fmt = DetectedFormat(firmware.detected_format)
+        except ValueError:
+            fmt = None
+        if fmt is not None:
+            cap = EXTRACTION_CAPABILITY.get(fmt)
+            capability = cap.value if cap is not None else None
+            note = CAPABILITY_NOTES.get(fmt)
+    return FirmwareUploadStatusResponse(
+        id=firmware.id,
+        upload_stage=firmware.upload_stage,
+        upload_stage_error=firmware.upload_stage_error,
+        detected_format=firmware.detected_format,
+        extraction_capability=capability,
+        capability_note=note,
+        extracted_path=firmware.extracted_path,
+        architecture=firmware.architecture,
+        os_info=firmware.os_info,
+        upload_stage_started_at=firmware.upload_stage_started_at,
+        upload_stage_finished_at=firmware.upload_stage_finished_at,
+        sha256=firmware.sha256,
+        file_size=firmware.file_size,
+        original_filename=firmware.original_filename,
+    )
+
+
+@router.post("", response_model=FirmwareUploadStatusResponse, status_code=202)
 @limiter.limit("5/minute")
 async def upload_firmware(
     request: Request,
@@ -86,15 +133,63 @@ async def upload_firmware(
     version_label: str | None = Form(None),
     service: FirmwareService = Depends(get_firmware_service),
 ):
-    # HW-firmware detection for upload-time shortcuts is spawned inside
-    # service.upload() right after an explicit commit — NOT via FastAPI
-    # BackgroundTasks here. BackgroundTasks fires before get_db's
-    # dependency-teardown commit, so a detection task spawned from here
-    # would race the commit and log "firmware_id=... not found". The
-    # service layer owns the spawn because it controls the commit.
+    """Upload firmware (Rule #29 + Rule #33 202+polling).
+
+    Returns 202 Accepted with the firmware row in
+    ``upload_stage='detecting'`` as soon as the bytes have streamed to
+    disk and dedup has cleared. The frontend polls
+    ``GET /firmware/{id}/upload-status`` every 2 s
+    (firmware-unpack precedent) until ``upload_stage`` flips to
+    ``ready`` or ``failed``.
+
+    Why 202 rather than 201: the synchronous tier was holding the TCP
+    connection idle for 5+ minutes of post-write CPU work (SHA-256
+    over multi-GB body, archive extraction, filesystem-root detection,
+    arch/endian/OS detection) on the 16 GB Illumisite recovery image.
+    The frontend axios 600 s ceiling tripped before the backend
+    finished, surfacing a phantom "timeout" toast even though the
+    backend kept running detached and committed the firmware row. See
+    CLAUDE.md Rule #29 / Rule #33 + intake
+    ``firmware-upload-progress-visibility-2026-05-07``.
+
+    Idempotency: the dedup check inside ``upload_bytes_only`` returns
+    409 if the (project_id, sha256) tuple already exists. There is no
+    cross-request "in-flight" state for new uploads — each upload is a
+    fresh row with a fresh storage_path.
+    """
     await _check_upload_size(file, "Firmware")
-    firmware = await service.upload(project_id, file, version_label=version_label)
-    return firmware
+    firmware = await service.upload_bytes_only(
+        project_id, file, version_label=version_label
+    )
+    # Rule #33 (d) rubric: in-process post-processing + DB-incremental
+    # progress + restart-friendly = asyncio.create_task is correct
+    # (cve-match / vuln-scan precedent). No worker-resource coordination
+    # needed; intermediate state is incrementally persisted by
+    # _post_process_pipeline.
+    asyncio.create_task(_run_upload_post_processing_background(firmware.id))
+    return _firmware_to_upload_status(firmware)
+
+
+@router.get(
+    "/{firmware_id}/upload-status",
+    response_model=FirmwareUploadStatusResponse,
+)
+async def get_firmware_upload_status(
+    project_id: uuid.UUID,
+    firmware_id: uuid.UUID,
+    service: FirmwareService = Depends(get_firmware_service),
+) -> FirmwareUploadStatusResponse:
+    """Return the current upload-stage snapshot for a firmware row.
+
+    Frontend polls this every 2 s after a 202 from ``POST /firmware``
+    until ``upload_stage`` flips to ``ready`` or ``failed``. Mirrors
+    the polling shape used by the firmware-unpack progress endpoint
+    and the SBOM vuln-scan status endpoint.
+    """
+    firmware = await service.get_by_id(firmware_id)
+    if not firmware or firmware.project_id != project_id:
+        raise HTTPException(404, "Firmware not found")
+    return _firmware_to_upload_status(firmware)
 
 
 @router.get("", response_model=list[FirmwareDetailResponse])

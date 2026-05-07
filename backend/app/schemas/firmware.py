@@ -1,7 +1,22 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+
+
+# State machine for the upload-side 202+polling refactor (Rule #29 + #33).
+# Mirrors the CHECK constraint ck_firmware_upload_stage on the firmware
+# table (alembic revision d2e3f4a5b6c7).
+UploadStage = Literal[
+    "uploading",
+    "hashing",
+    "detecting",
+    "extracting",
+    "analyzing",
+    "ready",
+    "failed",
+]
 
 
 class FirmwareUploadResponse(BaseModel):
@@ -13,6 +28,38 @@ class FirmwareUploadResponse(BaseModel):
     file_size: int | None
     version_label: str | None = None
     created_at: datetime
+
+
+class FirmwareUploadStatusResponse(BaseModel):
+    """Response shape for the upload 202+polling refactor.
+
+    Returned both by ``POST /firmware`` (the 202 ack with stage='detecting')
+    and by ``GET /firmware/{id}/upload-status`` (every 2s poll until
+    stage flips to ``ready`` or ``failed``). The fields beyond ``id`` and
+    ``upload_stage`` are populated incrementally by the background runner
+    as each stage completes — frontend reads them directly without an
+    extra round-trip on completion.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    upload_stage: UploadStage
+    upload_stage_error: str | None = None
+    detected_format: str | None = None
+    # Derived in the router from EXTRACTION_CAPABILITY[detected_format].
+    # Keeps the canonical mapping in one place (services/format_detection.py)
+    # while still letting the frontend render the banner without re-deriving.
+    extraction_capability: str | None = None
+    capability_note: str | None = None
+    extracted_path: str | None = None
+    architecture: str | None = None
+    os_info: str | None = None
+    upload_stage_started_at: datetime | None = None
+    upload_stage_finished_at: datetime | None = None
+    sha256: str | None = None
+    file_size: int | None = None
+    original_filename: str | None = None
 
 
 class FirmwareUpdate(BaseModel):
