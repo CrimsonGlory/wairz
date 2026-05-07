@@ -14,6 +14,9 @@ import {
   Code,
   FileSearch,
   Lock,
+  Target,
+  Network,
+  Cpu,
 } from 'lucide-react'
 import type { Severity, FindingStatus, FindingSource, Confidence } from '@/types'
 
@@ -74,11 +77,16 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   security_audit: { icon: Shield, label: 'Security Audit', className: 'border-red-500/50 text-red-600 dark:text-red-400' },
   yara_scan: { icon: Shield, label: 'YARA Scan', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
   abusech_scan: { icon: Shield, label: 'abuse.ch', className: 'border-rose-500/50 text-rose-600 dark:text-rose-400' },
-  known_good_scan: { icon: Shield, label: 'Known Good', className: 'border-green-500/50 text-green-600 dark:text-green-400' },
   'apk-manifest-scan': { icon: Smartphone, label: 'APK Manifest', className: 'border-indigo-500/50 text-indigo-600 dark:text-indigo-400' },
   'apk-bytecode-scan': { icon: Code, label: 'APK Bytecode', className: 'border-violet-500/50 text-violet-600 dark:text-violet-400' },
   'apk-mobsfscan': { icon: FileSearch, label: 'APK SAST', className: 'border-fuchsia-500/50 text-fuchsia-600 dark:text-fuchsia-400' },
   unpack_audit: { icon: Lock, label: 'Unpack Audit', className: 'border-cyan-500/50 text-cyan-600 dark:text-cyan-400' },
+  attack_surface: { icon: Target, label: 'Attack Surface', className: 'border-red-500/50 text-red-600 dark:text-red-400' },
+  clamav_scan: { icon: Shield, label: 'ClamAV', className: 'border-blue-500/50 text-blue-600 dark:text-blue-400' },
+  cwe_checker: { icon: AlertTriangle, label: 'CWE Checker', className: 'border-yellow-500/50 text-yellow-600 dark:text-yellow-400' },
+  hardware_firmware_graph: { icon: Network, label: 'HW Graph', className: 'border-sky-500/50 text-sky-600 dark:text-sky-400' },
+  uefi_scan: { icon: Cpu, label: 'UEFI', className: 'border-pink-500/50 text-pink-600 dark:text-pink-400' },
+  vt_scan: { icon: Shield, label: 'VirusTotal', className: 'border-emerald-500/50 text-emerald-600 dark:text-emerald-400' },
 }
 
 // ── Finding confidence ──
