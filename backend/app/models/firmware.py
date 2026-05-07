@@ -66,6 +66,20 @@ class Firmware(Base):
     vuln_scan_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     vuln_scan_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     vuln_scan_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Upload-time post-processing state (Rule #29 + Rule #33).
+    # Synchronous tier was holding the TCP connection for 5+ minutes of
+    # post-write CPU work (hash, archive extract, filesystem detection,
+    # arch/endian/OS detect); the 16 GB Illumisite upload tripped the
+    # frontend axios 600s ceiling. Detected_format is populated by
+    # services/format_detection.detect_format() before the extracting
+    # stage; capability is derived in the schema layer (no CHECK).
+    upload_stage: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="ready"
+    )
+    upload_stage_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    upload_stage_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    upload_stage_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    detected_format: Mapped[str | None] = mapped_column(String(48), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
