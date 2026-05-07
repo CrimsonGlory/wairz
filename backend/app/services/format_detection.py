@@ -100,7 +100,7 @@ EXTRACTION_CAPABILITY: dict[DetectedFormat, ExtractionCapability] = {
     DetectedFormat.ANDROID_OTA: ExtractionCapability.FULL,
     DetectedFormat.TAR_ARCHIVE: ExtractionCapability.FULL,
     DetectedFormat.ZIP_ARCHIVE: ExtractionCapability.FULL,
-    DetectedFormat.WINDOWS_INSTALLER_ISO: ExtractionCapability.PARTIAL,
+    DetectedFormat.WINDOWS_INSTALLER_ISO: ExtractionCapability.FULL,
     DetectedFormat.PE_EXECUTABLE: ExtractionCapability.PARTIAL,
     DetectedFormat.ISO_9660: ExtractionCapability.FULL,
     DetectedFormat.WIM_ARCHIVE: ExtractionCapability.FULL,
@@ -127,12 +127,11 @@ CAPABILITY_NOTES: dict[DetectedFormat, str] = {
     # WIM_ARCHIVE has no note — capability is FULL via wimlib-imagex
     # (Phase 2 handler 2). The full image list goes into the per-upload
     # unpack_log; the user-facing capability surface stays clean.
-    DetectedFormat.WINDOWS_INSTALLER_ISO: (
-        "Windows installer ISO detected. wairz can extract the ISO contents "
-        "(boot loaders, manifests) but cannot expand the inner WIM payloads "
-        "automatically. Use 7-Zip on sources/boot.wim if you need the full "
-        "installer rootfs."
-    ),
+    # WINDOWS_INSTALLER_ISO has no note — capability is FULL via the
+    # recursive ISO+WIM composite worker (Phase 2 handler 3). The
+    # outer 7z extraction + per-WIM expansion details land in the
+    # per-upload unpack_log, including counts of sibling extraction
+    # trees produced by the inner-WIM pass.
     DetectedFormat.PE_EXECUTABLE: (
         "Windows PE executable detected. Binary analysis (strings, sections, "
         "decompilation) is available, but there is no firmware filesystem to "
