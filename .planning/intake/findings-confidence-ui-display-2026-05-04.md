@@ -1,7 +1,8 @@
 ---
 title: "Findings UI: surface Finding.confidence in FindingsList + FindingDetail"
-status: pending
+status: completed
 priority: medium
+shipped: 2026-05-04 in commit d21d894
 target: frontend/src/components/findings/FindingsList.tsx + frontend/src/components/findings/FindingDetail.tsx + frontend/src/constants/statusConfig.ts (new CONFIDENCE_CONFIG)
 ---
 
