@@ -251,6 +251,54 @@ def _normalize_firmware_cve_match_result(value: Any) -> dict | None:
     return None
 
 
+# ── firmware.authenticode_chain_result ───────────────────────────────────────
+#
+# Canonical shape: dict aggregate for the Phase β Authenticode batch
+# validation run. Written by ``_run_authenticode_chain_background``
+# (Phase β.4) and read by ``_firmware_to_status`` (Phase β.7) +
+# WindowsHubPage / PeHardeningPage frontend renders. Schema-version
+# stamped per Rule #35c since 3+ consumers.
+#
+# Canonical shape:
+#   {
+#     "schema_version": 1,
+#     "signed_count": int,
+#     "signed_pct": float,                # signed_count / total_pe_count
+#     "unsigned_count": int,
+#     "dbx_revoked_count": int,
+#     "by_chain_status": {                # bucket histogram
+#        "valid_at_signing": int,
+#        "valid_now": int,
+#        "revoked": int,
+#        "never_valid": int,
+#        "unknown": int,
+#     },
+#     "run_seconds": float,
+#     "total_pe_count": int,
+#   }
+FIRMWARE_AUTHENTICODE_CHAIN_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_authenticode_chain_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.authenticode_chain_result``.
+
+    ``None`` is preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None`` (treat as "unusable
+    persisted result"; the next run will overwrite).
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_authenticode_chain_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload. Always non-None
+    (the column is nullable but writers always pass a populated dict)."""
+    payload["schema_version"] = FIRMWARE_AUTHENTICODE_CHAIN_RESULT_SCHEMA_VERSION
+    return payload
+
+
 # ── fuzzing_campaigns.config ──────────────────────────────────────────────────
 #
 # Canonical shape: ``dict`` of AFL++ campaign configuration (timeout,

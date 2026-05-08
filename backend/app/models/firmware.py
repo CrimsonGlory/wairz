@@ -80,6 +80,23 @@ class Firmware(Base):
     upload_stage_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     upload_stage_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     detected_format: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    # Phase β Authenticode batch-validation 202+polling state.
+    # _run_authenticode_chain_background walks every PE in the firmware's
+    # hardware_firmware_blobs, runs the signify validator, and writes a
+    # WindowsPESignature row per PE. The aggregate result lives here so
+    # the frontend's last-known-result render survives session reloads.
+    # Rule #33 .c CHECK constraint enforces the 5-state machine.
+    authenticode_chain_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    authenticode_chain_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    authenticode_chain_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    authenticode_chain_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    authenticode_chain_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

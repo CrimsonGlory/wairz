@@ -24,6 +24,7 @@ from app.services.jsonb_normalizers import (
     EMULATION_PRESETS_PORT_FORWARDS_SCHEMA_VERSION,
     EMULATION_SESSIONS_DISCOVERED_SERVICES_SCHEMA_VERSION,
     EMULATION_SESSIONS_PORT_FORWARDS_SCHEMA_VERSION,
+    FIRMWARE_AUTHENTICODE_CHAIN_RESULT_SCHEMA_VERSION,
     FIRMWARE_BINARY_INFO_SCHEMA_VERSION,
     FIRMWARE_DEVICE_METADATA_SCHEMA_VERSION,
     FIRMWARE_WINDOWS_ARTIFACTS_SCHEMA_VERSION,
@@ -48,6 +49,7 @@ from app.services.jsonb_normalizers import (
     _normalize_emulation_sessions_discovered_services,
     _normalize_emulation_sessions_nvram_state,
     _normalize_emulation_sessions_port_forwards,
+    _normalize_firmware_authenticode_chain_result,
     _normalize_firmware_binary_info,
     _normalize_firmware_cve_match_result,
     _normalize_firmware_device_metadata,
@@ -58,6 +60,7 @@ from app.services.jsonb_normalizers import (
     _normalize_sbom_components_metadata,
     _stamp_analysis_cache_result,
     _stamp_attack_surface_entries_score_breakdown,
+    _stamp_firmware_authenticode_chain_result,
     _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
     _stamp_firmware_windows_artifacts,
@@ -704,3 +707,58 @@ def test_stamp_firmware_windows_artifacts_mutates_input():
 
 def test_firmware_windows_artifacts_schema_version_constant():
     assert FIRMWARE_WINDOWS_ARTIFACTS_SCHEMA_VERSION == 1
+
+
+# ── _normalize_firmware_authenticode_chain_result (Phase β.3) ────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical Phase-β.4 aggregate shape.
+        ({"schema_version": 1, "signed_count": 42, "signed_pct": 0.84,
+          "unsigned_count": 8, "dbx_revoked_count": 0,
+          "by_chain_status": {"valid_at_signing": 30, "valid_now": 12, "revoked": 0,
+                              "never_valid": 0, "unknown": 8},
+          "run_seconds": 12.5, "total_pe_count": 50},
+         {"schema_version": 1, "signed_count": 42, "signed_pct": 0.84,
+          "unsigned_count": 8, "dbx_revoked_count": 0,
+          "by_chain_status": {"valid_at_signing": 30, "valid_now": 12, "revoked": 0,
+                              "never_valid": 0, "unknown": 8},
+          "run_seconds": 12.5, "total_pe_count": 50}),
+        ({}, {}),
+        # None preserved — distinct from device_metadata: NULL means "no
+        # completed run yet" not "no signatures present".
+        (None, None),
+        ([1, 2, 3], None),
+        ("not a dict", None),
+    ],
+)
+def test_normalize_firmware_authenticode_chain_result(value, expected):
+    assert _normalize_firmware_authenticode_chain_result(value) == expected
+
+
+def test_normalize_firmware_authenticode_chain_result_idempotent():
+    canonical = {"schema_version": 1, "signed_count": 0, "total_pe_count": 0}
+    once = _normalize_firmware_authenticode_chain_result(canonical)
+    twice = _normalize_firmware_authenticode_chain_result(once)
+    assert once == twice == canonical
+
+
+def test_stamp_firmware_authenticode_chain_result_adds_version():
+    payload = {"signed_count": 5}
+    out = _stamp_firmware_authenticode_chain_result(payload)
+    assert out["schema_version"] == FIRMWARE_AUTHENTICODE_CHAIN_RESULT_SCHEMA_VERSION
+    assert out["signed_count"] == 5
+
+
+def test_stamp_firmware_authenticode_chain_result_idempotent():
+    payload = {"signed_count": 5}
+    once = _stamp_firmware_authenticode_chain_result(payload)
+    twice = _stamp_firmware_authenticode_chain_result(once)
+    assert once == twice
+    assert once["schema_version"] == FIRMWARE_AUTHENTICODE_CHAIN_RESULT_SCHEMA_VERSION
+
+
+def test_firmware_authenticode_chain_result_schema_version_constant():
+    assert FIRMWARE_AUTHENTICODE_CHAIN_RESULT_SCHEMA_VERSION == 1
