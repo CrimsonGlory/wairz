@@ -237,6 +237,18 @@ DotnetDecompileStatus = Literal[
 ]
 
 
+# Mirrors the firmware.windows_update_diff_status CHECK constraint values
+# (Phase δ.3 — alembic ``d2e3f4a5b6c7``). 5-state 202+polling status set.
+# Rule #33 .c contract: Pydantic Literal here gates writer-side typos;
+# the DB CHECK (in the migration) is the durable runtime gate. Rule #33 .d
+# — δ.5 dispatch is **asyncio.create_task** (in-process pure-Python diff +
+# per-DLL incremental DB persistence; distinct from δ.2's dotnet decompile
+# which uses arq because the work coordinates with worker-only resources).
+WindowsUpdateDiffStatus = Literal[
+    "idle", "queued", "running", "completed", "failed",
+]
+
+
 class WindowsPESignatureSummary(BaseModel):
     """Compact per-PE signature row for the PeHardeningPage table.
 

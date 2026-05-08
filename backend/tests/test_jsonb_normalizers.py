@@ -35,6 +35,7 @@ from app.services.jsonb_normalizers import (
     FIRMWARE_REGISTRY_HIVE_WALK_RESULT_SCHEMA_VERSION,
     WINDOWS_UPDATE_PACKAGES_UPDATE_METADATA_SCHEMA_VERSION,
     FIRMWARE_DOTNET_DECOMPILE_RESULT_SCHEMA_VERSION,
+    FIRMWARE_WINDOWS_UPDATE_DIFF_RESULT_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
     CRA_REQUIREMENT_RESULTS_FINDING_IDS_SCHEMA_VERSION,
@@ -74,6 +75,7 @@ from app.services.jsonb_normalizers import (
     _normalize_firmware_registry_hive_walk_result,
     _normalize_windows_update_packages_update_metadata,
     _normalize_firmware_dotnet_decompile_result,
+    _normalize_firmware_windows_update_diff_result,
     _stamp_firmware_authenticode_chain_result,
     _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
@@ -88,6 +90,7 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_registry_hive_walk_result,
     _stamp_windows_update_packages_update_metadata,
     _stamp_firmware_dotnet_decompile_result,
+    _stamp_firmware_windows_update_diff_result,
 )
 
 
@@ -1698,3 +1701,109 @@ def test_stamp_firmware_dotnet_decompile_result_idempotent():
 
 def test_firmware_dotnet_decompile_result_schema_version_constant():
     assert FIRMWARE_DOTNET_DECOMPILE_RESULT_SCHEMA_VERSION == 1
+
+
+# ── _normalize_firmware_windows_update_diff_result (Phase δ.3) ───────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical Phase δ.5 runner shape — full aggregate with by-KB-pair
+        # histogram, totals, no errors.
+        (
+            {
+                "schema_version": 1,
+                "run_seconds": 89.12,
+                "package_count": 3,
+                "kb_pair_count": 2,
+                "dlls_compared": 4500,
+                "dlls_added": 32,
+                "dlls_removed": 18,
+                "dlls_modified": 142,
+                "dlls_unchanged": 4308,
+                "by_kb_pair": [
+                    {
+                        "older_kb": "KB5034441",
+                        "newer_kb": "KB5036893",
+                        "added": 32,
+                        "removed": 18,
+                        "modified": 142,
+                        "unchanged": 4308,
+                    },
+                ],
+                "errors": [],
+            },
+            {
+                "schema_version": 1,
+                "run_seconds": 89.12,
+                "package_count": 3,
+                "kb_pair_count": 2,
+                "dlls_compared": 4500,
+                "dlls_added": 32,
+                "dlls_removed": 18,
+                "dlls_modified": 142,
+                "dlls_unchanged": 4308,
+                "by_kb_pair": [
+                    {
+                        "older_kb": "KB5034441",
+                        "newer_kb": "KB5036893",
+                        "added": 32,
+                        "removed": 18,
+                        "modified": 142,
+                        "unchanged": 4308,
+                    },
+                ],
+                "errors": [],
+            },
+        ),
+        # Empty dict — preserved.
+        ({}, {}),
+        # None — durable signal for "no completed run yet".
+        (None, None),
+        # Wrong type — list — coerced to None.
+        ([{"package_count": 5}], None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_windows_update_diff_result(value, expected):
+    assert _normalize_firmware_windows_update_diff_result(value) == expected
+
+
+def test_normalize_firmware_windows_update_diff_result_idempotent():
+    canonical = {
+        "schema_version": 1,
+        "run_seconds": 1.0,
+        "package_count": 1,
+        "kb_pair_count": 1,
+        "dlls_compared": 0,
+        "dlls_added": 0,
+        "dlls_removed": 0,
+        "dlls_modified": 0,
+        "dlls_unchanged": 0,
+        "by_kb_pair": [],
+        "errors": [],
+    }
+    once = _normalize_firmware_windows_update_diff_result(canonical)
+    twice = _normalize_firmware_windows_update_diff_result(once)
+    assert once == twice == canonical
+
+
+def test_stamp_firmware_windows_update_diff_result_adds_version():
+    payload = {"package_count": 3, "dlls_modified": 50}
+    out = _stamp_firmware_windows_update_diff_result(payload)
+    assert out["schema_version"] == FIRMWARE_WINDOWS_UPDATE_DIFF_RESULT_SCHEMA_VERSION
+    assert out["package_count"] == 3
+
+
+def test_stamp_firmware_windows_update_diff_result_idempotent():
+    payload = {"package_count": 0}
+    once = _stamp_firmware_windows_update_diff_result(payload)
+    twice = _stamp_firmware_windows_update_diff_result(once)
+    assert once == twice
+    assert once["schema_version"] == FIRMWARE_WINDOWS_UPDATE_DIFF_RESULT_SCHEMA_VERSION
+
+
+def test_firmware_windows_update_diff_result_schema_version_constant():
+    assert FIRMWARE_WINDOWS_UPDATE_DIFF_RESULT_SCHEMA_VERSION == 1

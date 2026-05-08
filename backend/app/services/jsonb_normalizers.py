@@ -1075,3 +1075,75 @@ def _stamp_firmware_dotnet_decompile_result(payload: dict) -> dict:
     """
     payload["schema_version"] = FIRMWARE_DOTNET_DECOMPILE_RESULT_SCHEMA_VERSION
     return payload
+
+
+# ── firmware.windows_update_diff_result (Phase δ.3) ───────────────────────────
+#
+# Aggregate result of the batch KB-vs-KB update-diff run launched via the
+# δ.3 firmware.windows_update_diff_* status set (Rule #33 contract). The
+# δ.5 background runner walks every (older_kb, newer_kb) pair across the
+# firmware's windows_update_packages rows (δ.1), computes per-DLL changeset
+# via SHA256 comparison over already-extracted CAB/MSU contents (Rule #36
+# DATA-only), persists per-DLL diff rows incrementally to a dedicated
+# table (δ.5) for restart recovery, and stamps the aggregate here when
+# the run completes; δ.7 MCP tool ``windows_update.get_diff_summary`` reads
+# it for the run summary; δ.8 frontend ``UpdateDiffPage`` reads it for the
+# last-known-result render. 3+ consumer files at δ shipping time →
+# schema_version discriminator strategy per Rule #35c.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,                     # wall-clock for the run
+#     "package_count": int,                     # update packages compared
+#     "kb_pair_count": int,                     # (older, newer) pairs computed
+#     "dlls_compared": int,                     # total DLLs across pairs
+#     "dlls_added": int,                        # present in newer KB only
+#     "dlls_removed": int,                      # present in older KB only
+#     "dlls_modified": int,                     # present in both, sha256 differs
+#     "dlls_unchanged": int,                    # present in both, identical sha256
+#     "by_kb_pair": list[
+#       {
+#         "older_kb": "KB5034441",
+#         "newer_kb": "KB5036893",
+#         "added": int,
+#         "removed": int,
+#         "modified": int,
+#         "unchanged": int,
+#       },
+#       ...
+#     ],
+#     "errors": list[str],                      # session-level errors
+#   }
+#
+# Forward-discipline: bump SCHEMA_VERSION + extend dispatch in the
+# normaliser if the aggregate shape changes (e.g. add per-DLL category
+# breakdown, add by-arch breakdown, surface .NET vs native split).
+
+FIRMWARE_WINDOWS_UPDATE_DIFF_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_windows_update_diff_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.windows_update_diff_result``.
+
+    ``None`` is preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None`` (treat as "unusable
+    persisted result"; the next run will overwrite).
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_windows_update_diff_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.windows_update_diff_result``.
+
+    Always receives a non-None dict (the runner always writes a populated
+    aggregate when transitioning to ``completed``), so this helper is
+    unconditionally additive. Idempotent.
+    """
+    payload["schema_version"] = FIRMWARE_WINDOWS_UPDATE_DIFF_RESULT_SCHEMA_VERSION
+    return payload

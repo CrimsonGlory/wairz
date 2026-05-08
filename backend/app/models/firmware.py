@@ -146,6 +146,32 @@ class Firmware(Base):
     dotnet_decompile_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     dotnet_decompile_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
+    # Phase δ KB-vs-KB update-diff 202+polling state. Background runner
+    # ``_run_windows_update_diff_background`` (δ.5) walks every
+    # (older_kb, newer_kb) pair across the firmware's
+    # ``windows_update_packages`` rows (δ.1), computes per-DLL changeset
+    # via SHA256 comparison, and persists per-DLL diff rows incrementally
+    # to a dedicated table introduced in δ.5. The aggregate result
+    # (counts + by-KB-pair histogram + run_seconds) lives here so the
+    # frontend's last-known-result render survives session reloads.
+    # Rule #33 .c CHECK enforces the 5-state machine; Pydantic
+    # ``WindowsUpdateDiffStatus`` Literal at writer boundary catches
+    # code-side typos. Rule #33 .d — asyncio.create_task dispatch
+    # (in-process pure-Python diff + per-DLL incremental persistence is
+    # the durable state; restart recovery via the per-DLL table's
+    # (firmware_id, dll_path) UniqueConstraint).
+    windows_update_diff_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    windows_update_diff_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    windows_update_diff_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    windows_update_diff_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    windows_update_diff_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
