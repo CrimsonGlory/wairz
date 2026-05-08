@@ -1007,3 +1007,71 @@ def _stamp_windows_update_packages_update_metadata(
         return None
     payload["schema_version"] = WINDOWS_UPDATE_PACKAGES_UPDATE_METADATA_SCHEMA_VERSION
     return payload
+
+
+# ── firmware.dotnet_decompile_result (Phase δ.2) ──────────────────────────────
+#
+# Aggregate result of the batch .NET single-file bundle decompile run
+# launched via the δ.2 firmware.dotnet_decompile_* status set (Rule #33
+# contract). The δ.4 worker arq job walks every .NET single-file bundle
+# in the firmware's blobs (dnfile read-only PE table walking per Rule
+# #36 — DATA only) and stamps the aggregate here when the run completes;
+# δ.6 R2R-stomping detector reads the per-bundle output paths to scope
+# its R2R analysis; δ.7 MCP tool ``windows_dotnet.list_bundles`` reads
+# it for the run summary; δ.8 frontend ``DotNetBrowserPage`` reads it
+# for the last-known-result render. 4+ consumer files at δ shipping
+# time → schema_version discriminator strategy per Rule #35c.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,                     # wall-clock for the run
+#     "bundle_count": int,                      # total bundles processed
+#     "bundles_decompiled": int,                # bundles that produced IL output
+#     "bundles_failed": int,                    # bundles that failed decompile
+#     "total_assemblies_extracted": int,        # sum across all bundles
+#     "by_arch": dict[str, int],                # {"amd64": 3, "arm64": 1, "msil": 5}
+#     "bundles": list[
+#       {
+#         "bundle_path": "Windows/...",         # path within firmware tree
+#         "bundle_sha256": str,
+#         "extracted_count": int,               # assemblies pulled out of bundle
+#         "decompile_target_dir": str,          # ilspycmd output root
+#         "errors": list[str],                  # per-bundle errors
+#       },
+#       ...
+#     ],
+#     "errors": list[str],                      # session-level errors
+#   }
+#
+# Forward-discipline: bump SCHEMA_VERSION + extend dispatch in the
+# normaliser if the aggregate shape changes (e.g. add per-bundle
+# capa-on-IL hits, R2R-stomp counts).
+
+FIRMWARE_DOTNET_DECOMPILE_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_dotnet_decompile_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.dotnet_decompile_result``.
+
+    ``None`` is preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None`` (treat as "unusable
+    persisted result"; the next run will overwrite).
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_dotnet_decompile_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.dotnet_decompile_result``.
+
+    Always receives a non-None dict (the runner always writes a populated
+    aggregate when transitioning to ``completed``), so this helper is
+    unconditionally additive. Idempotent.
+    """
+    payload["schema_version"] = FIRMWARE_DOTNET_DECOMPILE_RESULT_SCHEMA_VERSION
+    return payload

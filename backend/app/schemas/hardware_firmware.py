@@ -225,6 +225,18 @@ WindowsUpdatePackageType = Literal[
 ]
 
 
+# Mirrors the firmware.dotnet_decompile_status CHECK constraint values
+# (Phase δ.2 — alembic ``d1e2f3a4b5c6``). 5-state 202+polling status set
+# matching the cve_match / vuln_scan / authenticode_chain /
+# registry_hive_walk pattern. Rule #33 .c contract: Pydantic Literal here
+# gates writer-side typos; the DB CHECK (in the migration) is the durable
+# runtime gate. Rule #33 .d — δ.4 dispatch is **arq** (worker-only
+# dotnet-runtime + ilspycmd resource).
+DotnetDecompileStatus = Literal[
+    "idle", "queued", "running", "completed", "failed",
+]
+
+
 class WindowsPESignatureSummary(BaseModel):
     """Compact per-PE signature row for the PeHardeningPage table.
 

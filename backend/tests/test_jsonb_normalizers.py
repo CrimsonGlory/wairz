@@ -34,6 +34,7 @@ from app.services.jsonb_normalizers import (
     WINDOWS_DRIVERS_INF_METADATA_SCHEMA_VERSION,
     FIRMWARE_REGISTRY_HIVE_WALK_RESULT_SCHEMA_VERSION,
     WINDOWS_UPDATE_PACKAGES_UPDATE_METADATA_SCHEMA_VERSION,
+    FIRMWARE_DOTNET_DECOMPILE_RESULT_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
     CRA_REQUIREMENT_RESULTS_FINDING_IDS_SCHEMA_VERSION,
@@ -72,6 +73,7 @@ from app.services.jsonb_normalizers import (
     _normalize_windows_drivers_inf_metadata,
     _normalize_firmware_registry_hive_walk_result,
     _normalize_windows_update_packages_update_metadata,
+    _normalize_firmware_dotnet_decompile_result,
     _stamp_firmware_authenticode_chain_result,
     _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
@@ -85,6 +87,7 @@ from app.services.jsonb_normalizers import (
     _stamp_windows_drivers_inf_metadata,
     _stamp_firmware_registry_hive_walk_result,
     _stamp_windows_update_packages_update_metadata,
+    _stamp_firmware_dotnet_decompile_result,
 )
 
 
@@ -1581,3 +1584,117 @@ def test_stamp_windows_update_packages_update_metadata_mutates_input():
 
 def test_windows_update_packages_update_metadata_schema_version_constant():
     assert WINDOWS_UPDATE_PACKAGES_UPDATE_METADATA_SCHEMA_VERSION == 1
+
+
+# ── _normalize_firmware_dotnet_decompile_result (Phase δ.2) ──────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical Phase δ.4 worker shape — full aggregate with per-bundle
+        # output paths, by-arch histogram, totals.
+        (
+            {
+                "schema_version": 1,
+                "run_seconds": 123.45,
+                "bundle_count": 3,
+                "bundles_decompiled": 2,
+                "bundles_failed": 1,
+                "total_assemblies_extracted": 47,
+                "by_arch": {"amd64": 2, "msil": 1},
+                "bundles": [
+                    {
+                        "bundle_path": "Windows/SomeApp.exe",
+                        "bundle_sha256": "abc",
+                        "extracted_count": 25,
+                        "decompile_target_dir": "/data/firmware/x/dotnet/abc/",
+                        "errors": [],
+                    },
+                    {
+                        "bundle_path": "Windows/OtherApp.exe",
+                        "bundle_sha256": "def",
+                        "extracted_count": 22,
+                        "decompile_target_dir": "/data/firmware/x/dotnet/def/",
+                        "errors": [],
+                    },
+                ],
+                "errors": [],
+            },
+            {
+                "schema_version": 1,
+                "run_seconds": 123.45,
+                "bundle_count": 3,
+                "bundles_decompiled": 2,
+                "bundles_failed": 1,
+                "total_assemblies_extracted": 47,
+                "by_arch": {"amd64": 2, "msil": 1},
+                "bundles": [
+                    {
+                        "bundle_path": "Windows/SomeApp.exe",
+                        "bundle_sha256": "abc",
+                        "extracted_count": 25,
+                        "decompile_target_dir": "/data/firmware/x/dotnet/abc/",
+                        "errors": [],
+                    },
+                    {
+                        "bundle_path": "Windows/OtherApp.exe",
+                        "bundle_sha256": "def",
+                        "extracted_count": 22,
+                        "decompile_target_dir": "/data/firmware/x/dotnet/def/",
+                        "errors": [],
+                    },
+                ],
+                "errors": [],
+            },
+        ),
+        # Empty dict — preserved.
+        ({}, {}),
+        # None — durable signal for "no completed run yet" (matches the
+        # cve_match_result + authenticode_chain_result + registry_hive_walk_result
+        # null contract).
+        (None, None),
+        # Wrong type — list — coerced to None.
+        ([{"bundle_count": 5}], None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_dotnet_decompile_result(value, expected):
+    assert _normalize_firmware_dotnet_decompile_result(value) == expected
+
+
+def test_normalize_firmware_dotnet_decompile_result_idempotent():
+    canonical = {
+        "schema_version": 1,
+        "run_seconds": 1.0,
+        "bundle_count": 1,
+        "bundles_decompiled": 1,
+        "bundles_failed": 0,
+        "total_assemblies_extracted": 5,
+        "by_arch": {"msil": 1},
+        "bundles": [],
+        "errors": [],
+    }
+    once = _normalize_firmware_dotnet_decompile_result(canonical)
+    twice = _normalize_firmware_dotnet_decompile_result(once)
+    assert once == twice == canonical
+
+
+def test_stamp_firmware_dotnet_decompile_result_adds_version():
+    payload = {"bundle_count": 3, "bundles_decompiled": 3}
+    out = _stamp_firmware_dotnet_decompile_result(payload)
+    assert out["schema_version"] == FIRMWARE_DOTNET_DECOMPILE_RESULT_SCHEMA_VERSION
+    assert out["bundle_count"] == 3
+
+
+def test_stamp_firmware_dotnet_decompile_result_idempotent():
+    payload = {"bundle_count": 0}
+    once = _stamp_firmware_dotnet_decompile_result(payload)
+    twice = _stamp_firmware_dotnet_decompile_result(once)
+    assert once == twice
+    assert once["schema_version"] == FIRMWARE_DOTNET_DECOMPILE_RESULT_SCHEMA_VERSION
+
+
+def test_firmware_dotnet_decompile_result_schema_version_constant():
+    assert FIRMWARE_DOTNET_DECOMPILE_RESULT_SCHEMA_VERSION == 1

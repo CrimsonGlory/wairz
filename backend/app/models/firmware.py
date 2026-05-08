@@ -121,6 +121,31 @@ class Firmware(Base):
     )
     registry_hive_walk_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     registry_hive_walk_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    # Phase δ batch .NET single-file bundle decompile 202+polling state.
+    # Worker arq job ``decompile_dotnet_bundle_job`` walks every .NET
+    # single-file bundle in the firmware's hardware_firmware_blobs
+    # (dnfile read-only PE table walk per Rule #36 — DATA only, never
+    # invokes the assembly's entry point) and runs ilspycmd inside the
+    # gated worker container (ARG INCLUDE_DOTNET=1 → dotnet-runtime-8.0 +
+    # ilspycmd dotnet-tool). The aggregate result (counts +
+    # per-bundle output paths) lives here so the frontend's last-known-
+    # result render survives session reloads. Rule #33 .c CHECK enforces
+    # the 5-state machine; Pydantic ``DotnetDecompileStatus`` Literal at
+    # writer boundary catches code-side typos. Rule #33 .d — arq dispatch
+    # (worker-only resource: ilspycmd lives in the worker container only).
+    dotnet_decompile_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    dotnet_decompile_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    dotnet_decompile_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    dotnet_decompile_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dotnet_decompile_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
