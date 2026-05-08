@@ -567,3 +567,384 @@ async def test_run_authenticode_chain_background_missing_firmware_is_noop():
             await db.execute(select(Firmware).where(Firmware.id == bogus_id))
         ).scalars().all()
         assert rows == []
+
+
+# ── Phase β.12c — verdict-bearing Finding emission live canaries ─────────────
+#
+# These tests exercise the runner's atomic emission of WindowsPESignature
+# rows AND Finding rows in the same session. The Rule #35b live canary
+# discipline for β.12c is "after the runner commits, BOTH row sets must
+# be present and consistent — counts, source, severity, file_path,
+# firmware_id, project_id all round-trip cleanly".
+
+
+@pytest.mark.asyncio
+async def test_runner_emits_authenticode_finding_for_revoked_chain(
+    tmp_path: Path,
+):
+    """A chain_status=revoked verdict produces ONE windows_authenticode
+    Finding row alongside the WindowsPESignature row."""
+    pe = tmp_path / "legacy.exe"
+    pe.write_bytes(b"MZ" + b"\x00" * 200)
+
+    async with make_live_db() as db:
+        fw = await _seed_firmware(db)
+        await _add_blob(db, fw, str(pe), "1" * 64)
+        await db.commit()
+
+        with patch(
+            "app.services.authenticode_chain_runner.verify_pe_file",
+            return_value=AuthenticodeVerdict(
+                signed=True,
+                chain_status="revoked",
+                signer_subject="CN=Old Vendor",
+                leaf_serial="abc123",
+            ),
+        ):
+            aggregate = await verify_firmware_pe_chain(fw.id, db)
+            await db.commit()
+
+        assert aggregate["findings_emitted"] == 1
+
+        from app.models import Finding  # noqa: PLC0415 — late import per Rule #30
+        rows = (
+            await db.execute(
+                select(Finding).where(Finding.firmware_id == fw.id)
+            )
+        ).scalars().all()
+        assert len(rows) == 1
+        f = rows[0]
+        assert f.source == "windows_authenticode"
+        assert f.severity == "high"
+        assert f.confidence == "high"
+        assert f.file_path == str(pe)
+        assert f.firmware_id == fw.id
+        assert f.project_id == fw.project_id
+        assert "leaf_serial=abc123" in f.evidence
+        assert "signer_subject=CN=Old Vendor" in f.evidence
+
+
+@pytest.mark.asyncio
+async def test_runner_emits_dbx_finding_for_revoked_pe(tmp_path: Path):
+    """A dbx_revoked=True verdict produces ONE windows_dbx_revoked
+    Finding row at critical severity, independent of chain_status."""
+    pe = tmp_path / "boot.efi"
+    pe.write_bytes(b"MZ" + b"\x00" * 200)
+
+    async with make_live_db() as db:
+        fw = await _seed_firmware(db)
+        await _add_blob(db, fw, str(pe), "2" * 64)
+        await db.commit()
+
+        with patch(
+            "app.services.authenticode_chain_runner.verify_pe_file",
+            return_value=AuthenticodeVerdict(
+                signed=True,
+                chain_status="valid_now",
+                dbx_revoked=True,
+                dbx_revocation_kb="KB5012170",
+                leaf_serial="cafef00d",
+            ),
+        ):
+            aggregate = await verify_firmware_pe_chain(fw.id, db)
+            await db.commit()
+
+        # chain_status=valid_now → no authenticode finding; only the
+        # dbx finding fires.
+        assert aggregate["findings_emitted"] == 1
+        assert aggregate["dbx_revoked_count"] == 1
+
+        from app.models import Finding  # noqa: PLC0415
+        f = (
+            await db.execute(
+                select(Finding).where(Finding.firmware_id == fw.id)
+            )
+        ).scalar_one()
+        assert f.source == "windows_dbx_revoked"
+        assert f.severity == "critical"
+        assert "leaf_serial=cafef00d" in f.evidence
+        assert "dbx_revocation_kb=KB5012170" in f.evidence
+
+
+@pytest.mark.asyncio
+async def test_runner_emits_two_findings_for_chain_and_dbx_revoked(
+    tmp_path: Path,
+):
+    """A PE that's BOTH chain-revoked AND DBX-revoked produces TWO
+    Finding rows — different sources, different severities. Confirms the
+    helper's per-draft create() loop emits both atomically with the
+    single WindowsPESignature row."""
+    pe = tmp_path / "doublebad.dll"
+    pe.write_bytes(b"MZ" + b"\x00" * 200)
+
+    async with make_live_db() as db:
+        fw = await _seed_firmware(db)
+        await _add_blob(db, fw, str(pe), "3" * 64)
+        await db.commit()
+
+        with patch(
+            "app.services.authenticode_chain_runner.verify_pe_file",
+            return_value=AuthenticodeVerdict(
+                signed=True,
+                chain_status="revoked",
+                dbx_revoked=True,
+                dbx_revocation_kb="KB5025885",
+                leaf_serial="deadbeef",
+                signer_subject="CN=Compromised Cert",
+            ),
+        ):
+            aggregate = await verify_firmware_pe_chain(fw.id, db)
+            await db.commit()
+
+        assert aggregate["findings_emitted"] == 2
+
+        from app.models import Finding  # noqa: PLC0415
+        rows = (
+            await db.execute(
+                select(Finding)
+                .where(Finding.firmware_id == fw.id)
+                .order_by(Finding.source)
+            )
+        ).scalars().all()
+        assert len(rows) == 2
+        sources = {r.source for r in rows}
+        assert sources == {"windows_authenticode", "windows_dbx_revoked"}
+
+        # Both rows reference the SAME blob path and firmware (atomic
+        # emission guarantee — no partial-row state).
+        assert all(r.file_path == str(pe) for r in rows)
+        assert all(r.firmware_id == fw.id for r in rows)
+        assert all(r.project_id == fw.project_id for r in rows)
+
+
+@pytest.mark.asyncio
+async def test_runner_emits_zero_findings_for_clean_pes(tmp_path: Path):
+    """Clean PE (signed + valid_now + not dbx-revoked) produces NO
+    Finding rows. Asserts the runner doesn't accidentally emit a finding
+    for the good case — the good-case verdicts surface only via the
+    aggregate's signed_count / by_chain_status histogram."""
+    pe = tmp_path / "trusted.exe"
+    pe.write_bytes(b"MZ" + b"\x00" * 200)
+
+    async with make_live_db() as db:
+        fw = await _seed_firmware(db)
+        await _add_blob(db, fw, str(pe), "4" * 64)
+        await db.commit()
+
+        with patch(
+            "app.services.authenticode_chain_runner.verify_pe_file",
+            return_value=AuthenticodeVerdict(
+                signed=True,
+                chain_status="valid_now",
+                dbx_revoked=False,
+            ),
+        ):
+            aggregate = await verify_firmware_pe_chain(fw.id, db)
+            await db.commit()
+
+        assert aggregate["findings_emitted"] == 0
+
+        from app.models import Finding  # noqa: PLC0415
+        rows = (
+            await db.execute(
+                select(Finding).where(Finding.firmware_id == fw.id)
+            )
+        ).scalars().all()
+        assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_runner_findings_idempotent_on_rerun(tmp_path: Path):
+    """Re-run idempotency for Finding rows: a second run DELETEs prior
+    windows_* findings for the firmware and re-emits. End state: exactly
+    N Finding rows (one per emission), not 2N. Mirrors the existing
+    WindowsPESignature re-run idempotency contract."""
+    pe = tmp_path / "stale.dll"
+    pe.write_bytes(b"MZ" + b"\x00" * 200)
+
+    async with make_live_db() as db:
+        fw = await _seed_firmware(db)
+        await _add_blob(db, fw, str(pe), "5" * 64)
+        await db.commit()
+
+        verdict = AuthenticodeVerdict(
+            signed=True,
+            chain_status="never_valid",
+            dbx_revoked=True,
+            dbx_revocation_kb="KB5025885",
+        )
+        with patch(
+            "app.services.authenticode_chain_runner.verify_pe_file",
+            return_value=verdict,
+        ):
+            await verify_firmware_pe_chain(fw.id, db)
+            await db.commit()
+            await verify_firmware_pe_chain(fw.id, db)
+            await db.commit()
+
+        from app.models import Finding  # noqa: PLC0415
+        rows = (
+            await db.execute(
+                select(Finding).where(Finding.firmware_id == fw.id)
+            )
+        ).scalars().all()
+        # Two runs × 2 emissions per run = 4 emissions. With re-run
+        # idempotency, the DELETE-then-emit pair leaves exactly 2 rows
+        # (1 windows_authenticode + 1 windows_dbx_revoked) — NOT 4.
+        assert len(rows) == 2
+        sources = {r.source for r in rows}
+        assert sources == {"windows_authenticode", "windows_dbx_revoked"}
+
+
+@pytest.mark.asyncio
+async def test_runner_does_not_delete_unrelated_findings_on_rerun(
+    tmp_path: Path,
+):
+    """Re-run idempotency is SCOPED to (firmware_id, source IN
+    windows_*). Findings for the same firmware emitted by OTHER sources
+    (manual, security_audit, sbom_scan, etc.) MUST NOT be deleted on
+    runner re-run. Without this scoping, an operator's manually-tagged
+    Finding would silently disappear when the authenticode chain runs."""
+    pe = tmp_path / "fw.exe"
+    pe.write_bytes(b"MZ" + b"\x00" * 200)
+
+    async with make_live_db() as db:
+        fw = await _seed_firmware(db)
+        await _add_blob(db, fw, str(pe), "6" * 64)
+        await db.commit()
+
+        # Pre-seed a manual finding on the same firmware.
+        from app.models import Finding  # noqa: PLC0415
+        manual = Finding(
+            project_id=fw.project_id,
+            firmware_id=fw.id,
+            title="Operator-tagged risk",
+            severity="medium",
+            source="manual",
+        )
+        db.add(manual)
+        await db.commit()
+
+        with patch(
+            "app.services.authenticode_chain_runner.verify_pe_file",
+            return_value=AuthenticodeVerdict(
+                signed=True,
+                chain_status="never_valid",
+                dbx_revoked=False,
+            ),
+        ):
+            await verify_firmware_pe_chain(fw.id, db)
+            await db.commit()
+
+        # Manual finding survives; new windows_authenticode finding lands.
+        rows = (
+            await db.execute(
+                select(Finding).where(Finding.firmware_id == fw.id)
+            )
+        ).scalars().all()
+        sources = {r.source for r in rows}
+        assert "manual" in sources
+        assert "windows_authenticode" in sources
+        # Sanity: manual row is the SAME row (id stable).
+        manual_after = (
+            await db.execute(
+                select(Finding).where(Finding.title == "Operator-tagged risk")
+            )
+        ).scalar_one()
+        assert manual_after.id == manual.id
+
+
+@pytest.mark.asyncio
+async def test_runner_emits_findings_atomically_with_signatures(tmp_path: Path):
+    """Live canary: after one runner cycle + commit, Finding rows AND
+    WindowsPESignature rows are BOTH present in the DB. Asserts the
+    atomic-emission contract — a partial-failure mode where sigs
+    persist but findings don't (or vice versa) would surface here."""
+    pe = tmp_path / "atomic.exe"
+    pe.write_bytes(b"MZ" + b"\x00" * 200)
+
+    async with make_live_db() as db:
+        fw = await _seed_firmware(db)
+        await _add_blob(db, fw, str(pe), "7" * 64)
+        await db.commit()
+
+        with patch(
+            "app.services.authenticode_chain_runner.verify_pe_file",
+            return_value=AuthenticodeVerdict(
+                signed=True,
+                chain_status="revoked",
+            ),
+        ):
+            await verify_firmware_pe_chain(fw.id, db)
+            await db.commit()
+
+        from app.models import Finding  # noqa: PLC0415
+        sigs = (
+            await db.execute(
+                select(WindowsPESignature)
+                .join(
+                    HardwareFirmwareBlob,
+                    HardwareFirmwareBlob.id == WindowsPESignature.blob_id,
+                )
+                .where(HardwareFirmwareBlob.firmware_id == fw.id)
+            )
+        ).scalars().all()
+        findings = (
+            await db.execute(
+                select(Finding).where(Finding.firmware_id == fw.id)
+            )
+        ).scalars().all()
+        # Both row sets present, both round-tripped to/from disk.
+        assert len(sigs) == 1
+        assert len(findings) == 1
+        assert sigs[0].chain_status == "revoked"
+        assert findings[0].source == "windows_authenticode"
+
+
+@pytest.mark.asyncio
+async def test_runner_aggregate_includes_findings_emitted_count(
+    tmp_path: Path,
+):
+    """The aggregate's findings_emitted matches the count of persisted
+    Finding rows. Adding the field is purely additive (schema_version=1
+    unchanged) — readers should use ``payload.get("findings_emitted", 0)``
+    so legacy pre-β.12 rows render as 0."""
+    pe1 = tmp_path / "a.exe"
+    pe1.write_bytes(b"MZ" + b"\x00" * 200)
+    pe2 = tmp_path / "b.dll"
+    pe2.write_bytes(b"MZ" + b"\x00" * 200)
+
+    async with make_live_db() as db:
+        fw = await _seed_firmware(db)
+        await _add_blob(db, fw, str(pe1), "8" * 64)
+        await _add_blob(db, fw, str(pe2), "9" * 64)
+        await db.commit()
+
+        def fake_verify(path: str) -> AuthenticodeVerdict:
+            if path.endswith("a.exe"):
+                # 1 finding (high authenticode)
+                return AuthenticodeVerdict(
+                    signed=True, chain_status="never_valid",
+                )
+            # 2 findings (high authenticode + critical dbx)
+            return AuthenticodeVerdict(
+                signed=True, chain_status="revoked", dbx_revoked=True,
+                dbx_revocation_kb="KB5025885",
+            )
+
+        with patch(
+            "app.services.authenticode_chain_runner.verify_pe_file",
+            side_effect=fake_verify,
+        ):
+            aggregate = await verify_firmware_pe_chain(fw.id, db)
+            await db.commit()
+
+        assert aggregate["findings_emitted"] == 3
+
+        from app.models import Finding  # noqa: PLC0415
+        finding_rows = (
+            await db.execute(
+                select(Finding).where(Finding.firmware_id == fw.id)
+            )
+        ).scalars().all()
+        assert len(finding_rows) == 3

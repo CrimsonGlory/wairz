@@ -266,6 +266,13 @@ def _normalize_firmware_cve_match_result(value: Any) -> dict | None:
 #     "signed_pct": float,                # signed_count / total_pe_count
 #     "unsigned_count": int,
 #     "dbx_revoked_count": int,
+#     "findings_emitted": int,            # Phase β.12c — Finding rows the
+#                                         # runner produced this run (sum of
+#                                         # windows_authenticode +
+#                                         # windows_dbx_revoked emissions).
+#                                         # Optional for legacy pre-β.12 rows;
+#                                         # readers should use
+#                                         # ``payload.get("findings_emitted", 0)``.
 #     "by_chain_status": {                # bucket histogram
 #        "valid_at_signing": int,
 #        "valid_now": int,

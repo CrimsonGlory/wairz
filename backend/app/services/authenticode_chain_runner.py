@@ -69,12 +69,26 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session_factory
+from app.models.finding import Finding
 from app.models.firmware import Firmware
 from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.models.windows_pe_signature import WindowsPESignature
 from app.services.authenticode_service import verify_pe_file
+from app.services.finding_service import FindingService
 from app.services.jsonb_normalizers import (
     _stamp_firmware_authenticode_chain_result,
+)
+
+
+# Findings emitted by the runner per PE verdict. Used as the DELETE-scope
+# filter for re-run idempotency (the runner DELETEs prior rows of these
+# sources for the firmware before re-emitting), mirroring the existing
+# WindowsPESignature DELETE. Mirrors the WindowsFindingSource Literal in
+# ``app.schemas.finding`` and the ``ck_findings_source`` CHECK extension
+# from alembic revision ``c5b6a7d8e9f0`` (Phase β.12a).
+_RUNNER_FINDING_SOURCES: tuple[str, ...] = (
+    "windows_authenticode",
+    "windows_dbx_revoked",
 )
 
 logger = logging.getLogger(__name__)
@@ -185,6 +199,10 @@ async def verify_firmware_pe_chain(
             "signed_pct": float,        # signed_count / total_pe_count
             "unsigned_count": int,
             "dbx_revoked_count": int,
+            "findings_emitted": int,    # Phase β.12c — Finding rows the
+                                        # runner produced this run (sum of
+                                        # windows_authenticode +
+                                        # windows_dbx_revoked emissions)
             "by_chain_status": {        # complete histogram, all buckets
                 "valid_at_signing": int, "valid_now": int,
                 "revoked": int, "never_valid": int, "unknown": int,
@@ -202,8 +220,44 @@ async def verify_firmware_pe_chain(
     (Rule #5). Per-PE failures are CAPTURED in ``errors`` and counted in
     the ``unknown`` bucket; the run completes with status='completed'
     regardless.
+
+    Phase β.12c — additionally emits ``Finding`` rows for verdict-bearing
+    chain_status / dbx_revoked outcomes via
+    :meth:`FindingService.emit_pe_signature_findings`. Re-run idempotency
+    extends to those Finding rows: prior ``windows_authenticode`` /
+    ``windows_dbx_revoked`` findings for the firmware are DELETEd before
+    re-emission, mirroring the WindowsPESignature DELETE.
     """
     started = time.monotonic()
+
+    # Phase β.12c — derive project_id for the FindingService.create() path.
+    # The outer runner already has fw in scope at the call site; SELECTing
+    # again here keeps verify_firmware_pe_chain self-contained (it remains
+    # callable with just (firmware_id, db) — see existing tests at
+    # test_authenticode_chain_runner.py:228 etc.). Cost: one extra row
+    # SELECT per run, dwarfed by the per-PE signify work that follows.
+    fw = (
+        await db.execute(
+            select(Firmware).where(Firmware.id == firmware_id)
+        )
+    ).scalar_one_or_none()
+    if fw is None:
+        # The outer runner already guards on firmware presence + flips
+        # status to "running" before calling us. If the row vanished
+        # between then and now, return an empty-shaped aggregate so the
+        # caller's stamp + persist still produces a well-formed JSONB.
+        return {
+            "signed_count": 0,
+            "signed_pct": 0.0,
+            "unsigned_count": 0,
+            "dbx_revoked_count": 0,
+            "findings_emitted": 0,
+            "by_chain_status": {b: 0 for b in _CHAIN_STATUS_BUCKETS},
+            "run_seconds": round(time.monotonic() - started, 3),
+            "total_pe_count": 0,
+            "errors": [],
+        }
+    project_id = fw.project_id
 
     # Re-run idempotency: drop any prior WindowsPESignature rows for this
     # firmware's blobs. The CASCADE on the FK does not fire on re-run
@@ -215,6 +269,19 @@ async def verify_firmware_pe_chain(
     await db.execute(
         delete(WindowsPESignature).where(
             WindowsPESignature.blob_id.in_(blob_id_subq)
+        )
+    )
+
+    # Phase β.12c — Re-run idempotency for the runner-emitted Finding rows.
+    # Scoped strictly by (firmware_id, source IN windows_*) so manual /
+    # security-audit / SBOM findings on the same firmware are untouched.
+    # The two source tags match _RUNNER_FINDING_SOURCES + the β.12a CHECK
+    # extension; if the campaign adds further runner-emitted sources, both
+    # _RUNNER_FINDING_SOURCES and the CHECK list need to grow in lockstep.
+    await db.execute(
+        delete(Finding).where(
+            Finding.firmware_id == firmware_id,
+            Finding.source.in_(_RUNNER_FINDING_SOURCES),
         )
     )
     await db.flush()
@@ -234,6 +301,8 @@ async def verify_firmware_pe_chain(
     dbx_revoked_count = 0
     total_pe_count = 0
     errors: list[dict[str, str]] = []
+    finding_service = FindingService(db)
+    findings_emitted = 0
 
     for blob in blobs:
         path = blob.blob_path
@@ -276,6 +345,24 @@ async def verify_firmware_pe_chain(
         # firmware status; previously-flushed sig rows stay).
         await db.flush()
 
+        # Phase β.12c — Emit verdict-bearing Findings (windows_authenticode +
+        # windows_dbx_revoked) atomically with the WindowsPESignature
+        # row. The helper internally calls FindingService.create() which
+        # uses db.flush() (Rule #3); both row sets land in the same
+        # session.
+        emitted = await finding_service.emit_pe_signature_findings(
+            project_id=project_id,
+            firmware_id=firmware_id,
+            blob_path=path,
+            signed=verdict.signed,
+            chain_status=verdict.chain_status,
+            dbx_revoked=verdict.dbx_revoked,
+            leaf_serial=verdict.leaf_serial,
+            signer_subject=verdict.signer_subject,
+            dbx_revocation_kb=verdict.dbx_revocation_kb,
+        )
+        findings_emitted += len(emitted)
+
         # Aggregate.
         if verdict.signed:
             signed_count += 1
@@ -304,6 +391,7 @@ async def verify_firmware_pe_chain(
         "signed_pct": round(signed_pct, 4),
         "unsigned_count": unsigned_count,
         "dbx_revoked_count": dbx_revoked_count,
+        "findings_emitted": findings_emitted,
         "by_chain_status": histogram,
         "run_seconds": round(elapsed, 3),
         "total_pe_count": total_pe_count,
@@ -380,12 +468,14 @@ async def run_authenticode_chain_background(firmware_id: uuid.UUID) -> None:
                 await db.commit()
                 logger.info(
                     "authenticode-chain background: firmware %s completed "
-                    "(pe=%d signed=%d unsigned=%d dbx_revoked=%d errs=%d)",
+                    "(pe=%d signed=%d unsigned=%d dbx_revoked=%d "
+                    "findings=%d errs=%d)",
                     firmware_id,
                     aggregate["total_pe_count"],
                     aggregate["signed_count"],
                     aggregate["unsigned_count"],
                     aggregate["dbx_revoked_count"],
+                    aggregate["findings_emitted"],
                     len(aggregate["errors"]),
                 )
             except Exception as exc:
