@@ -237,20 +237,32 @@ def test_every_detected_format_has_capability_mapping():
 
 
 def test_capability_notes_only_for_partial_or_none():
-    """CAPABILITY_NOTES should only carry copy for partial / none formats.
+    """CAPABILITY_NOTES should only carry copy for partial / none formats,
+    OR for FULL formats whose note is an operator-hint about ambiguous
+    auto-classification (e.g. WINDOWS_DRIVER_PACKAGE — a CAB may or may
+    not be a driver package; the note documents the reclassification
+    path so operators see how to re-route on detection drift).
 
-    'full' formats run the standard flow without a banner — surfacing a
-    note for them would clutter the upload UI.
+    The general rule still holds: 'full' formats run the standard flow
+    without a banner. The exception list below stays narrow — every
+    addition is reviewed; an unreviewed FULL+note pair fails the test
+    and forces the explicit decision.
     """
+    operator_hint_full_exceptions = {DetectedFormat.WINDOWS_DRIVER_PACKAGE}
     for fmt, cap in EXTRACTION_CAPABILITY.items():
-        if fmt in CAPABILITY_NOTES:
-            assert cap in (
-                ExtractionCapability.PARTIAL,
-                ExtractionCapability.NONE,
-            ), (
-                f"{fmt} has a capability note but capability={cap}; "
-                "notes should be reserved for partial/none formats"
-            )
+        if fmt not in CAPABILITY_NOTES:
+            continue
+        if fmt in operator_hint_full_exceptions:
+            continue
+        assert cap in (
+            ExtractionCapability.PARTIAL,
+            ExtractionCapability.NONE,
+        ), (
+            f"{fmt} has a capability note but capability={cap}; "
+            "notes should be reserved for partial/none formats "
+            "(or explicitly added to operator_hint_full_exceptions "
+            "with rationale)"
+        )
 
 
 # ---------------------------------------------------------------------------
