@@ -62,6 +62,26 @@ dependencies = [
     # wairz invokes regedit, .reg apply, or any scriptable
     # registry-modification action.
     "regipy>=4.0,<5",
+    # ── Phase δ: .NET single-file bundle decompile + R2R-stomping ──
+    # dnfile — read-only PE-table walker for .NET assemblies. Phase δ.4
+    # worker uses dnfile to detect single-file bundles + walk the embedded
+    # AppHostBundle / DEPS / runtimeconfig metadata; Phase δ.6 R2R-stomping
+    # detector reads ReadyToRun PE table flags via dnfile.
+    # dncil — IL disassembler for .NET method bodies. Used by capa-on-IL
+    # in Phase δ.6 R2R-stomping detector to compare prologue IL signatures
+    # against ReadyToRun-promoted native code.
+    # flare-capa — capability detection over IL (Phase δ.6). Pulls in
+    # dnfile + dncil + yara-python as transitive deps; we declare the two
+    # we use directly (dnfile + dncil) so a future capa version bump
+    # doesn't accidentally unbind them. yara-python>=4.5.0 already pinned
+    # above (used by detect_capabilities binary tool).
+    # Rule #36 no-execute discipline applies to ALL three: dnfile parses
+    # PE tables AS DATA; dncil decodes IL bytes AS DATA; flare-capa runs
+    # rule-based capability matching over the IL/data — nothing in wairz
+    # invokes the .NET assembly entry point.
+    "dnfile>=0.18",
+    "dncil>=1.0",
+    "flare-capa>=9.4",
 ]
 
 [project.scripts]

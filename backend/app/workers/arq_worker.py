@@ -469,6 +469,32 @@ async def spawn_emulation_session_job(
 # Cron: cleanup_emulation_expired (Phase 3 / O1)
 # ---------------------------------------------------------------------------
 
+async def decompile_dotnet_bundle_job(
+    ctx: dict,
+    *,
+    firmware_id: str,
+) -> None:
+    """Decompile every .NET single-file bundle in a firmware (arq job).
+
+    Phase δ.4 thin adapter — delegates to
+    :func:`app.services.dotnet_decompile_service.decompile_firmware_background`,
+    which owns the Rule #33 .a state machine + Rule #36 no-execute argv
+    discipline + per-bundle ilspycmd subprocess.
+
+    Per Rule #33 .d: dispatched via arq (NOT asyncio.create_task) because
+    ilspycmd is a worker-only resource — installed inside the worker
+    container behind ``ARG INCLUDE_DOTNET=1`` (dotnet-runtime-8.0 +
+    ilspycmd dotnet-tool); the backend image deliberately does NOT carry
+    the .NET runtime to keep its surface minimal.
+    """
+    from app.services.dotnet_decompile_service import (
+        decompile_firmware_background,
+    )
+
+    fid = uuid.UUID(firmware_id)
+    await decompile_firmware_background(fid)
+
+
 async def cleanup_emulation_expired_job(ctx: dict) -> dict:
     """Reap emulation containers whose DB session exceeded ``emulation_timeout_minutes``.
 
@@ -781,6 +807,7 @@ class WorkerSettings:
         run_yara_scan_job,
         sync_kernel_vulns_job,
         spawn_emulation_session_job,
+        decompile_dotnet_bundle_job,
         cleanup_emulation_expired_job,
         cleanup_fuzzing_orphans_job,
         check_storage_quota_job,

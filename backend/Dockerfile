@@ -336,6 +336,56 @@ RUN mkdir -p /opt/wairz/ms-roots \
     && cp /app/ms-anchors/dbxupdate.bin /opt/wairz/dbxupdate.bin \
     && chmod 0444 /opt/wairz/dbxupdate.bin
 
+# ---------------------------------------------------------------------------
+# Phase δ.4: gated dotnet-runtime + ilspycmd for .NET single-file bundle
+# decompile. Disabled by default to keep the backend image small (worker
+# image gets the +200 MB delta when ARG INCLUDE_DOTNET=1 is passed at
+# `docker compose build` time).
+#
+# Per CLAUDE.md Rule #36 (no-execute discipline): ilspycmd reads .NET
+# bundles AS DATA (PE table + metadata stream walking + IL serialisation
+# via ICSharpCode.Decompiler). The dotnet runtime IS installed because
+# ilspycmd itself is a .NET 8 self-contained tool — but the wairz worker
+# code never invokes a customer-supplied bundle's entry point. The argv
+# discipline (FORBIDDEN_ARGV0_TOKENS in dotnet_decompile_service.py)
+# enforces this — argv[0] must resolve to ilspycmd, never to dotnet /
+# wine / mono / cscript / wscript.
+#
+# Per Rule #37 (offline-trust-anchor): no scan-time network fetches from
+# this stage — `dotnet tool install` IS network-bound, but it runs at
+# IMAGE BUILD TIME (build-time bundling, scan-time offline). Operators
+# rebuild quarterly to refresh; the resulting image carries ilspycmd
+# baked in. The downloaded packages-microsoft-prod.deb is from the
+# canonical Microsoft repository — equivalent in trust to apt's own
+# trust anchors that ship with debian:slim.
+#
+# Operator usage:
+#   docker compose build --build-arg INCLUDE_DOTNET=1 worker
+#
+# Default behaviour (INCLUDE_DOTNET=0): the dotnet_decompile_service
+# detects the missing ilspycmd binary at the trigger MCP tool layer and
+# degrades gracefully — the firmware row transitions to ``failed`` with
+# a clear "ilspycmd not available — rebuild with INCLUDE_DOTNET=1"
+# message in the error column. Backend image stays slim regardless.
+ARG INCLUDE_DOTNET=0
+RUN if [ "$INCLUDE_DOTNET" = "1" ]; then \
+        echo "Installing dotnet-sdk-8.0 + ilspycmd (Phase δ.4)" && \
+        apt-get update && apt-get install -y --no-install-recommends \
+            wget ca-certificates \
+        && wget -q https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb \
+            -O /tmp/packages-microsoft-prod.deb \
+        && dpkg -i /tmp/packages-microsoft-prod.deb \
+        && rm /tmp/packages-microsoft-prod.deb \
+        && apt-get update && apt-get install -y --no-install-recommends \
+            dotnet-sdk-8.0 \
+        && dotnet tool install -g ilspycmd \
+        && ln -s /root/.dotnet/tools/ilspycmd /usr/local/bin/ilspycmd \
+        && rm -rf /var/lib/apt/lists/* \
+        && echo "ilspycmd installed at /root/.dotnet/tools/ilspycmd" ; \
+    else \
+        echo "INCLUDE_DOTNET=0 — skipping dotnet-sdk + ilspycmd install (default)" ; \
+    fi
+
 # Create data and Ghidra project directories
 RUN mkdir -p /data/firmware /tmp/ghidra_projects \
     && chown -R wairz:wairz /data /app /tmp/ghidra_projects /opt/ghidra /opt/jadx /opt/kernels /opt/wairz \
