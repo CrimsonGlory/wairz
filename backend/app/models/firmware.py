@@ -97,6 +97,30 @@ class Firmware(Base):
     )
     authenticode_chain_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     authenticode_chain_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Phase γ batch registry-walk 202+polling state. Background runner
+    # _run_registry_hive_walk_background walks every registry hive across
+    # the firmware's hardware_firmware_blobs (regipy read-only binding
+    # per Rule #36 — DATA only, never invoked) and writes a
+    # WindowsRegistryExtract row per hive (γ.1). The aggregate result
+    # (hive_count, by_hive_type, by_walk_status, total_keys, total_values,
+    # run_seconds) lives here so the frontend's last-known-result render
+    # survives session reloads. Rule #33 .c CHECK enforces the 5-state
+    # machine; Pydantic RegistryHiveWalkStatus Literal at writer
+    # boundary catches code-side typos. Rule #33 .d — asyncio.create_task
+    # dispatch (in-process; per-hive INSERTs are the durable state;
+    # restart recovery via the extract table's (blob, hive_path)
+    # UniqueConstraint).
+    registry_hive_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    registry_hive_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    registry_hive_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    registry_hive_walk_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    registry_hive_walk_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

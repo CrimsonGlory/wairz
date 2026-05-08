@@ -195,6 +195,16 @@ WindowsRegistryExtractWalkStatus = Literal[
 ]
 
 
+# Mirrors the firmware.registry_hive_walk_status CHECK constraint values
+# (Phase γ.3 — alembic ``c8d9e0f1a2b3``). 5-state 202+polling status set
+# matching the cve_match / vuln_scan / authenticode_chain pattern. Rule
+# #33 .c contract: Pydantic Literal here gates writer-side typos; the
+# DB CHECK (in the migration) is the durable runtime gate.
+RegistryHiveWalkStatus = Literal[
+    "idle", "queued", "running", "completed", "failed",
+]
+
+
 class WindowsPESignatureSummary(BaseModel):
     """Compact per-PE signature row for the PeHardeningPage table.
 

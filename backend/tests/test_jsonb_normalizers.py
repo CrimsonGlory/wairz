@@ -32,6 +32,7 @@ from app.services.jsonb_normalizers import (
     WINDOWS_PE_SIGNATURES_RICH_HEADER_JSON_SCHEMA_VERSION,
     WINDOWS_REGISTRY_EXTRACTS_PARSED_TREE_SCHEMA_VERSION,
     WINDOWS_DRIVERS_INF_METADATA_SCHEMA_VERSION,
+    FIRMWARE_REGISTRY_HIVE_WALK_RESULT_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
     CRA_REQUIREMENT_RESULTS_FINDING_IDS_SCHEMA_VERSION,
@@ -68,6 +69,7 @@ from app.services.jsonb_normalizers import (
     _normalize_windows_pe_signatures_rich_header_json,
     _normalize_windows_registry_extracts_parsed_tree,
     _normalize_windows_drivers_inf_metadata,
+    _normalize_firmware_registry_hive_walk_result,
     _stamp_firmware_authenticode_chain_result,
     _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
@@ -79,6 +81,7 @@ from app.services.jsonb_normalizers import (
     _stamp_windows_pe_signatures_rich_header_json,
     _stamp_windows_registry_extracts_parsed_tree,
     _stamp_windows_drivers_inf_metadata,
+    _stamp_firmware_registry_hive_walk_result,
 )
 
 
@@ -1271,3 +1274,137 @@ def test_stamp_windows_drivers_inf_metadata_mutates_input():
 
 def test_windows_drivers_inf_metadata_schema_version_constant():
     assert WINDOWS_DRIVERS_INF_METADATA_SCHEMA_VERSION == 1
+
+
+# ── _normalize_firmware_registry_hive_walk_result (Phase γ.3) ────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical Phase γ.4 aggregate shape — multi-hive walk.
+        (
+            {
+                "schema_version": 1,
+                "run_seconds": 4.5,
+                "hive_count": 8,
+                "by_hive_type": {
+                    "SOFTWARE": 1,
+                    "SYSTEM": 1,
+                    "SAM": 1,
+                    "SECURITY": 1,
+                    "NTUSER": 4,
+                },
+                "by_walk_status": {
+                    "completed": 6,
+                    "partial": 1,
+                    "failed": 0,
+                    "skipped": 1,
+                },
+                "total_keys": 56789,
+                "total_values": 234567,
+                "errors": [],
+            },
+            {
+                "schema_version": 1,
+                "run_seconds": 4.5,
+                "hive_count": 8,
+                "by_hive_type": {
+                    "SOFTWARE": 1,
+                    "SYSTEM": 1,
+                    "SAM": 1,
+                    "SECURITY": 1,
+                    "NTUSER": 4,
+                },
+                "by_walk_status": {
+                    "completed": 6,
+                    "partial": 1,
+                    "failed": 0,
+                    "skipped": 1,
+                },
+                "total_keys": 56789,
+                "total_values": 234567,
+                "errors": [],
+            },
+        ),
+        # Empty-firmware run — no hives detected.
+        (
+            {
+                "schema_version": 1,
+                "run_seconds": 0.1,
+                "hive_count": 0,
+                "by_hive_type": {},
+                "by_walk_status": {
+                    "completed": 0,
+                    "partial": 0,
+                    "failed": 0,
+                    "skipped": 0,
+                },
+                "total_keys": 0,
+                "total_values": 0,
+                "errors": [],
+            },
+            {
+                "schema_version": 1,
+                "run_seconds": 0.1,
+                "hive_count": 0,
+                "by_hive_type": {},
+                "by_walk_status": {
+                    "completed": 0,
+                    "partial": 0,
+                    "failed": 0,
+                    "skipped": 0,
+                },
+                "total_keys": 0,
+                "total_values": 0,
+                "errors": [],
+            },
+        ),
+        # Empty dict — preserved.
+        ({}, {}),
+        # None — durable signal for "no completed run yet" (matches the
+        # cve_match_result + authenticode_chain_result null contract).
+        (None, None),
+        # Wrong type — list — coerced to None.
+        ([{"hive_count": 5}], None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_registry_hive_walk_result(value, expected):
+    assert _normalize_firmware_registry_hive_walk_result(value) == expected
+
+
+def test_normalize_firmware_registry_hive_walk_result_idempotent():
+    canonical = {
+        "schema_version": 1,
+        "run_seconds": 1.0,
+        "hive_count": 1,
+        "by_hive_type": {"SOFTWARE": 1},
+        "by_walk_status": {"completed": 1, "partial": 0, "failed": 0, "skipped": 0},
+        "total_keys": 100,
+        "total_values": 500,
+        "errors": [],
+    }
+    once = _normalize_firmware_registry_hive_walk_result(canonical)
+    twice = _normalize_firmware_registry_hive_walk_result(once)
+    assert once == twice == canonical
+
+
+def test_stamp_firmware_registry_hive_walk_result_adds_version():
+    payload = {"hive_count": 3, "total_keys": 1000}
+    out = _stamp_firmware_registry_hive_walk_result(payload)
+    assert out["schema_version"] == FIRMWARE_REGISTRY_HIVE_WALK_RESULT_SCHEMA_VERSION
+    assert out["hive_count"] == 3
+
+
+def test_stamp_firmware_registry_hive_walk_result_idempotent():
+    payload = {"hive_count": 0}
+    once = _stamp_firmware_registry_hive_walk_result(payload)
+    twice = _stamp_firmware_registry_hive_walk_result(once)
+    assert once == twice
+    assert once["schema_version"] == FIRMWARE_REGISTRY_HIVE_WALK_RESULT_SCHEMA_VERSION
+
+
+def test_firmware_registry_hive_walk_result_schema_version_constant():
+    assert FIRMWARE_REGISTRY_HIVE_WALK_RESULT_SCHEMA_VERSION == 1

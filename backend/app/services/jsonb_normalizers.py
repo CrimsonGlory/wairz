@@ -868,3 +868,59 @@ def _stamp_windows_drivers_inf_metadata(
         return None
     payload["schema_version"] = WINDOWS_DRIVERS_INF_METADATA_SCHEMA_VERSION
     return payload
+
+
+# ── firmware.registry_hive_walk_result (Phase γ.3) ────────────────────────────
+#
+# Aggregate result of the batch registry-walk run launched via the
+# γ.3 firmware.registry_hive_walk_* status set (Rule #33 contract). The
+# γ.4 background runner walks every hive in the firmware's blobs (regipy
+# read-only binding per Rule #36 — DATA only) and stamps the aggregate
+# here when the run completes; γ.6 MCP tool ``windows_registry.list_hives``
+# reads it for the run summary; γ.7 frontend ``RegistryHivePage`` reads
+# it for the last-known-result render. 3+ consumer files at γ shipping
+# time → schema_version discriminator strategy per Rule #35c.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,                     # wall-clock for the run
+#     "hive_count": int,                        # total hives walked
+#     "by_hive_type": dict[str, int],           # {"SOFTWARE": 1, "SYSTEM": 1, ...}
+#     "by_walk_status": dict[str, int],         # {"completed": 5, "partial": 1, "failed": 0, "skipped": 2}
+#     "total_keys": int,                        # sum of key_count across extracts
+#     "total_values": int,                      # sum of value_count across extracts
+#     "errors": list[str],                      # session-level errors (per-hive errors live on extract rows)
+#   }
+#
+# Forward-discipline: bump SCHEMA_VERSION + extend dispatch in the
+# normaliser if the aggregate shape changes (e.g. add per-hive_type
+# total_keys breakdown for a future hist-of-hist aggregation).
+
+FIRMWARE_REGISTRY_HIVE_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_registry_hive_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.registry_hive_walk_result``.
+
+    ``None`` is preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None`` (treat as "unusable
+    persisted result"; the next run will overwrite).
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_registry_hive_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.registry_hive_walk_result``.
+
+    Always receives a non-None dict (the runner always writes a
+    populated aggregate when transitioning to ``completed``), so this
+    helper is unconditionally additive. Idempotent.
+    """
+    payload["schema_version"] = FIRMWARE_REGISTRY_HIVE_WALK_RESULT_SCHEMA_VERSION
+    return payload
