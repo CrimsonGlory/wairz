@@ -457,6 +457,192 @@ def test_verify_pe_file_rich_header_json_attached_when_signify_parse_fails(
     assert "PE parse failed" in (out.error or "")
 
 
+# ── dbx_revoked / dbx_revocation_kb plumbing (Phase β.7) ──────────────────
+
+
+def test_verify_pe_file_dbx_revoked_when_serial_matches(tmp_path: Path):
+    """β.7: a signed PE whose leaf serial appears in the bundle's revoked
+    set produces verdict.dbx_revoked=True. The match function is patched
+    at the authenticode_service boundary."""
+    pe_file = tmp_path / "revoked.exe"
+    pe_file.write_bytes(b"MZ" + b"\x00" * 100)
+
+    fake_sig = MagicMock()
+    fake_sig.signer_info = MagicMock()
+    fake_sig.signer_info.certificate = MagicMock()
+    fake_sig.signer_info.certificate.subject = "CN=Bad Signer"
+    fake_sig.signer_info.certificate.issuer = "CN=Compromised CA"
+    fake_sig.signer_info.certificate.serial_number = 0xDEADBEEF
+    fake_sig.signer_info.digest_algorithm = "sha256"
+    fake_sig.countersigner = None
+
+    fake_af = MagicMock()
+    fake_af.iter_signatures.return_value = iter([fake_sig])
+    fake_af.explain_verify.return_value = (
+        AuthenticodeVerificationResult.CERTIFICATE_ERROR,
+        Exception("revoked"),
+    )
+
+    fake_match = {
+        "schema_version": 1,
+        "revoked": True,
+        "revocation_kb": "KB5012170",
+        "leaf_serial_normalized": "DEADBEEF",
+        "match_kind": "x509_serial",
+        "bundle_entries": 5000,
+        "bundle_path": "/opt/wairz/dbxupdate.bin",
+    }
+
+    with patch(
+        "app.services.authenticode_service.AuthenticodeFile.from_stream",
+        return_value=fake_af,
+    ), patch(
+        "app.services.authenticode_service.match_dbx_revocation",
+        return_value=fake_match,
+    ) as mock_match:
+        out = verify_pe_file(pe_file)
+
+    mock_match.assert_called_once_with("DEADBEEF")
+    assert out.dbx_revoked is True
+    assert out.dbx_revocation_kb == "KB5012170"
+
+
+def test_verify_pe_file_dbx_not_revoked_when_serial_misses(tmp_path: Path):
+    """β.7: signed PE whose serial is absent from the bundle produces
+    dbx_revoked=False. Bundle was loaded; the answer is "not revoked"
+    not "no information"."""
+    pe_file = tmp_path / "ok.exe"
+    pe_file.write_bytes(b"MZ" + b"\x00" * 100)
+
+    fake_sig = MagicMock()
+    fake_sig.signer_info = MagicMock()
+    fake_sig.signer_info.certificate = MagicMock()
+    fake_sig.signer_info.certificate.subject = "CN=Microsoft"
+    fake_sig.signer_info.certificate.issuer = "CN=MS PCA 2011"
+    fake_sig.signer_info.certificate.serial_number = 0x12345
+    fake_sig.signer_info.digest_algorithm = "sha256"
+    fake_sig.countersigner = None
+
+    fake_af = MagicMock()
+    fake_af.iter_signatures.return_value = iter([fake_sig])
+    fake_af.explain_verify.return_value = (AuthenticodeVerificationResult.OK, None)
+
+    fake_match = {
+        "schema_version": 1,
+        "revoked": False,
+        "revocation_kb": None,
+        "leaf_serial_normalized": "12345",
+        "match_kind": "none",
+        "bundle_entries": 5000,
+        "bundle_path": "/opt/wairz/dbxupdate.bin",
+    }
+
+    with patch(
+        "app.services.authenticode_service.AuthenticodeFile.from_stream",
+        return_value=fake_af,
+    ), patch(
+        "app.services.authenticode_service.match_dbx_revocation",
+        return_value=fake_match,
+    ):
+        out = verify_pe_file(pe_file)
+
+    assert out.dbx_revoked is False
+    assert out.dbx_revocation_kb is None
+
+
+def test_verify_pe_file_dbx_defaults_when_bundle_missing(tmp_path: Path):
+    """β.7: when the matcher returns None (bundle not provisioned per
+    β.10 deferral), the verdict carries the default dbx_revoked=False /
+    dbx_revocation_kb=None — the "no DBX information" semantic."""
+    pe_file = tmp_path / "ok.exe"
+    pe_file.write_bytes(b"MZ" + b"\x00" * 100)
+
+    fake_sig = MagicMock()
+    fake_sig.signer_info = MagicMock()
+    fake_sig.signer_info.certificate = MagicMock()
+    fake_sig.signer_info.certificate.subject = "CN=X"
+    fake_sig.signer_info.certificate.issuer = "CN=Y"
+    fake_sig.signer_info.certificate.serial_number = 0xAB
+    fake_sig.signer_info.digest_algorithm = "sha256"
+    fake_sig.countersigner = None
+
+    fake_af = MagicMock()
+    fake_af.iter_signatures.return_value = iter([fake_sig])
+    fake_af.explain_verify.return_value = (AuthenticodeVerificationResult.OK, None)
+
+    with patch(
+        "app.services.authenticode_service.AuthenticodeFile.from_stream",
+        return_value=fake_af,
+    ), patch(
+        "app.services.authenticode_service.match_dbx_revocation",
+        return_value=None,
+    ):
+        out = verify_pe_file(pe_file)
+
+    assert out.dbx_revoked is False
+    assert out.dbx_revocation_kb is None
+
+
+def test_verify_pe_file_dbx_defaults_when_pe_read_fails(tmp_path: Path):
+    """β.7 four-path plumbing (Pattern #1): OSError verdict still ships
+    dbx_revoked=False / dbx_revocation_kb=None — no PE means no leaf
+    serial means no match attempt; the defaults are the truthful
+    "no DBX information for this PE"."""
+    pe_file = tmp_path / "weird.exe"
+    pe_file.write_bytes(b"MZ" + b"\x00" * 100)
+
+    with patch(
+        "app.services.authenticode_service.AuthenticodeFile.from_stream",
+        side_effect=OSError("simulated read failure"),
+    ):
+        out = verify_pe_file(pe_file)
+
+    assert out.signed is False
+    assert out.chain_status == "unknown"
+    assert out.dbx_revoked is False
+    assert out.dbx_revocation_kb is None
+
+
+def test_verify_pe_file_dbx_defaults_when_signify_parse_fails(tmp_path: Path):
+    """β.7 four-path plumbing (Pattern #1): generic-Exception verdict
+    still ships dbx default values. Independent parsers, independent
+    failure modes — DBX matching is gated on a leaf serial we don't have
+    when signify fails to parse."""
+    pe_file = tmp_path / "corrupt.exe"
+    pe_file.write_bytes(b"MZ" + b"\x00" * 100)
+
+    with patch(
+        "app.services.authenticode_service.AuthenticodeFile.from_stream",
+        side_effect=RuntimeError("malformed signature blob"),
+    ):
+        out = verify_pe_file(pe_file)
+
+    assert out.signed is False
+    assert out.chain_status == "unknown"
+    assert out.dbx_revoked is False
+    assert out.dbx_revocation_kb is None
+
+
+def test_verify_pe_file_dbx_defaults_for_unsigned_pe(tmp_path: Path):
+    """An unsigned PE (no signatures) skips the dbx match (no leaf serial
+    to match) — defaults preserved."""
+    pe_file = tmp_path / "unsigned.exe"
+    pe_file.write_bytes(b"MZ" + b"\x00" * 100)
+
+    fake_af = MagicMock()
+    fake_af.iter_signatures.return_value = iter([])  # zero signatures
+
+    with patch(
+        "app.services.authenticode_service.AuthenticodeFile.from_stream",
+        return_value=fake_af,
+    ):
+        out = verify_pe_file(pe_file)
+
+    assert out.signed is False
+    assert out.dbx_revoked is False
+    assert out.dbx_revocation_kb is None
+
+
 # ── AuthenticodeVerdict shape contract ────────────────────────────────────
 
 
@@ -474,6 +660,7 @@ def test_verdict_maps_to_windows_pe_signature_columns():
         "signed", "chain_status", "signer_subject", "signer_issuer",
         "leaf_serial", "sig_hash_algo", "tsa_authority", "signed_at",
         "chain_json", "arch_view", "rich_header_json",
+        "dbx_revoked", "dbx_revocation_kb",
     }
     indirect = {"signatures_count", "error"}  # in chain_json / runner-level
     verdict_fields = set(verdict.__dataclass_fields__.keys())

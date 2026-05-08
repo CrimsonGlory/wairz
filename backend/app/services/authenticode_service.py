@@ -40,6 +40,7 @@ from signify.authenticode import (
     AuthenticodeVerificationResult,
 )
 
+from app.services.dbx_service import match_dbx_revocation
 from app.services.format_detection import detect_pe_arch_view
 from app.services.rich_header_service import decode_rich_header
 
@@ -79,6 +80,14 @@ class AuthenticodeVerdict:
     toolchain fingerprint from :func:`rich_header_service.decode_rich_header`.
     ``None`` for PEs without a RICH header (non-MS toolchain, stripped,
     or pre-VS2002).
+
+    ``dbx_revoked`` / ``dbx_revocation_kb`` (Phase β.7) carry the offline
+    DBX-bundle cross-reference produced by
+    :func:`dbx_service.match_dbx_revocation`. Both default to the
+    "no DBX information" state — ``False`` / ``None`` — so a verdict
+    constructed in any error path correctly reports "we did not detect
+    revocation" rather than fabricating one. The fields map 1:1 onto
+    ``WindowsPESignature.dbx_revoked`` / ``dbx_revocation_kb``.
     """
 
     signed: bool
@@ -93,6 +102,8 @@ class AuthenticodeVerdict:
     chain_json: dict[str, Any] = field(default_factory=dict)
     arch_view: dict[str, Any] | None = None
     rich_header_json: dict[str, Any] | None = None
+    dbx_revoked: bool = False
+    dbx_revocation_kb: str | None = None
     error: str | None = None
 
 
@@ -312,6 +323,14 @@ def _verify_with_open_file(af: AuthenticodeFile) -> AuthenticodeVerdict:
 
     chain_status = _map_verification_result_to_chain_status(result, has_timestamp)
 
+    # Phase β.7: cross-reference the leaf serial against the offline DBX
+    # bundle. ``match`` is None when the bundle isn't provisioned (β.10
+    # deferral) or when the leaf serial is missing — both correctly default
+    # to dbx_revoked=False / dbx_revocation_kb=None on the verdict.
+    dbx_match = match_dbx_revocation(signer_info["leaf_serial"])
+    dbx_revoked = bool(dbx_match and dbx_match.get("revoked"))
+    dbx_revocation_kb = (dbx_match or {}).get("revocation_kb")
+
     chain_json: dict[str, Any] = {
         "verification_result": result.name,
         "signatures_count": signatures_count,
@@ -331,5 +350,7 @@ def _verify_with_open_file(af: AuthenticodeFile) -> AuthenticodeVerdict:
         signed_at=signed_at,
         signatures_count=signatures_count,
         chain_json=chain_json,
+        dbx_revoked=dbx_revoked,
+        dbx_revocation_kb=dbx_revocation_kb,
         error=None,
     )
