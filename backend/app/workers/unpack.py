@@ -131,6 +131,19 @@ async def _run_hardware_firmware_detection_safe(
     except Exception:
         logger.warning("Registry hive auto-walk failed", exc_info=True)
 
+    # Phase γ.5 — auto-extract Windows driver packages (INF/CAT/SYS
+    # triplets) and classify CAT signatures into the Persona-E #13
+    # capability badge. Rule #36 no-execute discipline: signify parses
+    # CAT files AS DATA; nothing in wairz invokes rundll32 / .inf
+    # install / cscript or any scriptable driver-install primitive.
+    # Runs AFTER detection so driver_extractor's HardwareFirmwareBlob
+    # promotions (category="driver_package") can update existing rows.
+    try:
+        from app.services.driver_extractor import auto_extract_drivers_safe
+        await auto_extract_drivers_safe(firmware_id)
+    except Exception:
+        logger.warning("Driver extractor auto-walk failed", exc_info=True)
+
 
 def _analyze_filesystem(result: UnpackResult, extraction_dir: str) -> None:
     """Post-extraction analysis: find root, detect arch/OS/kernel."""
