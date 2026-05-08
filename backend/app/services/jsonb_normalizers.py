@@ -76,6 +76,64 @@ def _stamp_firmware_device_metadata(payload: dict | None) -> dict | None:
     return payload
 
 
+# ── firmware.device_metadata['windows_artifacts'] (sub-key) ───────────────────
+#
+# Aggregate Windows-ecosystem artifact summary nested under
+# ``firmware.device_metadata['windows_artifacts']``. Distinct from the
+# top-level ``device_metadata`` normaliser because the sub-key has its
+# own canonical shape and ≥3 consumers (windows_archive MCP tools,
+# WindowsHubPage frontend, Phase β/γ/δ analysis services).
+#
+# Canonical shape (Phase α — counts of detected/extracted artifacts):
+#
+#   {
+#     "schema_version": 1,
+#     "cab_count": int,                       # CABs detected/extracted
+#     "msi_count": int,                       # MSI installers
+#     "msix_count": int,                      # MSIX/AppX/MSIXBundle
+#     "msu_count": int,                       # Microsoft Update packages
+#     "psf_count": int,                       # Patch Storage File deltas
+#     "vhdx_count": int,                      # VHD/VHDX virtual disks
+#     "driver_package_count": int,            # CAB+INF+SYS+CAT bundles
+#     "driver_package_subtype": str | None,   # cab_inf_sys_cat | driver_store_dir | dch | msi_installer_driver
+#     ... (Phase β fills pe_count / signed_pe_count;
+#          Phase γ fills inf_count / cat_count / hive_count;
+#          Phase δ fills dotnet_count / r2r_count / dual_signed_count)
+#   }
+#
+# Reads via ``_normalize_firmware_windows_artifacts`` at every consumer
+# boundary (Rule #35c). Writes via ``_stamp_firmware_windows_artifacts``
+# from the unpack workers' UnpackResult-to-row plumbing.
+FIRMWARE_WINDOWS_ARTIFACTS_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_windows_artifacts(value: Any) -> dict:
+    """Return the canonical ``dict`` shape for the ``windows_artifacts``
+    sub-key under ``firmware.device_metadata``.
+
+    ``None`` / missing / wrong-typed values yield ``{}`` — the sub-key is
+    absent for non-Windows firmware uploads, so the empty dict is the
+    natural floor (consumers ``.get('cab_count', 0)`` into it).
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_firmware_windows_artifacts(payload: dict | None) -> dict | None:
+    """Stamp the schema_version onto a writer payload, preserving null contract.
+
+    Returns ``None`` when ``payload`` is ``None`` or empty (writer's
+    "clear" semantic for the sub-key). For non-empty dicts, mutates-
+    in-place and returns the same dict with the current schema version
+    stamped. Idempotent — re-stamping is a no-op.
+    """
+    if not payload:
+        return None
+    payload["schema_version"] = FIRMWARE_WINDOWS_ARTIFACTS_SCHEMA_VERSION
+    return payload
+
+
 # ── conversations.messages ────────────────────────────────────────────────────
 #
 # Canonical shape: ``list[dict]`` — a chat-style sequence of role/content

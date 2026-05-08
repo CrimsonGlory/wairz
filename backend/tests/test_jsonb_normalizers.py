@@ -26,6 +26,7 @@ from app.services.jsonb_normalizers import (
     EMULATION_SESSIONS_PORT_FORWARDS_SCHEMA_VERSION,
     FIRMWARE_BINARY_INFO_SCHEMA_VERSION,
     FIRMWARE_DEVICE_METADATA_SCHEMA_VERSION,
+    FIRMWARE_WINDOWS_ARTIFACTS_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
     CRA_REQUIREMENT_RESULTS_FINDING_IDS_SCHEMA_VERSION,
@@ -50,6 +51,7 @@ from app.services.jsonb_normalizers import (
     _normalize_firmware_binary_info,
     _normalize_firmware_cve_match_result,
     _normalize_firmware_device_metadata,
+    _normalize_firmware_windows_artifacts,
     _normalize_fuzzing_campaigns_config,
     _normalize_fuzzing_campaigns_stats,
     _normalize_hardware_firmware_blobs_metadata,
@@ -58,6 +60,7 @@ from app.services.jsonb_normalizers import (
     _stamp_attack_surface_entries_score_breakdown,
     _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
+    _stamp_firmware_windows_artifacts,
     _stamp_fuzzing_campaigns_config,
     _stamp_fuzzing_campaigns_stats,
     _stamp_hardware_firmware_blobs_metadata,
@@ -626,3 +629,78 @@ def test_cra_requirement_results_schema_version_constants():
     assert CRA_REQUIREMENT_RESULTS_TOOL_SOURCES_SCHEMA_VERSION == 1
     assert CRA_REQUIREMENT_RESULTS_RELATED_CWES_SCHEMA_VERSION == 1
     assert CRA_REQUIREMENT_RESULTS_RELATED_CVES_SCHEMA_VERSION == 1
+
+
+# ── _normalize_firmware_windows_artifacts (sub-key) ──────────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical Phase-α shape.
+        ({"schema_version": 1, "cab_count": 3, "msi_count": 1, "msix_count": 0,
+          "msu_count": 1, "psf_count": 1, "vhdx_count": 0, "driver_package_count": 2,
+          "driver_package_subtype": "cab_inf_sys_cat"},
+         {"schema_version": 1, "cab_count": 3, "msi_count": 1, "msix_count": 0,
+          "msu_count": 1, "psf_count": 1, "vhdx_count": 0, "driver_package_count": 2,
+          "driver_package_subtype": "cab_inf_sys_cat"}),
+        # Empty dict — preserved (no Windows artifacts found, but sub-key present).
+        ({}, {}),
+        # None — sub-key absent on non-Windows firmware — coerced to {}.
+        (None, {}),
+        # Wrong type — list — coerced to {}.
+        ([{"cab_count": 1}], {}),
+        # Wrong type — string — coerced to {}.
+        ("3 CABs found", {}),
+        # Wrong type — int — coerced to {}.
+        (3, {}),
+    ],
+)
+def test_normalize_firmware_windows_artifacts(value, expected):
+    assert _normalize_firmware_windows_artifacts(value) == expected
+
+
+def test_normalize_firmware_windows_artifacts_idempotent():
+    canonical = {"schema_version": 1, "cab_count": 1, "msi_count": 0}
+    once = _normalize_firmware_windows_artifacts(canonical)
+    twice = _normalize_firmware_windows_artifacts(once)
+    assert once == twice == canonical
+
+
+def test_stamp_firmware_windows_artifacts_adds_version():
+    payload = {"cab_count": 2, "msi_count": 1}
+    out = _stamp_firmware_windows_artifacts(payload)
+    assert out is not None
+    assert out["schema_version"] == FIRMWARE_WINDOWS_ARTIFACTS_SCHEMA_VERSION
+    assert out["cab_count"] == 2
+    assert out["msi_count"] == 1
+
+
+def test_stamp_firmware_windows_artifacts_idempotent():
+    payload = {"cab_count": 2}
+    once = _stamp_firmware_windows_artifacts(payload)
+    twice = _stamp_firmware_windows_artifacts(once)
+    assert once == twice
+    assert once["schema_version"] == FIRMWARE_WINDOWS_ARTIFACTS_SCHEMA_VERSION
+
+
+def test_stamp_firmware_windows_artifacts_none_in_none_out():
+    """None payload preserves the sub-key's nullable contract."""
+    assert _stamp_firmware_windows_artifacts(None) is None
+
+
+def test_stamp_firmware_windows_artifacts_empty_in_none_out():
+    """Empty dict collapses to None — writer's clear-the-sub-key semantic."""
+    assert _stamp_firmware_windows_artifacts({}) is None
+
+
+def test_stamp_firmware_windows_artifacts_mutates_input():
+    """Documents the mutation contract — writers may rely on it."""
+    payload = {"cab_count": 1}
+    out = _stamp_firmware_windows_artifacts(payload)
+    assert out is payload  # same dict object
+    assert "schema_version" in payload
+
+
+def test_firmware_windows_artifacts_schema_version_constant():
+    assert FIRMWARE_WINDOWS_ARTIFACTS_SCHEMA_VERSION == 1
