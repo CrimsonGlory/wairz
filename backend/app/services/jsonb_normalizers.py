@@ -924,3 +924,86 @@ def _stamp_firmware_registry_hive_walk_result(payload: dict) -> dict:
     """
     payload["schema_version"] = FIRMWARE_REGISTRY_HIVE_WALK_RESULT_SCHEMA_VERSION
     return payload
+
+
+# ── windows_update_packages.update_metadata (Phase δ.1) ──────────────────────
+#
+# Per-package parsed manifest payload — bill-of-files, supersedence chain
+# (both directions), applicability rules, file SHA256 list. Phase δ.4
+# extends ``unpack_msu`` / ``unpack_cab`` workers to write the row + this
+# JSONB; δ.5 update-diff service reads it to compute per-DLL changeset
+# between two firmwares' KBs; δ.6 R2R-stomping detector reads the file
+# list to scope its PE walk; δ.7 MCP ``windows_update.list_packages`` /
+# ``get_package_metadata`` / ``get_supersedence_chain`` / ``list_kb_files``
+# / ``diff_kb_packages`` tools read it; δ.8 frontend ``UpdateDiffPage``
+# renders the delta. 5+ consumer files at δ shipping time → schema_version
+# discriminator strategy per Rule #35c.
+#
+# Canonical shape (Phase δ — flat manifest mirror; supersedence both
+# directions; file BOM with sha256+size for δ.5 diff hashing):
+#
+#   {
+#     "schema_version": 1,
+#     "manifest": {
+#       "title": "2024-04 Cumulative Update for Windows 11 Version 23H2 ...",
+#       "description": "Install this update to resolve issues...",
+#       "support_url": "https://support.microsoft.com/help/5036893",
+#       "msu_handler": "Windows Update Standalone Installer",  # may be null
+#     },
+#     "supersedence": {
+#       "supersedes": list[str],     # KB IDs replaced by this package
+#       "superseded_by": list[str],  # KB IDs that replace this package
+#     },
+#     "applicability": {
+#       "products": list[str],        # ["Windows 11", "Windows Server 2022"]
+#       "architectures": list[str],   # ["amd64", "arm64"]
+#       "release_channels": list[str],# ["GA", "ZDP"]
+#     },
+#     "files": list[                  # per-file BOM for δ.5 diff
+#       {
+#         "path": "Windows10.0-KB5036893-x64.cab",  # path within package
+#         "size": 1234567,
+#         "sha256": "abc123...",
+#         "is_pe": bool,              # True for .dll/.exe/.sys (δ.5 hot-path)
+#         "kind": "binary" | "manifest" | "catalog" | "config" | "other",
+#       },
+#       ...
+#     ],
+#     "errors": list[str],            # parser-level errors collected during scan
+#   }
+#
+# Forward-discipline: bump SCHEMA_VERSION + extend dispatch in the
+# normaliser if the manifest-parser shape changes (e.g. add per-file
+# Authenticode/CAT cross-reference, add CBS-CSI/MUM expansion blob).
+
+WINDOWS_UPDATE_PACKAGES_UPDATE_METADATA_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_update_packages_update_metadata(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``WindowsUpdatePackage.update_metadata``.
+
+    ``None`` is preserved — semantic load is "manifest parser did not run
+    for this row" (e.g. row created with a known package_path but no
+    parsed manifest, or the row predates Phase δ). Wrong-typed values
+    collapse to ``None`` rather than ``{}`` so callers checking
+    ``if pkg.update_metadata is not None`` to detect "manifest parsed"
+    aren't fooled by an accidental empty dict.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_windows_update_packages_update_metadata(
+    payload: dict | None,
+) -> dict | None:
+    """Stamp the schema_version onto a writer payload for
+    ``WindowsUpdatePackage.update_metadata``. ``None`` is preserved
+    (column is nullable). Idempotent — re-stamping at the current
+    version is a no-op.
+    """
+    if payload is None:
+        return None
+    payload["schema_version"] = WINDOWS_UPDATE_PACKAGES_UPDATE_METADATA_SCHEMA_VERSION
+    return payload

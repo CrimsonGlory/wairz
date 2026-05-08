@@ -205,6 +205,26 @@ RegistryHiveWalkStatus = Literal[
 ]
 
 
+# Mirrors the windows_update_packages.package_type CHECK constraint values
+# (Phase δ.1 — alembic ``d0e1f2a3b4c5``). Discriminator for detected
+# Windows-Update packages: msu = compound CAB-of-CAB, cab_cumulative /
+# cab_security / cab_sru / cab_lcu / cab_dotnet = the per-MSU child CABs,
+# msi / msix = legacy / modern app installers, unknown = catch-all for
+# packages whose manifest didn't surface a recognisable shape. Rule #33
+# .c contract — Literal at the writer boundary, DB CHECK in the migration.
+WindowsUpdatePackageType = Literal[
+    "msu",
+    "cab_cumulative",
+    "cab_security",
+    "cab_sru",
+    "cab_lcu",
+    "cab_dotnet",
+    "msi",
+    "msix",
+    "unknown",
+]
+
+
 class WindowsPESignatureSummary(BaseModel):
     """Compact per-PE signature row for the PeHardeningPage table.
 

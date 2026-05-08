@@ -30,9 +30,11 @@ from sqlalchemy import CheckConstraint
 
 from app.models.windows_driver import WindowsDriver
 from app.models.windows_registry_extract import WindowsRegistryExtract
+from app.models.windows_update_package import WindowsUpdatePackage
 from app.schemas.hardware_firmware import (
     WindowsDriverSigningTier,
     WindowsRegistryExtractWalkStatus,
+    WindowsUpdatePackageType,
 )
 
 
@@ -79,6 +81,12 @@ _PAIRS: tuple[_AlignmentPair, ...] = (
         model=WindowsRegistryExtract,
         constraint_name="ck_windows_registry_extracts_walk_status",
         column_name="walk_status",
+    ),
+    _AlignmentPair(
+        literal=WindowsUpdatePackageType,
+        model=WindowsUpdatePackage,
+        constraint_name="ck_windows_update_packages_type",
+        column_name="package_type",
     ),
 )
 

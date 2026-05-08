@@ -33,6 +33,7 @@ from app.services.jsonb_normalizers import (
     WINDOWS_REGISTRY_EXTRACTS_PARSED_TREE_SCHEMA_VERSION,
     WINDOWS_DRIVERS_INF_METADATA_SCHEMA_VERSION,
     FIRMWARE_REGISTRY_HIVE_WALK_RESULT_SCHEMA_VERSION,
+    WINDOWS_UPDATE_PACKAGES_UPDATE_METADATA_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
     CRA_REQUIREMENT_RESULTS_FINDING_IDS_SCHEMA_VERSION,
@@ -70,6 +71,7 @@ from app.services.jsonb_normalizers import (
     _normalize_windows_registry_extracts_parsed_tree,
     _normalize_windows_drivers_inf_metadata,
     _normalize_firmware_registry_hive_walk_result,
+    _normalize_windows_update_packages_update_metadata,
     _stamp_firmware_authenticode_chain_result,
     _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
@@ -82,6 +84,7 @@ from app.services.jsonb_normalizers import (
     _stamp_windows_registry_extracts_parsed_tree,
     _stamp_windows_drivers_inf_metadata,
     _stamp_firmware_registry_hive_walk_result,
+    _stamp_windows_update_packages_update_metadata,
 )
 
 
@@ -1408,3 +1411,173 @@ def test_stamp_firmware_registry_hive_walk_result_idempotent():
 
 def test_firmware_registry_hive_walk_result_schema_version_constant():
     assert FIRMWARE_REGISTRY_HIVE_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+# ── _normalize_windows_update_packages_update_metadata (Phase δ.1) ────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical Phase δ.4 manifest-parser shape — full BOM with PE
+        # files marked, supersedence both directions, applicability,
+        # release channels.
+        (
+            {
+                "schema_version": 1,
+                "manifest": {
+                    "title": "2024-04 Cumulative Update for Windows 11 ...",
+                    "description": "Install this update...",
+                    "support_url": "https://support.microsoft.com/help/5036893",
+                    "msu_handler": "Windows Update Standalone Installer",
+                },
+                "supersedence": {
+                    "supersedes": ["KB5034441", "KB5034123"],
+                    "superseded_by": [],
+                },
+                "applicability": {
+                    "products": ["Windows 11"],
+                    "architectures": ["amd64"],
+                    "release_channels": ["GA"],
+                },
+                "files": [
+                    {
+                        "path": "Windows10.0-KB5036893-x64.cab",
+                        "size": 1234567,
+                        "sha256": "abc123",
+                        "is_pe": False,
+                        "kind": "manifest",
+                    },
+                    {
+                        "path": "amd64_microsoft-windows-kernel-base_31bf3856ad364e35_22621.3447.1.5.dll",
+                        "size": 2345678,
+                        "sha256": "def456",
+                        "is_pe": True,
+                        "kind": "binary",
+                    },
+                ],
+                "errors": [],
+            },
+            {
+                "schema_version": 1,
+                "manifest": {
+                    "title": "2024-04 Cumulative Update for Windows 11 ...",
+                    "description": "Install this update...",
+                    "support_url": "https://support.microsoft.com/help/5036893",
+                    "msu_handler": "Windows Update Standalone Installer",
+                },
+                "supersedence": {
+                    "supersedes": ["KB5034441", "KB5034123"],
+                    "superseded_by": [],
+                },
+                "applicability": {
+                    "products": ["Windows 11"],
+                    "architectures": ["amd64"],
+                    "release_channels": ["GA"],
+                },
+                "files": [
+                    {
+                        "path": "Windows10.0-KB5036893-x64.cab",
+                        "size": 1234567,
+                        "sha256": "abc123",
+                        "is_pe": False,
+                        "kind": "manifest",
+                    },
+                    {
+                        "path": "amd64_microsoft-windows-kernel-base_31bf3856ad364e35_22621.3447.1.5.dll",
+                        "size": 2345678,
+                        "sha256": "def456",
+                        "is_pe": True,
+                        "kind": "binary",
+                    },
+                ],
+                "errors": [],
+            },
+        ),
+        # Side-loaded vendor cab without manifest fields populated — partial
+        # data passes through canonically.
+        (
+            {
+                "schema_version": 1,
+                "manifest": {"title": None, "description": None, "support_url": None},
+                "supersedence": {"supersedes": [], "superseded_by": []},
+                "applicability": {"products": [], "architectures": [], "release_channels": []},
+                "files": [],
+                "errors": ["manifest_metadata_missing"],
+            },
+            {
+                "schema_version": 1,
+                "manifest": {"title": None, "description": None, "support_url": None},
+                "supersedence": {"supersedes": [], "superseded_by": []},
+                "applicability": {"products": [], "architectures": [], "release_channels": []},
+                "files": [],
+                "errors": ["manifest_metadata_missing"],
+            },
+        ),
+        # Empty dict — preserved (writer's degenerate-but-valid case).
+        ({}, {}),
+        # None — durable signal for "row exists but no manifest parsed
+        # yet". Distinct from {} which means "manifest parser ran but
+        # produced an empty payload".
+        (None, None),
+        # Wrong type — list — coerced to None (no usable manifest).
+        ([{"path": "foo"}], None),
+        # Wrong type — string.
+        ("not a dict", None),
+        # Wrong type — int.
+        (42, None),
+    ],
+)
+def test_normalize_windows_update_packages_update_metadata(value, expected):
+    assert _normalize_windows_update_packages_update_metadata(value) == expected
+
+
+def test_normalize_windows_update_packages_update_metadata_idempotent():
+    canonical = {
+        "schema_version": 1,
+        "manifest": {"title": "T", "description": "D", "support_url": "U"},
+        "supersedence": {"supersedes": ["KB1"], "superseded_by": []},
+        "applicability": {"products": ["W11"], "architectures": ["amd64"], "release_channels": ["GA"]},
+        "files": [],
+        "errors": [],
+    }
+    once = _normalize_windows_update_packages_update_metadata(canonical)
+    twice = _normalize_windows_update_packages_update_metadata(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_update_packages_update_metadata_adds_version():
+    payload = {
+        "manifest": {"title": "T"},
+        "supersedence": {"supersedes": [], "superseded_by": []},
+        "files": [],
+    }
+    out = _stamp_windows_update_packages_update_metadata(payload)
+    assert out is not None
+    assert out["schema_version"] == WINDOWS_UPDATE_PACKAGES_UPDATE_METADATA_SCHEMA_VERSION
+    assert out["manifest"]["title"] == "T"
+
+
+def test_stamp_windows_update_packages_update_metadata_idempotent():
+    payload = {"manifest": {"title": "T"}, "files": []}
+    once = _stamp_windows_update_packages_update_metadata(payload)
+    twice = _stamp_windows_update_packages_update_metadata(once)
+    assert once == twice
+    assert once["schema_version"] == WINDOWS_UPDATE_PACKAGES_UPDATE_METADATA_SCHEMA_VERSION
+
+
+def test_stamp_windows_update_packages_update_metadata_none_in_none_out():
+    """None payload preserves the column's nullable contract."""
+    assert _stamp_windows_update_packages_update_metadata(None) is None
+
+
+def test_stamp_windows_update_packages_update_metadata_mutates_input():
+    """Documents the mutation contract — writers may rely on it."""
+    payload = {"manifest": {"title": "T"}, "files": []}
+    out = _stamp_windows_update_packages_update_metadata(payload)
+    assert out is payload  # same dict object
+    assert "schema_version" in payload
+
+
+def test_windows_update_packages_update_metadata_schema_version_constant():
+    assert WINDOWS_UPDATE_PACKAGES_UPDATE_METADATA_SCHEMA_VERSION == 1
