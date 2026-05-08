@@ -42,6 +42,15 @@ dependencies = [
     "slowapi>=0.1.9",
     "structlog>=24.4.0",
     "prometheus-fastapi-instrumentator>=7.0.0",
+    # ── Phase β: Authenticode + RICH header + DBX revocation ────
+    # signify — happy-path PE Authenticode validation (Persona-B/E #5).
+    # asn1crypto — ASN.1/PKCS#7 primitives for malformed/legacy chains
+    #   and the dual-sig (SHA-1+SHA-256) path that signify's "best mode"
+    #   doesn't enumerate (Persona-E sec.2 #3).
+    # uefi-firmware — DBX EFI_SIGNATURE_LIST parsing (Persona-E #10).
+    "signify>=0.7",
+    "asn1crypto>=1.5",
+    "uefi-firmware>=1.11",
 ]
 
 [project.scripts]
