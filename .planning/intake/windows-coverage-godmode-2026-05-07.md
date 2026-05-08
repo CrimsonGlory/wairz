@@ -187,6 +187,35 @@ Gated (ARG INCLUDE_PSF=1, side-container):
 - ✅ Phase 1 (5-persona research fleet) complete
 - ✅ Phase 2 (synthesis) complete
 - ✅ Phase 3 (user review) approved 2026-05-07
-- 🟡 Phase α (archive extraction) — IN PROGRESS on `feat/windows-phase-alpha-2026-05-07`
-- ⬜ Phase β / γ / δ — pending phase-α completion
+- ✅ Phase α (archive extraction) — **12 commits shipped** on `feat/windows-phase-alpha-2026-05-07`; α.6 cut-over rebuild verified; 235 mock tests + 2/3 live canaries pass post-rebuild
+- 🟡 Phase β (Authenticode + RICH + DBX + ARM64EC/X) — IN PROGRESS
+- ⬜ Phase γ / δ — pending phase-β completion
 - ⬜ Phase ε (forensic formats) — deferred to separate campaign
+
+### Phase α shipped commits (chronological)
+
+| # | SHA | Subject | Tests |
+|---|---|---|---|
+| α.1 | d174a62 | JSONB normalizer for `device_metadata['windows_artifacts']` (sub-key + Rule #35c) | 12 normalizer tests |
+| α.2.1 | e21545a | `unpack_cab` worker (cabextract foundation) | 6 + 1 skipped (gcab) |
+| α.2.2 | 508feca | `unpack_msi` worker (msitools msiextract) | 8 + 1 skipped (msitools) |
+| α.2.3 | 320f4ea | `unpack_msix` worker (7z + AppxManifest gate) | 10 (incl. live canary) |
+| α.2.4 | 8086c32 | `unpack_msu` worker (CAB-of-CABs + PSF detect) | 8 + 1 skipped (gcab) |
+| α.2.5 | c7d2854 | `unpack_psf` stub (magic + gating) | 7 |
+| α.2.6 | 8516fa2 | `unpack_driver_package` worker (CAB + INF/SYS/CAT subtype) | 7 |
+| α.2.7 | b9d124d | `unpack_vhdx` worker (qemu-img → raw NTFS) | 7 |
+| α.3 | 49e5b6b | Detection seam — 7 enum + EXTRACTION_CAPABILITY + STRATEGIES | 28 detection tests |
+| α.4 | 5632600 | MCP `windows_archive` category — 6 tools (172 → 178) | 20 tool tests |
+| α.5 | 27e9ada | Frontend `WindowsHubPage` skeleton + route | typecheck clean |
+| α.6 | eaf94d2 | Dockerfile delta (msitools / gcab / qemu-utils) + cut-over verified | 235 tests + 2 live canaries activate (CAB + MSU-of-CAB) |
+
+**Test counts:** 235 tests pass (vs 213 pre-α.6); 2 live canaries activated post-rebuild (cab + msu via gcab); 1 skipped (msi canary needs `tiny.msi` fixture — Phase β refinement). Total tool registry: 178 tools (was 172). Rule #11 import smoke: ALL GREEN against rebuilt image.
+
+**Architectural patterns established:**
+- Worker shape: two-phase subprocess (validate-probe → extract), defensive FileNotFoundError + TimeoutError + non-zero-exit handling, `run_in_executor` for blocking I/O, success-with-no-rootfs fallback.
+- Tool-category shape: `register_<category>_tools(registry)` + handlers using `context.resolve_path()` per Rule #1, 30 KB output cap per Rule #29.
+- Rule #25 per-sub-task commits: 11 commits, each independently revertable.
+- Rule #21 mirror discipline: every `DetectedFormat` entry mirrored in `EXTRACTION_CAPABILITY` AND `STRATEGIES`.
+- Rule #35c JSONB normalizer + stamp + schema_version.
+- Custom-action discipline (Rule #36 candidate): MSI custom actions extracted as data only, never executed. Tested via forbidden-token scan in `unpack_msi`'s test.
+- Offline trust anchor (Rule #37 candidate): no cert chain fetching at scan time; bundle MS roots + DBX at image build (Phase β work).
