@@ -24,6 +24,7 @@ const SecurityScanPage = lazy(() => import('@/pages/SecurityScanPage'))
 const SecurityToolsPage = lazy(() => import('@/pages/SecurityToolsPage'))
 const DeviceAcquisitionPage = lazy(() => import('@/pages/DeviceAcquisitionPage'))
 const WindowsHubPage = lazy(() => import('@/pages/WindowsHubPage'))
+const PeHardeningPage = lazy(() => import('@/pages/PeHardeningPage'))
 const HelpPage = lazy(() => import('@/pages/HelpPage'))
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'))
 
@@ -58,6 +59,7 @@ export default function App() {
             <Route path="/projects/:projectId/tools" element={<ProjectRouteGuard><SecurityToolsPage /></ProjectRouteGuard>} />
             <Route path="/projects/:projectId/device" element={<ProjectRouteGuard><DeviceAcquisitionPage /></ProjectRouteGuard>} />
             <Route path="/projects/:projectId/windows" element={<ProjectRouteGuard><WindowsHubPage /></ProjectRouteGuard>} />
+            <Route path="/projects/:projectId/windows/pe-hardening" element={<ProjectRouteGuard><PeHardeningPage /></ProjectRouteGuard>} />
             <Route path="/help" element={<HelpPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>

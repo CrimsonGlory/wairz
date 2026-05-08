@@ -261,3 +261,154 @@ export async function getFirmwareDrivers(
   )
   return data
 }
+
+// ── Phase β.8 — Authenticode-chain 202+polling ────────────────────────────────
+//
+// Mirrors the cve-match flow above: POST returns 202 immediately, then the
+// frontend polls GET /authenticode-chain/status every 2 s until status flips
+// to 'completed' (read .result for the aggregate) or 'failed' (read .error).
+// Default 30 s axios floor is correct — both the POST ack and the GET status
+// are sub-second ops (Rule #29).
+
+export type AuthenticodeChainStatus =
+  | 'idle'
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+
+export type WindowsPEChainStatus =
+  | 'valid_at_signing'
+  | 'valid_now'
+  | 'revoked'
+  | 'never_valid'
+  | 'unknown'
+
+export interface AuthenticodeChainAggregate {
+  signed_count: number
+  signed_pct: number
+  unsigned_count: number
+  dbx_revoked_count: number
+  by_chain_status: Record<string, number>
+  run_seconds: number
+  total_pe_count: number
+  errors: { blob_path: string; error: string }[]
+}
+
+export interface AuthenticodeChainStatusResponse {
+  firmware_id: string
+  status: AuthenticodeChainStatus
+  started_at: string | null
+  finished_at: string | null
+  error: string | null
+  result: AuthenticodeChainAggregate | null
+}
+
+export async function runAuthenticodeChain(
+  projectId: string,
+  firmwareId?: string | null,
+): Promise<AuthenticodeChainStatusResponse> {
+  const { data } = await apiClient.post<AuthenticodeChainStatusResponse>(
+    `/projects/${projectId}/hardware-firmware/authenticode-chain`,
+    null,
+    { params: firmwareId ? { firmware_id: firmwareId } : undefined },
+  )
+  return data
+}
+
+export async function getAuthenticodeChainStatus(
+  projectId: string,
+  firmwareId?: string | null,
+): Promise<AuthenticodeChainStatusResponse> {
+  const { data } = await apiClient.get<AuthenticodeChainStatusResponse>(
+    `/projects/${projectId}/hardware-firmware/authenticode-chain/status`,
+    { params: firmwareId ? { firmware_id: firmwareId } : undefined },
+  )
+  return data
+}
+
+// ── Phase β.11 — Per-PE WindowsPESignature read endpoints ────────────────────
+
+export interface WindowsPESignatureSummary {
+  id: string
+  blob_id: string
+  blob_path: string
+  signed: boolean
+  chain_status: WindowsPEChainStatus
+  signer_subject: string | null
+  signer_issuer: string | null
+  leaf_serial: string | null
+  sig_hash_algo: string | null
+  tsa_authority: string | null
+  signed_at: string | null
+  dbx_revoked: boolean
+  dbx_revocation_kb: string | null
+  arch_view_present: boolean
+  rich_header_present: boolean
+  created_at: string
+}
+
+export interface WindowsPESignatureListResponse {
+  signatures: WindowsPESignatureSummary[]
+  total: number
+  offset: number
+  limit: number
+}
+
+export interface WindowsPESignatureDetail {
+  id: string
+  blob_id: string
+  blob_path: string
+  signed: boolean
+  chain_status: WindowsPEChainStatus
+  signer_subject: string | null
+  signer_issuer: string | null
+  leaf_serial: string | null
+  sig_hash_algo: string | null
+  tsa_authority: string | null
+  signed_at: string | null
+  chain_json: Record<string, unknown> | null
+  dbx_revoked: boolean
+  dbx_revocation_kb: string | null
+  rich_header_json: Record<string, unknown> | null
+  arch_view: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ListPeSignaturesFilters {
+  chainStatus?: WindowsPEChainStatus | null
+  dbxRevokedOnly?: boolean
+  offset?: number
+  limit?: number
+  firmwareId?: string | null
+}
+
+export async function listPeSignatures(
+  projectId: string,
+  filters?: ListPeSignaturesFilters,
+): Promise<WindowsPESignatureListResponse> {
+  const params: Record<string, unknown> = {}
+  if (filters?.chainStatus) params.chain_status = filters.chainStatus
+  if (filters?.dbxRevokedOnly) params.dbx_revoked_only = true
+  if (filters?.offset !== undefined) params.offset = filters.offset
+  if (filters?.limit !== undefined) params.limit = filters.limit
+  if (filters?.firmwareId) params.firmware_id = filters.firmwareId
+  const { data } = await apiClient.get<WindowsPESignatureListResponse>(
+    `/projects/${projectId}/hardware-firmware/pe-signatures`,
+    { params: Object.keys(params).length > 0 ? params : undefined },
+  )
+  return data
+}
+
+export async function getPeSignature(
+  projectId: string,
+  signatureId: string,
+  firmwareId?: string | null,
+): Promise<WindowsPESignatureDetail> {
+  const { data } = await apiClient.get<WindowsPESignatureDetail>(
+    `/projects/${projectId}/hardware-firmware/pe-signatures/${signatureId}`,
+    { params: firmwareId ? { firmware_id: firmwareId } : undefined },
+  )
+  return data
+}

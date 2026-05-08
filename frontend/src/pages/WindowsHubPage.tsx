@@ -2,10 +2,12 @@ import { Link, useParams } from 'react-router-dom'
 import {
   Archive,
   CheckCircle2,
+  ChevronRight,
   Clock,
   Cpu,
   FileText,
   HardDrive,
+  Lock,
   Package,
   ShieldCheck,
 } from 'lucide-react'
@@ -182,6 +184,33 @@ export default function WindowsHubPage() {
             extraction.
           </li>
         </ol>
+      </div>
+
+      <h2 className="mb-3 text-base font-semibold">Phase β tools (shipped)</h2>
+      <div className="mb-8 grid gap-3 md:grid-cols-2">
+        <Link
+          to={
+            projectId
+              ? `/projects/${projectId}/windows/pe-hardening`
+              : '/projects'
+          }
+          className="group flex items-start justify-between gap-3 rounded-lg border border-border bg-card p-4 transition hover:border-primary hover:bg-accent/40"
+        >
+          <div className="flex items-start gap-3">
+            <Lock className="mt-0.5 h-5 w-5 text-primary" />
+            <div>
+              <div className="font-semibold">PE Hardening Dashboard</div>
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                Per-PE Authenticode chain validation against bundled offline
+                Microsoft roots, RICH header toolchain fingerprint, ARM64EC/X
+                bimorphic detection, and DBX revocation cross-reference. Runs
+                detached via the Phase β.8 background runner; results persist
+                across sessions.
+              </p>
+            </div>
+          </div>
+          <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition group-hover:text-primary" />
+        </Link>
       </div>
 
       <h2 className="mb-3 text-base font-semibold">Phase α formats (shipped)</h2>
