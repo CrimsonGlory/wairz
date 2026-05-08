@@ -56,6 +56,16 @@ _SOURCE_REGISTRY_PERSISTENCE: WindowsFindingSource = "windows_registry_persisten
 _SOURCE_INF: WindowsFindingSource = "windows_inf"
 _SOURCE_DRIVER_IMPORTS: WindowsFindingSource = "windows_driver_imports"
 
+# ── Phase δ.8 — R2R-stomping + capa-on-IL source constants ───────────────────
+#
+# Same Rule #33 .c discipline as β.12b + γ.8 — narrow Literal at the helper
+# boundary catches typos at code-load time without disturbing the legacy
+# ``FindingCreate.source: str`` contract. The DB CHECK (ck_findings_source
+# from δ.8 alembic d5a6b7c8d9e0) is the durable safety floor enforcing
+# the full allowlist.
+_SOURCE_R2R_STOMP: WindowsFindingSource = "windows_r2r_stomp"
+_SOURCE_IL_CAPA: WindowsFindingSource = "windows_il_capa"
+
 
 @dataclass(frozen=True)
 class _PEFindingDraft:
@@ -686,6 +696,89 @@ class FindingService:
                     evidence=draft.evidence,
                     file_path=driver.driver_path,
                     confidence=Confidence.medium,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_r2r_stomp_findings_from_decompile(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Emit windows_r2r_stomp Finding rows for one firmware (Phase δ.8).
+
+        Reads the firmware's ``dotnet_decompile_result`` aggregate (δ.4),
+        runs the δ.6 :func:`classify_r2r_stomp_findings` classifier across
+        every detected bundle, and persists the resulting drafts as
+        Finding rows.
+
+        Idempotency is the caller's responsibility — δ.8's emit-from-
+        decompile wrapper DELETEs prior windows_r2r_stomp + windows_il_capa
+        findings for the firmware before re-emitting, mirroring the β.12c +
+        γ.8 patterns.
+
+        Confidence tier mapping:
+        - Tier 1 (LOW review candidate) → Confidence.low
+        - Tier 2 (MEDIUM capa/IL divergence) → Confidence.medium
+        - Tier 3/4 (HIGH/CRITICAL — deferred) → Confidence.high (when shipped)
+        """
+        from app.services.jsonb_normalizers import (
+            _normalize_firmware_dotnet_decompile_result,
+        )
+        from app.services.r2r_stomping import classify_r2r_stomp_findings
+        from app.models.firmware import Firmware
+
+        fw = (
+            await self.db.execute(
+                select(Firmware).where(Firmware.id == firmware_id)
+            )
+        ).scalar_one_or_none()
+        if fw is None:
+            return []
+
+        aggregate = _normalize_firmware_dotnet_decompile_result(
+            fw.dotnet_decompile_result
+        ) or {}
+        bundles = aggregate.get("bundles") or []
+
+        # Pre-emit cleanup — delete prior δ.8 sources so re-runs don't
+        # accumulate duplicate review candidates.
+        from app.models.finding import Finding as FindingModel
+
+        await self.db.execute(
+            FindingModel.__table__.delete().where(
+                FindingModel.firmware_id == firmware_id,
+                FindingModel.source.in_((_SOURCE_R2R_STOMP, _SOURCE_IL_CAPA)),
+            )
+        )
+
+        emitted: list[Finding] = []
+        for b in bundles:
+            if not isinstance(b, dict):
+                continue
+            bundle_path = b.get("bundle_path")
+            decompile_root = b.get("decompile_target_dir")
+            if not bundle_path:
+                continue
+            for draft in classify_r2r_stomp_findings(bundle_path, decompile_root):
+                # Map δ.6 tier → wairz Confidence
+                if draft.confidence_tier == 1:
+                    confidence = Confidence.low
+                elif draft.confidence_tier == 2:
+                    confidence = Confidence.medium
+                else:
+                    confidence = Confidence.high
+                # Map δ.6 string severity → schemas.finding.Severity
+                severity = Severity(draft.severity)
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=draft.pe_path,
+                    confidence=confidence,
                     firmware_id=firmware_id,
                     source=draft.source,
                 )

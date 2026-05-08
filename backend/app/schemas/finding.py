@@ -21,6 +21,12 @@ WindowsFindingSource = Literal[
     "windows_registry_persistence",
     "windows_inf",
     "windows_driver_imports",
+    # Phase δ.8 — alignment slice with frontend FindingSource union +
+    # FINDING_SOURCE_CONFIG entries. Emitted by:
+    # - δ.6 R2R-stomping classifier → Finding rows for review.
+    # - Future capa-on-IL emitter → capability badges per .NET assembly.
+    "windows_r2r_stomp",
+    "windows_il_capa",
 ]
 
 

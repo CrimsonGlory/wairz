@@ -93,6 +93,8 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   windows_registry_persistence: { icon: Lock, label: 'Registry Persistence', className: 'border-orange-500/50 text-orange-600 dark:text-orange-400' },
   windows_inf: { icon: Cpu, label: 'INF', className: 'border-purple-500/50 text-purple-600 dark:text-purple-400' },
   windows_driver_imports: { icon: Network, label: 'Driver Imports', className: 'border-sky-500/50 text-sky-600 dark:text-sky-400' },
+  windows_r2r_stomp: { icon: ShieldAlert, label: 'R2R Stomp', className: 'border-red-500/50 text-red-600 dark:text-red-400' },
+  windows_il_capa: { icon: Code, label: 'IL Capa', className: 'border-fuchsia-500/50 text-fuchsia-600 dark:text-fuchsia-400' },
 }
 
 // ── Finding confidence ──
