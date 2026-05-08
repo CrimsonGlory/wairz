@@ -29,6 +29,7 @@ from app.services.jsonb_normalizers import (
     FIRMWARE_DEVICE_METADATA_SCHEMA_VERSION,
     FIRMWARE_WINDOWS_ARTIFACTS_SCHEMA_VERSION,
     WINDOWS_PE_SIGNATURES_ARCH_VIEW_SCHEMA_VERSION,
+    WINDOWS_PE_SIGNATURES_RICH_HEADER_JSON_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
     CRA_REQUIREMENT_RESULTS_FINDING_IDS_SCHEMA_VERSION,
@@ -62,6 +63,7 @@ from app.services.jsonb_normalizers import (
     _stamp_analysis_cache_result,
     _stamp_attack_surface_entries_score_breakdown,
     _normalize_windows_pe_signatures_arch_view,
+    _normalize_windows_pe_signatures_rich_header_json,
     _stamp_firmware_authenticode_chain_result,
     _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
@@ -70,6 +72,7 @@ from app.services.jsonb_normalizers import (
     _stamp_fuzzing_campaigns_stats,
     _stamp_hardware_firmware_blobs_metadata,
     _stamp_windows_pe_signatures_arch_view,
+    _stamp_windows_pe_signatures_rich_header_json,
 )
 
 
@@ -848,3 +851,81 @@ def test_stamp_windows_pe_signatures_arch_view_mutates_input():
 
 def test_windows_pe_signatures_arch_view_schema_version_constant():
     assert WINDOWS_PE_SIGNATURES_ARCH_VIEW_SCHEMA_VERSION == 1
+
+
+# ── _normalize_windows_pe_signatures_rich_header_json (Phase β.6) ────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical Phase-β.6 shape.
+        ({"schema_version": 1, "xor_key": "0x12345678", "entry_count": 2,
+          "entries": [{"comp_id": 0x010500CC, "build_number": 0x0105,
+                       "product_id": 0x00CC, "instances": 7}],
+          "hash_md5": "deadbeef" + "0" * 24},
+         {"schema_version": 1, "xor_key": "0x12345678", "entry_count": 2,
+          "entries": [{"comp_id": 0x010500CC, "build_number": 0x0105,
+                       "product_id": 0x00CC, "instances": 7}],
+          "hash_md5": "deadbeef" + "0" * 24}),
+        # Empty dict — preserved (writer collapses via _stamp).
+        ({}, {}),
+        # None — durable signal for "PE has no RICH header".
+        (None, None),
+        # Wrong type — list — coerced to None.
+        ([{"comp_id": 1}], None),
+        # Wrong type — string — coerced to None.
+        ("0x12345678", None),
+        # Wrong type — int — coerced to None.
+        (42, None),
+    ],
+)
+def test_normalize_windows_pe_signatures_rich_header_json(value, expected):
+    assert _normalize_windows_pe_signatures_rich_header_json(value) == expected
+
+
+def test_normalize_windows_pe_signatures_rich_header_json_idempotent():
+    canonical = {"schema_version": 1, "xor_key": "0x0", "entry_count": 0,
+                 "entries": [], "hash_md5": "abc"}
+    once = _normalize_windows_pe_signatures_rich_header_json(canonical)
+    twice = _normalize_windows_pe_signatures_rich_header_json(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_pe_signatures_rich_header_json_adds_version():
+    payload = {"xor_key": "0x12345678", "entry_count": 1,
+               "entries": [], "hash_md5": "abc"}
+    out = _stamp_windows_pe_signatures_rich_header_json(payload)
+    assert out is not None
+    assert out["schema_version"] == WINDOWS_PE_SIGNATURES_RICH_HEADER_JSON_SCHEMA_VERSION
+    assert out["xor_key"] == "0x12345678"
+
+
+def test_stamp_windows_pe_signatures_rich_header_json_idempotent():
+    payload = {"xor_key": "0x0", "entry_count": 0, "entries": [], "hash_md5": "x"}
+    once = _stamp_windows_pe_signatures_rich_header_json(payload)
+    twice = _stamp_windows_pe_signatures_rich_header_json(once)
+    assert once == twice
+    assert once["schema_version"] == WINDOWS_PE_SIGNATURES_RICH_HEADER_JSON_SCHEMA_VERSION
+
+
+def test_stamp_windows_pe_signatures_rich_header_json_none_in_none_out():
+    """None payload preserves the "no RICH header" semantic."""
+    assert _stamp_windows_pe_signatures_rich_header_json(None) is None
+
+
+def test_stamp_windows_pe_signatures_rich_header_json_empty_in_none_out():
+    """Empty dict collapses to None — writer's clear / no-RICH semantic."""
+    assert _stamp_windows_pe_signatures_rich_header_json({}) is None
+
+
+def test_stamp_windows_pe_signatures_rich_header_json_mutates_input():
+    """Documents the mutation contract — writers may rely on it."""
+    payload = {"xor_key": "0x0", "entry_count": 0, "entries": [], "hash_md5": "x"}
+    out = _stamp_windows_pe_signatures_rich_header_json(payload)
+    assert out is payload  # same dict object
+    assert "schema_version" in payload
+
+
+def test_windows_pe_signatures_rich_header_json_schema_version_constant():
+    assert WINDOWS_PE_SIGNATURES_RICH_HEADER_JSON_SCHEMA_VERSION == 1

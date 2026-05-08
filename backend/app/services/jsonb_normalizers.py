@@ -359,6 +359,71 @@ def _stamp_windows_pe_signatures_arch_view(payload: dict | None) -> dict | None:
     return payload
 
 
+# ── windows_pe_signatures.rich_header_json (Phase β.6) ───────────────────────
+#
+# Canonical shape: dict carrying the decoded Microsoft RICH header
+# (toolchain fingerprint) for one PE binary. Written by
+# :func:`rich_header_service.decode_rich_header` via the Phase β.4 + β.6
+# ``AuthenticodeVerdict.rich_header_json`` field, persisted by the Phase
+# β.7 background runner.
+#
+# Canonical shape (Phase β.6):
+#
+#   {
+#     "schema_version": 1,
+#     "xor_key":      str,    # "0x12345678"
+#     "entry_count":  int,
+#     "entries": [            # one dict per RICH entry
+#         {"comp_id": int, "build_number": int,
+#          "product_id": int, "instances": int},
+#         ...
+#     ],
+#     "hash_md5":     str,    # cluster fingerprint
+#   }
+#
+# Three consumers — schema_version stamping per Rule #35c:
+# 1. ``rich_header_service`` / ``authenticode_service`` (writer; Phase β.4 /
+#    β.6 verdict path).
+# 2. ``windows_pe_signature.py`` MCP category (Phase β.8 / β.9
+#    ``decode_rich_header`` MCP tool returns the column verbatim).
+# 3. ``PeHardeningPage.tsx`` frontend renders toolchain chips off this
+#    column (Phase β.10).
+WINDOWS_PE_SIGNATURES_RICH_HEADER_JSON_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_pe_signatures_rich_header_json(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``WindowsPESignature.rich_header_json``.
+
+    ``None`` is preserved — semantic load is "PE has no RICH header
+    (non-Microsoft toolchain, stripped, or pre-VS2002)". Wrong-typed
+    values collapse to ``None`` (treat as "no usable RICH fingerprint";
+    the next verdict run will overwrite). Distinct from
+    ``device_metadata`` in the same way ``arch_view`` is — null carries
+    semantic load, not "data missing".
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_windows_pe_signatures_rich_header_json(
+    payload: dict | None,
+) -> dict | None:
+    """Stamp the schema_version onto a writer payload, preserving the
+    null-meaning contract.
+
+    Returns ``None`` when ``payload`` is ``None`` or empty (writer's
+    "no RICH header / clear" semantic). For non-empty dicts, mutates-
+    in-place and returns the same dict with the current schema version
+    stamped. Idempotent.
+    """
+    if not payload:
+        return None
+    payload["schema_version"] = WINDOWS_PE_SIGNATURES_RICH_HEADER_JSON_SCHEMA_VERSION
+    return payload
+
+
 # ── fuzzing_campaigns.config ──────────────────────────────────────────────────
 #
 # Canonical shape: ``dict`` of AFL++ campaign configuration (timeout,

@@ -41,6 +41,7 @@ from signify.authenticode import (
 )
 
 from app.services.format_detection import detect_pe_arch_view
+from app.services.rich_header_service import decode_rich_header
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,11 @@ class AuthenticodeVerdict:
     is ``None`` for single-arch PEs (the column on
     ``windows_pe_signatures`` is nullable; ``arch_view IS NULL`` is the
     durable signal that the PE is single-arch).
+
+    ``rich_header_json`` (Phase β.6) carries the Microsoft RICH header
+    toolchain fingerprint from :func:`rich_header_service.decode_rich_header`.
+    ``None`` for PEs without a RICH header (non-MS toolchain, stripped,
+    or pre-VS2002).
     """
 
     signed: bool
@@ -86,6 +92,7 @@ class AuthenticodeVerdict:
     signatures_count: int = 0
     chain_json: dict[str, Any] = field(default_factory=dict)
     arch_view: dict[str, Any] | None = None
+    rich_header_json: dict[str, Any] | None = None
     error: str | None = None
 
 
@@ -232,17 +239,25 @@ def verify_pe_file(path: str | Path) -> AuthenticodeVerdict:
     # tracks the architecture even when the cert chain is unreadable.
     arch_view = detect_pe_arch_view(p)
 
+    # Phase β.6: Microsoft RICH header (toolchain fingerprint). pefile is
+    # a third independent parser; same plumbing rationale as arch_view —
+    # the column tracks build-pipeline provenance even when signify and
+    # lief both fail. ``None`` for PEs without a RICH header.
+    rich_header_json = decode_rich_header(p)
+
     try:
         with open(p, "rb") as fh:
             af = AuthenticodeFile.from_stream(fh, file_name=p.name)
             verdict = _verify_with_open_file(af)
             verdict.arch_view = arch_view
+            verdict.rich_header_json = rich_header_json
             return verdict
     except OSError as exc:
         return AuthenticodeVerdict(
             signed=False,
             chain_status="unknown",
             arch_view=arch_view,
+            rich_header_json=rich_header_json,
             error=f"PE read failed: {exc}",
         )
     except Exception as exc:
@@ -253,6 +268,7 @@ def verify_pe_file(path: str | Path) -> AuthenticodeVerdict:
             signed=False,
             chain_status="unknown",
             arch_view=arch_view,
+            rich_header_json=rich_header_json,
             error=f"PE parse failed: {exc.__class__.__name__}: {exc}",
         )
 

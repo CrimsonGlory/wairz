@@ -350,6 +350,113 @@ def test_verify_pe_file_arch_view_attached_when_signify_parse_fails(tmp_path: Pa
     assert "PE parse failed" in (out.error or "")
 
 
+# ── rich_header_json plumbing (Phase β.6) ─────────────────────────────────
+
+
+def test_verify_pe_file_populates_rich_header_json_from_decoder(tmp_path: Path):
+    """β.6: verify_pe_file must call decode_rich_header and copy the
+    result onto the verdict's rich_header_json field, irrespective of
+    signing state. The dict persists onto WindowsPESignature.rich_header_json."""
+    pe_file = tmp_path / "ms.dll"
+    pe_file.write_bytes(b"MZ" + b"\x00" * 100)
+
+    fake_af = MagicMock()
+    fake_af.iter_signatures.return_value = iter([])
+
+    fake_rich = {
+        "xor_key": "0x12345678",
+        "entry_count": 1,
+        "entries": [{"comp_id": 0x010500CC, "build_number": 0x0105,
+                     "product_id": 0x00CC, "instances": 7}],
+        "hash_md5": "abc",
+    }
+
+    with patch(
+        "app.services.authenticode_service.AuthenticodeFile.from_stream",
+        return_value=fake_af,
+    ), patch(
+        "app.services.authenticode_service.decode_rich_header",
+        return_value=fake_rich,
+    ) as mock_decode:
+        out = verify_pe_file(pe_file)
+
+    mock_decode.assert_called_once()
+    assert out.rich_header_json == fake_rich
+
+
+def test_verify_pe_file_rich_header_json_none_for_non_ms_toolchain(tmp_path: Path):
+    """Non-Microsoft-toolchain PEs have no RICH header — verdict carries
+    rich_header_json=None (the durable signal)."""
+    pe_file = tmp_path / "mingw.exe"
+    pe_file.write_bytes(b"MZ" + b"\x00" * 100)
+
+    fake_af = MagicMock()
+    fake_af.iter_signatures.return_value = iter([])
+
+    with patch(
+        "app.services.authenticode_service.AuthenticodeFile.from_stream",
+        return_value=fake_af,
+    ), patch(
+        "app.services.authenticode_service.decode_rich_header",
+        return_value=None,
+    ):
+        out = verify_pe_file(pe_file)
+
+    assert out.rich_header_json is None
+
+
+def test_verify_pe_file_rich_header_json_attached_when_pe_read_fails(tmp_path: Path):
+    """When signify can't open the PE (OSError), the verdict still ships
+    rich_header_json if pefile could read it — independent parsers."""
+    pe_file = tmp_path / "weird.exe"
+    pe_file.write_bytes(b"MZ" + b"\x00" * 100)
+
+    fake_rich = {
+        "xor_key": "0x0", "entry_count": 0, "entries": [], "hash_md5": "x",
+    }
+
+    with patch(
+        "app.services.authenticode_service.AuthenticodeFile.from_stream",
+        side_effect=OSError("simulated read failure"),
+    ), patch(
+        "app.services.authenticode_service.decode_rich_header",
+        return_value=fake_rich,
+    ):
+        out = verify_pe_file(pe_file)
+
+    assert out.signed is False
+    assert out.chain_status == "unknown"
+    assert out.rich_header_json == fake_rich
+    assert "PE read failed" in (out.error or "")
+
+
+def test_verify_pe_file_rich_header_json_attached_when_signify_parse_fails(
+    tmp_path: Path,
+):
+    """When signify raises non-OSError, rich_header_json still rides."""
+    pe_file = tmp_path / "corrupt.exe"
+    pe_file.write_bytes(b"MZ" + b"\x00" * 100)
+
+    fake_rich = {
+        "xor_key": "0xABCDEF00", "entry_count": 0,
+        "entries": [], "hash_md5": "y",
+    }
+
+    with patch(
+        "app.services.authenticode_service.AuthenticodeFile.from_stream",
+        side_effect=RuntimeError("malformed signature blob"),
+    ), patch(
+        "app.services.authenticode_service.decode_rich_header",
+        return_value=fake_rich,
+    ):
+        out = verify_pe_file(pe_file)
+
+    assert out.signed is False
+    assert out.chain_status == "unknown"
+    assert out.rich_header_json == fake_rich
+    assert "PE parse failed" in (out.error or "")
+
+
 # ── AuthenticodeVerdict shape contract ────────────────────────────────────
 
 
@@ -366,7 +473,7 @@ def test_verdict_maps_to_windows_pe_signature_columns():
     direct_mapped = {
         "signed", "chain_status", "signer_subject", "signer_issuer",
         "leaf_serial", "sig_hash_algo", "tsa_authority", "signed_at",
-        "chain_json", "arch_view",
+        "chain_json", "arch_view", "rich_header_json",
     }
     indirect = {"signatures_count", "error"}  # in chain_json / runner-level
     verdict_fields = set(verdict.__dataclass_fields__.keys())
