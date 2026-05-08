@@ -15,6 +15,7 @@ from app.models.cra_compliance import CraAssessment, CraRequirementResult
 from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.models.device_dump import DeviceDumpSession
 from app.models.windows_pe_signature import WindowsPESignature
+from app.models.windows_registry_extract import WindowsRegistryExtract
 
 __all__ = [
     "Project", "Firmware", "Conversation", "AnalysisCache",
@@ -23,5 +24,5 @@ __all__ = [
     "EmulationPreset", "FuzzingCampaign", "FuzzingCrash",
     "AttackSurfaceEntry", "UARTSession",
     "CraAssessment", "CraRequirementResult", "HardwareFirmwareBlob",
-    "DeviceDumpSession", "WindowsPESignature",
+    "DeviceDumpSession", "WindowsPESignature", "WindowsRegistryExtract",
 ]

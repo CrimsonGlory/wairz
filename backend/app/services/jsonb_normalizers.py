@@ -711,3 +711,76 @@ def _normalize_cra_requirement_results_related_cves(value: Any) -> list[str]:
     """Return canonical ``list[str]`` of CVE IDs (``CVE-2024-1234``)
     linked to this requirement."""
     return _normalize_str_list(value)
+
+
+# ── windows_registry_extracts.parsed_tree (Phase γ.1) ────────────────────────
+#
+# Per-hive registry walk result. The γ.4 worker walks each hive (regipy
+# read-only binding) and stamps the result here; γ.6 MCP tools
+# (``windows_registry.list_hives`` / ``walk_hive`` / ``get_run_keys`` /
+# ``scan_persistence`` / ``dump_subkey`` / ``diff_hives``) read it; the
+# γ.7 frontend (``RegistryHivePage``, ``RegistryDiffPage``) renders it;
+# the γ.8 finding-emitter classifier reads it to derive
+# ``windows_registry_persistence`` Findings. 4+ consumer files at γ
+# shipping time → schema_version discriminator strategy per Rule #35c.
+#
+# Canonical shape (Phase γ — flat list-of-paths walk capped by walker
+# depth + max-keys-per-hive defaults; flat list rather than nested-dict
+# for cheap query / serialisation):
+#
+#   {
+#     "schema_version": 1,
+#     "hive_type": "SOFTWARE",       # mirrors row.hive_type for self-contained docs
+#     "walk_complete": bool,         # False if depth/key cap reached
+#     "depth_limit": int,            # walker's max_depth at run time
+#     "key_count": int,              # total keys walked (mirrors row.key_count)
+#     "value_count": int,            # total values walked (mirrors row.value_count)
+#     "truncated": bool,             # True if cap stopped the walk early
+#     "errors": list[str],           # parse errors collected during walk
+#     "subkeys": list[
+#       {
+#         "path": "Microsoft\\Windows\\CurrentVersion\\Run",
+#         "values": [
+#           {"name": "OneDrive", "type": "REG_SZ", "data": "C:\\..."},
+#           ...
+#         ],
+#       },
+#       ...
+#     ],
+#   }
+#
+# Forward-discipline: bump the SCHEMA_VERSION constant + extend dispatch
+# in the normaliser if the walker shape changes (e.g. deeper aggregation,
+# alternate value encoding, schema-aware filtering).
+
+WINDOWS_REGISTRY_EXTRACTS_PARSED_TREE_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_registry_extracts_parsed_tree(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``WindowsRegistryExtract.parsed_tree``.
+
+    ``None`` is preserved — semantic load is "walker did not produce a
+    parsed_tree for this row" (e.g. row created with walk_status=skipped
+    before the walker ran, or the row predates Phase γ). Wrong-typed
+    values collapse to ``None`` rather than ``{}`` so callers checking
+    ``if extract.parsed_tree is not None`` to detect "walked"
+    aren't fooled by an accidental empty dict.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_windows_registry_extracts_parsed_tree(
+    payload: dict | None,
+) -> dict | None:
+    """Stamp the schema_version onto a writer payload for
+    ``WindowsRegistryExtract.parsed_tree``. ``None`` is preserved (column
+    is nullable). Idempotent — re-stamping a payload at the current
+    version is a no-op.
+    """
+    if payload is None:
+        return None
+    payload["schema_version"] = WINDOWS_REGISTRY_EXTRACTS_PARSED_TREE_SCHEMA_VERSION
+    return payload

@@ -30,6 +30,7 @@ from app.services.jsonb_normalizers import (
     FIRMWARE_WINDOWS_ARTIFACTS_SCHEMA_VERSION,
     WINDOWS_PE_SIGNATURES_ARCH_VIEW_SCHEMA_VERSION,
     WINDOWS_PE_SIGNATURES_RICH_HEADER_JSON_SCHEMA_VERSION,
+    WINDOWS_REGISTRY_EXTRACTS_PARSED_TREE_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
     CRA_REQUIREMENT_RESULTS_FINDING_IDS_SCHEMA_VERSION,
@@ -64,6 +65,7 @@ from app.services.jsonb_normalizers import (
     _stamp_attack_surface_entries_score_breakdown,
     _normalize_windows_pe_signatures_arch_view,
     _normalize_windows_pe_signatures_rich_header_json,
+    _normalize_windows_registry_extracts_parsed_tree,
     _stamp_firmware_authenticode_chain_result,
     _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
@@ -73,6 +75,7 @@ from app.services.jsonb_normalizers import (
     _stamp_hardware_firmware_blobs_metadata,
     _stamp_windows_pe_signatures_arch_view,
     _stamp_windows_pe_signatures_rich_header_json,
+    _stamp_windows_registry_extracts_parsed_tree,
 )
 
 
@@ -929,3 +932,155 @@ def test_stamp_windows_pe_signatures_rich_header_json_mutates_input():
 
 def test_windows_pe_signatures_rich_header_json_schema_version_constant():
     assert WINDOWS_PE_SIGNATURES_RICH_HEADER_JSON_SCHEMA_VERSION == 1
+
+
+# ── _normalize_windows_registry_extracts_parsed_tree (Phase γ.1) ─────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical Phase γ.4 walker shape — flat list of subkeys with
+        # values per path; SOFTWARE.hive walk that found a Run key.
+        (
+            {
+                "schema_version": 1,
+                "hive_type": "SOFTWARE",
+                "walk_complete": True,
+                "depth_limit": 5,
+                "key_count": 12345,
+                "value_count": 56789,
+                "truncated": False,
+                "errors": [],
+                "subkeys": [
+                    {
+                        "path": "Microsoft\\Windows\\CurrentVersion\\Run",
+                        "values": [
+                            {
+                                "name": "OneDrive",
+                                "type": "REG_SZ",
+                                "data": "C:\\Program Files\\Microsoft OneDrive\\OneDrive.exe",
+                            },
+                        ],
+                    },
+                ],
+            },
+            {
+                "schema_version": 1,
+                "hive_type": "SOFTWARE",
+                "walk_complete": True,
+                "depth_limit": 5,
+                "key_count": 12345,
+                "value_count": 56789,
+                "truncated": False,
+                "errors": [],
+                "subkeys": [
+                    {
+                        "path": "Microsoft\\Windows\\CurrentVersion\\Run",
+                        "values": [
+                            {
+                                "name": "OneDrive",
+                                "type": "REG_SZ",
+                                "data": "C:\\Program Files\\Microsoft OneDrive\\OneDrive.exe",
+                            },
+                        ],
+                    },
+                ],
+            },
+        ),
+        # Truncated walk — depth/key cap stopped the walker; partial
+        # data should still pass through canonically.
+        (
+            {
+                "schema_version": 1,
+                "hive_type": "SYSTEM",
+                "walk_complete": False,
+                "depth_limit": 3,
+                "key_count": 10000,
+                "value_count": 30000,
+                "truncated": True,
+                "errors": ["max_keys_per_hive=10000 reached at CurrentControlSet\\Services"],
+                "subkeys": [],
+            },
+            {
+                "schema_version": 1,
+                "hive_type": "SYSTEM",
+                "walk_complete": False,
+                "depth_limit": 3,
+                "key_count": 10000,
+                "value_count": 30000,
+                "truncated": True,
+                "errors": ["max_keys_per_hive=10000 reached at CurrentControlSet\\Services"],
+                "subkeys": [],
+            },
+        ),
+        # Empty dict — preserved (writer's degenerate-but-valid case).
+        ({}, {}),
+        # None — durable signal for "row exists but no parsed_tree
+        # written" (walk failed before producing output, or walk_status
+        # is 'skipped'). Distinct from {} which means "walk ran".
+        (None, None),
+        # Wrong type — list — coerced to None (no usable parsed_tree).
+        ([{"path": "X"}], None),
+        # Wrong type — string.
+        ("not a dict", None),
+        # Wrong type — int.
+        (42, None),
+    ],
+)
+def test_normalize_windows_registry_extracts_parsed_tree(value, expected):
+    assert _normalize_windows_registry_extracts_parsed_tree(value) == expected
+
+
+def test_normalize_windows_registry_extracts_parsed_tree_idempotent():
+    canonical = {
+        "schema_version": 1,
+        "hive_type": "SAM",
+        "walk_complete": True,
+        "depth_limit": 5,
+        "key_count": 0,
+        "value_count": 0,
+        "truncated": False,
+        "errors": [],
+        "subkeys": [],
+    }
+    once = _normalize_windows_registry_extracts_parsed_tree(canonical)
+    twice = _normalize_windows_registry_extracts_parsed_tree(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_registry_extracts_parsed_tree_adds_version():
+    payload = {
+        "hive_type": "NTUSER",
+        "walk_complete": True,
+        "subkeys": [],
+    }
+    out = _stamp_windows_registry_extracts_parsed_tree(payload)
+    assert out is not None
+    assert out["schema_version"] == WINDOWS_REGISTRY_EXTRACTS_PARSED_TREE_SCHEMA_VERSION
+    assert out["hive_type"] == "NTUSER"
+
+
+def test_stamp_windows_registry_extracts_parsed_tree_idempotent():
+    payload = {"hive_type": "SOFTWARE", "subkeys": []}
+    once = _stamp_windows_registry_extracts_parsed_tree(payload)
+    twice = _stamp_windows_registry_extracts_parsed_tree(once)
+    assert once == twice
+    assert once["schema_version"] == WINDOWS_REGISTRY_EXTRACTS_PARSED_TREE_SCHEMA_VERSION
+
+
+def test_stamp_windows_registry_extracts_parsed_tree_none_in_none_out():
+    """None payload preserves the "row exists but no walk yet" semantic."""
+    assert _stamp_windows_registry_extracts_parsed_tree(None) is None
+
+
+def test_stamp_windows_registry_extracts_parsed_tree_mutates_input():
+    """Documents the mutation contract — writers may rely on it."""
+    payload = {"hive_type": "SYSTEM", "subkeys": []}
+    out = _stamp_windows_registry_extracts_parsed_tree(payload)
+    assert out is payload  # same dict object
+    assert "schema_version" in payload
+
+
+def test_windows_registry_extracts_parsed_tree_schema_version_constant():
+    assert WINDOWS_REGISTRY_EXTRACTS_PARSED_TREE_SCHEMA_VERSION == 1
