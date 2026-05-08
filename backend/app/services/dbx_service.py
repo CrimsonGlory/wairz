@@ -35,8 +35,23 @@ Format reference (UEFI 2.10 §32.4.1, EFI Signature Database):
       uint8     signature_data[];         // (signature_size - 16) bytes
   }
 
-A real ``dbxupdate.bin`` carries one or more ``EFI_SIGNATURE_LIST``
-structures back-to-back. The ones we care about for Phase β.7:
+A real Microsoft-canonical ``dbxupdate.bin`` (the file Microsoft ships
+through https://github.com/microsoft/secureboot_objects/PostSignedObjects/DBX/<arch>/DBXUpdate.bin)
+carries an outer ``EFI_VARIABLE_AUTHENTICATION_2`` wrapper:
+
+  EFI_VARIABLE_AUTHENTICATION_2 {
+      EFI_TIME                    TimeStamp;     // 16 bytes
+      WIN_CERTIFICATE_UEFI_GUID   AuthInfo;      // dwLength bytes
+  }
+
+…followed by one or more ``EFI_SIGNATURE_LIST`` structures back-to-back.
+:func:`_strip_authenticated_variable_wrapper` (β.10) detects the wrapper
+and slices it off so :func:`_parse_bundle_bytes` sees the canonical
+EFI_SIGNATURE_LIST stream. Synthetic test fixtures that build the
+EFI_SIGNATURE_LIST payload directly (no wrapper) pass through unchanged
+— the strip helper is shape-detecting, not destructive.
+
+The signature lists we care about for Phase β.7:
 
 - ``EFI_CERT_X509_GUID`` (a5c059a1-94e4-4aa7-87b5-ab155c2bf072) — full
   DER-encoded X.509 cert; ANY chain ending in this cert is revoked.
@@ -99,6 +114,10 @@ logger = logging.getLogger(__name__)
 EFI_CERT_X509_GUID = bytes.fromhex("a1 59 c0 a5 e4 94 a7 4a 87 b5 ab 15 5c 2b f0 72".replace(" ", ""))
 EFI_CERT_SHA256_GUID = bytes.fromhex("26 16 c4 c1 4c 50 92 40 ac a9 41 f9 36 93 43 28".replace(" ", ""))
 
+# WIN_CERTIFICATE.wCertificateType for the PKCS#7-signed authenticated
+# variable wrapper Microsoft uses on DBXUpdate.bin (UEFI 2.10 §32.4.1).
+_WIN_CERT_TYPE_EFI_GUID = 0x0EF1
+
 # Sanity bound on the per-bundle entry count. 2026-era Microsoft bundles
 # carry ~5000 entries; 50_000 is well above any plausible legitimate
 # maximum and protects against malformed bundles whose ``signature_list_size``
@@ -131,6 +150,70 @@ def _normalize_serial(serial_hex: str | None) -> str | None:
         return None
     s = serial_hex.upper().lstrip("0X").lstrip("0")
     return s or "0"
+
+
+def _strip_authenticated_variable_wrapper(buf: bytes) -> bytes:
+    """Detect + strip the ``EFI_VARIABLE_AUTHENTICATION_2`` header from a
+    Microsoft-canonical ``DBXUpdate.bin``. Returns ``buf`` unchanged when
+    no wrapper is detected (synthetic test fixtures pass through, β.7's
+    bare EFI_SIGNATURE_LIST format is preserved).
+
+    Wrapper layout (UEFI 2.10 §8.2.2 + §32.4.1):
+
+        EFI_TIME      TimeStamp                    @ offset  0  (16 bytes)
+        WIN_CERTIFICATE_UEFI_GUID  AuthInfo {
+            uint32    dwLength                     @ offset 16   (cert size)
+            uint16    wRevision = 0x0200           @ offset 20
+            uint16    wCertificateType = 0x0EF1    @ offset 22
+            uint8[16] CertType  (PKCS#7 GUID)      @ offset 24
+            uint8[]   CertData  (signed payload)
+        }
+        // Total wrapper bytes: 16 + dwLength
+        EFI_SIGNATURE_LIST[] payload                @ offset 16 + dwLength
+
+    Detection heuristic (all must hold for strip):
+
+    - ``EFI_TIME.Year`` (bytes 0..1, little-endian) is in [1900, 2100]
+      — a bare EFI_SIGNATURE_LIST starts with a signature_type GUID
+      whose first 2 bytes (`a1 59` for X509, `26 16` for SHA256) decode
+      to 22945 / 5670 respectively, both outside the year window.
+    - ``wCertificateType`` == 0x0EF1 (the only WIN_CERT_TYPE_EFI_GUID
+      value Microsoft uses for authenticated-variable signing).
+    - ``dwLength`` is a plausible cert-data size (must include CertType
+      GUID + at least 1 byte of CertData, must not over-run buf).
+    - At least 28 bytes remain after the wrapper for one
+      EFI_SIGNATURE_LIST header.
+
+    Conservative on failure: any unmatched check returns ``buf`` unchanged
+    so the downstream parser falls through to its existing
+    "first signature list malformed → parse what we can" path. The
+    matcher then handles malformed bundles gracefully (returns a result
+    with ``revoked=False`` and ``bundle_entries=0``) rather than
+    raising.
+
+    Added in Phase β.10 to bridge β.7's parser (synthetic-fixture-shaped)
+    and the actual bundle Microsoft publishes (wrapped). Applies before
+    :func:`_parse_bundle_bytes`.
+    """
+    if len(buf) < 16 + 8 + 28:
+        return buf
+    try:
+        year = struct.unpack_from("<H", buf, 0)[0]
+        if not (1900 <= year <= 2100):
+            return buf
+        dw_length, _w_revision, w_type = struct.unpack_from("<IHH", buf, 16)
+        if w_type != _WIN_CERT_TYPE_EFI_GUID:
+            return buf
+        # dwLength must cover at least the 16-byte CertType GUID + a
+        # non-empty CertData; and 16 (EFI_TIME) + dwLength must leave
+        # room for at least one EFI_SIGNATURE_LIST header (28 bytes).
+        if dw_length <= 16 + 1:
+            return buf
+        if 16 + dw_length > len(buf) - 28:
+            return buf
+    except struct.error:
+        return buf
+    return buf[16 + dw_length:]
 
 
 def _parse_bundle_bytes(buf: bytes) -> dict[str, Any]:
@@ -261,7 +344,12 @@ def _load_bundle(bundle_path: Path) -> dict[str, Any] | None:
     except OSError:
         return None
 
-    parsed = _parse_bundle_bytes(buf)
+    # Strip Microsoft's EFI_VARIABLE_AUTHENTICATION_2 wrapper (β.10) so
+    # the parser sees a bare EFI_SIGNATURE_LIST stream regardless of
+    # whether the bundle is the Microsoft-canonical wrapped format or a
+    # synthetic test fixture.
+    stripped = _strip_authenticated_variable_wrapper(buf)
+    parsed = _parse_bundle_bytes(stripped)
     _BUNDLE_CACHE = (cache_key[0], cache_key[1], parsed)
     return parsed
 

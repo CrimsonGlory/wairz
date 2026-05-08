@@ -317,9 +317,28 @@ COPY . .
 # on top at runtime, allowing users to add custom kernels.
 COPY --from=kernels . /opt/kernels/
 
+# Bundle Microsoft trust anchors (Phase β.10 — CLAUDE.md Rule #37 candidate
+# offline-trust-anchor discipline). The DBX revocation list is build-time-pinned
+# via SHA256; refusing to build on hash drift catches a corrupted commit OR a
+# Microsoft-side update the operator hasn't reviewed yet. Companion script
+# scripts/refresh-ms-roots.sh runs quarterly + alerts on drift.
+#
+#   /opt/wairz/dbxupdate.bin  — Microsoft x86_64 DBXUpdate.bin (canonical source
+#                               github.com/microsoft/secureboot_objects). Read by
+#                               app.services.dbx_service.match_dbx_revocation
+#                               via $DBX_BUNDLE_PATH (set in docker-compose.yml).
+#   /opt/wairz/ms-roots/      — Marker directory for additional Authenticode
+#                               PEM roots beyond what signify's
+#                               TRUSTED_CERTIFICATE_STORE bundles. β.10 ships
+#                               empty; future γ/δ extensions can drop PEMs in.
+RUN mkdir -p /opt/wairz/ms-roots \
+    && (cd /app/ms-anchors && sha256sum -c dbxupdate.bin.sha256) \
+    && cp /app/ms-anchors/dbxupdate.bin /opt/wairz/dbxupdate.bin \
+    && chmod 0444 /opt/wairz/dbxupdate.bin
+
 # Create data and Ghidra project directories
 RUN mkdir -p /data/firmware /tmp/ghidra_projects \
-    && chown -R wairz:wairz /data /app /tmp/ghidra_projects /opt/ghidra /opt/jadx /opt/kernels \
+    && chown -R wairz:wairz /data /app /tmp/ghidra_projects /opt/ghidra /opt/jadx /opt/kernels /opt/wairz \
     && ([ -d /opt/qiling-rootfs ] && chown -R wairz:wairz /opt/qiling-rootfs || true) \
     && ([ -d /opt/cpu_rec ] && chown -R wairz:wairz /opt/cpu_rec || true)
 

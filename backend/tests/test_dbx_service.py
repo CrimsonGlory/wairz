@@ -4,12 +4,22 @@ Builds synthetic ``dbxupdate.bin`` byte buffers in-memory and exercises
 the parser + matcher end-to-end. asn1crypto + struct cover the format;
 no signify involvement (DBX bundles are independent of PE signing).
 
-A real Microsoft ``dbxupdate.bin`` Rule #35b live canary is deferred to
-Phase β.10 (when the bundle is provisioned in the worker image).
+Phase β.10 added:
+- :func:`_strip_authenticated_variable_wrapper` for the Microsoft-canonical
+  ``EFI_VARIABLE_AUTHENTICATION_2`` wrapper format. New tests below
+  cover bare passthrough + wrapped detection + boundary cases.
+- A committed test fixture (``backend/tests/fixtures/windows/tiny.dbxupdate.bin``)
+  exercising the file-on-disk path with the same shape as the in-memory
+  builders.
+- An optional Rule #35b live canary against the bundled
+  ``/opt/wairz/dbxupdate.bin`` — auto-skips when the bundle isn't
+  present (host-side pytest), runs post-rebuild inside the worker
+  container.
 """
 from __future__ import annotations
 
 import datetime as dt
+import os
 import struct
 from pathlib import Path
 
@@ -22,6 +32,7 @@ from app.services.dbx_service import (
     _MAX_ENTRIES,
     _normalize_serial,
     _parse_bundle_bytes,
+    _strip_authenticated_variable_wrapper,
     match_dbx_revocation,
     reset_bundle_cache,
 )
@@ -375,3 +386,192 @@ def test_match_dbx_revocation_output_keys(tmp_path: Path):
         "bundle_entries",
         "bundle_path",
     }
+
+
+# ── _strip_authenticated_variable_wrapper unit tests (Phase β.10) ────────
+
+
+def _build_efi_authenticated_variable(inner: bytes, *, year: int = 2026) -> bytes:
+    """Construct a synthetic EFI_VARIABLE_AUTHENTICATION_2 wrapper around
+    ``inner`` so the wrapper-strip path has a deterministic test target.
+    The wrapper's CertData is opaque dummy bytes — wairz's parser only
+    strips, it never validates the PKCS#7 signature; the SHA256 pin in
+    backend/ms-anchors/ is the integrity check."""
+    efi_time = struct.pack(
+        "<HBBBBBBIhBB",
+        year, 5, 8, 12, 0, 0, 0, 0, 0, 0, 0,
+    )
+    assert len(efi_time) == 16
+    cert_type_guid = b"\x9d\xd2\xafJ\xdfh\xeeI\x8a\xa94}7Ve\xa7"
+    cert_data = b"\x00" * 64  # opaque PKCS#7 payload placeholder
+    dw_length = 4 + 2 + 2 + 16 + len(cert_data)
+    win_cert = (
+        struct.pack("<IHH", dw_length, 0x0200, 0x0EF1)
+        + cert_type_guid
+        + cert_data
+    )
+    return efi_time + win_cert + inner
+
+
+def test_strip_wrapper_returns_buf_unchanged_for_bare_signature_list():
+    """β.7's bare-format synthetic fixtures pass through unchanged. The
+    first 2 bytes are part of EFI_CERT_X509_GUID (0xa159 = 41305 — outside
+    [1900, 2100] year window), so detection must NOT fire."""
+    bare = _build_dbx([
+        _build_signature_list(EFI_CERT_X509_GUID, [_build_x509_cert_der(0xCAFE)]),
+    ])
+    out = _strip_authenticated_variable_wrapper(bare)
+    assert out == bare, "bare EFI_SIGNATURE_LIST format must pass through unchanged"
+
+
+def test_strip_wrapper_returns_buf_unchanged_for_sha256_only_bare_list():
+    """A bare bundle whose first list is EFI_CERT_SHA256_GUID-typed
+    starts with bytes 0x26 0x16 (year=0x1626=5670, outside [1900, 2100])
+    so the year-range check rules out wrapper detection."""
+    bare = _build_dbx([
+        _build_signature_list(EFI_CERT_SHA256_GUID, [b"\x42" * 32]),
+    ])
+    out = _strip_authenticated_variable_wrapper(bare)
+    assert out == bare
+
+
+def test_strip_wrapper_strips_microsoft_canonical_shape():
+    """Synthetic Microsoft-canonical wrapper with a known inner payload —
+    after strip the inner is bit-identical to what we wrapped."""
+    inner = _build_dbx([
+        _build_signature_list(EFI_CERT_X509_GUID, [_build_x509_cert_der(0xCAFE)]),
+        _build_signature_list(EFI_CERT_SHA256_GUID, [b"\x42" * 32]),
+    ])
+    wrapped = _build_efi_authenticated_variable(inner)
+    out = _strip_authenticated_variable_wrapper(wrapped)
+    assert out == inner
+
+
+def test_strip_wrapper_short_input_passes_through():
+    """A buffer too short to even hold a wrapper header is returned
+    untouched; the parser then sees an empty-ish payload and yields
+    entries_scanned=0 (no exception)."""
+    assert _strip_authenticated_variable_wrapper(b"") == b""
+    assert _strip_authenticated_variable_wrapper(b"\x00" * 10) == b"\x00" * 10
+
+
+def test_strip_wrapper_oversized_dwlength_passes_through():
+    """A wrapper whose dwLength runs off the end of buf is left intact
+    — strip is conservative on malformed input. The downstream parser
+    then handles the malformed list cleanly per β.7's existing
+    'malformed → break' loop."""
+    inner = _build_dbx([_build_signature_list(EFI_CERT_X509_GUID, [_build_x509_cert_der(0x1)])])
+    wrapped = _build_efi_authenticated_variable(inner)
+    # Tamper dwLength to an absurd value.
+    tampered = bytearray(wrapped)
+    struct.pack_into("<I", tampered, 16, 0xFFFFFFFF)
+    out = _strip_authenticated_variable_wrapper(bytes(tampered))
+    assert out == bytes(tampered), "oversized dwLength must NOT trigger strip"
+
+
+def test_strip_wrapper_year_out_of_range_passes_through():
+    """A buffer whose first 2 bytes decode to a year outside [1900, 2100]
+    is treated as a bare list (year-range is the primary disambiguator
+    between wrapped and bare formats)."""
+    inner = _build_dbx([_build_signature_list(EFI_CERT_X509_GUID, [_build_x509_cert_der(0x1)])])
+    wrapped = bytearray(_build_efi_authenticated_variable(inner))
+    struct.pack_into("<H", wrapped, 0, 1899)  # too old
+    out = _strip_authenticated_variable_wrapper(bytes(wrapped))
+    assert out == bytes(wrapped)
+    struct.pack_into("<H", wrapped, 0, 2101)  # too new
+    out = _strip_authenticated_variable_wrapper(bytes(wrapped))
+    assert out == bytes(wrapped)
+
+
+def test_strip_wrapper_wrong_wType_passes_through():
+    """wCertificateType != 0x0EF1 means this isn't an EFI authenticated
+    variable wrapper — pass through."""
+    inner = _build_dbx([_build_signature_list(EFI_CERT_X509_GUID, [_build_x509_cert_der(0x1)])])
+    wrapped = bytearray(_build_efi_authenticated_variable(inner))
+    struct.pack_into("<H", wrapped, 22, 0x0001)  # WIN_CERT_TYPE_PKCS_SIGNED_DATA
+    out = _strip_authenticated_variable_wrapper(bytes(wrapped))
+    assert out == bytes(wrapped)
+
+
+# ── Committed-fixture path (Phase β.10 — Rule #35b live canary) ─────────
+
+
+_FIXTURE_DIR = Path(__file__).parent / "fixtures" / "windows"
+_TINY_BARE = _FIXTURE_DIR / "tiny.dbxupdate.bin"
+_TINY_WRAPPED = _FIXTURE_DIR / "tiny.dbxupdate.wrapped.bin"
+
+
+def test_committed_tiny_fixture_bare_parses_cleanly():
+    """The committed bare-format fixture round-trips through the full
+    file-on-disk path: read → strip (no-op) → parse. Activates the
+    file-load code path that the in-memory tests deliberately don't
+    exercise."""
+    assert _TINY_BARE.is_file(), (
+        f"missing committed fixture {_TINY_BARE}; "
+        "regenerate via backend/tests/fixtures/windows/_build_tiny_dbxupdate.py"
+    )
+    out = match_dbx_revocation("CAFE", bundle_path=_TINY_BARE)
+    assert out is not None
+    assert out["revoked"] is True
+    assert out["leaf_serial_normalized"] == "CAFE"
+    assert out["bundle_entries"] >= 3
+    assert out["match_kind"] == "x509_serial"
+
+
+def test_committed_tiny_fixture_wrapped_parses_cleanly():
+    """The committed wrapped-format fixture exercises strip + parse.
+    Same expected entries as bare since wrapper carries identical
+    inner payload."""
+    assert _TINY_WRAPPED.is_file(), (
+        f"missing committed fixture {_TINY_WRAPPED}; "
+        "regenerate via backend/tests/fixtures/windows/_build_tiny_dbxupdate.py"
+    )
+    out = match_dbx_revocation("DEAD", bundle_path=_TINY_WRAPPED)
+    assert out is not None
+    assert out["revoked"] is True
+    assert out["leaf_serial_normalized"] == "DEAD"
+    assert out["bundle_entries"] >= 3
+
+
+def test_committed_tiny_fixture_unrevoked_serial_returns_false():
+    """Negative-side: a serial not in the fixture must return revoked=False
+    + match_kind='none', NOT a fabricated revoked=True. Catches a future
+    bug where the matcher accidentally swaps polarity."""
+    out = match_dbx_revocation("BEEF", bundle_path=_TINY_BARE)
+    assert out is not None
+    assert out["revoked"] is False
+    assert out["match_kind"] == "none"
+
+
+# ── Bundled-image canary (skipped on host; activates inside worker) ─────
+
+
+_BUNDLE_PATH = Path(os.environ.get("DBX_BUNDLE_PATH", "/opt/wairz/dbxupdate.bin"))
+
+
+@pytest.mark.skipif(
+    not _BUNDLE_PATH.is_file(),
+    reason=(
+        f"DBX bundle not present at {_BUNDLE_PATH}; only activates "
+        "post-Phase-β.10-rebuild inside the worker/backend container"
+    ),
+)
+def test_bundled_dbx_image_parses_with_nonzero_entries():
+    """Phase β.10 Rule #35b live canary: when the worker image bakes the
+    Microsoft-canonical bundle, the parser must surface entries > 0.
+    Validates wrapper-strip + EFI_SIGNATURE_LIST walk against the actual
+    bundle — silent zero-entry would mean every PE ships dbx_revoked=False
+    even when the bundle is provisioned."""
+    # Use a serial we know isn't in the bundle (the test asserts
+    # parse-shape, not match polarity — different bundle revisions
+    # carry different serials).
+    out = match_dbx_revocation(
+        "00000000000000000000000000000001",
+        bundle_path=_BUNDLE_PATH,
+    )
+    assert out is not None, "match_dbx_revocation returned None — bundle unparseable?"
+    assert out["bundle_entries"] > 0, (
+        f"bundle at {_BUNDLE_PATH} parsed but yielded 0 entries — "
+        "wrapper-strip or EFI_SIGNATURE_LIST walk failed silently"
+    )
+    assert out["bundle_path"] == str(_BUNDLE_PATH)

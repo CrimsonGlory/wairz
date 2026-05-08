@@ -140,6 +140,44 @@ async def lifespan(app: FastAPI):
             exc_info=True,
         )
 
+    # Probe the offline UEFI Secure Boot DBX bundle (Phase β.10 / Rule #37
+    # candidate). The bundle is baked into the image at build time
+    # (backend/Dockerfile + backend/ms-anchors/dbxupdate.bin); the worker's
+    # match_dbx_revocation reads via $DBX_BUNDLE_PATH. Logging presence +
+    # size + mtime at boot lets operators confirm the bundle survived the
+    # build and the cron-refresh schedule held. Anything other than
+    # "bundle present, size > 0" silently degrades dbx_revoked → False
+    # for every PE — surface the state so it's not invisible.
+    try:
+        import logging
+        from datetime import datetime, timezone
+        from pathlib import Path
+        bundle_path_str = os.environ.get(
+            "DBX_BUNDLE_PATH", "/opt/wairz/dbxupdate.bin",
+        )
+        bundle_path = Path(bundle_path_str)
+        log = logging.getLogger(__name__)
+        if bundle_path.is_file():
+            stat = bundle_path.stat()
+            mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+            log.info(
+                "DBX bundle ready: path=%s size=%d mtime=%s",
+                bundle_path_str, stat.st_size, mtime.isoformat(),
+            )
+        else:
+            log.warning(
+                "DBX bundle NOT FOUND at path=%s — every PE will report "
+                "dbx_revoked=False (no offline revocation data). Rebuild "
+                "the worker image (CLAUDE.md Rule #8) or run "
+                "scripts/refresh-ms-roots.sh.",
+                bundle_path_str,
+            )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning(
+            "DBX bundle probe failed unexpectedly", exc_info=True,
+        )
+
     yield
 
     # Shutdown Redis

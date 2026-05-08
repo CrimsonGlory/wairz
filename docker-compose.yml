@@ -196,6 +196,10 @@ services:
       UART_BRIDGE_HOST: host.docker.internal
       UART_BRIDGE_PORT: "9999"
       DOCKER_HOST: tcp://docker-proxy:2375
+      # Phase β.10 (Rule #37 candidate): offline UEFI Secure Boot revocation
+      # bundle, baked into the worker+backend image at build (see backend/
+      # Dockerfile and backend/ms-anchors/). NO network fetch at scan time.
+      DBX_BUNDLE_PATH: /opt/wairz/dbxupdate.bin
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -257,6 +261,9 @@ services:
       FUZZING_IMAGE: wairz-fuzzing
       SYSTEM_EMULATION_IMAGE: wairz-system-emulation
       DOCKER_HOST: tcp://docker-proxy:2375
+      # Phase β.10: see backend service block above for the offline-trust-anchor
+      # discipline rationale.
+      DBX_BUNDLE_PATH: /opt/wairz/dbxupdate.bin
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
