@@ -117,6 +117,20 @@ async def _run_hardware_firmware_detection_safe(
     except Exception:
         logger.warning("Hardware firmware graph build failed", exc_info=True)
 
+    # Phase γ.4 — auto-walk Windows registry hives in the extracted tree.
+    # Rule #36 no-execute discipline: regipy parses hives AS DATA; nothing
+    # in wairz invokes regedit / .reg apply / scriptable action paths.
+    # Runs AFTER detection + graph build so the walker's
+    # HardwareFirmwareBlob promotions (category="registry_hive") can
+    # update existing rows that detection might have created with a
+    # different category. Same fire-and-forget shape as the detection
+    # call above — owns its own session, swallows exceptions, logs.
+    try:
+        from app.services.registry_hive_walker import auto_walk_firmware_safe
+        await auto_walk_firmware_safe(firmware_id)
+    except Exception:
+        logger.warning("Registry hive auto-walk failed", exc_info=True)
+
 
 def _analyze_filesystem(result: UnpackResult, extraction_dir: str) -> None:
     """Post-extraction analysis: find root, detect arch/OS/kernel."""

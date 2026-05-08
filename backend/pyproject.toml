@@ -51,6 +51,17 @@ dependencies = [
     "signify>=0.7",
     "asn1crypto>=1.5",
     "uefi-firmware>=1.11",
+    # ── Phase γ: registry hive walking ─────────────────────────
+    # regipy — pure-Python read-only Windows registry hive walker.
+    # Persona-E #13 registry persistence + driver matrix view. We
+    # picked regipy over pyhivex (libhivex Python binding): regipy
+    # is more mature for read-only walks, has fewer C-extension
+    # build dependencies, and matches our async-then-executor
+    # discipline (Rule #5) without ABI surprises. Rule #36 no-execute
+    # discipline applies — regipy parses the hive AS DATA; nothing in
+    # wairz invokes regedit, .reg apply, or any scriptable
+    # registry-modification action.
+    "regipy>=4.0,<5",
 ]
 
 [project.scripts]
