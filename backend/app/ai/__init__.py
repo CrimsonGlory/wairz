@@ -21,7 +21,9 @@ from app.ai.tools.uart import register_uart_tools
 from app.ai.tools.uefi import register_uefi_tools
 from app.ai.tools.vulhunt import register_vulhunt_tools
 from app.ai.tools.windows_archive import register_windows_archive_tools
+from app.ai.tools.windows_driver import register_windows_driver_tools
 from app.ai.tools.windows_pe_signature import register_windows_pe_signature_tools
+from app.ai.tools.windows_registry import register_windows_registry_tools
 
 
 def create_tool_registry() -> ToolRegistry:
@@ -50,4 +52,6 @@ def create_tool_registry() -> ToolRegistry:
     register_taint_llm_tools(registry)
     register_windows_archive_tools(registry)
     register_windows_pe_signature_tools(registry)
+    register_windows_registry_tools(registry)
+    register_windows_driver_tools(registry)
     return registry
