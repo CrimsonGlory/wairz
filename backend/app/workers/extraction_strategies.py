@@ -26,10 +26,17 @@ from typing import TypeAlias
 
 from app.services.format_detection import DetectedFormat
 from app.workers.unpack import unpack_firmware
+from app.workers.unpack_cab import unpack_cab
 from app.workers.unpack_common import UnpackResult
+from app.workers.unpack_driver_package import unpack_driver_package
 from app.workers.unpack_iso9660 import unpack_iso9660
+from app.workers.unpack_msi import unpack_msi
+from app.workers.unpack_msix import unpack_msix
+from app.workers.unpack_msu import unpack_msu
 from app.workers.unpack_no_handler import unpack_no_handler
+from app.workers.unpack_psf import unpack_psf
 from app.workers.unpack_qnx_ifs import unpack_qnx_ifs
+from app.workers.unpack_vhdx import unpack_vhdx
 from app.workers.unpack_wim import unpack_wim
 from app.workers.unpack_windows_installer_iso import unpack_windows_installer_iso
 
@@ -64,6 +71,14 @@ STRATEGIES: dict[DetectedFormat, Strategy] = {
     DetectedFormat.WIM_ARCHIVE: unpack_wim,           # Phase 2 handler 2 — wimlib-imagex (FULL)
     DetectedFormat.WINDOWS_INSTALLER_ISO: unpack_windows_installer_iso,  # Phase 2 handler 3 — recursive ISO+WIM (FULL)
     DetectedFormat.QNX_IFS: unpack_qnx_ifs,           # Phase 2 handler 5 — ifsdump (jtang613/qnx_dumpers, PARTIAL)
+    # ── Windows ecosystem god-mode coverage (Phase α handlers 1-7) ───
+    DetectedFormat.WINDOWS_CAB: unpack_cab,                           # α handler 1 — cabextract (FULL)
+    DetectedFormat.WINDOWS_MSI: unpack_msi,                           # α handler 2 — msitools msiextract (FULL)
+    DetectedFormat.WINDOWS_MSIX: unpack_msix,                         # α handler 3 — 7z + AppxManifest gate (FULL)
+    DetectedFormat.WINDOWS_MSU: unpack_msu,                           # α handler 4 — recursive CAB-of-CABs (FULL)
+    DetectedFormat.WINDOWS_PSF: unpack_psf,                           # α handler 5 — magic stub, gated reconstruct (PARTIAL)
+    DetectedFormat.WINDOWS_DRIVER_PACKAGE: unpack_driver_package,     # α handler 6 — cabextract + INF/SYS/CAT class (FULL)
+    DetectedFormat.WINDOWS_VHDX: unpack_vhdx,                         # α handler 7 — qemu-img convert vhdx → raw (FULL)
     DetectedFormat.UNKNOWN: _DEFAULT,                 # let unblob have a try
     DetectedFormat.ACRONIS_BACKUP: unpack_no_handler,
 }

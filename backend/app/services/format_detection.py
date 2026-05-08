@@ -62,6 +62,14 @@ class DetectedFormat(str, Enum):
     ISO_9660 = "iso_9660"                          # CD001 at offset 0x8001
     TAR_ARCHIVE = "tar_archive"                    # 'ustar' at offset 0x101 (POSIX)
     ZIP_ARCHIVE = "zip_archive"                    # Generic PK\x03\x04
+    # ── Windows ecosystem god-mode coverage (Phase α handlers 1-7) ───
+    WINDOWS_CAB = "windows_cab"                    # MSCF magic at offset 0 (Cabinet)
+    WINDOWS_MSI = "windows_msi"                    # OLE2 CFB magic + .msi/.msp filename
+    WINDOWS_MSIX = "windows_msix"                  # ZIP + AppxManifest.xml or AppxBundleManifest.xml
+    WINDOWS_MSU = "windows_msu"                    # MSCF magic + .msu filename (CAB-of-CABs)
+    WINDOWS_PSF = "windows_psf"                    # PA30/PA19/PA17 magic at offset 0 (Express delta)
+    WINDOWS_VHDX = "windows_vhdx"                  # 'vhdxfile' magic at offset 0 (Hyper-V/WSL2)
+    WINDOWS_DRIVER_PACKAGE = "windows_driver_package"  # MSCF + INF/SYS/CAT (operator-hint for Phase α)
     UNKNOWN = "unknown"
 
 
@@ -106,6 +114,17 @@ EXTRACTION_CAPABILITY: dict[DetectedFormat, ExtractionCapability] = {
     DetectedFormat.WIM_ARCHIVE: ExtractionCapability.FULL,
     DetectedFormat.ACRONIS_BACKUP: ExtractionCapability.NONE,
     DetectedFormat.QNX_IFS: ExtractionCapability.PARTIAL,
+    # Windows ecosystem god-mode coverage (Phase α handlers 1-7).
+    # PSF is PARTIAL because Phase α ships a magic-validation stub —
+    # full reconstruction needs a baseline + the gated psfextract
+    # toolchain (Phase α.6 ARG INCLUDE_PSF=1).
+    DetectedFormat.WINDOWS_CAB: ExtractionCapability.FULL,
+    DetectedFormat.WINDOWS_MSI: ExtractionCapability.FULL,
+    DetectedFormat.WINDOWS_MSIX: ExtractionCapability.FULL,
+    DetectedFormat.WINDOWS_MSU: ExtractionCapability.FULL,
+    DetectedFormat.WINDOWS_PSF: ExtractionCapability.PARTIAL,
+    DetectedFormat.WINDOWS_VHDX: ExtractionCapability.FULL,
+    DetectedFormat.WINDOWS_DRIVER_PACKAGE: ExtractionCapability.FULL,
     DetectedFormat.UNKNOWN: ExtractionCapability.NONE,
 }
 
@@ -139,6 +158,26 @@ CAPABILITY_NOTES: dict[DetectedFormat, str] = {
     # ISO_9660 has no note — capability is FULL via 7z (Phase 2 handler 1).
     # Inner-WIM caveats live on WINDOWS_INSTALLER_ISO's note instead, which
     # is the format users actually need a workaround for.
+    # WINDOWS_CAB / MSI / MSIX / MSU / VHDX / DRIVER_PACKAGE have no notes
+    # — capabilities are FULL via Phase α handlers 1-4, 6, 7.
+    DetectedFormat.WINDOWS_PSF: (
+        "Windows PSF (Express install delta) detected. Phase α ships a "
+        "magic-validation stub — full reconstruction requires a baseline "
+        "file and the gated psfextract toolchain (Phase α.6 Dockerfile "
+        "ARG INCLUDE_PSF=1). The unpack_psf worker preserves the .psf at "
+        "the upload path; the windows_update MCP tools (Phase β) read "
+        "the PSF header to identify the target binary's RSDS GUID, "
+        "which the operator can use to locate the baseline. PSF deltas "
+        "embedded in MSU packages are auto-detected by unpack_msu."
+    ),
+    DetectedFormat.WINDOWS_DRIVER_PACKAGE: (
+        "Windows driver package detected via operator hint. Phase α "
+        "auto-detection routes generic CABs to WINDOWS_CAB; if the "
+        "uploaded CAB is a driver package (INF + SYS + CAT bundle), "
+        "use the windows_archive MCP tool `reclassify_as_driver_package` "
+        "(Phase α.4) to re-route. Auto-detection by CAB-content peek "
+        "is a Phase β enhancement."
+    ),
 }
 
 
@@ -200,6 +239,41 @@ def detect_format(path: Path | str) -> DetectedFormat:
     # ── 2. WIM archive (Windows Imaging Format) ──────────────────────
     if head.startswith(b"MSWIM\x00\x00\x00"):
         return DetectedFormat.WIM_ARCHIVE
+
+    # ── 2b. VHDX (Hyper-V / WSL2 virtual disk) ───────────────────────
+    # Magic ``vhdxfile`` at offset 0. Verified per Microsoft MS-VHDX spec.
+    # Distinct from legacy VHD (cookie ``conectix`` at last 512-byte block);
+    # this detector handles VHDX only — VHD support is a future enum value.
+    if head.startswith(b"vhdxfile"):
+        return DetectedFormat.WINDOWS_VHDX
+
+    # ── 2c. PSF (Patch Storage File / Express install delta) ─────────
+    # Magic ``PA30`` (Win10/11), ``PA19`` (Win7/8), ``PA17`` (earliest).
+    # Persona-E #1 — without PSF detection, MSU contents are ~80% opaque.
+    if len(head) >= 4 and head[:4] in (b"PA30", b"PA19", b"PA17"):
+        return DetectedFormat.WINDOWS_PSF
+
+    # ── 2d. CAB family (CAB / MSU / driver package) ──────────────────
+    # MSCF magic at offset 0. Subtype routing uses filename heuristics
+    # for Phase α; CAB-content peek for driver-package auto-detection
+    # is a Phase β enhancement (Persona-D #4 deferred).
+    if head.startswith(b"MSCF"):
+        name_lower = p.name.lower()
+        if name_lower.endswith(".msu"):
+            return DetectedFormat.WINDOWS_MSU
+        return DetectedFormat.WINDOWS_CAB
+
+    # ── 2e. MSI installer (OLE2 CFB + .msi/.msp filename) ────────────
+    # OLE2 magic ``D0 CF 11 E0 A1 B1 1A E1`` is shared with Office DOC/
+    # XLS/PPT — disambiguate via filename. The `unpack_msi` worker's
+    # msiinfo probe is the authoritative validator at extraction time.
+    if (
+        len(head) >= 8
+        and head[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+    ):
+        name_lower = p.name.lower()
+        if name_lower.endswith((".msi", ".msp")):
+            return DetectedFormat.WINDOWS_MSI
 
     # ── 3. QNX IFS startup header ────────────────────────────────────
     # Per QNX docs, the optional startup header begins with the 4-byte
@@ -316,5 +390,17 @@ def _classify_zip(path: Path) -> DetectedFormat | None:
         for n in names
     ):
         return DetectedFormat.WINDOWS_INSTALLER_ISO
+
+    # MSIX / AppX / MSIXBundle — ZIP container with AppxManifest.xml or
+    # AppxBundleManifest.xml at the root or under AppxMetadata/.
+    # Persona-E #7+#8 — block-map verification + multi-package signing
+    # chain validation are MCP-tool jobs (Phase α.4 / Phase β).
+    msix_signal_files = {
+        "AppxManifest.xml",
+        "AppxBundleManifest.xml",
+        "AppxMetadata/AppxBundleManifest.xml",
+    }
+    if names & msix_signal_files:
+        return DetectedFormat.WINDOWS_MSIX
 
     return None
