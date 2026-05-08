@@ -12,6 +12,12 @@ Acronis .tibx / .tib has no published magic-byte signature
 (KB 63498); the detection code falls back to extension-based
 classification — the test exercises that fallback explicitly per the
 Rule #19 evidence-first discipline.
+
+Phase β.5 :func:`detect_pe_arch_view` is exercised separately at the
+bottom of this file. lief is mocked at the ``lief.PE.parse`` boundary
+so the tests don't need real ARM64EC/X PE fixtures; the contract is
+that the predicates ``is_arm64x`` / ``is_arm64ec`` map to the canonical
+arch_view dict shape.
 """
 from __future__ import annotations
 
@@ -19,6 +25,7 @@ import struct
 import tarfile
 import zipfile
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -28,6 +35,7 @@ from app.services.format_detection import (
     DetectedFormat,
     ExtractionCapability,
     detect_format,
+    detect_pe_arch_view,
 )
 
 
@@ -243,3 +251,211 @@ def test_capability_notes_only_for_partial_or_none():
                 f"{fmt} has a capability note but capability={cap}; "
                 "notes should be reserved for partial/none formats"
             )
+
+
+# ---------------------------------------------------------------------------
+# Phase β.5 — detect_pe_arch_view (ARM64EC / ARM64X bimorphic)
+# ---------------------------------------------------------------------------
+
+def _fake_pe_binary(
+    *,
+    is_arm64x: bool = False,
+    is_arm64ec: bool = False,
+    arm64x_fixup_count: int = 0,
+    chpe_redirection_count: int = 0,
+) -> MagicMock:
+    """Build a MagicMock shaped like a lief PE Binary.
+
+    Carries the predicates the detector branches on plus a
+    LoadConfiguration sub-mock with the structures ``_count_*`` helpers
+    walk. Defaults model a single-arch PE (both predicates False, zero
+    counts).
+    """
+    binary = MagicMock(name="lief.PE.Binary")
+    binary.is_arm64x = is_arm64x
+    binary.is_arm64ec = is_arm64ec
+
+    load_config = MagicMock(name="LoadConfiguration")
+
+    # ARM64X dynamic-fixup walker: the helper iterates
+    # load_config.dynamic_relocations -> reloc.fixups -> name "ARM64X..."
+    if arm64x_fixup_count:
+        fixup = MagicMock()
+        type(fixup).__name__ = "DynamicFixupARM64X"
+        reloc = MagicMock()
+        reloc.fixups = [fixup] * arm64x_fixup_count
+        load_config.dynamic_relocations = [reloc]
+    else:
+        load_config.dynamic_relocations = []
+
+    # CHPE redirection walker: load_config.chpe_metadata.redirection_metadata_count.
+    if chpe_redirection_count:
+        chpe = MagicMock()
+        chpe.redirection_metadata_count = chpe_redirection_count
+        load_config.chpe_metadata = chpe
+    else:
+        load_config.chpe_metadata = None
+
+    binary.load_configuration = load_config
+    return binary
+
+
+def test_detect_pe_arch_view_returns_none_for_missing_file(tmp_path: Path):
+    """Non-existent paths return None — never raise."""
+    assert detect_pe_arch_view(tmp_path / "missing.exe") is None
+
+
+def test_detect_pe_arch_view_returns_none_for_non_pe(tmp_path: Path):
+    """A file lief can't parse as PE returns None — never raise.
+
+    No mock here; lief itself returns None / raises on random bytes,
+    and the helper swallows that into None per its contract.
+    """
+    p = tmp_path / "random.bin"
+    p.write_bytes(b"\xff" * 1024)
+    assert detect_pe_arch_view(p) is None
+
+
+def test_detect_pe_arch_view_arm64x_populates_payload(tmp_path: Path):
+    """is_arm64x → arch_view {primary=arm64x, secondary=amd64,
+    divergence_score=count of ARM64X dynamic fixups}."""
+    p = tmp_path / "fake_arm64x.dll"
+    p.write_bytes(b"MZ" + b"\x00" * 64)
+
+    fake = _fake_pe_binary(is_arm64x=True, arm64x_fixup_count=42)
+    with patch("lief.PE.parse", return_value=fake):
+        out = detect_pe_arch_view(p)
+
+    assert out == {
+        "primary": "arm64x",
+        "secondary": "amd64",
+        "divergence_score": 42,
+    }
+
+
+def test_detect_pe_arch_view_arm64x_takes_precedence_over_arm64ec(tmp_path: Path):
+    """When both predicates fire (an ARM64X binary's machine type can
+    be reported as ARM64EC), the X verdict wins — bimorphic surface is
+    the durable signal."""
+    p = tmp_path / "fake_both.dll"
+    p.write_bytes(b"MZ" + b"\x00" * 64)
+
+    fake = _fake_pe_binary(
+        is_arm64x=True,
+        is_arm64ec=True,
+        arm64x_fixup_count=7,
+        chpe_redirection_count=99,
+    )
+    with patch("lief.PE.parse", return_value=fake):
+        out = detect_pe_arch_view(p)
+
+    assert out is not None
+    assert out["primary"] == "arm64x"
+    assert out["secondary"] == "amd64"
+    assert out["divergence_score"] == 7  # ARM64X path wins, not CHPE.
+
+
+def test_detect_pe_arch_view_arm64ec_populates_payload(tmp_path: Path):
+    """is_arm64ec (and not is_arm64x) → arch_view {primary=arm64ec,
+    secondary=x64_abi, divergence_score=CHPE redirection count}."""
+    p = tmp_path / "fake_arm64ec.exe"
+    p.write_bytes(b"MZ" + b"\x00" * 64)
+
+    fake = _fake_pe_binary(is_arm64ec=True, chpe_redirection_count=128)
+    with patch("lief.PE.parse", return_value=fake):
+        out = detect_pe_arch_view(p)
+
+    assert out == {
+        "primary": "arm64ec",
+        "secondary": "x64_abi",
+        "divergence_score": 128,
+    }
+
+
+def test_detect_pe_arch_view_single_arch_returns_none(tmp_path: Path):
+    """Regular ARM64 / AMD64 / I386 PE — both predicates False → None.
+    The column is nullable; NULL is the durable signal for single-arch."""
+    p = tmp_path / "fake_amd64.dll"
+    p.write_bytes(b"MZ" + b"\x00" * 64)
+
+    fake = _fake_pe_binary(is_arm64x=False, is_arm64ec=False)
+    with patch("lief.PE.parse", return_value=fake):
+        assert detect_pe_arch_view(p) is None
+
+
+def test_detect_pe_arch_view_lief_returns_none_yields_none(tmp_path: Path):
+    """lief.PE.parse can return None for malformed PEs — must not raise."""
+    p = tmp_path / "fake_corrupt.dll"
+    p.write_bytes(b"MZ" + b"\x00" * 64)
+
+    with patch("lief.PE.parse", return_value=None):
+        assert detect_pe_arch_view(p) is None
+
+
+def test_detect_pe_arch_view_lief_raises_yields_none(tmp_path: Path):
+    """lief.PE.parse can raise for malformed inputs — must not propagate."""
+    p = tmp_path / "fake_raises.dll"
+    p.write_bytes(b"MZ" + b"\x00" * 64)
+
+    with patch("lief.PE.parse", side_effect=RuntimeError("lief parse boom")):
+        assert detect_pe_arch_view(p) is None
+
+
+def test_detect_pe_arch_view_arm64x_with_no_load_config(tmp_path: Path):
+    """ARM64X predicate True but load_configuration absent → divergence_score=0
+    (defensive — verdict still ships, divergence count just degrades)."""
+    p = tmp_path / "fake_arm64x_noconf.dll"
+    p.write_bytes(b"MZ" + b"\x00" * 64)
+
+    fake = MagicMock()
+    fake.is_arm64x = True
+    fake.is_arm64ec = False
+    fake.load_configuration = None
+    with patch("lief.PE.parse", return_value=fake):
+        out = detect_pe_arch_view(p)
+
+    assert out == {
+        "primary": "arm64x",
+        "secondary": "amd64",
+        "divergence_score": 0,
+    }
+
+
+def test_detect_pe_arch_view_arm64ec_with_no_chpe_metadata(tmp_path: Path):
+    """ARM64EC predicate True but chpe_metadata=None → divergence_score=0."""
+    p = tmp_path / "fake_arm64ec_nochpe.dll"
+    p.write_bytes(b"MZ" + b"\x00" * 64)
+
+    fake = _fake_pe_binary(is_arm64ec=True, chpe_redirection_count=0)
+    with patch("lief.PE.parse", return_value=fake):
+        out = detect_pe_arch_view(p)
+
+    assert out == {
+        "primary": "arm64ec",
+        "secondary": "x64_abi",
+        "divergence_score": 0,
+    }
+
+
+def test_detect_pe_arch_view_payload_serialises_into_jsonb_shape():
+    """Sanity-check the returned dict matches the WindowsPESignature.arch_view
+    column docstring's documented shape (primary, secondary, divergence_score).
+    Catches a future drift where a writer adds or renames a key without
+    updating the model + frontend in lockstep."""
+    fake = _fake_pe_binary(is_arm64ec=True, chpe_redirection_count=3)
+    with patch("lief.PE.parse", return_value=fake):
+        # Use a real file path so the is_file gate passes.
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".exe", delete=False) as fh:
+            fh.write(b"MZ" + b"\x00" * 64)
+            temp_path = Path(fh.name)
+        try:
+            out = detect_pe_arch_view(temp_path)
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+    assert out is not None
+    assert set(out.keys()) == {"primary", "secondary", "divergence_score"}
+    assert out["primary"] in ("arm64x", "arm64ec")
+    assert out["secondary"] in ("amd64", "x64_abi")
+    assert isinstance(out["divergence_score"], int)

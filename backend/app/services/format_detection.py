@@ -23,6 +23,14 @@ proprietary format with no published header signature (per Acronis KB
 63498 — the new tibx replaced the old tib without a public spec); we
 fall back to extension-based detection per CLAUDE.md hard constraint
 on Rule #19 (evidence-first when the magic bytes can't be researched).
+
+PE arch-view detection (Phase β.5): :func:`detect_pe_arch_view` complements
+the magic-byte path with a lief-backed introspection of ARM64EC / ARM64X
+bimorphic markers. It is decoupled from :func:`detect_format` (which runs
+on every upload and must stay lief-free) and called only by
+``authenticode_service.verify_pe_file`` for binaries already classified
+as PE. lief is lazy-imported inside the function for the same reason
+(Rule #30 — keep cheap-detection paths import-cheap).
 """
 from __future__ import annotations
 
@@ -403,4 +411,152 @@ def _classify_zip(path: Path) -> DetectedFormat | None:
     if names & msix_signal_files:
         return DetectedFormat.WINDOWS_MSIX
 
+    return None
+
+
+# ── PE arch-view (ARM64EC / ARM64X bimorphic) ────────────────────────────────
+#
+# Phase β.5. Persona-E #2 + #3: ARM64EC is a Windows 11 emulator-layer ABI
+# where ARM64 native code presents an x64-compatible call surface (the
+# binary's machine type in the PE header is ARM64EC). ARM64X is a true
+# bimorphic image — ARM64 and AMD64 code coexist in one PE, switched at
+# runtime via a CHPE dispatch table; system DLLs in 11-on-ARM use this
+# shape so a single shipped DLL serves both x64 emulation and native ARM64
+# callers. Bug classes can hide in only one half of an ARM64X binary —
+# triaging without the discriminator means a vulnerability lives in the
+# AMD64 path while the analyst reads the ARM64 path (or vice versa). The
+# arch_view JSONB on ``windows_pe_signatures`` carries this discriminator.
+#
+# Output shape mirrors the ``WindowsPESignature.arch_view`` column docstring:
+#   {
+#     "primary":          "arm64x" | "arm64ec",
+#     "secondary":        "amd64"  | "x64_abi",
+#     "divergence_score": int,    # ARM64X: # of ARM64X dynamic-fixup
+#                                 #   relocations (proxy for amount of
+#                                 #   bimorphic code-flow surface).
+#                                 # ARM64EC: # of CHPE redirection
+#                                 #   metadata entries (proxy for
+#                                 #   x64↔ARM64EC dispatch surface).
+#                                 # 0 when the underlying load-config /
+#                                 #   CHPE structures aren't readable.
+#   }
+# Single-arch PEs (regular ARM64 / AMD64 / I386 / etc.) return ``None`` —
+# the column is nullable, and ``arch_view IS NULL`` is the durable signal
+# for "single-architecture image, no bimorphic discriminator needed".
+
+
+# Mapping from is_arm64ec / is_arm64x predicates to arch_view payload.
+# Documented as a constant so the test file can iterate the discriminator
+# table verbatim and the writer can stay declarative.
+_ARM64X_PAYLOAD: dict[str, str] = {
+    "primary": "arm64x",
+    "secondary": "amd64",
+}
+_ARM64EC_PAYLOAD: dict[str, str] = {
+    "primary": "arm64ec",
+    "secondary": "x64_abi",
+}
+
+
+def _count_arm64x_dynamic_fixups(load_configuration) -> int:
+    """Count ARM64X dynamic-fixup relocations on a parsed PE.
+
+    Each ARM64X dynamic-relocation table entry carries a list of fixups;
+    we count fixups whose class name matches the ARM64X family. Defensive:
+    any attribute-miss yields 0 so the verdict still ships even if the
+    LoadConfiguration shape varies between lief versions.
+    """
+    try:
+        relocs = getattr(load_configuration, "dynamic_relocations", None) or []
+    except Exception:
+        return 0
+    count = 0
+    for reloc in relocs:
+        try:
+            fixups = getattr(reloc, "fixups", None) or []
+            for fixup in fixups:
+                cls = type(fixup).__name__
+                if "ARM64X" in cls:
+                    count += 1
+        except Exception:
+            continue
+    return count
+
+
+def _count_arm64ec_redirections(load_configuration) -> int:
+    """Count CHPE redirection-metadata entries on a parsed PE.
+
+    The CHPE metadata structure carries a ``redirection_metadata_count``
+    that records how many x64↔ARM64EC dispatch entries the binary
+    declares — a proxy for the size of the interop surface. Defensive
+    against missing attributes; 0 on any miss.
+    """
+    try:
+        chpe = getattr(load_configuration, "chpe_metadata", None)
+        if chpe is None:
+            return 0
+        return int(getattr(chpe, "redirection_metadata_count", 0) or 0)
+    except Exception:
+        return 0
+
+
+def detect_pe_arch_view(path: Path | str) -> dict | None:
+    """Inspect a PE binary for ARM64EC / ARM64X bimorphic markers.
+
+    Returns a dict ``{primary, secondary, divergence_score}`` for binaries
+    whose ``is_arm64x`` or ``is_arm64ec`` predicates are true; ``None``
+    for single-arch PEs and for non-PE / unreadable inputs.
+
+    Used by :func:`app.services.authenticode_service.verify_pe_file` —
+    the value lands on the ``WindowsPESignature.arch_view`` JSONB column
+    (NULL for single-arch). The Phase β.4 verdict shape gains an
+    ``arch_view`` field so the boundary between PE introspection and
+    Authenticode validation stays drift-detectable (the
+    ``test_verdict_maps_to_windows_pe_signature_columns`` shape check).
+
+    lief is imported lazily because (a) format_detection's hot path
+    (:func:`detect_format`) runs on every upload and stays lief-free, and
+    (b) the only caller of this function — the Authenticode validator —
+    runs in the worker container after the upload landed (Rule #30
+    lazy-import discipline applies).
+    """
+    p = Path(path)
+    if not p.is_file():
+        return None
+
+    # Lazy import so detect_format()'s hot path stays lief-free.
+    try:
+        import lief  # noqa: PLC0415 — see docstring.
+    except Exception:
+        logger.debug("lief unavailable; skipping arch_view detection")
+        return None
+
+    try:
+        binary = lief.PE.parse(str(p))
+    except Exception:
+        logger.debug("lief PE parse failed for %s", p, exc_info=True)
+        return None
+    if binary is None:
+        return None
+
+    load_configuration = getattr(binary, "load_configuration", None)
+
+    # is_arm64x is the strongest bimorphic signal — a binary actively
+    # carrying ARM64X dynamic-fixup relocations has both code paths
+    # cohabiting. Check before is_arm64ec because the ARM64X machine
+    # type can be reported as ARM64 or ARM64EC depending on which half
+    # the loader is preferring; the predicate is the authoritative gate.
+    if getattr(binary, "is_arm64x", False):
+        return {
+            **_ARM64X_PAYLOAD,
+            "divergence_score": _count_arm64x_dynamic_fixups(load_configuration),
+        }
+
+    if getattr(binary, "is_arm64ec", False):
+        return {
+            **_ARM64EC_PAYLOAD,
+            "divergence_score": _count_arm64ec_redirections(load_configuration),
+        }
+
+    # Single-arch PE — caller persists arch_view=NULL.
     return None

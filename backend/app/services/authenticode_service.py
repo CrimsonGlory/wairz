@@ -40,6 +40,8 @@ from signify.authenticode import (
     AuthenticodeVerificationResult,
 )
 
+from app.services.format_detection import detect_pe_arch_view
+
 logger = logging.getLogger(__name__)
 
 
@@ -65,6 +67,12 @@ class AuthenticodeVerdict:
     Maps 1:1 onto the WindowsPESignature columns. The background runner
     in Phase β.4 background processing constructs the row from this
     dataclass + the blob_id FK.
+
+    ``arch_view`` (Phase β.5) carries the ARM64EC / ARM64X bimorphic
+    discriminator from :func:`format_detection.detect_pe_arch_view`. It
+    is ``None`` for single-arch PEs (the column on
+    ``windows_pe_signatures`` is nullable; ``arch_view IS NULL`` is the
+    durable signal that the PE is single-arch).
     """
 
     signed: bool
@@ -77,6 +85,7 @@ class AuthenticodeVerdict:
     signed_at: datetime | None = None
     signatures_count: int = 0
     chain_json: dict[str, Any] = field(default_factory=dict)
+    arch_view: dict[str, Any] | None = None
     error: str | None = None
 
 
@@ -216,14 +225,24 @@ def verify_pe_file(path: str | Path) -> AuthenticodeVerdict:
             error=f"PE file not found: {p}",
         )
 
+    # Phase β.5: detect ARM64EC / ARM64X bimorphic discriminator. lief is
+    # a separate parser from signify, so the call is independent of the
+    # Authenticode result — we attach the discriminator to every verdict
+    # (including unsigned / parse-error verdicts) so the column reliably
+    # tracks the architecture even when the cert chain is unreadable.
+    arch_view = detect_pe_arch_view(p)
+
     try:
         with open(p, "rb") as fh:
             af = AuthenticodeFile.from_stream(fh, file_name=p.name)
-            return _verify_with_open_file(af)
+            verdict = _verify_with_open_file(af)
+            verdict.arch_view = arch_view
+            return verdict
     except OSError as exc:
         return AuthenticodeVerdict(
             signed=False,
             chain_status="unknown",
+            arch_view=arch_view,
             error=f"PE read failed: {exc}",
         )
     except Exception as exc:
@@ -233,6 +252,7 @@ def verify_pe_file(path: str | Path) -> AuthenticodeVerdict:
         return AuthenticodeVerdict(
             signed=False,
             chain_status="unknown",
+            arch_view=arch_view,
             error=f"PE parse failed: {exc.__class__.__name__}: {exc}",
         )
 

@@ -299,6 +299,66 @@ def _stamp_firmware_authenticode_chain_result(payload: dict) -> dict:
     return payload
 
 
+# ── windows_pe_signatures.arch_view (Phase β.5) ──────────────────────────────
+#
+# Canonical shape: dict carrying the ARM64EC / ARM64X bimorphic
+# discriminator for one PE binary. ``None`` for single-arch PEs (the
+# durable signal that no bimorphic split exists). Written by
+# :func:`format_detection.detect_pe_arch_view` via the Phase β.4 +
+# β.5 ``AuthenticodeVerdict.arch_view`` field, persisted by the Phase
+# β.7 background runner that maps the verdict onto a
+# ``WindowsPESignature`` row.
+#
+# Canonical shape (Phase β.5):
+#
+#   {
+#     "schema_version": 1,
+#     "primary":   "arm64x" | "arm64ec",
+#     "secondary": "amd64"  | "x64_abi",
+#     "divergence_score": int,
+#   }
+#
+# Three consumers — schema_version stamping per Rule #35c:
+# 1. ``authenticode_service`` (writer; Phase β.4 / β.5 verdict path).
+# 2. ``windows_pe_signature.py`` MCP category (Phase β.7
+#    ``detect_pe_arch_view`` MCP tool returns the column verbatim).
+# 3. ``PeHardeningPage.tsx`` frontend renders bimorphic chips off this
+#    column (Phase β.6).
+WINDOWS_PE_SIGNATURES_ARCH_VIEW_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_pe_signatures_arch_view(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``WindowsPESignature.arch_view``.
+
+    ``None`` is preserved — semantic load is "single-arch PE; no
+    bimorphic discriminator". Wrong-typed values (a stray list or a
+    string) collapse to ``None`` (treat as "no usable arch_view"; the
+    next verdict run will overwrite). Distinct from
+    ``device_metadata`` because the column carries semantic ``None``
+    meaning, not "no metadata yet".
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_windows_pe_signatures_arch_view(payload: dict | None) -> dict | None:
+    """Stamp the schema_version onto a writer payload, preserving the
+    null-meaning contract.
+
+    Returns ``None`` when ``payload`` is ``None`` or empty (writer's
+    "single-arch / clear" semantic). For non-empty dicts, mutates-in-
+    place and returns the same dict with the current schema version
+    stamped at ``payload["schema_version"]``. Idempotent — re-stamping
+    a payload that already has the current version is a no-op.
+    """
+    if not payload:
+        return None
+    payload["schema_version"] = WINDOWS_PE_SIGNATURES_ARCH_VIEW_SCHEMA_VERSION
+    return payload
+
+
 # ── fuzzing_campaigns.config ──────────────────────────────────────────────────
 #
 # Canonical shape: ``dict`` of AFL++ campaign configuration (timeout,

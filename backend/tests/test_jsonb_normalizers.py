@@ -28,6 +28,7 @@ from app.services.jsonb_normalizers import (
     FIRMWARE_BINARY_INFO_SCHEMA_VERSION,
     FIRMWARE_DEVICE_METADATA_SCHEMA_VERSION,
     FIRMWARE_WINDOWS_ARTIFACTS_SCHEMA_VERSION,
+    WINDOWS_PE_SIGNATURES_ARCH_VIEW_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
     CRA_REQUIREMENT_RESULTS_FINDING_IDS_SCHEMA_VERSION,
@@ -60,6 +61,7 @@ from app.services.jsonb_normalizers import (
     _normalize_sbom_components_metadata,
     _stamp_analysis_cache_result,
     _stamp_attack_surface_entries_score_breakdown,
+    _normalize_windows_pe_signatures_arch_view,
     _stamp_firmware_authenticode_chain_result,
     _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
@@ -67,6 +69,7 @@ from app.services.jsonb_normalizers import (
     _stamp_fuzzing_campaigns_config,
     _stamp_fuzzing_campaigns_stats,
     _stamp_hardware_firmware_blobs_metadata,
+    _stamp_windows_pe_signatures_arch_view,
 )
 
 
@@ -762,3 +765,86 @@ def test_stamp_firmware_authenticode_chain_result_idempotent():
 
 def test_firmware_authenticode_chain_result_schema_version_constant():
     assert FIRMWARE_AUTHENTICODE_CHAIN_RESULT_SCHEMA_VERSION == 1
+
+
+# ── _normalize_windows_pe_signatures_arch_view (Phase β.5) ───────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical ARM64X shape — bimorphic ARM64 + AMD64 with measured
+        # divergence count.
+        ({"schema_version": 1, "primary": "arm64x", "secondary": "amd64",
+          "divergence_score": 42},
+         {"schema_version": 1, "primary": "arm64x", "secondary": "amd64",
+          "divergence_score": 42}),
+        # Canonical ARM64EC shape — x64-ABI ARM64 with redirection count.
+        ({"schema_version": 1, "primary": "arm64ec", "secondary": "x64_abi",
+          "divergence_score": 128},
+         {"schema_version": 1, "primary": "arm64ec", "secondary": "x64_abi",
+          "divergence_score": 128}),
+        # Empty dict — preserved (writer will collapse via _stamp).
+        ({}, {}),
+        # None — durable signal for "single-arch PE; no bimorphic split".
+        # Distinct from other JSONB columns that coerce None → {}.
+        (None, None),
+        # Wrong type — list — coerced to None (no usable arch_view).
+        ([{"primary": "arm64x"}], None),
+        # Wrong type — string — coerced to None.
+        ("arm64x", None),
+        # Wrong type — int — coerced to None.
+        (42, None),
+    ],
+)
+def test_normalize_windows_pe_signatures_arch_view(value, expected):
+    assert _normalize_windows_pe_signatures_arch_view(value) == expected
+
+
+def test_normalize_windows_pe_signatures_arch_view_idempotent():
+    canonical = {"schema_version": 1, "primary": "arm64x",
+                 "secondary": "amd64", "divergence_score": 7}
+    once = _normalize_windows_pe_signatures_arch_view(canonical)
+    twice = _normalize_windows_pe_signatures_arch_view(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_pe_signatures_arch_view_adds_version():
+    payload = {"primary": "arm64ec", "secondary": "x64_abi",
+               "divergence_score": 3}
+    out = _stamp_windows_pe_signatures_arch_view(payload)
+    assert out is not None
+    assert out["schema_version"] == WINDOWS_PE_SIGNATURES_ARCH_VIEW_SCHEMA_VERSION
+    assert out["primary"] == "arm64ec"
+    assert out["secondary"] == "x64_abi"
+    assert out["divergence_score"] == 3
+
+
+def test_stamp_windows_pe_signatures_arch_view_idempotent():
+    payload = {"primary": "arm64x", "secondary": "amd64", "divergence_score": 1}
+    once = _stamp_windows_pe_signatures_arch_view(payload)
+    twice = _stamp_windows_pe_signatures_arch_view(once)
+    assert once == twice
+    assert once["schema_version"] == WINDOWS_PE_SIGNATURES_ARCH_VIEW_SCHEMA_VERSION
+
+
+def test_stamp_windows_pe_signatures_arch_view_none_in_none_out():
+    """None payload preserves the "single-arch PE" semantic."""
+    assert _stamp_windows_pe_signatures_arch_view(None) is None
+
+
+def test_stamp_windows_pe_signatures_arch_view_empty_in_none_out():
+    """Empty dict collapses to None — writer's clear / single-arch semantic."""
+    assert _stamp_windows_pe_signatures_arch_view({}) is None
+
+
+def test_stamp_windows_pe_signatures_arch_view_mutates_input():
+    """Documents the mutation contract — writers may rely on it."""
+    payload = {"primary": "arm64x", "secondary": "amd64", "divergence_score": 1}
+    out = _stamp_windows_pe_signatures_arch_view(payload)
+    assert out is payload  # same dict object
+    assert "schema_version" in payload
+
+
+def test_windows_pe_signatures_arch_view_schema_version_constant():
+    assert WINDOWS_PE_SIGNATURES_ARCH_VIEW_SCHEMA_VERSION == 1

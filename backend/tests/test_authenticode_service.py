@@ -240,6 +240,116 @@ def test_verify_pe_file_explain_verify_raises(tmp_path: Path):
     assert "verify pipeline crashed" in (out.error or "")
 
 
+# ── arch_view plumbing (Phase β.5) ────────────────────────────────────────
+
+
+def test_verify_pe_file_populates_arch_view_from_detector(tmp_path: Path):
+    """β.5: verify_pe_file must call detect_pe_arch_view and copy the
+    result onto the verdict's arch_view field, irrespective of signing
+    state. The arch_view persists onto WindowsPESignature.arch_view JSONB.
+    """
+    pe_file = tmp_path / "arm64x.dll"
+    pe_file.write_bytes(b"MZ" + b"\x00" * 100)
+
+    fake_af = MagicMock()
+    fake_af.iter_signatures.return_value = iter([])  # unsigned
+
+    fake_arch_view = {
+        "primary": "arm64x",
+        "secondary": "amd64",
+        "divergence_score": 17,
+    }
+
+    with patch(
+        "app.services.authenticode_service.AuthenticodeFile.from_stream",
+        return_value=fake_af,
+    ), patch(
+        "app.services.authenticode_service.detect_pe_arch_view",
+        return_value=fake_arch_view,
+    ) as mock_detect:
+        out = verify_pe_file(pe_file)
+
+    mock_detect.assert_called_once()
+    assert out.arch_view == fake_arch_view
+    # Unsigned PE — arch_view still ships.
+    assert out.signed is False
+
+
+def test_verify_pe_file_arch_view_none_on_single_arch(tmp_path: Path):
+    """Single-arch PEs propagate arch_view=None onto the verdict — the
+    column is nullable, NULL is the durable single-arch signal."""
+    pe_file = tmp_path / "amd64.dll"
+    pe_file.write_bytes(b"MZ" + b"\x00" * 100)
+
+    fake_af = MagicMock()
+    fake_af.iter_signatures.return_value = iter([])
+
+    with patch(
+        "app.services.authenticode_service.AuthenticodeFile.from_stream",
+        return_value=fake_af,
+    ), patch(
+        "app.services.authenticode_service.detect_pe_arch_view",
+        return_value=None,
+    ):
+        out = verify_pe_file(pe_file)
+
+    assert out.arch_view is None
+
+
+def test_verify_pe_file_arch_view_attached_when_pe_read_fails(tmp_path: Path):
+    """When signify can't open the PE (OSError), the verdict still ships
+    the arch_view if lief could read it — the two parsers are independent."""
+    pe_file = tmp_path / "weird.exe"
+    pe_file.write_bytes(b"MZ" + b"\x00" * 100)
+
+    fake_arch_view = {
+        "primary": "arm64ec",
+        "secondary": "x64_abi",
+        "divergence_score": 5,
+    }
+
+    with patch(
+        "app.services.authenticode_service.AuthenticodeFile.from_stream",
+        side_effect=OSError("simulated read failure"),
+    ), patch(
+        "app.services.authenticode_service.detect_pe_arch_view",
+        return_value=fake_arch_view,
+    ):
+        out = verify_pe_file(pe_file)
+
+    assert out.signed is False
+    assert out.chain_status == "unknown"
+    assert out.arch_view == fake_arch_view
+    assert "PE read failed" in (out.error or "")
+
+
+def test_verify_pe_file_arch_view_attached_when_signify_parse_fails(tmp_path: Path):
+    """When signify raises a non-OSError parse error, the arch_view still
+    rides on the verdict — independent parsers, independent failure modes."""
+    pe_file = tmp_path / "corrupt.exe"
+    pe_file.write_bytes(b"MZ" + b"\x00" * 100)
+
+    fake_arch_view = {
+        "primary": "arm64x",
+        "secondary": "amd64",
+        "divergence_score": 0,
+    }
+
+    with patch(
+        "app.services.authenticode_service.AuthenticodeFile.from_stream",
+        side_effect=RuntimeError("malformed signature blob"),
+    ), patch(
+        "app.services.authenticode_service.detect_pe_arch_view",
+        return_value=fake_arch_view,
+    ):
+        out = verify_pe_file(pe_file)
+
+    assert out.signed is False
+    assert out.chain_status == "unknown"
+    assert out.arch_view == fake_arch_view
+    assert "PE parse failed" in (out.error or "")
+
+
 # ── AuthenticodeVerdict shape contract ────────────────────────────────────
 
 
@@ -256,7 +366,7 @@ def test_verdict_maps_to_windows_pe_signature_columns():
     direct_mapped = {
         "signed", "chain_status", "signer_subject", "signer_issuer",
         "leaf_serial", "sig_hash_algo", "tsa_authority", "signed_at",
-        "chain_json",
+        "chain_json", "arch_view",
     }
     indirect = {"signatures_count", "error"}  # in chain_json / runner-level
     verdict_fields = set(verdict.__dataclass_fields__.keys())
