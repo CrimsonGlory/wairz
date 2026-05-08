@@ -1,6 +1,7 @@
 import os
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,6 +44,17 @@ from app.schemas.finding import (
 
 _SOURCE_AUTHENTICODE: WindowsFindingSource = "windows_authenticode"
 _SOURCE_DBX_REVOKED: WindowsFindingSource = "windows_dbx_revoked"
+
+# ── Phase γ.8 — Registry + driver source constants ───────────────────────────
+#
+# Same Rule #33 .c discipline as β.12b — narrow Literal at the helper
+# boundary catches typos at code-load time without disturbing the legacy
+# ``FindingCreate.source: str`` contract. The DB CHECK
+# (ck_findings_source from γ.7 alembic c9d0e1f2a3b4) is the durable
+# safety floor enforcing the full allowlist.
+_SOURCE_REGISTRY_PERSISTENCE: WindowsFindingSource = "windows_registry_persistence"
+_SOURCE_INF: WindowsFindingSource = "windows_inf"
+_SOURCE_DRIVER_IMPORTS: WindowsFindingSource = "windows_driver_imports"
 
 
 @dataclass(frozen=True)
@@ -187,6 +199,265 @@ def classify_pe_verdict_findings(
     return drafts
 
 
+# ── Phase γ.8 — Registry persistence classifier ──────────────────────────────
+
+
+# Per-subkey severity map. Persona-E #13 ranks the persistence vectors:
+# - Run / RunOnce — auto-start at user logon (medium; many legitimate)
+# - RunServices / RunServicesOnce — boot-time service start (high)
+# - AppInit_DLLs — process-creation DLL injection (high)
+# - Image File Execution Options — debugger hijack vector (high)
+# - Winlogon ShellExecuteHooks — shell-creation hijack (high)
+# - Session Manager BootExecute — kernel-time pre-boot execution (critical)
+# - Active Setup Installed Components — per-user one-shot install (medium)
+# - Policies\Explorer\Run — group-policy persistence (medium)
+# - CurrentControlSet\Services — service definitions; many legit (low,
+#   surfaced for triage but downgraded to avoid noise)
+_REGISTRY_SEVERITY_MAP: tuple[tuple[str, Severity, str], ...] = (
+    ("session manager\\bootexecute", Severity.critical, "Session Manager BootExecute (kernel-time pre-boot execution)"),
+    ("currentversion\\windows\\appinit_dlls", Severity.high, "AppInit_DLLs (process-creation DLL injection)"),
+    ("image file execution options", Severity.high, "Image File Execution Options (debugger hijack vector)"),
+    ("currentversion\\winlogon", Severity.high, "Winlogon ShellExecuteHooks (shell-creation hijack)"),
+    ("currentversion\\runservices", Severity.high, "RunServices (boot-time service start)"),
+    ("currentversion\\run", Severity.medium, "Run / RunOnce (auto-start at user logon)"),
+    ("currentversion\\policies\\explorer\\run", Severity.medium, "Group Policy Explorer Run"),
+    ("active setup\\installed components", Severity.medium, "Active Setup Installed Components"),
+    ("currentcontrolset\\services", Severity.low, "CurrentControlSet\\Services (service definition)"),
+)
+
+
+def _classify_registry_subkey_severity(
+    subkey_path: str,
+) -> tuple[Severity, str] | None:
+    """Return (severity, label) for a persistence-relevant subkey.
+
+    Matches case-insensitively against the longest matching pattern
+    in :data:`_REGISTRY_SEVERITY_MAP` — order matters (most specific
+    patterns first so e.g. ``Image File Execution Options`` wins over
+    a hypothetical ``CurrentVersion`` substring match).
+    """
+    path_lower = (subkey_path or "").lower()
+    for pattern, severity, label in _REGISTRY_SEVERITY_MAP:
+        if pattern in path_lower:
+            return severity, label
+    return None
+
+
+def _format_registry_evidence(
+    *,
+    hive_path: str,
+    hive_type: str,
+    subkey_path: str,
+    values: list[dict] | None,
+) -> str:
+    """Operator-readable evidence string for a registry persistence finding."""
+    parts = [
+        f"hive={hive_path}",
+        f"hive_type={hive_type}",
+        f"subkey={subkey_path}",
+    ]
+    value_count = len(values or [])
+    parts.append(f"value_count={value_count}")
+    # Surface the first few value names so the operator can spot
+    # known-malicious entries (e.g. random GUID-shaped names) at a
+    # glance without opening the full subkey.
+    if values:
+        sample_names = [v.get("name", "") for v in values[:3]]
+        parts.append(f"sample_values={sample_names}")
+    return "; ".join(parts)
+
+
+def classify_registry_persistence_findings(
+    *,
+    hive_path: str,
+    hive_type: str,
+    parsed_tree: Any,
+) -> list[_PEFindingDraft]:
+    """Map one hive's parsed_tree to N persistence Finding drafts.
+
+    Pure function — no DB access. Iterates the canonical parsed_tree
+    subkey list and emits one Finding draft per persistence-relevant
+    subkey. Returns empty list when ``parsed_tree`` is None / wrong-
+    typed (defensive boundary mirrors the JSONB normaliser shape).
+
+    Per Persona-E #13 severity map in :data:`_REGISTRY_SEVERITY_MAP` —
+    Session Manager BootExecute is critical; AppInit_DLLs / IFEO /
+    Winlogon hooks / RunServices are high; Run / Active Setup are
+    medium; Services definitions are low.
+    """
+    if not isinstance(parsed_tree, dict):
+        return []
+    subkeys = parsed_tree.get("subkeys") or []
+    if not isinstance(subkeys, list):
+        return []
+
+    drafts: list[_PEFindingDraft] = []
+    for sk in subkeys:
+        if not isinstance(sk, dict):
+            continue
+        subkey_path = sk.get("path") or ""
+        classification = _classify_registry_subkey_severity(subkey_path)
+        if classification is None:
+            continue
+        severity, label = classification
+
+        # Skip subkeys with no values — an EMPTY Run key is not a
+        # finding (it's the default Windows shape). Caller may still
+        # see the subkey via scan_persistence; we just don't FILE it.
+        values = sk.get("values") or []
+        if not values:
+            continue
+
+        drafts.append(
+            _PEFindingDraft(
+                source=_SOURCE_REGISTRY_PERSISTENCE,
+                severity=severity,
+                title=f"Registry persistence: {label} in {hive_type}",
+                description=(
+                    f"{label} subkey contains {len(values)} value(s) at "
+                    f"{subkey_path} in {hive_type} hive. Review for "
+                    f"unfamiliar autostart entries."
+                ),
+                evidence=_format_registry_evidence(
+                    hive_path=hive_path,
+                    hive_type=hive_type,
+                    subkey_path=subkey_path,
+                    values=values,
+                ),
+            )
+        )
+    return drafts
+
+
+# ── Phase γ.8 — Driver classifier ────────────────────────────────────────────
+
+
+def _format_driver_evidence(
+    *,
+    driver_path: str,
+    signing_tier: str,
+    manufacturer: str | None,
+    inf_class: str | None,
+    pnp_id_count: int,
+) -> str:
+    """Operator-readable evidence string for driver Findings."""
+    parts = [
+        f"driver_path={driver_path}",
+        f"signing_tier={signing_tier}",
+    ]
+    if manufacturer:
+        parts.append(f"manufacturer={manufacturer}")
+    if inf_class:
+        parts.append(f"inf_class={inf_class}")
+    parts.append(f"pnp_id_count={pnp_id_count}")
+    return "; ".join(parts)
+
+
+def classify_driver_findings(
+    *,
+    driver_path: str,
+    signing_tier: str,
+    catalog_signed: bool,
+    pnp_ids: list[str],
+    inf_metadata: Any,
+    manufacturer: str | None,
+    inf_class: str | None,
+) -> list[_PEFindingDraft]:
+    """Map one driver's persisted state to 0–N Finding drafts.
+
+    Pure function — no DB access. Two source channels:
+
+    - ``windows_inf``: signing-tier signal (unsigned drivers + INF
+      parse errors).
+    - ``windows_driver_imports``: PnP-ID-shape anomalies (no PnP IDs
+      at all — kernel-mode driver with no specific hardware target,
+      potentially indicates a service driver or filter driver
+      installed without a matching device).
+
+    Returns empty list when nothing notable; one or two drafts otherwise.
+    """
+    drafts: list[_PEFindingDraft] = []
+    name = driver_path.split("/")[-1] or driver_path
+
+    # windows_inf — signing tier.
+    inf_severity: Severity | None = None
+    inf_description: str | None = None
+    if signing_tier == "unsigned":
+        inf_severity = Severity.medium
+        inf_description = (
+            f"Driver package {name} is UNSIGNED — no CAT file present, "
+            "OR CAT signature parse failed, OR the chain has no Microsoft "
+            "anchor (Persona-E #13). Unsigned kernel-mode code cannot load "
+            "under HVCI / SecureBoot enforcement; production firmware "
+            "shipping unsigned drivers indicates either a relaxed signing "
+            "policy or a build-pipeline gap."
+        )
+    elif signing_tier == "unknown":
+        inf_severity = Severity.low
+        inf_description = (
+            f"Driver package {name} CAT signature parsed but does not fit "
+            "any Persona-E #13 capability badge (whql / attestation / "
+            "cross_signed). Manual review needed to determine which "
+            "trust path the chain anchors at."
+        )
+
+    # Promote severity if INF parse errors are present (signal that
+    # the driver ships malformed metadata — operator should inspect).
+    inf_metadata_dict = inf_metadata if isinstance(inf_metadata, dict) else None
+    inf_errors = (inf_metadata_dict or {}).get("errors") or []
+    if inf_errors and inf_severity is None:
+        inf_severity = Severity.low
+        inf_description = (
+            f"Driver INF for {name} parsed with {len(inf_errors)} error(s); "
+            "the driver matrix may be missing fields. Inspect the inf_metadata "
+            "errors list via get_driver_info for the parser's diagnostic."
+        )
+
+    if inf_severity is not None:
+        assert inf_description is not None
+        drafts.append(
+            _PEFindingDraft(
+                source=_SOURCE_INF,
+                severity=inf_severity,
+                title=f"Driver INF: {signing_tier} signing for {name}",
+                description=inf_description,
+                evidence=_format_driver_evidence(
+                    driver_path=driver_path,
+                    signing_tier=signing_tier,
+                    manufacturer=manufacturer,
+                    inf_class=inf_class,
+                    pnp_id_count=len(pnp_ids),
+                ),
+            )
+        )
+
+    # windows_driver_imports — PnP-ID-shape anomaly.
+    if not pnp_ids:
+        drafts.append(
+            _PEFindingDraft(
+                source=_SOURCE_DRIVER_IMPORTS,
+                severity=Severity.low,
+                title=f"Driver imports: no PnP IDs declared for {name}",
+                description=(
+                    f"Driver package {name} declares no Plug-and-Play "
+                    "hardware IDs in [Models]. Kernel-mode drivers without "
+                    "PnP IDs are typically service / filter drivers that "
+                    "load by name rather than by hardware match — review "
+                    "for legitimate purpose."
+                ),
+                evidence=_format_driver_evidence(
+                    driver_path=driver_path,
+                    signing_tier=signing_tier,
+                    manufacturer=manufacturer,
+                    inf_class=inf_class,
+                    pnp_id_count=0,
+                ),
+            )
+        )
+
+    return drafts
+
+
 class FindingService:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -317,4 +588,106 @@ class FindingService:
                 source=draft.source,
             )
             emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_registry_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Emit windows_registry_persistence Finding rows for one firmware.
+
+        Reads every persisted ``WindowsRegistryExtract`` row for the
+        firmware, classifies each persistence-relevant subkey via
+        :func:`classify_registry_persistence_findings`, and persists
+        the resulting drafts as Finding rows.
+
+        Idempotency is the caller's responsibility — γ.8's emit-from-walk
+        wrapper DELETEs prior windows_registry_persistence findings for
+        the firmware before re-emitting, mirroring the β.12c pattern.
+        """
+        from app.models.hardware_firmware import HardwareFirmwareBlob
+        from app.models.windows_registry_extract import WindowsRegistryExtract
+
+        stmt = (
+            select(WindowsRegistryExtract, HardwareFirmwareBlob)
+            .join(
+                HardwareFirmwareBlob,
+                WindowsRegistryExtract.blob_id == HardwareFirmwareBlob.id,
+            )
+            .where(HardwareFirmwareBlob.firmware_id == firmware_id)
+        )
+        rows = (await self.db.execute(stmt)).all()
+
+        emitted: list[Finding] = []
+        for extract, _blob in rows:
+            drafts = classify_registry_persistence_findings(
+                hive_path=extract.hive_path,
+                hive_type=extract.hive_type,
+                parsed_tree=extract.parsed_tree,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=extract.hive_path,
+                    confidence=Confidence.medium,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_driver_findings_from_extract(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Emit windows_inf + windows_driver_imports Finding rows for one firmware.
+
+        Reads every persisted ``WindowsDriver`` row for the firmware,
+        classifies each driver via :func:`classify_driver_findings`,
+        and persists the resulting drafts as Finding rows.
+
+        Idempotency is the caller's responsibility (same shape as
+        emit_registry_findings_from_walk).
+        """
+        from app.models.hardware_firmware import HardwareFirmwareBlob
+        from app.models.windows_driver import WindowsDriver
+
+        stmt = (
+            select(WindowsDriver, HardwareFirmwareBlob)
+            .join(
+                HardwareFirmwareBlob,
+                WindowsDriver.blob_id == HardwareFirmwareBlob.id,
+            )
+            .where(HardwareFirmwareBlob.firmware_id == firmware_id)
+        )
+        rows = (await self.db.execute(stmt)).all()
+
+        emitted: list[Finding] = []
+        for driver, _blob in rows:
+            drafts = classify_driver_findings(
+                driver_path=driver.driver_path,
+                signing_tier=driver.signing_tier,
+                catalog_signed=driver.catalog_signed,
+                pnp_ids=driver.pnp_ids or [],
+                inf_metadata=driver.inf_metadata,
+                manufacturer=driver.manufacturer,
+                inf_class=driver.inf_class,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=driver.driver_path,
+                    confidence=Confidence.medium,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
         return emitted
