@@ -32,6 +32,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     p7zip-full \
     wimtools \
     cabextract \
+    msitools \
+    gcab \
+    qemu-utils \
     lzop \
     lz4 \
     zstd \
