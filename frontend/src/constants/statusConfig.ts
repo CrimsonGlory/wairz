@@ -1,6 +1,7 @@
 import {
   ShieldX,
   ShieldAlert,
+  ShieldCheck,
   AlertTriangle,
   AlertCircle,
   Info,
@@ -87,6 +88,8 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   hardware_firmware_graph: { icon: Network, label: 'HW Graph', className: 'border-sky-500/50 text-sky-600 dark:text-sky-400' },
   uefi_scan: { icon: Cpu, label: 'UEFI', className: 'border-pink-500/50 text-pink-600 dark:text-pink-400' },
   vt_scan: { icon: Shield, label: 'VirusTotal', className: 'border-emerald-500/50 text-emerald-600 dark:text-emerald-400' },
+  windows_authenticode: { icon: ShieldCheck, label: 'Authenticode', className: 'border-indigo-500/50 text-indigo-600 dark:text-indigo-400' },
+  windows_dbx_revoked: { icon: ShieldX, label: 'DBX Revoked', className: 'border-red-500/50 text-red-600 dark:text-red-400' },
 }
 
 // ── Finding confidence ──
