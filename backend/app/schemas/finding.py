@@ -1,8 +1,18 @@
 import uuid
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, field_validator
+
+
+# Per CLAUDE.md Rule #33 .c — Pydantic Literal for the verdict-bearing
+# Windows sources β.12 emits. Used at the call boundary inside
+# ``FindingService.emit_pe_signature_findings`` so the source-string
+# constants are typo-checked at construction time. The DB-side
+# enforcement is the matching ``ck_findings_source`` CHECK from
+# alembic revision ``c5b6a7d8e9f0`` (β.12a).
+WindowsFindingSource = Literal["windows_authenticode", "windows_dbx_revoked"]
 
 
 class Severity(str, Enum):
