@@ -784,3 +784,87 @@ def _stamp_windows_registry_extracts_parsed_tree(
         return None
     payload["schema_version"] = WINDOWS_REGISTRY_EXTRACTS_PARSED_TREE_SCHEMA_VERSION
     return payload
+
+
+# ── windows_drivers.inf_metadata (Phase γ.2) ──────────────────────────────────
+#
+# Parsed INF block content for one driver-package extract. The γ.5 worker
+# parses the INF (no shell-out per Rule #36) and stamps the result here;
+# γ.6 MCP tools (``windows_driver.list_drivers`` / ``get_driver_info`` /
+# ``list_signed_drivers`` / ``get_signing_tier`` / ``scan_inf_imports`` /
+# ``diff_driver_matrix``) read it; the γ.7 frontend (``DriverMatrixPage``,
+# ``DriverDetailPage``) renders it; the γ.8 finding-emitter classifier
+# reads it to derive ``windows_inf`` + ``windows_driver_imports``
+# Findings. 4+ consumer files at γ shipping time → schema_version
+# discriminator strategy per Rule #35c.
+#
+# Canonical shape (Phase γ.5 INF parse — section-block dicts plus the
+# expanded models list, mirroring the INF file's logical structure
+# without losing the raw [Strings] substitution table needed to dereference
+# tokenised values like ``%MfgName%``):
+#
+#   {
+#     "schema_version": 1,
+#     "version_block": {
+#       "Class": str | None,                       # e.g. "Display"
+#       "ClassGuid": str | None,                   # e.g. "{4d36e968-...}"
+#       "Provider": str | None,                    # may carry %SubstToken%
+#       "DriverVer": str | None,                   # mm/dd/yyyy,version
+#       "CatalogFile": str | None,                 # filename, no path
+#     },
+#     "manufacturer_block": list[                  # multi-mfg INFs supported
+#       {
+#         "name": str,                             # %SubstToken% allowed
+#         "section": str,                          # the [Models] section name
+#         "decorations": list[str],                # OS/arch decorations like NTAMD64.10.0
+#       },
+#       ...
+#     ],
+#     "models": list[                              # one per device entry
+#       {
+#         "manufacturer": str,                     # parent mfg name
+#         "device_description": str,
+#         "install_section": str,
+#         "hardware_id": str,                      # primary HW id
+#         "compatible_ids": list[str],             # additional fall-throughs
+#       },
+#       ...
+#     ],
+#     "strings": dict[str, str],                   # [Strings] block raw map
+#     "errors": list[str],                         # parse errors collected
+#   }
+#
+# Forward-discipline: bump SCHEMA_VERSION + extend dispatch in the
+# normaliser if the INF parser shape changes (e.g. tokenisation policy
+# change, additional sections like [Targets] or [DeviceFunctions]).
+
+WINDOWS_DRIVERS_INF_METADATA_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_drivers_inf_metadata(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``WindowsDriver.inf_metadata``.
+
+    ``None`` is preserved — semantic load is "INF parser did not run for
+    this row" (e.g. driver detected via SYS-only path, or the row
+    predates Phase γ). Wrong-typed values collapse to ``None`` rather
+    than ``{}`` so callers checking ``if driver.inf_metadata is not None``
+    to detect "INF parsed" aren't fooled by an accidental empty dict.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_windows_drivers_inf_metadata(
+    payload: dict | None,
+) -> dict | None:
+    """Stamp the schema_version onto a writer payload for
+    ``WindowsDriver.inf_metadata``. ``None`` is preserved (column is
+    nullable). Idempotent — re-stamping at the current version is a
+    no-op.
+    """
+    if payload is None:
+        return None
+    payload["schema_version"] = WINDOWS_DRIVERS_INF_METADATA_SCHEMA_VERSION
+    return payload

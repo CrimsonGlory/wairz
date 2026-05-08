@@ -176,6 +176,25 @@ WindowsPEChainStatus = Literal[
 ]
 
 
+# Mirrors the WindowsDriver.signing_tier CHECK constraint values (Phase γ.2).
+# Persona-E #13 capability badge — the tier determines which Windows
+# kernel-mode loader will accept the driver (HVCI requires WHQL + EV;
+# SecureBoot requires at least cross_signed). Pydantic Literal gates the
+# writer side; the DB CHECK is the durable runtime gate (Rule #33 .c).
+WindowsDriverSigningTier = Literal[
+    "whql", "attestation", "cross_signed", "unsigned", "unknown",
+]
+
+
+# Mirrors the WindowsRegistryExtract.walk_status CHECK constraint values
+# (Phase γ.1). Per-hive parse status; aggregate batch-walk status across
+# all hives in a firmware lives separately on the firmware row via
+# ``firmware.registry_hive_walk_status`` (Phase γ.3).
+WindowsRegistryExtractWalkStatus = Literal[
+    "completed", "partial", "failed", "skipped",
+]
+
+
 class WindowsPESignatureSummary(BaseModel):
     """Compact per-PE signature row for the PeHardeningPage table.
 

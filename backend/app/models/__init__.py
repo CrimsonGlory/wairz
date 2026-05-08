@@ -16,6 +16,7 @@ from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.models.device_dump import DeviceDumpSession
 from app.models.windows_pe_signature import WindowsPESignature
 from app.models.windows_registry_extract import WindowsRegistryExtract
+from app.models.windows_driver import WindowsDriver
 
 __all__ = [
     "Project", "Firmware", "Conversation", "AnalysisCache",
@@ -25,4 +26,5 @@ __all__ = [
     "AttackSurfaceEntry", "UARTSession",
     "CraAssessment", "CraRequirementResult", "HardwareFirmwareBlob",
     "DeviceDumpSession", "WindowsPESignature", "WindowsRegistryExtract",
+    "WindowsDriver",
 ]

@@ -31,6 +31,7 @@ from app.services.jsonb_normalizers import (
     WINDOWS_PE_SIGNATURES_ARCH_VIEW_SCHEMA_VERSION,
     WINDOWS_PE_SIGNATURES_RICH_HEADER_JSON_SCHEMA_VERSION,
     WINDOWS_REGISTRY_EXTRACTS_PARSED_TREE_SCHEMA_VERSION,
+    WINDOWS_DRIVERS_INF_METADATA_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
     CRA_REQUIREMENT_RESULTS_FINDING_IDS_SCHEMA_VERSION,
@@ -66,6 +67,7 @@ from app.services.jsonb_normalizers import (
     _normalize_windows_pe_signatures_arch_view,
     _normalize_windows_pe_signatures_rich_header_json,
     _normalize_windows_registry_extracts_parsed_tree,
+    _normalize_windows_drivers_inf_metadata,
     _stamp_firmware_authenticode_chain_result,
     _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
@@ -76,6 +78,7 @@ from app.services.jsonb_normalizers import (
     _stamp_windows_pe_signatures_arch_view,
     _stamp_windows_pe_signatures_rich_header_json,
     _stamp_windows_registry_extracts_parsed_tree,
+    _stamp_windows_drivers_inf_metadata,
 )
 
 
@@ -1084,3 +1087,187 @@ def test_stamp_windows_registry_extracts_parsed_tree_mutates_input():
 
 def test_windows_registry_extracts_parsed_tree_schema_version_constant():
     assert WINDOWS_REGISTRY_EXTRACTS_PARSED_TREE_SCHEMA_VERSION == 1
+
+
+# ── _normalize_windows_drivers_inf_metadata (Phase γ.2) ──────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical Phase γ.5 INF parse — multi-mfg INF with one model
+        # entry, [Strings] block populated, no parse errors.
+        (
+            {
+                "schema_version": 1,
+                "version_block": {
+                    "Class": "Display",
+                    "ClassGuid": "{4d36e968-e325-11ce-bfc1-08002be10318}",
+                    "Provider": "%MfgName%",
+                    "DriverVer": "01/15/2024,31.0.101.5333",
+                    "CatalogFile": "iigd_dch.cat",
+                },
+                "manufacturer_block": [
+                    {
+                        "name": "%MfgName%",
+                        "section": "IntelGfx",
+                        "decorations": ["NTAMD64.10.0..19041"],
+                    },
+                ],
+                "models": [
+                    {
+                        "manufacturer": "Intel Corporation",
+                        "device_description": "Intel(R) UHD Graphics 770",
+                        "install_section": "iIGDX",
+                        "hardware_id": "PCI\\VEN_8086&DEV_4680",
+                        "compatible_ids": ["PCI\\VEN_8086&CC_0300"],
+                    },
+                ],
+                "strings": {
+                    "MfgName": "Intel Corporation",
+                    "INTEL_HD_GRAPHICS": "Intel(R) HD Graphics",
+                },
+                "errors": [],
+            },
+            {
+                "schema_version": 1,
+                "version_block": {
+                    "Class": "Display",
+                    "ClassGuid": "{4d36e968-e325-11ce-bfc1-08002be10318}",
+                    "Provider": "%MfgName%",
+                    "DriverVer": "01/15/2024,31.0.101.5333",
+                    "CatalogFile": "iigd_dch.cat",
+                },
+                "manufacturer_block": [
+                    {
+                        "name": "%MfgName%",
+                        "section": "IntelGfx",
+                        "decorations": ["NTAMD64.10.0..19041"],
+                    },
+                ],
+                "models": [
+                    {
+                        "manufacturer": "Intel Corporation",
+                        "device_description": "Intel(R) UHD Graphics 770",
+                        "install_section": "iIGDX",
+                        "hardware_id": "PCI\\VEN_8086&DEV_4680",
+                        "compatible_ids": ["PCI\\VEN_8086&CC_0300"],
+                    },
+                ],
+                "strings": {
+                    "MfgName": "Intel Corporation",
+                    "INTEL_HD_GRAPHICS": "Intel(R) HD Graphics",
+                },
+                "errors": [],
+            },
+        ),
+        # Partial parse — INF [Version] block extracted but [Models]
+        # blew up; errors list populated, models list empty.
+        (
+            {
+                "schema_version": 1,
+                "version_block": {
+                    "Class": "Net",
+                    "ClassGuid": "{4d36e972-e325-11ce-bfc1-08002be10318}",
+                    "Provider": None,
+                    "DriverVer": None,
+                    "CatalogFile": None,
+                },
+                "manufacturer_block": [],
+                "models": [],
+                "strings": {},
+                "errors": [
+                    "[Models] section section-name resolution failed: "
+                    "unresolved %SubstToken%",
+                ],
+            },
+            {
+                "schema_version": 1,
+                "version_block": {
+                    "Class": "Net",
+                    "ClassGuid": "{4d36e972-e325-11ce-bfc1-08002be10318}",
+                    "Provider": None,
+                    "DriverVer": None,
+                    "CatalogFile": None,
+                },
+                "manufacturer_block": [],
+                "models": [],
+                "strings": {},
+                "errors": [
+                    "[Models] section section-name resolution failed: "
+                    "unresolved %SubstToken%",
+                ],
+            },
+        ),
+        # Empty dict — preserved (writer's degenerate-but-valid case).
+        ({}, {}),
+        # None — durable signal for "row exists but no INF parse"
+        # (driver detected via SYS-only or pre-γ row).
+        (None, None),
+        # Wrong type — list — coerced to None.
+        ([{"Class": "Display"}], None),
+        # Wrong type — string.
+        ("not a dict", None),
+        # Wrong type — int.
+        (42, None),
+    ],
+)
+def test_normalize_windows_drivers_inf_metadata(value, expected):
+    assert _normalize_windows_drivers_inf_metadata(value) == expected
+
+
+def test_normalize_windows_drivers_inf_metadata_idempotent():
+    canonical = {
+        "schema_version": 1,
+        "version_block": {"Class": "USB", "ClassGuid": None,
+                          "Provider": None, "DriverVer": None,
+                          "CatalogFile": None},
+        "manufacturer_block": [],
+        "models": [],
+        "strings": {},
+        "errors": [],
+    }
+    once = _normalize_windows_drivers_inf_metadata(canonical)
+    twice = _normalize_windows_drivers_inf_metadata(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_drivers_inf_metadata_adds_version():
+    payload = {
+        "version_block": {"Class": "Display"},
+        "manufacturer_block": [],
+        "models": [],
+        "strings": {},
+        "errors": [],
+    }
+    out = _stamp_windows_drivers_inf_metadata(payload)
+    assert out is not None
+    assert out["schema_version"] == WINDOWS_DRIVERS_INF_METADATA_SCHEMA_VERSION
+    assert out["version_block"]["Class"] == "Display"
+
+
+def test_stamp_windows_drivers_inf_metadata_idempotent():
+    payload = {"version_block": {}, "manufacturer_block": [], "models": [],
+               "strings": {}, "errors": []}
+    once = _stamp_windows_drivers_inf_metadata(payload)
+    twice = _stamp_windows_drivers_inf_metadata(once)
+    assert once == twice
+    assert once["schema_version"] == WINDOWS_DRIVERS_INF_METADATA_SCHEMA_VERSION
+
+
+def test_stamp_windows_drivers_inf_metadata_none_in_none_out():
+    """None payload preserves the "no INF parse yet" semantic."""
+    assert _stamp_windows_drivers_inf_metadata(None) is None
+
+
+def test_stamp_windows_drivers_inf_metadata_mutates_input():
+    """Documents the mutation contract — writers may rely on it."""
+    payload = {"version_block": {}, "manufacturer_block": [], "models": [],
+               "strings": {}, "errors": []}
+    out = _stamp_windows_drivers_inf_metadata(payload)
+    assert out is payload  # same dict object
+    assert "schema_version" in payload
+
+
+def test_windows_drivers_inf_metadata_schema_version_constant():
+    assert WINDOWS_DRIVERS_INF_METADATA_SCHEMA_VERSION == 1
