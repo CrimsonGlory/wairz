@@ -108,6 +108,63 @@ class CveMatchStatusResponse(BaseModel):
     result: CveMatchRunResult | None = None
 
 
+# ── Phase β.8 — Authenticode-chain 202+polling schemas ───────────────────────
+
+
+class AuthenticodeChainAggregate(BaseModel):
+    """Final-result payload of one authenticode-chain run.
+
+    Carries the per-firmware histogram + counts produced by walking
+    every PE in ``hardware_firmware_blobs``, running signify's
+    Authenticode validator + DBX matcher + ARM-arch detector + RICH
+    decoder, and persisting one ``WindowsPESignature`` row per PE.
+    Persisted on ``firmware.authenticode_chain_result`` JSONB so the
+    frontend's last-known-result render survives a session reload
+    (mirrors :class:`CveMatchRunResult`).
+
+    The ``schema_version`` key written by
+    :func:`_stamp_firmware_authenticode_chain_result` is stripped at
+    read time by Pydantic's ``extra='ignore'`` default — the model
+    field set is the canonical contract; the JSONB stamp is the
+    cross-version dispatch hook (see ``services/jsonb_normalizers.py``).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    signed_count: int             # PEs whose verdict signed=True
+    signed_pct: float             # signed_count / total_pe_count, [0.0, 1.0]
+    unsigned_count: int           # PEs whose verdict signed=False
+    dbx_revoked_count: int        # PEs whose leaf serial is in the dbxupdate.bin
+    by_chain_status: dict[str, int]  # chain_status histogram (5 buckets)
+    run_seconds: float            # wall-clock duration of the run
+    total_pe_count: int           # PEs the runner identified (MZ-magic prefilter)
+    errors: list[dict[str, str]] = []  # per-PE [{blob_path, error}, ...]
+
+
+AuthenticodeChainStatus = Literal[
+    "idle", "queued", "running", "completed", "failed"
+]
+
+
+class AuthenticodeChainStatusResponse(BaseModel):
+    """Status snapshot for the 202+polling authenticode-chain flow.
+
+    Mirrors :class:`CveMatchStatusResponse`: POST handler returns this
+    with ``status="queued"``; the frontend polls
+    ``GET /authenticode-chain/status`` every 2 s until ``status`` flips
+    to ``"completed"`` or ``"failed"``.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    firmware_id: uuid.UUID
+    status: AuthenticodeChainStatus
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error: str | None = None
+    result: AuthenticodeChainAggregate | None = None
+
+
 class HardwareFirmwareCveRow(BaseModel):
     """One distinct CVE in the CVE-centric aggregate view."""
 

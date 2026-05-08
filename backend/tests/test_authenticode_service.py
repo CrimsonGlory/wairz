@@ -648,27 +648,34 @@ def test_verify_pe_file_dbx_defaults_for_unsigned_pe(tmp_path: Path):
 
 def test_verdict_maps_to_windows_pe_signature_columns():
     """Verify field names match WindowsPESignature columns 1:1.
-    If this test fails, the model and verdict have drifted — update both."""
+
+    The ``DIRECT_MAPPED`` frozenset lives in
+    :mod:`app.services.authenticode_chain_runner` (Phase β.8) — the
+    runner imports it for the row-construction site
+    ``WindowsPESignature(**asdict(verdict)|DIRECT_MAPPED, blob_id=...)``
+    AND this test imports the same constant. Single source of truth
+    keeps β.8 + the drift-detector synchronized; if the verdict gains
+    a new field, updating ``DIRECT_MAPPED`` in one place propagates to
+    both the runner and this test.
+
+    If this test fails, the verdict, the model, OR the
+    ``DIRECT_MAPPED`` set have drifted — fix all three together.
+    """
     from app.models import WindowsPESignature
+    from app.services.authenticode_chain_runner import DIRECT_MAPPED
 
     verdict = AuthenticodeVerdict(signed=True, chain_status="valid_now")
 
-    # Every field on the verdict must exist on the model (or be implicitly
-    # mapped — chain_json → chain_json, signatures_count is on chain_json
-    # not the model directly).
-    direct_mapped = {
-        "signed", "chain_status", "signer_subject", "signer_issuer",
-        "leaf_serial", "sig_hash_algo", "tsa_authority", "signed_at",
-        "chain_json", "arch_view", "rich_header_json",
-        "dbx_revoked", "dbx_revocation_kb",
-    }
+    # Every field on the verdict either lives in DIRECT_MAPPED (spread
+    # 1:1 onto WindowsPESignature columns) or in ``indirect`` (in
+    # chain_json or runner-level — not on the model).
     indirect = {"signatures_count", "error"}  # in chain_json / runner-level
     verdict_fields = set(verdict.__dataclass_fields__.keys())
 
-    assert verdict_fields == direct_mapped | indirect, (
-        f"verdict fields drifted: {verdict_fields ^ (direct_mapped | indirect)}"
+    assert verdict_fields == DIRECT_MAPPED | indirect, (
+        f"verdict fields drifted: {verdict_fields ^ (DIRECT_MAPPED | indirect)}"
     )
-    for name in direct_mapped:
+    for name in DIRECT_MAPPED:
         assert hasattr(WindowsPESignature, name), (
             f"WindowsPESignature missing column for verdict field {name}"
         )

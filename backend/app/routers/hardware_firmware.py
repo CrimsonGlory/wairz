@@ -35,6 +35,8 @@ from app.models.sbom import SbomVulnerability
 from app.rate_limit import TIER_A_HEAVY, limiter
 from app.routers.deps import resolve_firmware as _resolve_firmware
 from app.schemas.hardware_firmware import (
+    AuthenticodeChainAggregate,
+    AuthenticodeChainStatusResponse,
     CveMatchRunResult,
     CveMatchStatusResponse,
     FirmwareDriverResponse,
@@ -72,10 +74,14 @@ def _severity_case():
 # Kernel-tier set must stay in sync with the matcher (cve_matcher.py)
 # and with the run_cve_match aggregate split below.
 _KERNEL_TIERS = {"kernel_cpe", "kernel_subsystem"}
+from app.services.authenticode_chain_runner import (
+    run_authenticode_chain_background,
+)
 from app.services.hardware_firmware.cve_matcher import match_firmware_cves
 from app.services.hardware_firmware.graph import build_driver_firmware_graph
 from app.services.hardware_firmware.hbom_export import build_hbom
 from app.services.jsonb_normalizers import (
+    _normalize_firmware_authenticode_chain_result,
     _normalize_firmware_cve_match_result,
     _normalize_hardware_firmware_blobs_metadata,
 )
@@ -644,6 +650,103 @@ async def get_cve_match_status(
     firmware-unpack polling shape used by ProjectDetailPage.
     """
     return _firmware_to_status(firmware)
+
+
+# ── Phase β.8 — Authenticode-chain 202+polling endpoints ─────────────────────
+
+
+def _firmware_to_authenticode_status(
+    firmware: Firmware,
+) -> AuthenticodeChainStatusResponse:
+    """Build the authenticode-chain status response from a Firmware row.
+
+    The persisted ``authenticode_chain_result`` JSONB is hydrated back
+    into an :class:`AuthenticodeChainAggregate` so the frontend's
+    last-known-result render survives a page reload without a separate
+    aggregate round-trip. Schema-version stamps written by
+    :func:`_stamp_firmware_authenticode_chain_result` are stripped by
+    Pydantic's ``extra='ignore'`` model_config.
+    """
+    raw = _normalize_firmware_authenticode_chain_result(
+        firmware.authenticode_chain_result
+    )
+    return AuthenticodeChainStatusResponse(
+        firmware_id=firmware.id,
+        status=firmware.authenticode_chain_status,
+        started_at=firmware.authenticode_chain_started_at,
+        finished_at=firmware.authenticode_chain_finished_at,
+        error=firmware.authenticode_chain_error,
+        result=AuthenticodeChainAggregate(**raw) if raw else None,
+    )
+
+
+@router.post(
+    "/authenticode-chain",
+    response_model=AuthenticodeChainStatusResponse,
+    status_code=202,
+)
+@limiter.limit(TIER_A_HEAVY)
+async def run_authenticode_chain(
+    request: Request,
+    firmware=Depends(_resolve_firmware),
+    db: AsyncSession = Depends(get_db),
+) -> AuthenticodeChainStatusResponse:
+    """Enqueue an authenticode-chain run for the resolved firmware (Rule #29 / Rule #33).
+
+    Returns 202 Accepted with the firmware row in
+    ``authenticode_chain_status="queued"``. The frontend polls
+    ``GET /authenticode-chain/status`` every 2 s (firmware-unpack
+    precedent) until ``status`` flips to ``completed`` (read ``result``)
+    or ``failed`` (read ``error``).
+
+    Why 202 rather than 200: a Win11 23H2 ISO can hold 1000+ PE
+    binaries; signify Authenticode validation per PE is ~50-200 ms even
+    on the fast path, so the full walk runs ~1-3 minutes — past
+    nginx's default ``proxy_read_timeout`` (60 s) and Cloudflare's
+    origin-response default (100 s). The 202+polling shape decouples
+    the work from any reverse-proxy ceiling. See CLAUDE.md Rule #29 +
+    Rule #33.
+
+    Idempotency (Rule #33 .a): a POST while the firmware's status is
+    already ``queued`` or ``running`` returns 409 with the in-flight
+    status rather than spawning a second runner. The frontend should
+    poll ``/authenticode-chain/status`` to observe the existing run.
+    """
+    if firmware.authenticode_chain_status in ("queued", "running"):
+        raise HTTPException(
+            409,
+            f"authenticode-chain already {firmware.authenticode_chain_status} "
+            "for this firmware",
+        )
+
+    firmware.authenticode_chain_status = "queued"
+    firmware.authenticode_chain_started_at = None
+    firmware.authenticode_chain_finished_at = None
+    firmware.authenticode_chain_error = None
+    firmware.authenticode_chain_result = None
+    # Commit before scheduling the background task so its fresh session
+    # observes the queued row (cve-match precedent).
+    await db.commit()
+
+    asyncio.create_task(run_authenticode_chain_background(firmware.id))
+    return _firmware_to_authenticode_status(firmware)
+
+
+@router.get(
+    "/authenticode-chain/status",
+    response_model=AuthenticodeChainStatusResponse,
+)
+async def get_authenticode_chain_status(
+    firmware=Depends(_resolve_firmware),
+    db: AsyncSession = Depends(get_db),
+) -> AuthenticodeChainStatusResponse:
+    """Return the current authenticode-chain status snapshot.
+
+    The frontend polls this every 2 s after a 202 from
+    POST /authenticode-chain until ``status`` flips to ``completed`` or
+    ``failed``. Mirrors the cve-match polling shape.
+    """
+    return _firmware_to_authenticode_status(firmware)
 
 
 @router.get("/cdx.json")
