@@ -26,6 +26,10 @@ const DeviceAcquisitionPage = lazy(() => import('@/pages/DeviceAcquisitionPage')
 const WindowsHubPage = lazy(() => import('@/pages/WindowsHubPage'))
 const PeHardeningPage = lazy(() => import('@/pages/PeHardeningPage'))
 const AuthenticodeDetailPage = lazy(() => import('@/pages/AuthenticodeDetailPage'))
+const RegistryHivePage = lazy(() => import('@/pages/RegistryHivePage'))
+const RegistryDiffPage = lazy(() => import('@/pages/RegistryDiffPage'))
+const DriverMatrixPage = lazy(() => import('@/pages/DriverMatrixPage'))
+const DriverDetailPage = lazy(() => import('@/pages/DriverDetailPage'))
 const HelpPage = lazy(() => import('@/pages/HelpPage'))
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'))
 
@@ -62,6 +66,10 @@ export default function App() {
             <Route path="/projects/:projectId/windows" element={<ProjectRouteGuard><WindowsHubPage /></ProjectRouteGuard>} />
             <Route path="/projects/:projectId/windows/pe-hardening" element={<ProjectRouteGuard><PeHardeningPage /></ProjectRouteGuard>} />
             <Route path="/projects/:projectId/windows/pe-hardening/:signatureId" element={<ProjectRouteGuard><AuthenticodeDetailPage /></ProjectRouteGuard>} />
+            <Route path="/projects/:projectId/windows/registry" element={<ProjectRouteGuard><RegistryHivePage /></ProjectRouteGuard>} />
+            <Route path="/projects/:projectId/windows/registry/diff" element={<ProjectRouteGuard><RegistryDiffPage /></ProjectRouteGuard>} />
+            <Route path="/projects/:projectId/windows/drivers" element={<ProjectRouteGuard><DriverMatrixPage /></ProjectRouteGuard>} />
+            <Route path="/projects/:projectId/windows/drivers/:driverId" element={<ProjectRouteGuard><DriverDetailPage /></ProjectRouteGuard>} />
             <Route path="/help" element={<HelpPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
