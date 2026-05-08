@@ -165,6 +165,94 @@ class AuthenticodeChainStatusResponse(BaseModel):
     result: AuthenticodeChainAggregate | None = None
 
 
+# ── Phase β.11 — Per-PE signature row schemas (REST surface) ─────────────────
+
+
+# Mirrors the WindowsPESignature.chain_status CHECK constraint values. A
+# Pydantic Literal at the API boundary gates writer-side typos; the DB
+# CHECK is the durable runtime gate (Rule #33 .c).
+WindowsPEChainStatus = Literal[
+    "valid_at_signing", "valid_now", "revoked", "never_valid", "unknown",
+]
+
+
+class WindowsPESignatureSummary(BaseModel):
+    """Compact per-PE signature row for the PeHardeningPage table.
+
+    Surfaces the columns the operator scans first (signed / chain_status /
+    signer_subject / leaf_serial / dbx_revoked) without the heavy JSONB
+    payloads (chain_json / arch_view / rich_header_json) — those land on
+    :class:`WindowsPESignatureDetail` for the AuthenticodeDetailPage.
+
+    ``blob_path`` joins through HardwareFirmwareBlob so the operator sees
+    the firmware-tree path the runner verified, not just the FK uuid.
+    ``arch_view_present`` / ``rich_header_present`` are presence flags so
+    the table can badge bimorphic / RICH-header rows without paying the
+    JSONB serialization cost on every list call.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    blob_id: uuid.UUID
+    blob_path: str
+    signed: bool
+    chain_status: WindowsPEChainStatus
+    signer_subject: str | None = None
+    signer_issuer: str | None = None
+    leaf_serial: str | None = None
+    sig_hash_algo: str | None = None
+    tsa_authority: str | None = None
+    signed_at: datetime | None = None
+    dbx_revoked: bool
+    dbx_revocation_kb: str | None = None
+    arch_view_present: bool
+    rich_header_present: bool
+    created_at: datetime
+
+
+class WindowsPESignatureListResponse(BaseModel):
+    """Paginated list of per-PE signature rows for one firmware."""
+
+    signatures: list[WindowsPESignatureSummary]
+    total: int
+    offset: int
+    limit: int
+
+
+class WindowsPESignatureDetail(BaseModel):
+    """Full per-PE signature row for the AuthenticodeDetailPage.
+
+    Carries every column the runner persists, including the heavy JSONB
+    payloads (``chain_json`` for signify's verification_result tree,
+    ``arch_view`` for ARM64EC/X bimorphic detection, ``rich_header_json``
+    for the Microsoft toolchain fingerprint). The detail page renders
+    each section behind a collapsible region so the operator can drill
+    into the chain without overwhelming the layout.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    blob_id: uuid.UUID
+    blob_path: str
+    signed: bool
+    chain_status: WindowsPEChainStatus
+    signer_subject: str | None = None
+    signer_issuer: str | None = None
+    leaf_serial: str | None = None
+    sig_hash_algo: str | None = None
+    tsa_authority: str | None = None
+    signed_at: datetime | None = None
+    chain_json: dict | None = None
+    dbx_revoked: bool
+    dbx_revocation_kb: str | None = None
+    rich_header_json: dict | None = None
+    arch_view: dict | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
 class HardwareFirmwareCveRow(BaseModel):
     """One distinct CVE in the CVE-centric aggregate view."""
 

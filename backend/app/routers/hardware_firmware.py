@@ -32,6 +32,7 @@ from app.database import async_session_factory, get_db
 from app.models.firmware import Firmware
 from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.models.sbom import SbomVulnerability
+from app.models.windows_pe_signature import WindowsPESignature
 from app.rate_limit import TIER_A_HEAVY, limiter
 from app.routers.deps import resolve_firmware as _resolve_firmware
 from app.schemas.hardware_firmware import (
@@ -48,6 +49,9 @@ from app.schemas.hardware_firmware import (
     HardwareFirmwareCveRow,
     HardwareFirmwareCvesResponse,
     HardwareFirmwareListResponse,
+    WindowsPESignatureDetail,
+    WindowsPESignatureListResponse,
+    WindowsPESignatureSummary,
 )
 
 
@@ -747,6 +751,199 @@ async def get_authenticode_chain_status(
     ``failed``. Mirrors the cve-match polling shape.
     """
     return _firmware_to_authenticode_status(firmware)
+
+
+# ── Phase β.11 — Per-PE WindowsPESignature read endpoints ────────────────────
+#
+# The β.8 background runner persists one ``WindowsPESignature`` row per PE
+# binary in the firmware tree; the β.9 MCP tools (``list_signatures``,
+# ``get_signature_chain``) surface those rows to the AI assistant. The
+# REST endpoints below give the PeHardeningPage / AuthenticodeDetailPage
+# frontend the same read access without going through the MCP layer.
+#
+# ``GET /pe-signatures``: paginated list with chain_status / dbx filter
+# + ORDER BY chain_status (so revoked / never_valid surface first), 50
+# rows per page (matches the MCP cap, fits the table viewport).
+# ``GET /pe-signatures/{id}``: full row with chain_json / arch_view /
+# rich_header_json — the AuthenticodeDetailPage's single-PE drill.
+
+
+_VALID_CHAIN_STATUSES: frozenset[str] = frozenset({
+    "valid_at_signing", "valid_now", "revoked", "never_valid", "unknown",
+})
+
+
+def _signature_to_summary(
+    sig: WindowsPESignature, blob_path: str,
+) -> WindowsPESignatureSummary:
+    """Build the compact list response from an ORM row.
+
+    JSONB-presence is reported as a flag rather than the payload itself —
+    list calls fan out across hundreds of rows for a Win11 ISO (~1000 PEs)
+    and the JSONB serialization cost would dominate the response size
+    without proportionally helping the operator's table view. The detail
+    endpoint surfaces the full payload for one row at a time.
+    """
+    return WindowsPESignatureSummary(
+        id=sig.id,
+        blob_id=sig.blob_id,
+        blob_path=blob_path,
+        signed=sig.signed,
+        chain_status=sig.chain_status,
+        signer_subject=sig.signer_subject,
+        signer_issuer=sig.signer_issuer,
+        leaf_serial=sig.leaf_serial,
+        sig_hash_algo=sig.sig_hash_algo,
+        tsa_authority=sig.tsa_authority,
+        signed_at=sig.signed_at,
+        dbx_revoked=sig.dbx_revoked,
+        dbx_revocation_kb=sig.dbx_revocation_kb,
+        arch_view_present=sig.arch_view is not None,
+        rich_header_present=sig.rich_header_json is not None,
+        created_at=sig.created_at,
+    )
+
+
+def _signature_to_detail(
+    sig: WindowsPESignature, blob_path: str,
+) -> WindowsPESignatureDetail:
+    """Build the full detail response from an ORM row."""
+    return WindowsPESignatureDetail(
+        id=sig.id,
+        blob_id=sig.blob_id,
+        blob_path=blob_path,
+        signed=sig.signed,
+        chain_status=sig.chain_status,
+        signer_subject=sig.signer_subject,
+        signer_issuer=sig.signer_issuer,
+        leaf_serial=sig.leaf_serial,
+        sig_hash_algo=sig.sig_hash_algo,
+        tsa_authority=sig.tsa_authority,
+        signed_at=sig.signed_at,
+        chain_json=sig.chain_json,
+        dbx_revoked=sig.dbx_revoked,
+        dbx_revocation_kb=sig.dbx_revocation_kb,
+        rich_header_json=sig.rich_header_json,
+        arch_view=sig.arch_view,
+        created_at=sig.created_at,
+        updated_at=sig.updated_at,
+    )
+
+
+@router.get(
+    "/pe-signatures",
+    response_model=WindowsPESignatureListResponse,
+)
+async def list_pe_signatures(
+    chain_status: str | None = None,
+    dbx_revoked_only: bool = False,
+    offset: int = 0,
+    limit: int = 50,
+    firmware=Depends(_resolve_firmware),
+    db: AsyncSession = Depends(get_db),
+) -> WindowsPESignatureListResponse:
+    """List persisted ``WindowsPESignature`` rows for the active firmware.
+
+    Filters:
+
+    - ``chain_status``: one of valid_at_signing / valid_now / revoked /
+      never_valid / unknown (surfaces the chain-state filter chips on
+      PeHardeningPage).
+    - ``dbx_revoked_only``: limits to rows whose leaf serial appears in
+      the offline DBX bundle (the highest-impact chip for incident-
+      response triage).
+
+    Pagination: ``offset`` + ``limit``; default 50/page caps response
+    size for Win11 ISO firmware (~1000 PEs). Order: chain_status
+    ascending so ``revoked`` / ``never_valid`` rows surface first
+    (lexicographic order coincidentally puts them at the top), then
+    ``blob_path`` for stable paging.
+    """
+    if chain_status is not None and chain_status not in _VALID_CHAIN_STATUSES:
+        raise HTTPException(
+            400,
+            f"Invalid chain_status filter {chain_status!r}. "
+            f"Allowed: {sorted(_VALID_CHAIN_STATUSES)}",
+        )
+    if offset < 0:
+        raise HTTPException(400, "offset must be ≥ 0")
+    if limit < 1 or limit > 200:
+        raise HTTPException(400, "limit must be between 1 and 200")
+
+    blob_id_subq = select(HardwareFirmwareBlob.id).where(
+        HardwareFirmwareBlob.firmware_id == firmware.id
+    )
+    base_filter = WindowsPESignature.blob_id.in_(blob_id_subq)
+    filters = [base_filter]
+    if chain_status is not None:
+        filters.append(WindowsPESignature.chain_status == chain_status)
+    if dbx_revoked_only:
+        filters.append(WindowsPESignature.dbx_revoked.is_(True))
+
+    total = (
+        await db.execute(
+            select(func.count())
+            .select_from(WindowsPESignature)
+            .where(*filters)
+        )
+    ).scalar_one()
+
+    stmt = (
+        select(WindowsPESignature, HardwareFirmwareBlob.blob_path)
+        .join(
+            HardwareFirmwareBlob,
+            HardwareFirmwareBlob.id == WindowsPESignature.blob_id,
+        )
+        .where(*filters)
+        .order_by(
+            WindowsPESignature.chain_status,
+            HardwareFirmwareBlob.blob_path,
+        )
+        .offset(offset)
+        .limit(limit)
+    )
+    rows = (await db.execute(stmt)).all()
+
+    summaries = [_signature_to_summary(sig, blob_path) for sig, blob_path in rows]
+    return WindowsPESignatureListResponse(
+        signatures=summaries,
+        total=total,
+        offset=offset,
+        limit=limit,
+    )
+
+
+@router.get(
+    "/pe-signatures/{signature_id}",
+    response_model=WindowsPESignatureDetail,
+)
+async def get_pe_signature(
+    signature_id: uuid.UUID,
+    firmware=Depends(_resolve_firmware),
+    db: AsyncSession = Depends(get_db),
+) -> WindowsPESignatureDetail:
+    """Return one ``WindowsPESignature`` row with full JSONB payloads.
+
+    Cross-references against the resolved firmware so a row from another
+    project's firmware can't be exfiltrated by id-guess: the JOIN with
+    HardwareFirmwareBlob.firmware_id == firmware.id enforces the scope.
+    """
+    stmt = (
+        select(WindowsPESignature, HardwareFirmwareBlob.blob_path)
+        .join(
+            HardwareFirmwareBlob,
+            HardwareFirmwareBlob.id == WindowsPESignature.blob_id,
+        )
+        .where(
+            WindowsPESignature.id == signature_id,
+            HardwareFirmwareBlob.firmware_id == firmware.id,
+        )
+    )
+    row = (await db.execute(stmt)).first()
+    if row is None:
+        raise HTTPException(404, "PE signature not found for this firmware")
+    sig, blob_path = row
+    return _signature_to_detail(sig, blob_path)
 
 
 @router.get("/cdx.json")
