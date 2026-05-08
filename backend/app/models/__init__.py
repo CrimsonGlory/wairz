@@ -18,6 +18,7 @@ from app.models.windows_pe_signature import WindowsPESignature
 from app.models.windows_registry_extract import WindowsRegistryExtract
 from app.models.windows_driver import WindowsDriver
 from app.models.windows_update_package import WindowsUpdatePackage
+from app.models.windows_update_dll_diff import WindowsUpdateDllDiff
 
 __all__ = [
     "Project", "Firmware", "Conversation", "AnalysisCache",
@@ -27,5 +28,5 @@ __all__ = [
     "AttackSurfaceEntry", "UARTSession",
     "CraAssessment", "CraRequirementResult", "HardwareFirmwareBlob",
     "DeviceDumpSession", "WindowsPESignature", "WindowsRegistryExtract",
-    "WindowsDriver", "WindowsUpdatePackage",
+    "WindowsDriver", "WindowsUpdatePackage", "WindowsUpdateDllDiff",
 ]

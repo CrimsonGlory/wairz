@@ -238,7 +238,7 @@ DotnetDecompileStatus = Literal[
 
 
 # Mirrors the firmware.windows_update_diff_status CHECK constraint values
-# (Phase δ.3 — alembic ``d2e3f4a5b6c7``). 5-state 202+polling status set.
+# (Phase δ.3 — alembic ``d3a4b5c6d7e8``). 5-state 202+polling status set.
 # Rule #33 .c contract: Pydantic Literal here gates writer-side typos;
 # the DB CHECK (in the migration) is the durable runtime gate. Rule #33 .d
 # — δ.5 dispatch is **asyncio.create_task** (in-process pure-Python diff +
@@ -246,6 +246,18 @@ DotnetDecompileStatus = Literal[
 # which uses arq because the work coordinates with worker-only resources).
 WindowsUpdateDiffStatus = Literal[
     "idle", "queued", "running", "completed", "failed",
+]
+
+
+# Mirrors the windows_update_dll_diffs.diff_type CHECK constraint values
+# (Phase δ.5 — alembic ``d4a5b6c7d8e9``). Per-DLL verdict on the most-
+# recent KB pair within a firmware: ``added`` = present in newer only;
+# ``removed`` = present in older only; ``modified`` = present in both,
+# different SHA256; ``unchanged`` = present in both, identical SHA256.
+# Rule #33 .c contract — Literal at the writer boundary, DB CHECK in the
+# migration.
+WindowsUpdateDllDiffType = Literal[
+    "added", "removed", "modified", "unchanged",
 ]
 
 
