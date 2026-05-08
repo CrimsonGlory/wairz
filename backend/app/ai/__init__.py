@@ -20,6 +20,7 @@ from app.ai.tools.taint_llm import register_taint_llm_tools
 from app.ai.tools.uart import register_uart_tools
 from app.ai.tools.uefi import register_uefi_tools
 from app.ai.tools.vulhunt import register_vulhunt_tools
+from app.ai.tools.windows_archive import register_windows_archive_tools
 
 
 def create_tool_registry() -> ToolRegistry:
@@ -46,4 +47,5 @@ def create_tool_registry() -> ToolRegistry:
     register_attack_surface_tools(registry)
     register_cwe_checker_tools(registry)
     register_taint_llm_tools(registry)
+    register_windows_archive_tools(registry)
     return registry
