@@ -172,6 +172,33 @@ class Firmware(Base):
     windows_update_diff_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     windows_update_diff_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
+    # Phase ε batch EVTX (Windows Event Log) walk 202+polling state.
+    # Background runner ``run_evtx_walk_background`` (ε.1.b.3) walks every
+    # ``.evtx`` file across the firmware's detection roots
+    # (``app.services.firmware_paths.get_detection_roots`` per Rule #16),
+    # invokes ``app.services.evtx_service.parse_evtx_file`` per file
+    # (python-evtx read-only record stream per Rule #36 — DATA only, never
+    # invoked via wevtutil / Get-WinEvent), and aggregates per-EVTX
+    # summaries (counts by EID, by provider, time range, sample records,
+    # run_seconds) into ``evtx_walk_result`` so the frontend's last-known-
+    # result render survives session reloads. Rule #33 .c CHECK enforces
+    # the 5-state machine; Pydantic ``EvtxWalkStatus`` Literal at writer
+    # boundary catches code-side typos. Rule #33 .d — asyncio.create_task
+    # dispatch (in-process pure-Python parser; per-firmware JSONB aggregate
+    # is the durable state; per-event row persistence deferred to a future
+    # ζ.X phase per ε.1.b campaign Decision #1).
+    evtx_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    evtx_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    evtx_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    evtx_walk_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evtx_walk_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

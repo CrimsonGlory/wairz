@@ -249,6 +249,21 @@ WindowsUpdateDiffStatus = Literal[
 ]
 
 
+# Mirrors the firmware.evtx_walk_status CHECK constraint values
+# (Phase ε.1.b.2 — alembic ``e0a1b2c3d4e5``). 5-state 202+polling status
+# set matching the cve_match / vuln_scan / authenticode_chain /
+# registry_hive_walk / dotnet_decompile / windows_update_diff pattern.
+# Rule #33 .c contract: Pydantic Literal here gates writer-side typos;
+# the DB CHECK (in the migration) is the durable runtime gate. Rule #33
+# .d — ε.1.b.3 dispatch is **asyncio.create_task** (in-process pure-
+# Python python-evtx parser; per-firmware JSONB aggregate is the durable
+# state; per-event row persistence deferred to a future ζ.X phase per
+# ε.1.b campaign Decision #1).
+EvtxWalkStatus = Literal[
+    "idle", "queued", "running", "completed", "failed",
+]
+
+
 # Mirrors the windows_update_dll_diffs.diff_type CHECK constraint values
 # (Phase δ.5 — alembic ``d4a5b6c7d8e9``). Per-DLL verdict on the most-
 # recent KB pair within a firmware: ``added`` = present in newer only;
