@@ -91,7 +91,6 @@ from app.services.authenticode_chain_runner import (
 )
 from tests._live_db import make_live_db
 
-
 _FIXTURES_DIR = Path(__file__).parent / "fixtures" / "windows"
 
 # Real PEs commonly available on Linux dev / CI hosts. Used by the

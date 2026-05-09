@@ -20,6 +20,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # docker-compose.yml has :?required on POSTGRES_PASSWORD and FIRMAE_DB_PASSWORD
+      # — seed CI-only values so `docker compose up` doesn't bail at config resolution.
+      - name: Write CI .env
+        run: |
+          cat > .env <<'EOF'
+          POSTGRES_PASSWORD=ci-only-pg-password
+          FIRMAE_DB_PASSWORD=ci-only-firmae-password
+          API_KEY=ci-only-api-key
+          EOF
+
+      # docker-compose.yml declares wairz_emulation_net as `external: true` —
+      # in dev environments this is created by the operator; in CI we create
+      # it explicitly so the `docker compose up` doesn't bail with
+      # "network ... not found".
+      - name: Create external emulation network
+        run: docker network create wairz_emulation_net || true
+
       - name: Start services
         run: docker compose up -d --build --wait
         timeout-minutes: 15

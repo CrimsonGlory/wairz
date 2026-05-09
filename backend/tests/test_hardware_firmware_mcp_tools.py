@@ -12,13 +12,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.ai.tool_registry import ToolContext
 from app.ai.tools.hardware_firmware import (
     _handle_extract_dtb,
     _handle_find_unsigned_firmware,
 )
-from app.ai.tool_registry import ToolContext
 from app.models.hardware_firmware import HardwareFirmwareBlob
-
 
 # ---------------------------------------------------------------------------
 # find_unsigned_firmware

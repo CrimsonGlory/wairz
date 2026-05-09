@@ -119,7 +119,7 @@ async def list_uefi_modules(
     Only works for UEFI firmware extracted via UEFIExtract. Returns an empty
     list for non-UEFI firmware.
     """
-    from app.ai.tools.uefi import _parse_info_txt, _extract_guid_from_dirname, _KNOWN_GUIDS
+    from app.ai.tools.uefi import _KNOWN_GUIDS, _parse_info_txt
 
     loop = asyncio.get_running_loop()
 

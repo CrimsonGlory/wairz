@@ -32,10 +32,10 @@ infrastructure (alembic chain). Rule #8 extended rebuild
 Pre-validated revision ID: ``f1a2b3c4d5e6`` confirmed FREE in the
 versions tree of size 62 (Python regex script per Pattern #2).
 """
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "f1a2b3c4d5e6"

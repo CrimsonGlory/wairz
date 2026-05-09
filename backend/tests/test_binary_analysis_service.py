@@ -58,7 +58,6 @@ Coverage targets:
 """
 from __future__ import annotations
 
-import os
 import struct
 import sys
 from pathlib import Path
@@ -69,15 +68,12 @@ import pytest
 import app.services.binary_analysis_service as bas
 from app.services.binary_analysis_service import (
     _CPU_REC_ARCH_MAP,
-    _LIEF_ELF_ARCH_MAP,
-    _LIEF_PE_ARCH_MAP,
     _ensure_lief,
     analyze_binary,
     check_pe_protections,
     detect_raw_architecture,
     get_arch_and_endianness,
 )
-
 
 # ===========================================================================
 # Helpers — synthetic binary fixture builders

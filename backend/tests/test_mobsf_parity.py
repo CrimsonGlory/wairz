@@ -18,11 +18,11 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Any
-from unittest.mock import MagicMock, PropertyMock
+from unittest.mock import MagicMock
 
 import pytest
 
-from app.services.androguard_service import AndroguardService, ManifestFinding
+from app.services.androguard_service import AndroguardService
 
 # ---------------------------------------------------------------------------
 # MobSF baseline definition

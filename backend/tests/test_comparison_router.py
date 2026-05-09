@@ -33,7 +33,6 @@ at top of comparison.py (lines 22-30). Service-module patches work for them.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -44,9 +43,7 @@ from app.main import app
 from app.models.firmware import Firmware
 from app.models.project import Project
 from app.rate_limit import limiter
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

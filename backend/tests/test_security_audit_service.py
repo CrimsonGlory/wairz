@@ -3,8 +3,6 @@
 import os
 from pathlib import Path
 
-import pytest
-
 from app.services.security_audit import (
     SecurityFinding,
     run_security_audit,

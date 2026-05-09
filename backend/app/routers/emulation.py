@@ -67,6 +67,7 @@ async def _get_arq_pool():
         return _arq_pool
     try:
         from arq import create_pool
+
         from app.workers.arq_worker import get_redis_settings
         _arq_pool = await create_pool(get_redis_settings())
         logger.info(
@@ -786,6 +787,7 @@ async def websocket_emulation_terminal(
 
     # Connect to the container's exec instance
     import docker
+
     from app.utils.docker_client import get_docker_client
 
     try:

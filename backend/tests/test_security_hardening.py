@@ -1,12 +1,11 @@
 """Tests for security hardening features: API key detection and sysctl checker."""
 
-import os
 from pathlib import Path
 
 import pytest
 
+from app.ai.tools.security import _SYSCTL_CHECKS, _parse_sysctl_files
 from app.ai.tools.strings import _API_KEY_PATTERNS, _shannon_entropy
-from app.ai.tools.security import _parse_sysctl_files, _SYSCTL_CHECKS
 
 
 def _build_test_key(prefix: str, fill_char: str, length: int) -> str:

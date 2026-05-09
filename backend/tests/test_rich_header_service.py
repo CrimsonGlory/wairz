@@ -8,18 +8,14 @@ tests (same pattern as authenticode_service β.4 deferral).
 """
 from __future__ import annotations
 
-import struct
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from app.services.rich_header_service import (
     _MAX_ENTRIES,
     _decode_entries,
     decode_rich_header,
 )
-
 
 # ── _decode_entries unit tests ────────────────────────────────────────────
 

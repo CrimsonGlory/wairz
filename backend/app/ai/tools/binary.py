@@ -12,10 +12,10 @@ from elftools.elf.elffile import ELFFile
 from elftools.elf.sections import SymbolTableSection
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
-from app.services.analysis_service import check_binary_protections
 from app.services import ghidra_service
+from app.services.analysis_service import check_binary_protections
 from app.services.ghidra_service import decompile_function, run_ghidra_subprocess
-from app.utils.sandbox import safe_walk, validate_path
+from app.utils.sandbox import safe_walk
 
 logger = logging.getLogger(__name__)
 
@@ -248,6 +248,7 @@ async def _handle_analyze_binary_format(input: dict, context: ToolContext) -> st
         return f"Error: File not found: {input['binary_path']}"
 
     import asyncio
+
     from app.services.binary_analysis_service import analyze_binary
 
     loop = asyncio.get_running_loop()
@@ -407,7 +408,7 @@ async def _handle_get_binary_info(input: dict, context: ToolContext) -> str:
             "Binary Information (PE via LIEF + pefile):",
             "",
             f"  File:         {os.path.basename(path)}",
-            f"  Format:       PE",
+            "  Format:       PE",
             f"  Architecture: {lief_info.get('architecture', 'unknown')}",
             f"  Bits:         {lief_info.get('bits', 'unknown')}",
             f"  Endianness:   {lief_info.get('endianness', 'little')}",
@@ -464,7 +465,7 @@ async def _handle_get_binary_info(input: dict, context: ToolContext) -> str:
             "Binary Information (raw binary):",
             "",
             f"  File:         {os.path.basename(path)}",
-            f"  Format:       Raw binary (no ELF/PE/Mach-O header)",
+            "  Format:       Raw binary (no ELF/PE/Mach-O header)",
             f"  Size:         {file_size:,} bytes ({file_size / 1024:.1f} KB)",
             f"  Magic bytes:  {magic_hex}",
         ]
@@ -476,7 +477,7 @@ async def _handle_get_binary_info(input: dict, context: ToolContext) -> str:
                 sp = int.from_bytes(f.read(4), "little")
                 reset = int.from_bytes(f.read(4), "little")
                 if 0x20000000 <= sp <= 0x20100000 and 0x08000000 <= reset <= 0x08100000:
-                    lines.append(f"  Architecture: ARM Cortex-M (vector table detected)")
+                    lines.append("  Architecture: ARM Cortex-M (vector table detected)")
                     lines.append(f"  Initial SP:   {hex(sp)}")
                     lines.append(f"  Reset vector: {hex(reset)}")
                 elif sp == 0 or reset == 0:
@@ -1056,7 +1057,7 @@ async def _handle_find_callers(input: dict, context: ToolContext) -> str:
         context.firmware_id, binary_sha256, "xrefs", context.db,
     )
     if not cached:
-        return f"No xref data available for this binary. Run list_functions first."
+        return "No xref data available for this binary. Run list_functions first."
 
     xrefs = cached.get("xrefs", {})
 
@@ -1568,7 +1569,7 @@ async def _handle_cross_binary_dataflow(input: dict, context: ToolContext) -> st
 
     # Format output
     lines = [
-        f"Cross-Binary Dataflow Analysis",
+        "Cross-Binary Dataflow Analysis",
         f"Analyzed binaries: {len(analyzed_binaries)}",
         "",
     ]
@@ -1664,7 +1665,7 @@ async def _handle_detect_capabilities(
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
                 proc.communicate(), timeout=120
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await proc.communicate()
             return (
@@ -1804,7 +1805,7 @@ async def _handle_list_binary_capabilities(
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
                 proc.communicate(), timeout=60
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await proc.communicate()
             return (

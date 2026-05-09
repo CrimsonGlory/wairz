@@ -29,6 +29,7 @@ if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
 import backfill_detection  # noqa: E402  (post-sys.path insertion)
+
 from app.models.firmware import Firmware  # noqa: E402
 
 

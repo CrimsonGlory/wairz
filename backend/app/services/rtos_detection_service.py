@@ -8,7 +8,6 @@ Synchronous module — call via loop.run_in_executor() in async code.
 import logging
 import re
 import struct
-from typing import Any
 
 logger = logging.getLogger(__name__)
 MAX_SCAN_SIZE = 1024 * 1024  # 1MB for string scanning
@@ -474,7 +473,7 @@ def extract_companion_components(file_path: str) -> list[dict]:
     results: list[dict] = []
     try:
         data = _read_bytes(file_path, MAX_SCAN_SIZE)
-    except (OSError, IOError):
+    except OSError:
         logger.warning("Cannot read file for companion detection: %s", file_path)
         return results
 
@@ -546,7 +545,7 @@ def detect_rtos(file_path: str) -> dict | None:
     """
     try:
         data = _read_bytes(file_path, MAX_SCAN_SIZE)
-    except (OSError, IOError):
+    except OSError:
         logger.warning("Cannot read file for RTOS detection: %s", file_path)
         return None
 
@@ -578,7 +577,7 @@ def detect_rtos(file_path: str) -> dict | None:
         if len(data) == MAX_SCAN_SIZE:
             try:
                 full_data = _read_bytes(file_path)
-            except (OSError, IOError):
+            except OSError:
                 pass
         result = _tier5_vxworks_symtab(full_data)
 

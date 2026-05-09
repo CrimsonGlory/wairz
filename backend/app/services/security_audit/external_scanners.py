@@ -146,7 +146,7 @@ def _scan_noseyparker(root: str, findings: list[SecurityFinding]) -> None:
     import json
     import subprocess
     import tempfile
-    from shutil import which, rmtree
+    from shutil import rmtree, which
 
     if not which("noseyparker"):
         logger.debug("noseyparker not installed — skipping")

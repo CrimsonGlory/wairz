@@ -28,20 +28,17 @@ is a LOCAL closure-style dependency — tests override via
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.database import get_db
 from app.main import app
 from app.models.device_dump import DeviceDumpSession  # noqa: F401 — registers
 from app.models.firmware import Firmware
-from app.models.project import Project
 from app.rate_limit import limiter
 from app.routers.device import get_device_service
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -100,7 +97,7 @@ def _dump_row_mock(
     row.error = None
     row.started_at = None
     row.finished_at = None
-    row.created_at = datetime.now(timezone.utc)
+    row.created_at = datetime.now(UTC)
     return row
 
 

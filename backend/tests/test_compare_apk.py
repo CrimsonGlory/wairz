@@ -14,23 +14,19 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any
-
-import pytest
 
 from app.cli.compare_apk import (
     ComparisonReport,
     FindingExtra,
     FindingMatch,
     FindingMiss,
-    build_comparison,
-    format_json,
-    format_summary,
     _compute_aggregate,
     _get_attr,
     _severity_index,
+    build_comparison,
+    format_json,
+    format_summary,
 )
-
 
 # ---------------------------------------------------------------------------
 # Minimal mock result dataclasses (avoid importing full runners in tests)

@@ -24,9 +24,8 @@ documents.py (line 18). Service-module patches work for it.
 """
 from __future__ import annotations
 
-import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -39,9 +38,7 @@ from app.main import app
 from app.models.document import Document  # noqa: F401 — registers
 from app.models.project import Project
 from app.rate_limit import limiter
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -106,7 +103,7 @@ def _doc_mock(
     d.file_size = 100
     d.sha256 = "a" * 64
     d.storage_path = "/data/docs/notes.md"
-    d.created_at = datetime.now(timezone.utc)
+    d.created_at = datetime.now(UTC)
     return d
 
 

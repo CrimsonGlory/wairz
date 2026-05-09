@@ -21,7 +21,7 @@ callers; they are not part of SCANNERS.
 
 import logging
 import os
-from typing import Callable
+from collections.abc import Callable
 
 from app.services.security_audit._base import ScanResult, SecurityFinding
 from app.services.security_audit.credentials import (

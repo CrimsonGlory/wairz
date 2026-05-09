@@ -27,8 +27,6 @@ critical paths to lock in:
 from __future__ import annotations
 
 import asyncio
-import os
-import subprocess
 import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -50,9 +48,7 @@ from app.services.ghidra_service import (
     run_ghidra_subprocess,
     store_cached,
 )
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # Pure-function tests — output parsing

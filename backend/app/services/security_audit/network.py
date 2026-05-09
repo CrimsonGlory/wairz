@@ -20,7 +20,6 @@ from app.services.security_audit._base import (
     _rel,
 )
 
-
 _NET_DEP_CIFS_CRED_RE = re.compile(r"\bpassword=\S+", re.IGNORECASE)
 _NET_DEP_NO_ROOT_SQUASH_RE = re.compile(r"no_root_squash", re.IGNORECASE)
 _NET_DEP_CLOUD_RE = re.compile(
@@ -48,7 +47,7 @@ def _scan_network_dependencies(root: str, findings: list[SecurityFinding]) -> No
     fstab_path = os.path.join(root, "etc", "fstab")
     if os.path.isfile(fstab_path):
         try:
-            with open(fstab_path, "r", errors="replace") as f:
+            with open(fstab_path, errors="replace") as f:
                 for line_num, line in enumerate(f, 1):
                     if count >= MAX_FINDINGS_PER_CHECK:
                         break
@@ -74,7 +73,7 @@ def _scan_network_dependencies(root: str, findings: list[SecurityFinding]) -> No
     exports_path = os.path.join(root, "etc", "exports")
     if os.path.isfile(exports_path):
         try:
-            with open(exports_path, "r", errors="replace") as f:
+            with open(exports_path, errors="replace") as f:
                 for line_num, line in enumerate(f, 1):
                     if count >= MAX_FINDINGS_PER_CHECK:
                         break
@@ -115,7 +114,7 @@ def _scan_network_dependencies(root: str, findings: list[SecurityFinding]) -> No
                 continue
             rel_path = _rel(abs_path, root)
             try:
-                with open(abs_path, "r", errors="replace") as f:
+                with open(abs_path, errors="replace") as f:
                     for line_num, line in enumerate(f, 1):
                         if count >= MAX_FINDINGS_PER_CHECK:
                             break

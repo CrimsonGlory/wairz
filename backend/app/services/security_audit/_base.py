@@ -10,7 +10,6 @@ import os
 from collections import Counter
 from dataclasses import dataclass, field
 
-
 MAX_FINDINGS_PER_CHECK = 50
 
 # Binary extensions to skip during text scanning

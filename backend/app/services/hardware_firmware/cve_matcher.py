@@ -33,13 +33,11 @@ import logging
 import re
 import time
 import uuid
-from collections.abc import Iterator, Sequence
+from collections.abc import AsyncIterator, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
-from collections.abc import AsyncIterator
-
 from sqlalchemy import func, insert, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 

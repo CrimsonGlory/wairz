@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -61,7 +61,7 @@ def _make_blob(firmware_id: uuid.UUID, blob_path: str) -> MagicMock:
     blob.metadata_ = {}
     blob.detection_source = "magic"
     blob.detection_confidence = "high"
-    blob.created_at = datetime.now(timezone.utc)
+    blob.created_at = datetime.now(UTC)
     return blob
 
 

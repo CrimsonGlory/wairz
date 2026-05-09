@@ -32,7 +32,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-
 # INF section header pattern. Sections live inside square brackets at
 # the start of a line; trailing whitespace + optional inline comment
 # allowed. Section names are case-insensitive per INF spec.

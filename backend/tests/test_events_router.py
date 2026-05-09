@@ -26,10 +26,9 @@ Per Rule #30: ``event_service`` is module-imported at top of events.py
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -41,7 +40,6 @@ from app.routers.events import (
     VALID_EVENT_TYPES,
 )
 from app.services.event_service import EventService
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

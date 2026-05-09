@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from html import escape
 
 from app.models.finding import Finding
@@ -22,7 +22,7 @@ def generate_markdown_report(
     findings: list[Finding],
 ) -> str:
     """Generate a Markdown security assessment report."""
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     sections: list[str] = []
 
     # Title
@@ -36,8 +36,8 @@ def generate_markdown_report(
     # Firmware info
     if firmware:
         sections.append("## Firmware Information\n")
-        sections.append(f"| Property | Value |")
-        sections.append(f"|---|---|")
+        sections.append("| Property | Value |")
+        sections.append("|---|---|")
         if firmware.original_filename:
             sections.append(f"| Filename | {firmware.original_filename} |")
         sections.append(f"| SHA256 | `{firmware.sha256}` |")
@@ -138,7 +138,7 @@ def generate_html_report(
     findings: list[Finding],
 ) -> str:
     """Generate a self-contained HTML security assessment report."""
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     e = escape  # shorthand
 
     # Build firmware info rows
@@ -198,7 +198,7 @@ def generate_html_report(
                 )
 
             # Finding card
-            findings_html += f'<div class="finding-card">'
+            findings_html += '<div class="finding-card">'
             findings_html += (
                 f'<h3 style="margin:0 0 8px 0;">'
                 f"{_severity_badge_html(f.severity)} {e(f.title)}</h3>"

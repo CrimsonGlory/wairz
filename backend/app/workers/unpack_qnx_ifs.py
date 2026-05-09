@@ -201,7 +201,7 @@ async def unpack_qnx_ifs(
         list_stdout_b, list_stderr_b = await asyncio.wait_for(
             list_proc.communicate(), timeout=_IFSDUMP_LIST_TIMEOUT_SECONDS,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         list_proc.kill()
         try:
             await list_proc.communicate()
@@ -267,7 +267,7 @@ async def unpack_qnx_ifs(
         stdout_b, stderr_b = await asyncio.wait_for(
             proc.communicate(), timeout=_IFSDUMP_EXTRACT_TIMEOUT_SECONDS,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         try:
             await proc.communicate()

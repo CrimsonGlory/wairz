@@ -63,9 +63,7 @@ from app.models.project import Project
 from app.models.sbom import SbomComponent
 from app.services.export_service import ARCHIVE_VERSION
 from app.services.import_service import ImportService, _parse_dt
-
 from tests._live_db import make_live_db
-
 
 # ===========================================================================
 # Pure datetime parser

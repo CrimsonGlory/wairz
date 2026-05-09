@@ -650,7 +650,7 @@ class SASTScanner:
                 from_cache=result.cached,
             )
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             elapsed = (time.monotonic() - start) * 1000
             return PhaseResult(
                 phase=ScanPhase.SAST,
@@ -816,7 +816,7 @@ class ScanOrchestrator:
                         ),
                         timeout=self.config.bytecode_timeout + 5,  # margin
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pr = PhaseResult(
                         phase=ScanPhase.BYTECODE,
                         status=PhaseStatus.TIMEOUT,
@@ -849,7 +849,7 @@ class ScanOrchestrator:
                         ),
                         timeout=self.config.sast_timeout + 10,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pr = PhaseResult(
                         phase=ScanPhase.SAST,
                         status=PhaseStatus.TIMEOUT,

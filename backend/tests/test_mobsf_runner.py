@@ -25,7 +25,6 @@ from app.services.mobsf_runner import (
     compare_findings,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures: synthetic MobSF report data
 # ---------------------------------------------------------------------------

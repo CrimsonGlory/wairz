@@ -38,7 +38,6 @@ from app.services.format_detection import (
     detect_pe_arch_view,
 )
 
-
 # ---------------------------------------------------------------------------
 # Linux firmware-blob magic bytes (offset 0)
 # ---------------------------------------------------------------------------

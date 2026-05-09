@@ -84,7 +84,7 @@ async def _run_cabextract(
         stdout_b, stderr_b = await asyncio.wait_for(
             proc.communicate(), timeout=timeout_seconds,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         try:
             await proc.communicate()

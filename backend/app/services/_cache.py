@@ -35,7 +35,7 @@ The retention window is ``settings.analysis_cache_retention_days``.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -165,7 +165,7 @@ async def cleanup_older_than(db: AsyncSession, *, days: int) -> int:
     Called from the ``cleanup_analysis_cache`` arq cron job. The caller
     owns the commit — this helper only flushes.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff = datetime.now(UTC) - timedelta(days=days)
     result = await db.execute(
         delete(AnalysisCache).where(AnalysisCache.created_at < cutoff)
     )

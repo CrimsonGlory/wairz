@@ -37,9 +37,8 @@ import json
 import logging
 import os
 import sys
-import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -292,7 +291,7 @@ def build_comparison(
         apk_path=apk_path,
         apk_hash=wairz_result.apk_hash or mobsf_result.apk_hash,
         package_name=wairz_result.package_name or mobsf_result.package_name,
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(UTC).isoformat(),
         wairz_total=len(wairz_result.manifest_findings),
         wairz_duration_ms=wairz_result.scan_duration_ms,
         wairz_success=wairz_result.success,
@@ -515,7 +514,7 @@ async def compare_apk(
     if not p.is_file():
         report = ComparisonReport(
             apk_path=apk_path,
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
             wairz_success=False,
             wairz_error=f"APK not found: {apk_path}",
             mobsf_success=False,
@@ -614,7 +613,7 @@ def format_json(reports: list[ComparisonReport]) -> str:
     batch = {
         "batch": True,
         "apk_count": len(reports),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "reports": [r.to_dict() for r in reports],
         "aggregate": _compute_aggregate(reports),
     }

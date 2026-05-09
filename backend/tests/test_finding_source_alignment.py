@@ -39,7 +39,6 @@ from pathlib import Path
 
 import pytest
 
-
 _BACKEND_DIR = Path(__file__).parent.parent
 _REPO_ROOT = _BACKEND_DIR.parent
 _FRONTEND_TYPES = _REPO_ROOT / "frontend" / "src" / "types" / "index.ts"

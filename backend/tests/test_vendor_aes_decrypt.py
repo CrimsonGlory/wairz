@@ -27,11 +27,7 @@ import subprocess
 import tarfile
 from pathlib import Path
 
-import pytest
-
 from app.workers.unpack_common import (
-    _ARCHIVE_MAGIC,
-    _AesKeyTriple,
     _archive_ext_for,
     _decrypt_vendor_encrypted_archives,
     _detect_openssl_key_triples,

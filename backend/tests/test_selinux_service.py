@@ -63,15 +63,10 @@ Coverage targets:
 """
 from __future__ import annotations
 
-import json
 import os
-import subprocess
 import sys
-import uuid
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from app.services import selinux_service as slx_mod
 from app.services.selinux_service import (
@@ -80,7 +75,6 @@ from app.services.selinux_service import (
     _ROOT_POLICY_PATHS,
     SELinuxService,
 )
-
 
 # ===========================================================================
 # Module constants

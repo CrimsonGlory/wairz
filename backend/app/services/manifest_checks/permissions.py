@@ -16,8 +16,8 @@ import logging
 from typing import Any
 
 from app.services.manifest_checks._base import (
-    ManifestFinding,
     _NS_ANDROID,
+    ManifestFinding,
 )
 
 logger = logging.getLogger(__name__)
@@ -244,8 +244,8 @@ class PermissionChecks:
                         f"{category.lower()}-related permission(s): "
                         + "; ".join(f"{p[0].split('.')[-1]} — {p[1]}" for p in perms)
                         + ". Verify these permissions are essential for "
-                        f"the app's core functionality and that sensitive "
-                        f"data access is properly justified."
+                        "the app's core functionality and that sensitive "
+                        "data access is properly justified."
                     ),
                     evidence=f"Permissions: {', '.join(perm_names)}",
                     cwe_ids=cwe_ids,

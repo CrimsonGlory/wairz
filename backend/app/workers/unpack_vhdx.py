@@ -153,7 +153,7 @@ async def unpack_vhdx(
             info_proc.communicate(),
             timeout=_QEMU_IMG_INFO_TIMEOUT_SECONDS,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         info_proc.kill()
         try:
             await info_proc.communicate()
@@ -235,7 +235,7 @@ async def unpack_vhdx(
             proc.communicate(),
             timeout=_QEMU_IMG_CONVERT_TIMEOUT_SECONDS,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         try:
             await proc.communicate()

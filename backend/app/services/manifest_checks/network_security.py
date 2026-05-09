@@ -190,7 +190,7 @@ class NetworkSecurityChecks:
         candidate_paths = [
             f"res/xml/{res_name}.xml",
             f"r/x/{res_name}.xml",  # obfuscated resource paths
-            f"res/xml/network_security_config.xml",  # fallback common name
+            "res/xml/network_security_config.xml",  # fallback common name
         ]
 
         # Try to get the file from the APK
@@ -294,7 +294,7 @@ class NetworkSecurityChecks:
                 findings.append(
                     ManifestFinding(
                         check_id="MANIFEST-011",
-                        title=f"Cleartext traffic permitted for specific domains",
+                        title="Cleartext traffic permitted for specific domains",
                         severity="medium",
                         description=(
                             f"The network security config allows cleartext "

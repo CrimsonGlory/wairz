@@ -143,7 +143,7 @@ class KernelStrategy(SbomStrategy):
     ) -> None:
         """Parse os-release or openwrt_release for distro identification."""
         try:
-            with open(abs_path, "r", errors="replace") as f:
+            with open(abs_path, errors="replace") as f:
                 content = f.read(4096)
         except OSError:
             return

@@ -55,9 +55,7 @@ Coverage targets:
 from __future__ import annotations
 
 import os
-import stat as stat_module
 import sys
-import uuid
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -65,14 +63,13 @@ import pytest
 
 from app.services import clamav_service as clam_mod
 from app.services.clamav_service import (
-    ClamScanResult,
     MAX_SCAN_FILE_SIZE,
+    ClamScanResult,
     _get_clamd,
     check_available,
     scan_directory,
     scan_file,
 )
-
 
 # ===========================================================================
 # Fake clamd module — installed via sys.modules

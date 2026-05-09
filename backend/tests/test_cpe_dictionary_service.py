@@ -60,7 +60,6 @@ Coverage targets:
 from __future__ import annotations
 
 import sys
-import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -73,7 +72,6 @@ from app.services.cpe_dictionary_service import (
     CpeMatch,
     get_cpe_dictionary_service,
 )
-
 
 # ===========================================================================
 # Reset module singleton between tests

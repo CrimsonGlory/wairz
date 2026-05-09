@@ -67,7 +67,6 @@ import pytest
 from app.models.finding import Finding
 from app.models.firmware import Firmware
 from app.models.project import Project
-from app.services import report_service as rs_mod
 from app.services.report_service import (
     SEVERITY_COLORS,
     SEVERITY_EMOJI,
@@ -77,9 +76,7 @@ from app.services.report_service import (
     generate_markdown_report,
     generate_pdf_report,
 )
-
 from tests._live_db import make_live_db
-
 
 # ===========================================================================
 # Module constants

@@ -39,14 +39,12 @@ from typing import Any
 from sqlalchemy import select
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
-from app.models.firmware import Firmware
 from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.models.windows_update_dll_diff import WindowsUpdateDllDiff
 from app.models.windows_update_package import WindowsUpdatePackage
 from app.services.jsonb_normalizers import (
     _normalize_windows_update_packages_update_metadata,
 )
-
 
 logger = logging.getLogger(__name__)
 

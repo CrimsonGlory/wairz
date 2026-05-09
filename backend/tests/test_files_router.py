@@ -31,9 +31,8 @@ from __future__ import annotations
 
 import dataclasses
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -46,10 +45,7 @@ from app.models.project import Project
 from app.rate_limit import limiter
 from app.routers.deps import resolve_firmware as resolve_firmware_dep
 from app.routers.files import get_file_service
-from app.services.file_service import FileService
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

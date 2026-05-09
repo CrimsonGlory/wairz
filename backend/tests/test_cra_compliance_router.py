@@ -29,12 +29,10 @@ cra_compliance.py (line 19). Service-module patches work for it.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
 
 from app.database import get_db
 from app.main import app
@@ -42,13 +40,10 @@ from app.models.cra_compliance import (  # noqa: F401 — registers tables
     CraAssessment,
     CraRequirementResult,
 )
-from app.models.firmware import Firmware
 from app.models.project import Project
 from app.rate_limit import limiter
 from app.services.cra_compliance_service import CRAComplianceService
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

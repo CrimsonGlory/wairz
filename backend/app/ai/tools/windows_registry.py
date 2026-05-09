@@ -35,8 +35,6 @@ import asyncio
 import json
 import logging
 import uuid
-from dataclasses import asdict
-from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -48,7 +46,6 @@ from app.models.windows_registry_extract import WindowsRegistryExtract
 from app.services.jsonb_normalizers import (
     _normalize_windows_registry_extracts_parsed_tree,
 )
-
 
 logger = logging.getLogger(__name__)
 

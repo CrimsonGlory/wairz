@@ -7,7 +7,7 @@ host-side bridge process over TCP using a JSON-over-newline protocol.
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -68,7 +68,7 @@ class UARTService:
             baudrate=baudrate,
             status="connected",
             transcript_path=transcript_path,
-            connected_at=datetime.now(timezone.utc),
+            connected_at=datetime.now(UTC),
         )
         self._db.add(session)
         await self._db.flush()
@@ -173,7 +173,7 @@ class UARTService:
             logger.warning("Bridge unreachable during disconnect — marking session closed anyway")
 
         session.status = "closed"
-        session.closed_at = datetime.now(timezone.utc)
+        session.closed_at = datetime.now(UTC)
         await self._db.flush()
         return session
 
@@ -224,7 +224,7 @@ class UARTService:
                 asyncio.open_connection(host, port),
                 timeout=5,
             )
-        except (OSError, asyncio.TimeoutError) as exc:
+        except (TimeoutError, OSError) as exc:
             raise ConnectionError(
                 f"Cannot reach UART bridge at {host}:{port}. "
                 f"Is wairz-uart-bridge running on the host? Error: {exc}"

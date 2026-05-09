@@ -54,10 +54,8 @@ Coverage targets:
 from __future__ import annotations
 
 import json
-import os
 import socket
 import struct
-import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -65,13 +63,11 @@ import pytest
 
 from app.services import kernel_service as ks_mod
 from app.services.kernel_service import (
-    SUPPORTED_ARCHITECTURES,
     KernelService,
     _guess_arch,
     _validate_download_url,
     _validate_kernel_name,
 )
-
 
 # A 64-byte U-Boot uImage header is enough to satisfy _validate_kernel_file's
 # "is this a real kernel?" check (magic 0x27051956 + size > 500KB).

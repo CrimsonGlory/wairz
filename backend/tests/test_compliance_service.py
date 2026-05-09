@@ -60,21 +60,18 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import UTC
 
 import pytest
-from sqlalchemy import select
 
 from app.models.finding import Finding
 from app.models.firmware import Firmware
 from app.models.project import Project
-from app.services import compliance_service as comp_mod
 from app.services.compliance_service import (
     ETSI_PROVISIONS,
     ETSIComplianceService,
 )
-
 from tests._live_db import make_live_db
-
 
 # ===========================================================================
 # ETSI_PROVISIONS sanity
@@ -600,8 +597,8 @@ class TestGenerateReportLiveCanary:
             db.add(firmware)
             await db.flush()
 
-            from datetime import datetime, timezone, timedelta
-            t0 = datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
+            from datetime import datetime, timedelta
+            t0 = datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC)
 
             # Add 3 findings, oldest first; created_at increases.
             for i, t in enumerate([t0, t0 + timedelta(hours=1), t0 + timedelta(hours=2)]):

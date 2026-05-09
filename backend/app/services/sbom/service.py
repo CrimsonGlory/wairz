@@ -88,7 +88,7 @@ class SbomService:
         self,
         extracted_root: str | None = None,
         *,
-        firmware: "Firmware | None" = None,
+        firmware: Firmware | None = None,
         detection_roots: list[str] | None = None,
     ):
         # Resolve the list of scan roots once at construction time.

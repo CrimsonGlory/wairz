@@ -58,7 +58,6 @@ Wave 1 documentation); ``test_pcap_analysis_service.py``
 """
 from __future__ import annotations
 
-import os
 import struct
 import uuid
 from pathlib import Path
@@ -80,9 +79,7 @@ from app.services.firmware_metadata_service import (
     UBootHeader,
 )
 from app.services.jsonb_normalizers import ANALYSIS_CACHE_RESULT_SCHEMA_VERSION
-
 from tests._live_db import make_live_db
-
 
 # ===========================================================================
 # _parse_size — pure static helper
@@ -453,8 +450,7 @@ class TestRunBinwalkScan:
                 coro.close()
             except Exception:
                 pass
-            import asyncio as _asyncio
-            raise _asyncio.TimeoutError()
+            raise TimeoutError()
 
         with patch.object(
             fms_mod.asyncio, "create_subprocess_exec", new=_hanging_create,

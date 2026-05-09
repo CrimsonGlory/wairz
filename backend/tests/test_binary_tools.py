@@ -11,7 +11,6 @@ from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.ai.tools.binary import register_binary_tools
 from app.services.analysis_service import check_binary_protections
 
-
 # ---------------------------------------------------------------------------
 # Helpers: Build a minimal valid ELF binary in memory
 # ---------------------------------------------------------------------------

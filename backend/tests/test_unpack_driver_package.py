@@ -5,7 +5,6 @@ The worker classifies the subtype based on file presence.
 """
 from __future__ import annotations
 
-import asyncio
 import os
 from pathlib import Path
 from unittest.mock import AsyncMock, patch

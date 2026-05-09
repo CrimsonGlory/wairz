@@ -17,11 +17,9 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
 from unittest.mock import patch
 
-import pytest
-
+from app.ai.tool_registry import ToolRegistry
 from app.ai.tools.windows_registry import (
     _handle_diff_hives,
     _handle_dump_subkey,
@@ -32,7 +30,6 @@ from app.ai.tools.windows_registry import (
     _handle_walk_hive,
     register_windows_registry_tools,
 )
-from app.ai.tool_registry import ToolRegistry
 from app.models import (
     Firmware,
     HardwareFirmwareBlob,

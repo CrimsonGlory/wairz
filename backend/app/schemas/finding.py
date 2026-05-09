@@ -3,8 +3,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
-
+from pydantic import BaseModel
 
 # Per CLAUDE.md Rule #33 .c — Pydantic Literal for the verdict-bearing
 # Windows sources β.12 + γ.8 emit. Used at the call boundary inside

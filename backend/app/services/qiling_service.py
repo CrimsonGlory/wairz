@@ -15,11 +15,6 @@ This service provides:
 
 import logging
 import os
-import io
-import sys
-import signal
-import time
-import traceback
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any

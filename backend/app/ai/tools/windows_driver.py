@@ -37,13 +37,11 @@ from typing import Any
 from sqlalchemy import select
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
-from app.models.firmware import Firmware
 from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.models.windows_driver import WindowsDriver
 from app.services.jsonb_normalizers import (
     _normalize_windows_drivers_inf_metadata,
 )
-
 
 logger = logging.getLogger(__name__)
 

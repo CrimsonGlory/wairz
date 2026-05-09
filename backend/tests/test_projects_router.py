@@ -19,7 +19,7 @@ projects.py (line 17). Service-module patches work for it.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -31,7 +31,6 @@ from app.main import app
 from app.models.document import Document  # noqa: F401 — registers
 from app.models.project import Project
 from app.rate_limit import limiter
-
 from tests._live_db import make_live_db
 
 
@@ -124,8 +123,8 @@ class TestListProjects:
         project.name = "Test"
         project.description = None
         project.status = "ready"
-        project.created_at = datetime.now(timezone.utc)
-        project.updated_at = datetime.now(timezone.utc)
+        project.created_at = datetime.now(UTC)
+        project.updated_at = datetime.now(UTC)
 
         async def fake_paginate(db, stmt, offset, limit):  # noqa: ARG001
             return [project], 1
@@ -160,7 +159,6 @@ class TestCreateProjectLiveCanary:
         async with make_live_db() as db:
             # DocumentService.create_note writes a real Document row through
             # the live db (not stubbed) so the canary covers BOTH layers.
-            from app.services.document_service import DocumentService
 
             async def _fake_create_note(project_id, title, content):
                 doc = Document(

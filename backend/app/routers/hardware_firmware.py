@@ -20,11 +20,11 @@ import logging
 import os
 import traceback
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
-from sqlalchemy import case, func, literal, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -53,7 +53,6 @@ from app.schemas.hardware_firmware import (
     WindowsPESignatureListResponse,
     WindowsPESignatureSummary,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -510,7 +509,7 @@ async def _run_cve_match_background(
     On exception: flips status to ``failed`` and stores a short
     traceback summary on ``cve_match_error`` for the UI to surface.
     """
-    started = datetime.now(timezone.utc)
+    started = datetime.now(UTC)
     try:
         async with async_session_factory() as db:
             try:
@@ -551,7 +550,7 @@ async def _run_cve_match_background(
                 if fw is None:
                     return
                 fw.cve_match_status = "completed"
-                fw.cve_match_finished_at = datetime.now(timezone.utc)
+                fw.cve_match_finished_at = datetime.now(UTC)
                 fw.cve_match_result = aggregate.model_dump()
                 fw.cve_match_error = None
                 await db.commit()
@@ -578,7 +577,7 @@ async def _run_cve_match_background(
                     ).scalar_one_or_none()
                     if fail_fw is not None:
                         fail_fw.cve_match_status = "failed"
-                        fail_fw.cve_match_finished_at = datetime.now(timezone.utc)
+                        fail_fw.cve_match_finished_at = datetime.now(UTC)
                         fail_fw.cve_match_error = err_summary
                         await fail_db.commit()
                 logger.exception(

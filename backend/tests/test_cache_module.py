@@ -10,14 +10,13 @@ from the call-site tests (``test_binary_tools``,
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from app.models.analysis_cache import AnalysisCache
 from app.services import _cache
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -268,7 +267,7 @@ class TestCleanupOlderThan:
         assert "DELETE FROM analysis_cache" in compiled
         assert "created_at" in compiled
         # Rough sanity on the cutoff being ~30 days back.
-        approx_cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        approx_cutoff = datetime.now(UTC) - timedelta(days=30)
         assert str(approx_cutoff.year) in compiled
         db.flush.assert_awaited_once()
 

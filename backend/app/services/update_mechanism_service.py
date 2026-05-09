@@ -87,7 +87,7 @@ def _read_text(path: str, max_size: int = _MAX_FILE_SIZE) -> str | None:
         size = os.path.getsize(path)
         if size > max_size:
             return None
-        with open(path, "r", errors="replace") as f:
+        with open(path, errors="replace") as f:
             return f.read(max_size)
     except OSError:
         return None

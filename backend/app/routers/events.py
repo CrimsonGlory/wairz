@@ -140,5 +140,5 @@ async def _get_message(pubsub) -> dict | None:
             timeout=KEEPALIVE_INTERVAL,
         )
         return msg
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return None

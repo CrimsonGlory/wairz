@@ -12,37 +12,30 @@ without real APK files or androguard installed.
 
 from __future__ import annotations
 
-import asyncio
 import json
-import os
-import time
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from tests.harness.discovery import (
+    WELL_KNOWN_APKS,
     APKFixture,
     FixtureSource,
     ScanPhase,
-    WELL_KNOWN_APKS,
     discover_all,
     discover_real_apks,
     discover_synthetic_fixtures,
 )
 from tests.harness.orchestrator import (
     APKScanResult,
-    BytecodeScanner,
     ManifestScanner,
     PhaseFinding,
     PhaseResult,
     PhaseStatus,
-    SASTScanner,
     ScanConfig,
     ScanOrchestrator,
     ScanReport,
 )
-
 
 # ---------------------------------------------------------------------------
 # Discovery tests

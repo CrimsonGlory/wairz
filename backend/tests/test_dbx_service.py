@@ -26,17 +26,16 @@ from pathlib import Path
 import pytest
 
 from app.services.dbx_service import (
+    _MAX_ENTRIES,
     DBX_MATCH_SCHEMA_VERSION,
     EFI_CERT_SHA256_GUID,
     EFI_CERT_X509_GUID,
-    _MAX_ENTRIES,
     _normalize_serial,
     _parse_bundle_bytes,
     _strip_authenticated_variable_wrapper,
     match_dbx_revocation,
     reset_bundle_cache,
 )
-
 
 # ── Test fixture factory: build a synthetic dbxupdate.bin ─────────────────
 

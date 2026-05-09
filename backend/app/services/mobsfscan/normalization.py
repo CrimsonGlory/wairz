@@ -299,7 +299,7 @@ MOBSFSCAN_SOURCE = "apk-mobsfscan"
 
 
 def normalize_mobsfscan_findings(
-    result: "MobsfScanResult",
+    result: MobsfScanResult,
     *,
     apk_rel_path: str = "",
     priv_app_bump: bool = True,
@@ -434,12 +434,12 @@ def normalize_mobsfscan_findings(
 
 
 async def persist_mobsfscan_findings(
-    db: "AsyncSession",
+    db: AsyncSession,
     project_id: uuid.UUID,
     firmware_id: uuid.UUID | None,
     normalized: list[NormalizedFinding],
     *,
-    fw_ctx: "FirmwareContext | None" = None,
+    fw_ctx: FirmwareContext | None = None,
 ) -> int:
     """Write normalized mobsfscan findings to the ``findings`` table.
 
@@ -507,7 +507,7 @@ async def persist_mobsfscan_findings(
 
 
 def format_mobsfscan_text(
-    result: "MobsfScanResult",
+    result: MobsfScanResult,
     normalized: list[NormalizedFinding],
     apk_rel_path: str = "",
     *,
@@ -538,7 +538,7 @@ def format_mobsfscan_text(
     lines: list[str] = []
 
     # Header
-    lines.append(f"=== mobsfscan Source Code Analysis ===")
+    lines.append("=== mobsfscan Source Code Analysis ===")
     if apk_rel_path:
         lines.append(f"APK: {apk_rel_path}")
 

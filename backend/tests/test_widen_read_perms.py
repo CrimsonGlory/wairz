@@ -14,11 +14,8 @@ Symlinks are skipped (chmod on a symlink would affect the target).
 """
 from __future__ import annotations
 
-import os
 import stat
 from pathlib import Path
-
-import pytest
 
 from app.workers.unpack_common import widen_read_perms
 

@@ -20,7 +20,6 @@ import logging
 import os
 import tempfile
 import uuid
-from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -168,7 +167,7 @@ async def run_ghidra_subprocess(
                 process.communicate(),
                 timeout=settings.ghidra_timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             process.kill()
             await process.wait()
             raise TimeoutError(

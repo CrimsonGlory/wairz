@@ -31,12 +31,12 @@ import docker
 import docker.errors
 
 from app.models.emulation_session import EmulationSession
-from app.services.jsonb_normalizers import _normalize_emulation_sessions_port_forwards
 from app.services.emulation.docker_ops import (
     copy_file_to_container,
     read_container_qemu_log,
 )
 from app.services.emulation.sysroot_mount import inject_init_wrapper
+from app.services.jsonb_normalizers import _normalize_emulation_sessions_port_forwards
 
 logger = logging.getLogger(__name__)
 

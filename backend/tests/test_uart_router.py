@@ -28,7 +28,7 @@ at top of uart.py (lines 23-24). Service-module patches work for them.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -41,9 +41,7 @@ from app.models.firmware import Firmware
 from app.models.project import Project
 from app.models.uart_session import UARTSession  # noqa: F401 — registers
 from app.rate_limit import limiter
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -106,9 +104,9 @@ def _session_mock(project_id: uuid.UUID, firmware_id: uuid.UUID) -> MagicMock:
     s.status = "connected"
     s.error_message = None
     s.transcript_path = None
-    s.connected_at = datetime.now(timezone.utc)
+    s.connected_at = datetime.now(UTC)
     s.closed_at = None
-    s.created_at = datetime.now(timezone.utc)
+    s.created_at = datetime.now(UTC)
     return s
 
 
@@ -382,7 +380,7 @@ class TestUartConnectLiveCanary:
                     device_path=device_path,
                     baudrate=baudrate,
                     status="connected",
-                    connected_at=datetime.now(timezone.utc),
+                    connected_at=datetime.now(UTC),
                 )
                 db.add(session)
                 await db.flush()

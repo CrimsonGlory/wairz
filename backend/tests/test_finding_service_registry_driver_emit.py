@@ -18,10 +18,6 @@ Two layers:
 """
 from __future__ import annotations
 
-import uuid
-
-import pytest
-
 from app.models import (
     Finding,
     Firmware,
@@ -32,10 +28,10 @@ from app.models import (
 )
 from app.schemas.finding import Severity
 from app.services.finding_service import (
-    FindingService,
     _SOURCE_DRIVER_IMPORTS,
     _SOURCE_INF,
     _SOURCE_REGISTRY_PERSISTENCE,
+    FindingService,
     classify_driver_findings,
     classify_registry_persistence_findings,
 )
@@ -44,7 +40,6 @@ from app.services.jsonb_normalizers import (
     _stamp_windows_registry_extracts_parsed_tree,
 )
 from tests._live_db import make_live_db
-
 
 # ── classify_registry_persistence_findings ──────────────────────────────────
 

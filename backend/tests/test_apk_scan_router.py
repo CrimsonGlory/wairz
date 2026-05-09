@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -47,9 +47,7 @@ from app.models.finding import Finding
 from app.models.firmware import Firmware
 from app.models.project import Project
 from app.rate_limit import limiter
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -117,7 +115,7 @@ def _firmware_row(
     fw.original_filename = "test-firmware.zip"
     fw.device_metadata = None
     fw.os_info = None
-    fw.created_at = datetime.now(timezone.utc)
+    fw.created_at = datetime.now(UTC)
     return fw
 
 

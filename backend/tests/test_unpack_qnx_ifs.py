@@ -29,7 +29,6 @@ from app.workers.unpack_qnx_ifs import (
     unpack_qnx_ifs,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -154,7 +153,7 @@ async def test_unpack_qnx_ifs_reports_list_timeout(tmp_path: Path):
     async def _selective_wait_for(coro, timeout=None):
         # First wait_for is on list — raise to simulate a stuck listing.
         coro.close()
-        raise asyncio.TimeoutError
+        raise TimeoutError
 
     with patch(
         "app.workers.unpack_qnx_ifs.asyncio.create_subprocess_exec",
@@ -204,7 +203,7 @@ async def test_unpack_qnx_ifs_reports_extract_timeout(tmp_path: Path):
             return await real_wait_for(coro, timeout=timeout)
         # Extract — raise.
         coro.close()
-        raise asyncio.TimeoutError
+        raise TimeoutError
 
     with patch(
         "app.workers.unpack_qnx_ifs.asyncio.create_subprocess_exec",

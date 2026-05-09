@@ -28,11 +28,10 @@ baselines.
 from __future__ import annotations
 
 import json
-import os
 import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -646,7 +645,7 @@ def export_scan_result(spec: TestAPKSpec, result: dict[str, Any]) -> dict[str, A
             "min_sdk": int(spec.min_sdk),
             "target_sdk": int(spec.target_sdk),
             "scanner": "wairz-androguard-manifest",
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
             "elapsed_ms": result.get("elapsed_ms"),
             "parse_ms": result.get("parse_ms"),
             "checks_ms": result.get("checks_ms"),
@@ -885,7 +884,7 @@ def main() -> None:
     # 4. Write comparison report
     report = {
         "_meta": {
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
             "tool": "extract_mobsf_baselines.py",
             "description": "Side-by-side comparison of Wairz manifest scanner vs MobSF baselines",
         },

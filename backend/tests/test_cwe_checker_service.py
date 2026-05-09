@@ -51,11 +51,10 @@ import uuid
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-from sqlalchemy import select
-
 import docker
 import docker.errors
+import pytest
+from sqlalchemy import select
 
 from app.models.analysis_cache import AnalysisCache
 from app.models.firmware import Firmware
@@ -71,9 +70,7 @@ from app.services.cwe_checker_service import (
     run_cwe_checker,
     run_cwe_checker_batch,
 )
-
 from tests._live_db import make_live_db
-
 
 # ===========================================================================
 # Module-level setting helpers

@@ -19,8 +19,36 @@ from app.middleware.asgi_auth import APIKeyASGIMiddleware
 # running on ...``) are also emitted as JSON. The lifespan hook is too late:
 # uvicorn emits its boot lines before ASGI lifespan starts.
 configure_logging(level=os.environ.get("LOG_LEVEL", "INFO"))
+from datetime import UTC
+
 from app.rate_limit import limiter  # shared rate-limiter instance (B.1.b)
-from app.routers import analysis, apk_scan, attack_surface, comparison, compliance, component_map, cra_compliance, device, documents, emulation, events, export_import, files, findings, firmware, fuzzing, hardware_firmware, health, kernels, projects, sbom, security_audit, terminal, tools, uart
+from app.routers import (
+    analysis,
+    apk_scan,
+    attack_surface,
+    comparison,
+    compliance,
+    component_map,
+    cra_compliance,
+    device,
+    documents,
+    emulation,
+    events,
+    export_import,
+    files,
+    findings,
+    firmware,
+    fuzzing,
+    hardware_firmware,
+    health,
+    kernels,
+    projects,
+    sbom,
+    security_audit,
+    terminal,
+    tools,
+    uart,
+)
 from app.routers.terminal import system_ws_router as _system_ws_router
 from app.services.event_service import event_service
 from app.utils.sandbox import PathTraversalError
@@ -73,8 +101,10 @@ async def lifespan(app: FastAPI):
     # so the next dump attempt isn't blocked by a phantom. Companion to
     # the F-A-01 Rule #33 refactor (audit-2026-05-04).
     try:
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         from sqlalchemy import update
+
         from app.database import async_session_factory
         from app.models.device_dump import DeviceDumpSession
 
@@ -85,7 +115,7 @@ async def lifespan(app: FastAPI):
                 .values(
                     status="failed",
                     error="Backend restarted; runner state lost",
-                    finished_at=datetime.now(timezone.utc),
+                    finished_at=datetime.now(UTC),
                 )
             )
             await db.commit()
@@ -110,8 +140,10 @@ async def lifespan(app: FastAPI):
     # device dumps the runner is in-process only (no Docker container
     # side), so STARTUP cleanup is sufficient — no cron needed.
     try:
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         from sqlalchemy import update
+
         from app.database import async_session_factory
         from app.models.firmware import Firmware
 
@@ -122,7 +154,7 @@ async def lifespan(app: FastAPI):
                 .values(
                     cve_match_status="failed",
                     cve_match_error="Backend restarted; runner state lost",
-                    cve_match_finished_at=datetime.now(timezone.utc),
+                    cve_match_finished_at=datetime.now(UTC),
                 )
             )
             await db.commit()
@@ -150,7 +182,7 @@ async def lifespan(app: FastAPI):
     # for every PE — surface the state so it's not invisible.
     try:
         import logging
-        from datetime import datetime, timezone
+        from datetime import datetime
         from pathlib import Path
         bundle_path_str = os.environ.get(
             "DBX_BUNDLE_PATH", "/opt/wairz/dbxupdate.bin",
@@ -159,7 +191,7 @@ async def lifespan(app: FastAPI):
         log = logging.getLogger(__name__)
         if bundle_path.is_file():
             stat = bundle_path.stat()
-            mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+            mtime = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
             log.info(
                 "DBX bundle ready: path=%s size=%d mtime=%s",
                 bundle_path_str, stat.st_size, mtime.isoformat(),

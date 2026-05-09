@@ -15,7 +15,6 @@ from app.schemas.finding import (
     WindowsFindingSource,
 )
 
-
 # ── Phase β.12b — Authenticode + DBX verdict → Finding emission ──────────────
 #
 # Two source values land Finding rows from the authenticode_chain_runner per
@@ -736,11 +735,11 @@ class FindingService:
         - Tier 2 (MEDIUM capa/IL divergence) → Confidence.medium
         - Tier 3/4 (HIGH/CRITICAL — deferred) → Confidence.high (when shipped)
         """
+        from app.models.firmware import Firmware
         from app.services.jsonb_normalizers import (
             _normalize_firmware_dotnet_decompile_result,
         )
         from app.services.r2r_stomping import classify_r2r_stomp_findings
-        from app.models.firmware import Firmware
 
         fw = (
             await self.db.execute(
@@ -825,11 +824,11 @@ class FindingService:
         inspection. The aggregate's per-file sample is sufficient
         evidence for the LOW baseline.
         """
+        from app.models.finding import Finding as FindingModel
+        from app.models.firmware import Firmware
         from app.services.jsonb_normalizers import (
             _normalize_firmware_evtx_walk_result,
         )
-        from app.models.firmware import Firmware
-        from app.models.finding import Finding as FindingModel
 
         fw = (
             await self.db.execute(
@@ -864,9 +863,10 @@ class FindingService:
         # the records list is held in memory only during the walk run.
         # For ε.1.b.4 we re-parse a bounded sample per file via
         # parse_evtx_file (Rule #5 sync I/O wrapped in run_in_executor).
-        from app.services.evtx_service import parse_evtx_file as _parse_evtx
         import asyncio
         import re
+
+        from app.services.evtx_service import parse_evtx_file as _parse_evtx
 
         loop = asyncio.get_running_loop()
         emitted: list[Finding] = []

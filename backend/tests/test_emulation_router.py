@@ -35,7 +35,7 @@ module-scope helper at emulation.py:62 — patch
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -51,9 +51,7 @@ from app.models.firmware import Firmware
 from app.models.project import Project
 from app.rate_limit import limiter
 from app.routers.deps import resolve_firmware as resolve_firmware_dep
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -255,9 +253,9 @@ class TestListSessions:
         session.container_id = None
         session.error_message = None
         session.logs = None
-        session.started_at = datetime.now(timezone.utc)
-        session.stopped_at = datetime.now(timezone.utc)
-        session.created_at = datetime.now(timezone.utc)
+        session.started_at = datetime.now(UTC)
+        session.stopped_at = datetime.now(UTC)
+        session.created_at = datetime.now(UTC)
         session.discovered_services = None
         session.system_emulation_stage = None
         session.kernel_used = None

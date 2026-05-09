@@ -186,7 +186,7 @@ async def run_mobsfscan(
         stdout_bytes, stderr_bytes = await asyncio.wait_for(
             process.communicate(), timeout=effective_timeout,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         # Kill the process tree on timeout
         try:
             process.kill()  # type: ignore[possibly-undefined]

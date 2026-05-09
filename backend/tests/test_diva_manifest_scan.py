@@ -40,7 +40,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.services.androguard_service import AndroguardService, ManifestFinding
+from app.services.androguard_service import AndroguardService
 
 # ---------------------------------------------------------------------------
 # DIVA manifest XML (matches real DIVA APK structure)

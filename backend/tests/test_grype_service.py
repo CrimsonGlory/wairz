@@ -83,9 +83,7 @@ from app.services.grype_service import (
     grype_available,
     scan_with_grype,
 )
-
 from tests._live_db import make_live_db
-
 
 # ===========================================================================
 # CPE vendor extraction helpers (pure functions)
@@ -498,10 +496,9 @@ class TestScanWithGrypeErrors:
             ))
             await db.flush()
 
-            import asyncio as real_asyncio
 
             async def fake_create(*args, **kwargs):
-                return MagicMock(communicate=AsyncMock(side_effect=real_asyncio.TimeoutError()))
+                return MagicMock(communicate=AsyncMock(side_effect=TimeoutError()))
 
             settings = _make_settings_mock(timeout=1)
 

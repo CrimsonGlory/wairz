@@ -1,7 +1,5 @@
 """Tests for the AI tool registry and filesystem tools."""
 
-import os
-import struct
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -11,7 +9,6 @@ import pytest
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.ai.tools.filesystem import register_filesystem_tools
 from app.utils.truncation import truncate_output
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

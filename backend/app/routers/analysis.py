@@ -2,16 +2,15 @@
 
 import asyncio
 import logging
-import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.routers.deps import resolve_firmware
+from app.services import ghidra_service
 from app.services.analysis_service import check_binary_protections
 from app.services.file_service import FileService
-from app.services import ghidra_service
 from app.services.ghidra_service import decompile_function as ghidra_decompile
 from app.services.jsonb_normalizers import _normalize_firmware_device_metadata
 
@@ -110,7 +109,6 @@ def _resolve_elf_imports(binary_path: str, extracted_root: str) -> list[dict]:
     For each needed library, reads its exports and cross-references
     with the binary's undefined symbols.
     """
-    import os
     from elftools.elf.elffile import ELFFile
     from elftools.elf.sections import SymbolTableSection
 

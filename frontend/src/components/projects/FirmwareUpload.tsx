@@ -105,7 +105,7 @@ export default function FirmwareUpload({ projectId, onComplete, showVersionLabel
           // Persistent failures will eventually surface as the user-visible
           // error via the spinner staying stuck; future enhancement could
           // count consecutive failures and surface after N.
-          // eslint-disable-next-line no-console
+           
           console.warn('upload-status poll failed', e)
         }
       }, 2000)

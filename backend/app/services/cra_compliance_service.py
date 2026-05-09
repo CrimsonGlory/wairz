@@ -7,7 +7,7 @@ structured compliance assessments with auto-population from tool findings.
 
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -464,7 +464,7 @@ class CRAComplianceService:
             req_result.finding_ids = _normalize_cra_requirement_results_finding_ids(matched_ids)
             req_result.tool_sources = _normalize_cra_requirement_results_tool_sources(matched_sources)
             req_result.related_cves = _normalize_cra_requirement_results_related_cves(matched_cves)
-            req_result.assessed_at = datetime.now(timezone.utc)
+            req_result.assessed_at = datetime.now(UTC)
 
             # Count
             if status == "pass":
@@ -516,7 +516,7 @@ class CRAComplianceService:
             req_result.manual_notes = manual_notes
         if manual_evidence is not None:
             req_result.manual_evidence = manual_evidence
-        req_result.assessed_at = datetime.now(timezone.utc)
+        req_result.assessed_at = datetime.now(UTC)
 
         await self.db.flush()
         await self.db.refresh(req_result)
@@ -572,7 +572,7 @@ class CRAComplianceService:
             "standard": "EU Cyber Resilience Act (CRA)",
             "regulation": "Regulation (EU) 2024/2847",
             "annex": "Annex I — Essential Cybersecurity Requirements",
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
             "assessment_id": str(assessment.id),
             "product": {
                 "name": assessment.product_name,
@@ -667,7 +667,7 @@ class CRAComplianceService:
             for f in cve_findings
         ]
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         return {
             "notification_type": "actively_exploited_vulnerability",

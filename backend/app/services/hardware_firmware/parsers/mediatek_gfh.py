@@ -28,7 +28,6 @@ import re
 import struct
 from dataclasses import dataclass
 
-
 _LK_MAGIC = 0x58881688
 _LK_FILE_INFO_MAGIC = 0x58891689
 # Outer container header is 512 bytes total: 48-byte LK record + GFH_FILE_INFO

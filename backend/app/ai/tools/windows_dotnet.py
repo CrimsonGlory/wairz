@@ -36,7 +36,6 @@ import json
 import logging
 import os
 import uuid
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -46,7 +45,6 @@ from app.models.firmware import Firmware
 from app.services.jsonb_normalizers import (
     _normalize_firmware_dotnet_decompile_result,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +177,7 @@ async def _handle_get_assembly_il(input: dict, context: ToolContext) -> str:
     if not os.path.isfile(safe_path):
         return _dump_json({"error": "assembly file not found", "assembly_path": assembly_path})
     try:
-        with open(safe_path, "r", encoding="utf-8", errors="replace") as fh:
+        with open(safe_path, encoding="utf-8", errors="replace") as fh:
             content = fh.read(_OUTPUT_CAP_BYTES + 1024)
     except Exception as exc:
         return _dump_json({"error": f"read failed: {exc}", "assembly_path": assembly_path})
@@ -242,7 +240,6 @@ async def _handle_trigger_dotnet_decompile(input: dict, context: ToolContext) ->
     'running', returns 409 in JSON shape. Otherwise sets status to
     'queued', clears prior result/error, and enqueues the δ.4 arq job.
     """
-    from app.workers.arq_worker import decompile_dotnet_bundle_job
 
     fw = await _load_firmware(context)
     if fw is None:
@@ -268,6 +265,7 @@ async def _handle_trigger_dotnet_decompile(input: dict, context: ToolContext) ->
     enqueued = False
     try:
         from arq import create_pool
+
         from app.workers.arq_worker import get_redis_settings
 
         pool = await create_pool(get_redis_settings())

@@ -48,9 +48,7 @@ from app.main import app
 from app.middleware.asgi_auth import APIKeyASGIMiddleware
 from app.models.firmware import Firmware
 from app.models.project import Project
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # Layer 1: APIKeyASGIMiddleware ASGI-scope unit tests
@@ -338,6 +336,7 @@ class TestTerminalReadsFirmwareFromDbLiveCanary:
             # (terminal.py:97), not Depends(get_db) — so we replace the
             # factory with one that yields our live SQLite session.
             from contextlib import asynccontextmanager
+
             from app.routers import terminal as terminal_mod
 
             @asynccontextmanager

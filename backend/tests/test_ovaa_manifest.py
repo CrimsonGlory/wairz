@@ -26,7 +26,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.services.androguard_service import AndroguardService, ManifestFinding
+from app.services.androguard_service import AndroguardService
 
 # ---------------------------------------------------------------------------
 # OVAA AndroidManifest.xml (reconstructed from public source)
@@ -215,7 +215,6 @@ class TestOVAAManifestFindings:
     def findings(self, service: AndroguardService, ovaa_mock: MagicMock, monkeypatch) -> list[dict]:
         """Run all manifest checks against the OVAA mock and return findings."""
         # Monkeypatch APK constructor to return our mock
-        import app.services.androguard_service as ag_mod
 
         def _fake_apk_init(path):
             return ovaa_mock
@@ -223,7 +222,8 @@ class TestOVAAManifestFindings:
         monkeypatch.setattr("androguard.core.apk.APK", _fake_apk_init)
 
         # Create a dummy file for the file existence check
-        import tempfile, os
+        import os
+        import tempfile
         with tempfile.NamedTemporaryFile(suffix=".apk", delete=False) as f:
             f.write(b"PK\x03\x04fake")
             tmp_path = f.name
@@ -460,7 +460,9 @@ class TestOVAAManifestFindings:
     # ---------------------------------------------------------------
     def test_scan_completes_under_500ms(self, service, ovaa_mock, monkeypatch):
         """Manifest scan should complete well under 500ms (target: <100ms for mocked APK)."""
-        import tempfile, os, time
+        import os
+        import tempfile
+        import time
 
         monkeypatch.setattr("androguard.core.apk.APK", lambda path: ovaa_mock)
 
@@ -491,7 +493,8 @@ class TestOVAAWithFirmwareContext:
         return _make_ovaa_apk_mock()
 
     def _scan(self, service, ovaa_mock, monkeypatch, **kwargs) -> dict:
-        import tempfile, os
+        import os
+        import tempfile
 
         monkeypatch.setattr("androguard.core.apk.APK", lambda path: ovaa_mock)
 
@@ -581,7 +584,8 @@ class TestOVAAMobSFBaselineComparison:
 
     @pytest.fixture
     def result(self, service, ovaa_mock, monkeypatch) -> dict:
-        import tempfile, os
+        import os
+        import tempfile
 
         monkeypatch.setattr("androguard.core.apk.APK", lambda path: ovaa_mock)
 

@@ -338,7 +338,7 @@ async def _persist_manifest_findings(
     result: dict,
     apk_path: str,
     *,
-    fw_ctx: "FirmwareContext | None" = None,
+    fw_ctx: FirmwareContext | None = None,
 ) -> int:
     """Write manifest findings to the Finding table via flush().
 
@@ -503,7 +503,7 @@ def _format_manifest_scan(
     total_findings: int = 0,
     persist_error: bool = False,
     has_db: bool = True,
-    fw_ctx: "FirmwareContext | None" = None,
+    fw_ctx: FirmwareContext | None = None,
 ) -> str:
     """Format manifest security scan results into readable text.
 

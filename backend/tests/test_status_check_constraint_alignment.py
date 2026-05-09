@@ -20,9 +20,6 @@ import importlib.util
 import re
 from pathlib import Path
 
-import pytest
-
-
 _BACKEND_DIR = Path(__file__).parent.parent
 _ALEMBIC_VERSIONS = _BACKEND_DIR / "alembic" / "versions"
 _APP_DIR = _BACKEND_DIR / "app"

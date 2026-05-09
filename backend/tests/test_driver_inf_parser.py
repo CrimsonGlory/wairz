@@ -11,13 +11,10 @@ UTF-16 BOM-prefixed file decode is also exercised against a tmp file.
 """
 from __future__ import annotations
 
-import pytest
-
 from app.services.driver_inf_parser import (
     parse_inf_file,
     parse_inf_text,
 )
-
 
 # ── Minimal happy path ──────────────────────────────────────────────────────
 

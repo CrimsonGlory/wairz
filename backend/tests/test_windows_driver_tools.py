@@ -9,8 +9,7 @@ import json
 import uuid
 from dataclasses import dataclass, field
 
-import pytest
-
+from app.ai.tool_registry import ToolRegistry
 from app.ai.tools.windows_driver import (
     _handle_diff_driver_matrix,
     _handle_get_driver_info,
@@ -20,7 +19,6 @@ from app.ai.tools.windows_driver import (
     _handle_scan_inf_imports,
     register_windows_driver_tools,
 )
-from app.ai.tool_registry import ToolRegistry
 from app.models import (
     Firmware,
     HardwareFirmwareBlob,

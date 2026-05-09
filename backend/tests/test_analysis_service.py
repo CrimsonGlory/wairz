@@ -48,7 +48,6 @@ from unittest.mock import MagicMock, mock_open, patch
 from app.services import analysis_service as analysis_mod
 from app.services.analysis_service import check_binary_protections
 
-
 # ===========================================================================
 # Helpers — minimal fakes that mimic the pyelftools ELFFile surface used.
 # ===========================================================================

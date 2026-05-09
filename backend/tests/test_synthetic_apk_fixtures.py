@@ -21,7 +21,6 @@ from app.services.androguard_service import AndroguardService
 from tests.fixtures.apk import apk_fixture_manifests as manifests
 from tests.fixtures.apk.mock_apk_factory import build_mock_apk
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

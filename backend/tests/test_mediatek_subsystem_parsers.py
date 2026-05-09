@@ -13,8 +13,6 @@ from __future__ import annotations
 
 import struct
 
-import pytest
-
 from app.services.hardware_firmware.classifier import classify
 from app.services.hardware_firmware.parsers.mediatek_atf import MediatekAtfParser
 from app.services.hardware_firmware.parsers.mediatek_geniezone import (
@@ -23,12 +21,9 @@ from app.services.hardware_firmware.parsers.mediatek_geniezone import (
     _parse_built_date,
 )
 from app.services.hardware_firmware.parsers.mediatek_gfh import (
-    LK_CONTAINER_HEADER_SIZE,
-    SubImage,
     walk_sub_images,
 )
 from app.services.hardware_firmware.parsers.mediatek_tinysys import MediatekTinysysParser
-
 
 _LK_MAGIC = 0x58881688
 _LK_FILE_INFO_MAGIC = 0x58891689

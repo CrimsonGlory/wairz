@@ -145,7 +145,7 @@ async def unpack_iso9660(
         stdout_b, stderr_b = await asyncio.wait_for(
             proc.communicate(), timeout=_SEVENZ_TIMEOUT_SECONDS,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         try:
             await proc.communicate()

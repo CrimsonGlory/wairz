@@ -148,7 +148,7 @@ async def unpack_msix(
             list_proc.communicate(),
             timeout=_SEVEN_ZIP_LIST_TIMEOUT_SECONDS,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         list_proc.kill()
         try:
             await list_proc.communicate()
@@ -220,7 +220,7 @@ async def unpack_msix(
         stdout_b, stderr_b = await asyncio.wait_for(
             proc.communicate(), timeout=_SEVEN_ZIP_TIMEOUT_SECONDS,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         try:
             await proc.communicate()

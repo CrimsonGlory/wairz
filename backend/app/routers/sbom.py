@@ -5,7 +5,7 @@ import json
 import logging
 import traceback
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,6 @@ from app.schemas.sbom import (
     SbomGenerateResponse,
     SbomSummaryResponse,
     SbomVulnerabilityResponse,
-    VulnerabilityResolutionStatus,
     VulnerabilityScanResponse,
     VulnerabilityScanStatusResponse,
     VulnerabilityUpdateRequest,
@@ -288,7 +287,7 @@ async def export_sbom(
         "specVersion": "1.7",
         "version": 1,
         "metadata": {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "tools": {
                 "components": [
                     {
@@ -424,7 +423,7 @@ async def _run_vuln_scan_background(
     from app.config import get_settings
     from app.services.grype_service import grype_available, scan_with_grype
 
-    started = datetime.now(timezone.utc)
+    started = datetime.now(UTC)
     try:
         async with async_session_factory() as db:
             try:
@@ -473,7 +472,7 @@ async def _run_vuln_scan_background(
                 if fw is None:
                     return
                 fw.vuln_scan_status = "completed"
-                fw.vuln_scan_finished_at = datetime.now(timezone.utc)
+                fw.vuln_scan_finished_at = datetime.now(UTC)
                 fw.vuln_scan_error = None
                 await db.commit()
                 logger.info(
@@ -494,7 +493,7 @@ async def _run_vuln_scan_background(
                     ).scalar_one_or_none()
                     if fail_fw is not None:
                         fail_fw.vuln_scan_status = "failed"
-                        fail_fw.vuln_scan_finished_at = datetime.now(timezone.utc)
+                        fail_fw.vuln_scan_finished_at = datetime.now(UTC)
                         fail_fw.vuln_scan_error = err_summary
                         await fail_db.commit()
                 logger.exception(
@@ -675,7 +674,7 @@ async def update_vulnerability(
 
         if new_status in ("resolved", "ignored", "false_positive"):
             vuln.resolved_by = "user"
-            vuln.resolved_at = datetime.now(timezone.utc)
+            vuln.resolved_at = datetime.now(UTC)
         elif new_status == "open":
             # Reopening — clear resolution metadata
             vuln.resolved_by = None
@@ -742,7 +741,7 @@ async def push_to_dependency_track(
         "specVersion": "1.7",
         "version": 1,
         "metadata": {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "tools": {
                 "components": [
                     {
@@ -852,7 +851,7 @@ def _build_vex_response(
     components: list, vuln_rows: list, firmware
 ) -> Response:
     """Build a CycloneDX 1.7 VEX document with vulnerability analysis."""
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     # Build component bom-refs keyed by component ID
     comp_bom_refs: dict[str, str] = {}
@@ -969,7 +968,7 @@ def _build_vex_response(
 
 def _build_spdx_response(components: list, firmware) -> Response:
     """Build an SPDX 2.3 JSON document from SBOM components."""
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     packages = []
     relationships = []

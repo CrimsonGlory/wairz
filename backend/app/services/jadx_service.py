@@ -135,7 +135,7 @@ async def run_jadx_subprocess(
             process.communicate(),
             timeout=effective_timeout,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         process.kill()
         await process.wait()
         raise TimeoutError(
@@ -201,7 +201,7 @@ def _collect_decompiled_sources(output_dir: str) -> dict[str, Any]:
                     continue
 
                 try:
-                    with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+                    with open(full_path, encoding="utf-8", errors="replace") as f:
                         content = f.read()
                     sources[rel_path] = content
                     total_bytes += len(content)

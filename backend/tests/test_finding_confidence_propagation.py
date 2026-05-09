@@ -31,7 +31,6 @@ from pathlib import Path
 
 import pytest
 
-
 _BACKEND = Path(__file__).parent.parent
 _APP = _BACKEND / "app"
 

@@ -55,8 +55,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from app.services import sysroot_service as sr_mod
 from app.services.sysroot_service import (
     CORE_LIBS,
@@ -70,7 +68,6 @@ from app.services.sysroot_service import (
     list_available_sysroots,
     list_sysroot_contents,
 )
-
 
 # ===========================================================================
 # Lookup-table sanity

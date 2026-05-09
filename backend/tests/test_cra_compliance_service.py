@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
@@ -56,9 +56,7 @@ from app.services.cra_compliance_service import (
     CRA_REQUIREMENTS,
     CRAComplianceService,
 )
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -210,8 +208,8 @@ class TestReadOps:
             # when both INSERTs land in the same microsecond. Force a
             # deterministic spread so order_by(created_at desc) has
             # something to actually order on.
-            first.created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
-            second.created_at = datetime(2026, 6, 1, tzinfo=timezone.utc)
+            first.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+            second.created_at = datetime(2026, 6, 1, tzinfo=UTC)
             await db.flush()
 
             results = await svc.list_assessments(project.id)

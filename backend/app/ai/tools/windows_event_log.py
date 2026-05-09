@@ -38,7 +38,6 @@ import json
 import logging
 import re
 import uuid
-from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -48,7 +47,6 @@ from app.models.firmware import Firmware
 from app.services.jsonb_normalizers import (
     _normalize_firmware_evtx_walk_result,
 )
-
 
 logger = logging.getLogger(__name__)
 

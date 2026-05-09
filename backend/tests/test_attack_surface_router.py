@@ -35,7 +35,7 @@ endpoint body (line 106). Patches must hit the SOURCE module
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -51,9 +51,7 @@ from app.models.firmware import Firmware
 from app.models.project import Project
 from app.rate_limit import limiter
 from app.routers.deps import resolve_firmware as resolve_firmware_dep
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -137,7 +135,7 @@ class TestListEntries:
         entry.dangerous_imports = ["strcpy"]
         entry.input_categories = ["network"]
         entry.auto_findings_generated = True
-        entry.created_at = datetime.now(timezone.utc)
+        entry.created_at = datetime.now(UTC)
 
         async def fake_paginate(db, stmt, offset, limit):  # noqa: ARG001
             return [entry], 1
@@ -190,7 +188,7 @@ class TestScanCached:
         entry.dangerous_imports = []
         entry.input_categories = ["filesystem"]
         entry.auto_findings_generated = False
-        entry.created_at = datetime.now(timezone.utc)
+        entry.created_at = datetime.now(UTC)
 
         cached_result = MagicMock()
         scalars_proxy = MagicMock()

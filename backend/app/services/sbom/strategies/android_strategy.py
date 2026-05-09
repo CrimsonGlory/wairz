@@ -181,7 +181,7 @@ class AndroidStrategy(SbomStrategy):
     @staticmethod
     def _parse_init_rc(abs_path: str, rel_dir: str, ctx: StrategyContext) -> None:
         try:
-            with open(abs_path, "r", errors="replace") as f:
+            with open(abs_path, errors="replace") as f:
                 for line in f:
                     line = line.strip()
                     if line.startswith("service "):
@@ -243,7 +243,7 @@ class AndroidStrategy(SbomStrategy):
         """Parse Android build.prop for version info and platform details."""
         props: dict[str, str] = {}
         try:
-            with open(abs_path, "r", errors="replace") as f:
+            with open(abs_path, errors="replace") as f:
                 for line in f:
                     line = line.strip()
                     if line.startswith("#") or "=" not in line:

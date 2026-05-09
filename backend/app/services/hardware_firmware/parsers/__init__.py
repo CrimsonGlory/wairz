@@ -8,14 +8,6 @@ get_parser`` and looks up the parser by the classifier's format string.
 
 from __future__ import annotations
 
-from app.services.hardware_firmware.parsers.base import (
-    PARSER_REGISTRY,
-    ParsedBlob,
-    Parser,
-    get_parser,
-    register_parser,
-)
-
 # Self-registration fires on import.
 from app.services.hardware_firmware.parsers import (  # noqa: F401,E402
     awinic_acf,
@@ -32,6 +24,13 @@ from app.services.hardware_firmware.parsers import (  # noqa: F401,E402
     mediatek_wifi,
     qualcomm_mbn,
     raw_bin,
+)
+from app.services.hardware_firmware.parsers.base import (
+    PARSER_REGISTRY,
+    ParsedBlob,
+    Parser,
+    get_parser,
+    register_parser,
 )
 
 __all__ = [

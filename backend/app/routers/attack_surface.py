@@ -22,7 +22,6 @@ from app.schemas.pagination import Page
 from app.services.jsonb_normalizers import (
     _normalize_attack_surface_entries_dangerous_imports,
     _normalize_attack_surface_entries_input_categories,
-    _normalize_attack_surface_entries_score_breakdown,
     _stamp_attack_surface_entries_score_breakdown,
 )
 from app.utils.pagination import paginate_query

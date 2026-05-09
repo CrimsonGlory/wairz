@@ -10,7 +10,6 @@ They are built from Debian multiarch packages during the Docker image build.
 
 import logging
 import os
-
 from typing import Any
 
 logger = logging.getLogger(__name__)

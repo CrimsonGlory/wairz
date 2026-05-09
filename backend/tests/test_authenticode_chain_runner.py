@@ -24,7 +24,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select
@@ -44,7 +44,6 @@ from app.services.authenticode_chain_runner import (
 )
 from app.services.authenticode_service import AuthenticodeVerdict
 from tests._live_db import make_live_db
-
 
 # ── _is_pe_file unit tests ────────────────────────────────────────────────────
 

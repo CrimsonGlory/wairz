@@ -51,7 +51,6 @@ import traceback
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from sqlalchemy import select
 
@@ -61,7 +60,6 @@ from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.services.jsonb_normalizers import (
     _stamp_firmware_dotnet_decompile_result,
 )
-
 
 logger = logging.getLogger(__name__)
 

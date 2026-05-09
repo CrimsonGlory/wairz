@@ -24,7 +24,7 @@ actually round-tripped through the DB layer.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -38,9 +38,7 @@ from app.models.firmware import Firmware
 from app.models.project import Project
 from app.rate_limit import limiter
 from app.routers.firmware import get_firmware_service
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -116,10 +114,10 @@ def _make_firmware_row(project_id: uuid.UUID, **overrides) -> MagicMock:
     fw.unpack_progress = None
     fw.binary_info = None
     fw.device_metadata = None
-    fw.created_at = datetime.now(timezone.utc)
+    fw.created_at = datetime.now(UTC)
     # Rule #29 + Rule #33 upload-stage state machine fields.
     fw.upload_stage = "detecting"
-    fw.upload_stage_started_at = datetime.now(timezone.utc)
+    fw.upload_stage_started_at = datetime.now(UTC)
     fw.upload_stage_finished_at = None
     fw.upload_stage_error = None
     fw.detected_format = None

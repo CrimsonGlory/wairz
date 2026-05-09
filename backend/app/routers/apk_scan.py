@@ -418,7 +418,7 @@ async def _persist_rest_manifest_findings(
     result: dict,
     rel_path: str,
     *,
-    fw_ctx: "FirmwareContext | None" = None,
+    fw_ctx: FirmwareContext | None = None,
 ) -> None:
     """Write manifest findings to the Finding table from REST endpoint.
 

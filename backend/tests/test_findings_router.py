@@ -23,7 +23,7 @@ at top of findings.py (lines 15-16). Service-module patches work for them.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -35,10 +35,7 @@ from app.main import app
 from app.models.finding import Finding
 from app.models.project import Project
 from app.rate_limit import limiter
-from app.services.finding_service import FindingService
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -284,8 +281,8 @@ class TestListFindings:
         finding.cve_ids = None
         finding.conversation_id = None
         finding.component_id = None
-        finding.created_at = datetime.now(timezone.utc)
-        finding.updated_at = datetime.now(timezone.utc)
+        finding.created_at = datetime.now(UTC)
+        finding.updated_at = datetime.now(UTC)
 
         async def fake_paginate(db, stmt, offset, limit):  # noqa: ARG001
             return [finding], 1

@@ -23,7 +23,6 @@ import pytest
 from tests.fixtures.apk import apk_fixture_manifests as manifests
 from tests.fixtures.apk.mock_apk_factory import build_mock_apk
 
-
 # ---------------------------------------------------------------------------
 # Individual check fixtures (one per MANIFEST-NNN)
 # ---------------------------------------------------------------------------

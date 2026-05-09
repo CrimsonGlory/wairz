@@ -19,9 +19,6 @@ import sys
 import uuid
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import (
@@ -29,10 +26,11 @@ from mcp.types import (
     Prompt,
     PromptMessage,
     Resource,
-    ServerCapabilities,
     TextContent,
     Tool,
 )
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.ai import create_tool_registry
 from app.ai.system_prompt import build_system_prompt
@@ -42,7 +40,6 @@ from app.models.firmware import Firmware
 from app.models.project import Project
 from app.services import _cache
 from app.utils.hashing import compute_file_sha256
-from app.utils.sandbox import validate_path
 
 # Docker volume path translation
 # When the backend runs inside Docker it stores paths like /data/firmware/...

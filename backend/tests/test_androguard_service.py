@@ -38,7 +38,6 @@ Coverage targets:
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -50,7 +49,6 @@ from app.services.androguard_service import (
     _reduce_severity,
     classify_permission,
 )
-
 
 # ===========================================================================
 # Pure-function tests — no androguard dependency

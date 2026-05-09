@@ -11,19 +11,16 @@ from pathlib import Path
 import pytest
 
 from app.services.file_service import (
-    FileService,
-    FileEntry,
+    MAX_READ_SIZE,
     FileContent,
     FileInfo,
-    _format_permissions,
-    _is_binary,
-    _hex_dump,
+    FileService,
     _file_type_from_stat,
-    MAX_READ_SIZE,
-    MAX_SEARCH_RESULTS,
+    _format_permissions,
+    _hex_dump,
+    _is_binary,
 )
 from app.utils.sandbox import PathTraversalError
-
 
 # ---------------------------------------------------------------------------
 # Helper fixtures

@@ -8,7 +8,7 @@ import tarfile
 import traceback
 import uuid
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import aiofiles
 from fastapi import UploadFile
@@ -397,7 +397,7 @@ class FirmwareService:
             storage_path=storage_path,
             version_label=version_label,
             upload_stage="detecting",
-            upload_stage_started_at=datetime.now(timezone.utc),
+            upload_stage_started_at=datetime.now(UTC),
         )
         self.db.add(firmware)
         # Commit so the background task's fresh AsyncSession observes the
@@ -732,7 +732,7 @@ async def _post_process_pipeline(
     # ── Stage: ready (terminal) ──────────────────────────────────────
     if update_stage:
         firmware.upload_stage = "ready"
-        firmware.upload_stage_finished_at = datetime.now(timezone.utc)
+        firmware.upload_stage_finished_at = datetime.now(UTC)
         await db.commit()
 
         # Fire HW detection post-commit if extraction succeeded.
@@ -811,7 +811,7 @@ async def _run_upload_post_processing_background(firmware_id: uuid.UUID) -> None
                     if fail_row is not None:
                         fail_row.upload_stage = "failed"
                         fail_row.upload_stage_error = err
-                        fail_row.upload_stage_finished_at = datetime.now(timezone.utc)
+                        fail_row.upload_stage_finished_at = datetime.now(UTC)
                         await fail_db.commit()
                 logger.exception(
                     "upload-post-processing: firmware %s failed", firmware_id

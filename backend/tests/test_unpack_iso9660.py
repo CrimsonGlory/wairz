@@ -11,7 +11,6 @@ worker module and the registry is enforced from the dispatch side.
 """
 from __future__ import annotations
 
-import asyncio
 import os
 import shutil
 import subprocess
@@ -24,7 +23,6 @@ from app.workers.unpack_iso9660 import (
     _SEVENZ_TIMEOUT_SECONDS,
     unpack_iso9660,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -88,7 +86,7 @@ async def test_unpack_iso9660_reports_timeout(tmp_path: Path):
     proc_stub = _make_proc_stub(returncode=0)
 
     async def _raise_timeout(*_a, **_kw):
-        raise asyncio.TimeoutError
+        raise TimeoutError
 
     with patch(
         "app.workers.unpack_iso9660.asyncio.create_subprocess_exec",

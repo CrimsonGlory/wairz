@@ -52,7 +52,6 @@ from app.services.registry_hive_walker import (
 )
 from tests._live_db import make_live_db
 
-
 # ── Synthetic fixture builder ────────────────────────────────────────────────
 
 

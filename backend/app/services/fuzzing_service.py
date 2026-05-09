@@ -12,7 +12,7 @@ import os
 import re
 import shlex
 import tarfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 import docker
@@ -637,7 +637,7 @@ class FuzzingService:
 
             campaign.container_id = container.id
             campaign.status = "running"
-            campaign.started_at = datetime.now(timezone.utc)
+            campaign.started_at = datetime.now(UTC)
             await self._emit_event(campaign.project_id, "running", "Fuzzing campaign started")
 
         except Exception as exc:
@@ -681,7 +681,7 @@ class FuzzingService:
                 logger.exception("Error stopping container: %s", campaign.container_id)
 
         campaign.status = "stopped"
-        campaign.stopped_at = datetime.now(timezone.utc)
+        campaign.stopped_at = datetime.now(UTC)
         await self._emit_event(campaign.project_id, "stopped", "Fuzzing campaign stopped")
         await self.db.flush()
         return campaign
@@ -704,7 +704,7 @@ class FuzzingService:
                 if container.status != "running":
                     campaign.status = "error"
                     campaign.error_message = "Container exited unexpectedly"
-                    campaign.stopped_at = datetime.now(timezone.utc)
+                    campaign.stopped_at = datetime.now(UTC)
                 else:
                     await self._sync_stats(campaign)
                     await self._sync_crashes(campaign)
@@ -712,7 +712,7 @@ class FuzzingService:
             except docker.errors.NotFound:
                 campaign.status = "stopped"
                 campaign.error_message = "Container no longer exists"
-                campaign.stopped_at = datetime.now(timezone.utc)
+                campaign.stopped_at = datetime.now(UTC)
             except Exception:
                 logger.exception("Error checking campaign status")
 
@@ -1069,7 +1069,7 @@ class FuzzingService:
     async def cleanup_expired(self) -> int:
         """Stop campaigns that have exceeded the timeout. Returns count stopped."""
         timeout_minutes = self._settings.fuzzing_timeout_minutes
-        cutoff = datetime.now(timezone.utc).timestamp() - (timeout_minutes * 60)
+        cutoff = datetime.now(UTC).timestamp() - (timeout_minutes * 60)
 
         result = await self.db.execute(
             select(FuzzingCampaign).where(
@@ -1148,7 +1148,7 @@ class FuzzingService:
                 and campaign.container_id not in live_container_ids
             ):
                 campaign.status = "error"
-                campaign.stopped_at = datetime.now(timezone.utc)
+                campaign.stopped_at = datetime.now(UTC)
                 existing = campaign.error_message or ""
                 tag = "Container vanished (orphan reaper)"
                 campaign.error_message = (
@@ -1163,7 +1163,7 @@ class FuzzingService:
             if row is None:
                 continue
             row.status = "error"
-            row.stopped_at = datetime.now(timezone.utc)
+            row.stopped_at = datetime.now(UTC)
             tag = "No container id recorded (orphan reaper)"
             row.error_message = tag
             db_fixed += 1

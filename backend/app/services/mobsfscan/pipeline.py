@@ -136,7 +136,7 @@ class MobsfScanPipeline:
         self,
         firmware_id: uuid.UUID,
         apk_sha256: str,
-        db: "AsyncSession",
+        db: AsyncSession,
     ) -> dict | None:
         """Retrieve a previously cached mobsfscan result."""
         return await _cache.get_cached(
@@ -149,7 +149,7 @@ class MobsfScanPipeline:
         apk_path: str,
         apk_sha256: str,
         result_data: dict,
-        db: "AsyncSession",
+        db: AsyncSession,
     ) -> None:
         """Store a mobsfscan result (delete-then-insert upsert)."""
         await _cache.store_cached(
@@ -234,7 +234,7 @@ class MobsfScanPipeline:
     async def _materialise_sources_from_cache(
         apk_path: str,
         firmware_id: uuid.UUID,
-        db: "AsyncSession",
+        db: AsyncSession,
         target_dir: str,
     ) -> str:
         """Write cached JADX sources to disk for mobsfscan consumption.
@@ -250,7 +250,7 @@ class MobsfScanPipeline:
     async def _ensure_decompilation(
         apk_path: str,
         firmware_id: uuid.UUID,
-        db: "AsyncSession",
+        db: AsyncSession,
     ) -> str:
         """Ensure JADX has decompiled the APK; returns the SHA-256 hash."""
         cache = get_jadx_cache()
@@ -266,13 +266,13 @@ class MobsfScanPipeline:
         apk_path: str,
         firmware_id: uuid.UUID,
         project_id: uuid.UUID,
-        db: "AsyncSession",
+        db: AsyncSession,
         apk_rel_path: str = "",
         timeout: int | None = None,
         min_severity: str = "info",
         persist: bool = True,
         use_cache: bool = True,
-        fw_ctx: "FirmwareContext | None" = None,
+        fw_ctx: FirmwareContext | None = None,
     ) -> MobsfScanPipelineResult:
         """Run the full jadx → mobsfscan pipeline against an APK.
 
@@ -349,7 +349,7 @@ class MobsfScanPipeline:
                 self._ensure_decompilation(apk_path, firmware_id, db),
                 timeout=budget,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             elapsed_ms = int((time.monotonic() - pipeline_t0) * 1000)
             logger.error(
                 "Pipeline budget exhausted during JADX decompilation for %s "
@@ -509,7 +509,7 @@ class MobsfScanPipeline:
         source_dir: str,
         project_id: uuid.UUID,
         firmware_id: uuid.UUID | None = None,
-        db: "AsyncSession",
+        db: AsyncSession,
         apk_rel_path: str = "",
         timeout: int | None = None,
         min_severity: str = "info",
@@ -585,7 +585,7 @@ class MobsfScanPipeline:
         apk_path: str,
         apk_sha256: str,
         firmware_id: uuid.UUID,
-        db: "AsyncSession",
+        db: AsyncSession,
         timeout: int | None,
     ) -> MobsfScanResult:
         """Execute mobsfscan with a per-APK concurrency guard.
@@ -630,7 +630,7 @@ class MobsfScanPipeline:
         *,
         apk_path: str,
         firmware_id: uuid.UUID,
-        db: "AsyncSession",
+        db: AsyncSession,
         timeout: int | None,
     ) -> MobsfScanResult:
         """Materialise cached sources to a temp dir and run mobsfscan."""

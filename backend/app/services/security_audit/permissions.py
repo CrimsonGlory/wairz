@@ -20,7 +20,6 @@ from app.services.security_audit._base import (
     _rel,
 )
 
-
 _KNOWN_SERVICES = {
     "telnetd": ("high", "Telnet daemon — plaintext credential transmission"),
     "ftpd": ("high", "FTP daemon — plaintext credential transmission"),
@@ -80,7 +79,7 @@ def _scan_init_services(root: str, findings: list[SecurityFinding]) -> None:
 
     for script_path in scripts_to_scan:
         try:
-            with open(script_path, "r", errors="replace") as f:
+            with open(script_path, errors="replace") as f:
                 content = f.read(64_000)
         except OSError:
             continue

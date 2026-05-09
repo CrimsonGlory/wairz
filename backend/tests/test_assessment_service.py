@@ -43,7 +43,7 @@ from __future__ import annotations
 import os
 import uuid
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import select
@@ -57,9 +57,7 @@ from app.services.assessment_service import (
     AssessmentService,
     _enumerate_android_apk_dirs,
 )
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -62,7 +62,7 @@ import time
 import traceback
 import uuid
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import delete, select
@@ -78,7 +78,6 @@ from app.services.finding_service import FindingService
 from app.services.jsonb_normalizers import (
     _stamp_firmware_authenticode_chain_result,
 )
-
 
 # Findings emitted by the runner per PE verdict. Used as the DELETE-scope
 # filter for re-run idempotency (the runner DELETEs prior rows of these
@@ -424,7 +423,7 @@ async def run_authenticode_chain_background(firmware_id: uuid.UUID) -> None:
     Per-PE failures are NOT routed here; they're contained inside
     :func:`verify_firmware_pe_chain` per design constraint #5.
     """
-    started = datetime.now(timezone.utc)
+    started = datetime.now(UTC)
     try:
         async with async_session_factory() as db:
             try:
@@ -462,7 +461,7 @@ async def run_authenticode_chain_background(firmware_id: uuid.UUID) -> None:
                 if fw is None:
                     return
                 fw.authenticode_chain_status = "completed"
-                fw.authenticode_chain_finished_at = datetime.now(timezone.utc)
+                fw.authenticode_chain_finished_at = datetime.now(UTC)
                 fw.authenticode_chain_result = stamped
                 fw.authenticode_chain_error = None
                 await db.commit()
@@ -496,7 +495,7 @@ async def run_authenticode_chain_background(firmware_id: uuid.UUID) -> None:
                     if fail_fw is not None:
                         fail_fw.authenticode_chain_status = "failed"
                         fail_fw.authenticode_chain_finished_at = datetime.now(
-                            timezone.utc
+                            UTC
                         )
                         fail_fw.authenticode_chain_error = err_summary
                         await fail_db.commit()

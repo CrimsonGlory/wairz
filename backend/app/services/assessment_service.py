@@ -465,7 +465,7 @@ class AssessmentService:
                 stderr=asyncio.subprocess.PIPE,
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
-        except (asyncio.TimeoutError, OSError) as e:
+        except (TimeoutError, OSError) as e:
             logger.warning("Semgrep timed out or failed: %s", e)
             return 0
 

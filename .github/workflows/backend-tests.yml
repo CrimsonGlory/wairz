@@ -39,6 +39,13 @@ jobs:
         run: docker compose build backend
         timeout-minutes: 15
 
+      # docker-compose.yml declares wairz_emulation_net as `external: true` —
+      # in dev environments this is created by the operator (or by a prior
+      # `docker network create`); in CI we create it explicitly so the
+      # `docker compose up` doesn't bail with "network ... not found".
+      - name: Create external emulation network
+        run: docker network create wairz_emulation_net || true
+
       - name: Start backend + datastores
         run: docker compose up -d postgres redis backend --wait
         timeout-minutes: 10

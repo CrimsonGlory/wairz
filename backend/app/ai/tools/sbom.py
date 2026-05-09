@@ -6,7 +6,7 @@ full vulnerability scans, and batch-assessing vulnerability relevance.
 """
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 
@@ -334,6 +334,7 @@ async def _handle_generate_sbom(input: dict, context: ToolContext) -> str:
     # Resolve the Firmware row so SbomService scans every detection
     # root (rootfs + scatter siblings), not just ``context.extracted_path``.
     from sqlalchemy import select as _pre_select
+
     from app.models.firmware import Firmware as _PreFirmware
     from app.services.firmware_paths import get_detection_roots as _pre_roots
     pre_fw = (await context.db.execute(
@@ -356,6 +357,7 @@ async def _handle_generate_sbom(input: dict, context: ToolContext) -> str:
 
     # Inject detected RTOS from firmware os_info
     from sqlalchemy import select as _select
+
     from app.models.firmware import Firmware as _Firmware
     fw_stmt = _select(_Firmware).where(_Firmware.id == context.firmware_id)
     fw_result = await context.db.execute(fw_stmt)
@@ -557,8 +559,8 @@ async def _handle_check_component_cves(
 
     # Query NVD
     try:
-        from app.services.vulnerability_service import _search_nvd
         from app.config import get_settings
+        from app.services.vulnerability_service import _search_nvd
 
         settings = get_settings()
         api_key = settings.nvd_api_key or None
@@ -1019,7 +1021,7 @@ async def _handle_assess_vulnerabilities(
             vuln.resolution_status = new_status
             if new_status in ("resolved", "ignored", "false_positive"):
                 vuln.resolved_by = "ai"
-                vuln.resolved_at = datetime.now(timezone.utc)
+                vuln.resolved_at = datetime.now(UTC)
             elif new_status == "open":
                 vuln.resolved_by = None
                 vuln.resolved_at = None
@@ -1087,7 +1089,7 @@ async def _handle_set_vulnerability_status(
 
     if internal_status in ("resolved", "false_positive"):
         vuln.resolved_by = "ai"
-        vuln.resolved_at = datetime.now(timezone.utc)
+        vuln.resolved_at = datetime.now(UTC)
     elif internal_status == "open":
         # "affected" and "under_investigation" both map to open
         # but keep justification for context

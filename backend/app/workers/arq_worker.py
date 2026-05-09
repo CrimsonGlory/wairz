@@ -11,6 +11,7 @@ import logging
 import os
 import shutil
 import uuid
+from datetime import UTC
 
 from arq.connections import RedisSettings
 from arq.cron import cron
@@ -569,7 +570,7 @@ async def reconcile_firmware_storage_job(ctx: dict) -> dict:
     older than N days are also surfaced in the log output so operators
     have a running tally for a future retention pass.
     """
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     settings = get_settings()
     root = settings.storage_root
@@ -623,7 +624,7 @@ async def reconcile_firmware_storage_job(ctx: dict) -> dict:
     # count so operators can run a retention sweep at their own cadence.
     aged_rows = 0
     if retention_days is not None and retention_days > 0:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        cutoff = datetime.now(UTC) - timedelta(days=retention_days)
         aged_rows = sum(
             1 for r in firmware_rows
             if r.created_at and r.created_at < cutoff

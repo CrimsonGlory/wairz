@@ -184,7 +184,7 @@ async def _try_extract_partition(
                 )
                 log_lines.append(f"Extracted {partition_name} as EROFS ({len(os.listdir(dest_dir))} top-level entries)")
                 return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             log_lines.append(f"fsck.erofs timed out on {partition_name}")
 
@@ -204,7 +204,7 @@ async def _try_extract_partition(
                 )
                 log_lines.append(f"Extracted {partition_name} as ext4 ({len(os.listdir(dest_dir))} top-level entries)")
                 return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             log_lines.append(f"debugfs timed out on {partition_name}")
 
@@ -521,7 +521,7 @@ async def _extract_android_ota(firmware_path: str, extraction_dir: str) -> str:
                 try:
                     stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=600)
                     log_lines.append(stdout.decode(errors="replace")[:2000])
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     proc.kill()
                     log_lines.append("payload-dumper-go timed out")
                 os.remove(payload_path)

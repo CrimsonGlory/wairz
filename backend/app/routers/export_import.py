@@ -9,10 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import get_settings
 from app.database import get_db
 from app.models.project import Project
 from app.schemas.project import ProjectResponse
-from app.config import get_settings
 from app.services.export_service import ExportService
 from app.services.import_service import ImportService
 

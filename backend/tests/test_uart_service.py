@@ -66,11 +66,10 @@ Coverage targets:
 """
 from __future__ import annotations
 
-import asyncio as real_asyncio
 import json
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy import select
@@ -80,9 +79,7 @@ from app.models.project import Project
 from app.models.uart_session import UARTSession
 from app.services import uart_service as uart_mod
 from app.services.uart_service import UARTService
-
 from tests._live_db import make_live_db
-
 
 # ===========================================================================
 # Fake bridge — drop-in replacement for asyncio.open_connection
@@ -237,7 +234,7 @@ class TestConnect:
                 device_path="/dev/ttyUSB0",
                 baudrate=115200,
                 status="connected",
-                connected_at=datetime.now(timezone.utc),
+                connected_at=datetime.now(UTC),
             )
             db.add(existing)
             await db.flush()
@@ -275,7 +272,7 @@ class TestSendCommand:
             db.add(UARTSession(
                 project_id=project.id, firmware_id=firmware.id,
                 device_path="/dev/ttyUSB0", baudrate=115200,
-                status="connected", connected_at=datetime.now(timezone.utc),
+                status="connected", connected_at=datetime.now(UTC),
             ))
             await db.flush()
 
@@ -302,7 +299,7 @@ class TestSendCommand:
             db.add(UARTSession(
                 project_id=project.id, firmware_id=firmware.id,
                 device_path="/dev/ttyUSB0", baudrate=115200,
-                status="connected", connected_at=datetime.now(timezone.utc),
+                status="connected", connected_at=datetime.now(UTC),
             ))
             await db.flush()
 
@@ -338,7 +335,7 @@ class TestReadBufferBreakRaw:
             db.add(UARTSession(
                 project_id=project.id, firmware_id=firmware.id,
                 device_path="/dev/ttyUSB0", baudrate=115200,
-                status="connected", connected_at=datetime.now(timezone.utc),
+                status="connected", connected_at=datetime.now(UTC),
             ))
             await db.flush()
 
@@ -368,7 +365,7 @@ class TestReadBufferBreakRaw:
             db.add(UARTSession(
                 project_id=project.id, firmware_id=firmware.id,
                 device_path="/dev/ttyUSB0", baudrate=115200,
-                status="connected", connected_at=datetime.now(timezone.utc),
+                status="connected", connected_at=datetime.now(UTC),
             ))
             await db.flush()
 
@@ -388,7 +385,7 @@ class TestReadBufferBreakRaw:
             db.add(UARTSession(
                 project_id=project.id, firmware_id=firmware.id,
                 device_path="/dev/ttyUSB0", baudrate=115200,
-                status="connected", connected_at=datetime.now(timezone.utc),
+                status="connected", connected_at=datetime.now(UTC),
             ))
             await db.flush()
 
@@ -430,7 +427,7 @@ class TestGetStatus:
             sess = UARTSession(
                 project_id=project.id, firmware_id=firmware.id,
                 device_path="/dev/ttyUSB0", baudrate=115200,
-                status="connected", connected_at=datetime.now(timezone.utc),
+                status="connected", connected_at=datetime.now(UTC),
             )
             db.add(sess)
             await db.flush()
@@ -478,7 +475,7 @@ class TestDisconnect:
             sess = UARTSession(
                 project_id=project.id, firmware_id=firmware.id,
                 device_path="/dev/ttyUSB0", baudrate=115200,
-                status="connected", connected_at=datetime.now(timezone.utc),
+                status="connected", connected_at=datetime.now(UTC),
             )
             db.add(sess)
             await db.flush()
@@ -506,7 +503,7 @@ class TestDisconnect:
             sess = UARTSession(
                 project_id=project.id, firmware_id=firmware.id,
                 device_path="/dev/ttyUSB0", baudrate=115200,
-                status="connected", connected_at=datetime.now(timezone.utc),
+                status="connected", connected_at=datetime.now(UTC),
             )
             db.add(sess)
             await db.flush()
@@ -547,7 +544,7 @@ class TestGetTranscript:
             db.add(UARTSession(
                 project_id=project.id, firmware_id=firmware.id,
                 device_path="/dev/ttyUSB0", baudrate=115200,
-                status="connected", connected_at=datetime.now(timezone.utc),
+                status="connected", connected_at=datetime.now(UTC),
             ))
             await db.flush()
 
@@ -579,7 +576,7 @@ class TestListSessions:
             # at the same microsecond for all 3 rows when seeded in a tight
             # loop, which makes ORDER BY created_at DESC unstable.
             from datetime import timedelta
-            base = datetime.now(timezone.utc)
+            base = datetime.now(UTC)
             for i, path in enumerate(("/dev/ttyUSB0", "/dev/ttyUSB1", "/dev/ttyUSB2")):
                 db.add(UARTSession(
                     project_id=project.id, firmware_id=firmware.id,

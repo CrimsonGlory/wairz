@@ -9,7 +9,6 @@ import lief
 from app.utils.hashing import compute_file_sha256
 from app.utils.sandbox import safe_walk
 
-
 MAX_DIFF_ENTRIES = 2000
 
 
@@ -377,11 +376,11 @@ def diff_text_file(path_a: str, path_b: str, rel_path: str) -> dict:
         lines_b: list[str] = []
 
         if os.path.exists(path_a):
-            with open(path_a, "r", errors="replace") as f:
+            with open(path_a, errors="replace") as f:
                 lines_a = f.readlines()
 
         if os.path.exists(path_b):
-            with open(path_b, "r", errors="replace") as f:
+            with open(path_b, errors="replace") as f:
                 lines_b = f.readlines()
 
         diff_lines = list(difflib.unified_diff(

@@ -12,12 +12,12 @@ import os
 from collections import Counter
 from dataclasses import dataclass, field
 
-from scapy.all import PcapReader, IP, IPv6, TCP, UDP, ICMP, ARP, DNS, DNSQR, DNSRR, Raw
+from scapy.all import ARP, DNS, DNSQR, ICMP, IP, TCP, UDP, IPv6, PcapReader, Raw
 
 # TLS layers may not be available depending on scapy build/version
 try:
-    from scapy.layers.tls.record import TLS
     from scapy.layers.tls.handshake import TLSClientHello
+    from scapy.layers.tls.record import TLS
     HAS_TLS = True
 except ImportError:
     HAS_TLS = False

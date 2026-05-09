@@ -3,7 +3,6 @@
 Requires lief (installed in Docker but may not be available locally).
 """
 
-import os
 from pathlib import Path
 from unittest.mock import MagicMock
 from uuid import uuid4

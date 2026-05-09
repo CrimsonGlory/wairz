@@ -68,9 +68,10 @@ _PEM_HEADER_RE = re.compile(
 # Credential and API key patterns — shared with security audit service
 from app.utils.credential_patterns import (
     API_KEY_PATTERNS as _API_KEY_PATTERNS,
+)
+from app.utils.credential_patterns import (
     CREDENTIAL_PATTERNS as _CREDENTIAL_PATTERNS,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helper functions
@@ -94,7 +95,7 @@ async def _run_subprocess(
         stdout, stderr = await asyncio.wait_for(
             proc.communicate(), timeout=timeout
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         await proc.communicate()
         raise TimeoutError(f"Command timed out after {timeout}s: {args[0]}")
@@ -240,7 +241,7 @@ async def _handle_search_strings(input: dict, context: ToolContext) -> str:
             timeout=30,
         )
     except TimeoutError:
-        return f"Search timed out after 30s. Try a more specific pattern or path."
+        return "Search timed out after 30s. Try a more specific pattern or path."
 
     if not stdout.strip():
         return f"No matches found for pattern '{pattern}'."
@@ -299,7 +300,7 @@ def _find_crypto_material_sync(
             if os.path.isfile(abs_path) and os.path.getsize(abs_path) <= 1_000_000:
                 if _is_text_file(abs_path):
                     try:
-                        with open(abs_path, "r", errors="replace") as f:
+                        with open(abs_path, errors="replace") as f:
                             header = f.read(4096)
                         match = _PEM_HEADER_RE.search(header)
                         if match:
@@ -388,7 +389,7 @@ def _analyze_shadow_file(
     """Analyze a shadow file for password security issues. Returns issue lines."""
     issues: list[str] = []
     try:
-        with open(shadow_path, "r", errors="replace") as f:
+        with open(shadow_path, errors="replace") as f:
             for line_num, line in enumerate(f, 1):
                 parts = line.strip().split(":")
                 if len(parts) < 2:
@@ -455,7 +456,7 @@ def _analyze_passwd_file(
     """Analyze a passwd file for security issues. Returns issue lines."""
     issues: list[str] = []
     try:
-        with open(passwd_path, "r", errors="replace") as f:
+        with open(passwd_path, errors="replace") as f:
             for line_num, line in enumerate(f, 1):
                 parts = line.strip().split(":")
                 if len(parts) < 7:
@@ -551,7 +552,7 @@ def _find_hardcoded_credentials_sync(
             rel_path = "/" + os.path.relpath(abs_path, real_root)
 
             try:
-                with open(abs_path, "r", errors="replace") as f:
+                with open(abs_path, errors="replace") as f:
                     for line_num, line in enumerate(f, 1):
                         if len(results) >= max_results:
                             break
@@ -818,7 +819,7 @@ def _classify_files_for_ip_scan_sync(
 def _read_text_file_sync(fpath: str) -> str | None:
     """Read a text file synchronously; return None on OSError."""
     try:
-        with open(fpath, "r", errors="replace") as f:
+        with open(fpath, errors="replace") as f:
             return f.read()
     except OSError:
         return None
@@ -930,7 +931,7 @@ async def _handle_find_hardcoded_ips(input: dict, context: ToolContext) -> str:
                 )
                 stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
                 content = stdout.decode("utf-8", errors="replace")
-            except (asyncio.TimeoutError, OSError):
+            except (TimeoutError, OSError):
                 continue
         else:
             content = await loop.run_in_executor(None, _read_text_file_sync, fpath)
@@ -998,7 +999,7 @@ async def _handle_find_hardcoded_ips(input: dict, context: ToolContext) -> str:
 
     # Summary of unique IPs
     if ips_found:
-        lines.append(f"\n## Top IPs (by occurrence)")
+        lines.append("\n## Top IPs (by occurrence)")
         for ip, count in ips_found.most_common(20):
             cat, _ = _classify_ip(ip)
             lines.append(f"  {ip} ({count}x) [{cat}]")

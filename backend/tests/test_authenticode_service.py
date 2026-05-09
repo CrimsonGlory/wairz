@@ -19,7 +19,6 @@ from app.services.authenticode_service import (
     verify_pe_file,
 )
 
-
 # ── Mapping function unit tests ───────────────────────────────────────────
 
 

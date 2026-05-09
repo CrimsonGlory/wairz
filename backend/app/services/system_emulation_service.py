@@ -7,7 +7,7 @@ communicate with the Flask shim API running inside it.
 import asyncio
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 import docker
@@ -219,7 +219,7 @@ class SystemEmulationService:
 
             session.container_id = container.id
             session.status = "starting"
-            session.started_at = datetime.now(timezone.utc)
+            session.started_at = datetime.now(UTC)
             await self.db.flush()
 
             # Wait for shim to become healthy (up to 30s)
@@ -441,7 +441,7 @@ class SystemEmulationService:
 
         if not session.container_id:
             session.status = "stopped"
-            session.stopped_at = datetime.now(timezone.utc)
+            session.stopped_at = datetime.now(UTC)
             await self.db.flush()
             return session
 
@@ -471,7 +471,7 @@ class SystemEmulationService:
             logger.warning("Error removing container %s: %s", session.container_id, exc)
 
         session.status = "stopped"
-        session.stopped_at = datetime.now(timezone.utc)
+        session.stopped_at = datetime.now(UTC)
         await self.db.flush()
         return session
 

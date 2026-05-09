@@ -17,8 +17,6 @@ from typing import Any
 import pytest
 
 from tests.fixtures.mobsf_baselines.fp_rate_computation import (
-    ALL_PHASES,
-    DEFAULT_MAX_FP_RATE,
     PHASE_BYTECODE,
     PHASE_MANIFEST,
     PHASE_SAST,
@@ -39,7 +37,6 @@ from tests.fixtures.mobsf_baselines.fp_rate_computation import (
     multi_apk_summary_to_dict,
     phase_result_to_dict,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures — minimal ground-truth baselines for unit testing

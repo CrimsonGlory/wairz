@@ -18,11 +18,10 @@ from __future__ import annotations
 import pytest
 
 from app.ai import create_tool_registry
+from app.ai.tool_registry import ToolRegistry
 from app.ai.tools.windows_dotnet import register_windows_dotnet_tools
 from app.ai.tools.windows_storage import register_windows_storage_tools
 from app.ai.tools.windows_update import register_windows_update_tools
-from app.ai.tool_registry import ToolRegistry
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Registry totals

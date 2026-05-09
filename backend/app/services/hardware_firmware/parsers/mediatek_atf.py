@@ -23,12 +23,10 @@ from __future__ import annotations
 
 import logging
 import re
-import struct
 from typing import Any
 
 from app.services.hardware_firmware.parsers.base import ParsedBlob, register_parser
 from app.services.hardware_firmware.parsers.mediatek_gfh import (
-    LK_CONTAINER_HEADER_SIZE,
     derive_chipset,
     signed_from_subimages,
     walk_sub_images,

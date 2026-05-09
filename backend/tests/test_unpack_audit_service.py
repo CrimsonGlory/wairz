@@ -17,13 +17,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.services.unpack_audit_service import (
-    UNPACK_AUDIT_SOURCE,
     _extract_aes_key_findings,
     _extract_partial_extraction_findings,
     _extract_signed_archive_finding,
     run,
 )
-
 
 # Real RespArray triple (recovered from force_update.sh:755).
 _KEY = "43c8e032ff65f5cc762d1dc15580d425"

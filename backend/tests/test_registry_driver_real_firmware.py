@@ -53,7 +53,6 @@ edits needed. Mirrors β.14a's graduation shape.
 from __future__ import annotations
 
 import os
-import uuid
 from unittest.mock import patch
 
 import pytest
@@ -76,7 +75,6 @@ from app.services.finding_service import (
 )
 from app.services.registry_hive_walker import auto_walk_firmware, walk_hive_path
 from tests._live_db import make_live_db
-
 
 # ── Fixture env-var probes ──────────────────────────────────────────────────
 
@@ -272,8 +270,8 @@ async def test_tier1_synthetic_full_pipeline_persists_blobs_and_findings(
 def test_tier1_synthetic_walker_handles_empty_root(tmp_path) -> None:
     """A detection root with no hives + no INFs returns clean empty
     aggregates (no false-positive blobs / findings)."""
-    from app.services.registry_hive_walker import scan_for_hives
     from app.services.driver_extractor import scan_for_inf_triplets
+    from app.services.registry_hive_walker import scan_for_hives
 
     empty_root = tmp_path / "empty"
     empty_root.mkdir()

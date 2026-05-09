@@ -31,7 +31,7 @@ def _parse_python_metadata(meta_file: str) -> tuple[str | None, str | None]:
     name = None
     version = None
     try:
-        with open(meta_file, "r", errors="replace") as f:
+        with open(meta_file, errors="replace") as f:
             for line in f:
                 if line.startswith("Name:"):
                     name = line[5:].strip().lower()

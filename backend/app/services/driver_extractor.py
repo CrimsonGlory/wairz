@@ -70,7 +70,6 @@ from app.services.jsonb_normalizers import (
     _stamp_windows_drivers_inf_metadata,
 )
 
-
 logger = logging.getLogger(__name__)
 
 

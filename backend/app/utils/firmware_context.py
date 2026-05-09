@@ -132,6 +132,7 @@ async def get_firmware_context(
         Firmware extraction root (for relative path computation).
     """
     from sqlalchemy import select
+
     from app.models.firmware import Firmware
 
     stmt = select(Firmware).where(Firmware.id == firmware_id)
@@ -322,7 +323,7 @@ def _parse_build_prop_from_fs(extracted_root: str) -> dict:
         bp_path = os.path.join(extracted_root, rel_path)
         if os.path.isfile(bp_path):
             try:
-                with open(bp_path, "r", errors="replace") as f:
+                with open(bp_path, errors="replace") as f:
                     text = f.read(256 * 1024)  # Cap at 256KB
                 props = parse_build_prop(text)
                 if props:

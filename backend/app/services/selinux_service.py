@@ -111,7 +111,7 @@ class SELinuxService:
             if not os.path.isfile(abs_path):
                 continue
             try:
-                with open(abs_path, "r", errors="replace") as f:
+                with open(abs_path, errors="replace") as f:
                     for line in f:
                         line = line.strip()
                         if "=" not in line or line.startswith("#"):
@@ -266,7 +266,7 @@ class SELinuxService:
         """Parse CIL file for (typepermissive ...) statements."""
         domains: list[str] = []
         try:
-            with open(filepath, "r", errors="replace") as f:
+            with open(filepath, errors="replace") as f:
                 for line in f:
                     line = line.strip()
                     # CIL format: (typepermissive domain_name)
@@ -342,7 +342,7 @@ class SELinuxService:
             seen.add(real)
             stats["total_cil_files"] += 1
             try:
-                with open(real, "r", errors="replace") as f:
+                with open(real, errors="replace") as f:
                     for line in f:
                         stripped = line.lstrip()
                         for key, pat in patterns.items():

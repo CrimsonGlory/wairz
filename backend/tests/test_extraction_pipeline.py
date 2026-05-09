@@ -49,9 +49,7 @@ from app.workers.extraction_strategies import (
 )
 from app.workers.unpack import unpack_firmware
 from app.workers.unpack_no_handler import unpack_no_handler
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # 1. Strategy resolution coverage — every enum value must resolve.

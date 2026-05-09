@@ -51,7 +51,6 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_windows_update_diff_result,
 )
 
-
 logger = logging.getLogger(__name__)
 
 

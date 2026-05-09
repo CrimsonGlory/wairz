@@ -25,7 +25,6 @@ from app.services.hardware_firmware.graph import (
     build_driver_firmware_graph,
 )
 
-
 # ---------------------------------------------------------------------------
 # _resolve_firmware_name
 # ---------------------------------------------------------------------------

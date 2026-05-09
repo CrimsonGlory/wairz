@@ -17,7 +17,6 @@ from app.ai.tools.windows_archive import (
     _handle_read_msix_manifest,
 )
 
-
 # ── Stub ToolContext (duck-types the resolve_path interface) ──────────────
 
 

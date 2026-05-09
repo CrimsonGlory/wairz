@@ -57,7 +57,7 @@ class DpkgStrategy(SbomStrategy):
     @staticmethod
     def _parse(abs_path: str, ctx: StrategyContext) -> None:
         try:
-            with open(abs_path, "r", errors="replace") as f:
+            with open(abs_path, errors="replace") as f:
                 content = f.read()
         except OSError:
             return

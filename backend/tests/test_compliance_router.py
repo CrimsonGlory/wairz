@@ -22,7 +22,6 @@ from httpx import ASGITransport, AsyncClient
 
 from app.database import get_db
 from app.main import app
-from app.models.firmware import Firmware
 from app.models.project import Project
 from app.rate_limit import limiter
 

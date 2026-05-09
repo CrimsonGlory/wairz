@@ -145,7 +145,7 @@ async def unpack_msi(
             suminfo_proc.communicate(),
             timeout=_MSIINFO_TIMEOUT_SECONDS,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         suminfo_proc.kill()
         try:
             await suminfo_proc.communicate()
@@ -203,7 +203,7 @@ async def unpack_msi(
         stdout_b, stderr_b = await asyncio.wait_for(
             proc.communicate(), timeout=_MSIEXTRACT_TIMEOUT_SECONDS,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         try:
             await proc.communicate()

@@ -179,9 +179,9 @@ def _analyze_binary_sync(resolved: str, real_root: str) -> dict:
     import stat as stat_mod
 
     from app.services.attack_surface_service import (
-        BinarySignals,
         CGI_PATH_PATTERNS,
         KNOWN_NETWORK_DAEMONS,
+        BinarySignals,
         _classify_categories,
         _collect_init_script_binaries,
         _get_binary_protections,

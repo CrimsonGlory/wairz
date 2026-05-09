@@ -145,7 +145,7 @@ async def test_unpack_vhdx_reports_convert_timeout(tmp_path: Path):
         if state["calls"] == 1:
             return await real_wait_for(coro, timeout=timeout)
         coro.close()
-        raise asyncio.TimeoutError
+        raise TimeoutError
 
     with patch(
         "app.workers.unpack_vhdx.asyncio.create_subprocess_exec",

@@ -73,10 +73,7 @@ Coverage targets:
 from __future__ import annotations
 
 import json
-import os
 import subprocess
-import sys
-import uuid
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -84,8 +81,8 @@ import pytest
 
 from app.services import qiling_service as qiling_mod
 from app.services.qiling_service import (
-    QilingResult,
     _FORMAT_ARCH_TO_QILING,
+    QilingResult,
     check_rootfs_status,
     get_qiling_ostype,
     get_rootfs_path,
@@ -93,7 +90,6 @@ from app.services.qiling_service import (
     run_binary,
     run_binary_async,
 )
-
 
 # ===========================================================================
 # Format / arch mapping table

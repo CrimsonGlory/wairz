@@ -58,7 +58,6 @@ from app.services.component_map_service import (
     ComponentNode,
 )
 
-
 # ===========================================================================
 # Helpers — synthetic ELF fixture builder
 # ===========================================================================

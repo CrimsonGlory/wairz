@@ -48,6 +48,7 @@ import io
 import os
 import sys
 import uuid
+from datetime import UTC
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -60,9 +61,7 @@ from app.models.document import Document
 from app.models.project import Project
 from app.services import document_service as docsvc_mod
 from app.services.document_service import DocumentService
-
 from tests._live_db import make_live_db
-
 
 # ===========================================================================
 # Helpers / fixtures
@@ -190,7 +189,7 @@ class TestUpload:
 class TestListGetUpdateDelete:
     @pytest.mark.asyncio
     async def test_list_orders_by_created_desc(self, isolated_storage: Path):
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
         async with make_live_db() as db:
             pid = uuid.uuid4()
             project = Project(id=pid, name="list", status="ready")
@@ -205,7 +204,7 @@ class TestListGetUpdateDelete:
             # across rapid inserts; explicitly stamp distinct timestamps so
             # the DESC-order assertion below is deterministic regardless
             # of dialect resolution.
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             d1.created_at = now - timedelta(seconds=2)
             d2.created_at = now - timedelta(seconds=1)
             d3.created_at = now
@@ -356,7 +355,7 @@ class TestCreateNote:
             assert doc.content_type == "text/markdown"
             assert doc.file_size == len(b"# Hello\nworld")
             assert doc.sha256 == hashlib.sha256(b"# Hello\nworld").hexdigest()
-            with open(doc.storage_path, "r") as fh:
+            with open(doc.storage_path) as fh:
                 assert fh.read() == "# Hello\nworld"
 
     @pytest.mark.asyncio
@@ -436,7 +435,7 @@ class TestCreateDocument:
                 "application/x-yaml", "text/plain",
             }
             assert doc.description == "a yaml"
-            with open(doc.storage_path, "r") as fh:
+            with open(doc.storage_path) as fh:
                 assert fh.read() == "key: value"
 
     @pytest.mark.asyncio
@@ -475,7 +474,7 @@ class TestCreateDocument:
             # Storage path unchanged.
             assert second.storage_path == first_path
             # Content updated.
-            with open(second.storage_path, "r") as fh:
+            with open(second.storage_path) as fh:
                 assert fh.read() == "v2 longer"
             assert second.sha256 == hashlib.sha256(b"v2 longer").hexdigest()
             assert second.file_size == len(b"v2 longer")
@@ -540,7 +539,7 @@ class TestUpdateContent:
             await db.commit()
             assert new.sha256 != old_sha
             assert new.file_size == len(b"v2 longer text")
-            with open(new.storage_path, "r") as fh:
+            with open(new.storage_path) as fh:
                 assert fh.read() == "v2 longer text"
 
     @pytest.mark.asyncio

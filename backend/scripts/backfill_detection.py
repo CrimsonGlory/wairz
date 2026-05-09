@@ -34,7 +34,7 @@ import os
 import sys
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -108,7 +108,7 @@ def _stamp_audit(firmware: Firmware, result: FirmwareResult) -> None:
     audit = dict(existing.get("detection_audit") or {})
     audit.update(
         {
-            "last_backfill_at": datetime.now(timezone.utc).isoformat(),
+            "last_backfill_at": datetime.now(UTC).isoformat(),
             "blobs_detected": result.blobs_after,
             "orphans_pre_backfill": max(0, result.blobs_after - result.blobs_before),
             "roots_count": result.roots_count,

@@ -23,8 +23,6 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-import pytest
-
 from app.services.firmware_paths import populate_detection_roots
 
 

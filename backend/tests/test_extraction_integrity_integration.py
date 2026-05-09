@@ -422,14 +422,33 @@ def test_no_new_direct_extracted_path_reads():
                 or "fw.extracted_path" in text
                 or "fw_row.extracted_path" in text
             ):
-                # Allow comment-only references
-                non_comment = [
-                    line for line in text.splitlines()
-                    if ("firmware.extracted_path" in line
+                # Allow comment-only / docstring-only references. Track
+                # whether we're inside a triple-quoted string and skip
+                # those lines (along with `#`-comment lines).
+                non_comment: list[str] = []
+                in_docstring = False
+                docstring_delim = ""
+                for line in text.splitlines():
+                    if not in_docstring:
+                        for delim in ('"""', "'''"):
+                            if line.count(delim) % 2 == 1:
+                                in_docstring = True
+                                docstring_delim = delim
+                                break
+                    elif line.count(docstring_delim) % 2 == 1:
+                        in_docstring = False
+                        docstring_delim = ""
+                        continue
+                    if in_docstring:
+                        continue
+                    if line.strip().startswith("#"):
+                        continue
+                    if (
+                        "firmware.extracted_path" in line
                         or "fw.extracted_path" in line
-                        or "fw_row.extracted_path" in line)
-                    and not line.strip().startswith("#")
-                ]
+                        or "fw_row.extracted_path" in line
+                    ):
+                        non_comment.append(line)
                 if non_comment:
                     offenders.append(str(path.relative_to(backend_dir)))
     assert scanned_any, (

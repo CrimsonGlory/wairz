@@ -170,7 +170,7 @@ async def unpack_wim(
         info_stdout_b, info_stderr_b = await asyncio.wait_for(
             info_proc.communicate(), timeout=_WIMLIB_INFO_TIMEOUT_SECONDS,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         info_proc.kill()
         try:
             await info_proc.communicate()
@@ -232,7 +232,7 @@ async def unpack_wim(
         stdout_b, stderr_b = await asyncio.wait_for(
             proc.communicate(), timeout=_WIMLIB_TIMEOUT_SECONDS,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         try:
             await proc.communicate()

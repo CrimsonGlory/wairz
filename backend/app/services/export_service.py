@@ -7,7 +7,7 @@ import os
 import stat
 import uuid
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -102,7 +102,7 @@ class ExportService:
             # Manifest
             manifest = {
                 "archive_version": ARCHIVE_VERSION,
-                "exported_at": datetime.now(timezone.utc).isoformat(),
+                "exported_at": datetime.now(UTC).isoformat(),
                 "project_id": str(project_id),
                 "project_name": project["name"],
             }

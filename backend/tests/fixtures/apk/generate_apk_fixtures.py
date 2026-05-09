@@ -16,8 +16,6 @@ For integration tests, run this script first, then use the generated APKs.
 from __future__ import annotations
 
 import io
-import os
-import struct
 import sys
 import zipfile
 from pathlib import Path
@@ -28,7 +26,6 @@ BACKEND_ROOT = SCRIPT_DIR.parent.parent.parent
 sys.path.insert(0, str(BACKEND_ROOT))
 
 from tests.fixtures.apk.apk_fixture_manifests import ALL_FIXTURES
-
 
 # ---------------------------------------------------------------------------
 # Minimal binary AXML (Android Binary XML) encoder

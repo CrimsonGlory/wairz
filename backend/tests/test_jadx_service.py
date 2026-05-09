@@ -56,18 +56,15 @@ from app.models.firmware import Firmware
 from app.models.project import Project
 from app.services import jadx_service
 from app.services.jadx_service import (
+    _MAX_SOURCE_FILE_SIZE,
     JadxDecompilationCache,
     _collect_decompiled_sources,
     _find_jadx_binary,
-    _MAX_CACHED_SOURCE_FILES,
-    _MAX_SOURCE_FILE_SIZE,
     _write_sources_sync,
     get_jadx_cache,
     run_jadx_subprocess,
 )
-
 from tests._live_db import make_live_db
-
 
 # ===========================================================================
 # _find_jadx_binary — Rule #30 SOURCE-patch on lazy-imported shutil.which

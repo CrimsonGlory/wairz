@@ -6,15 +6,15 @@ create, list (with filters), get, update, and delete operations.
 
 import uuid
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from app.schemas.finding import (
     FindingCreate,
+    FindingStatus,
     FindingUpdate,
     Severity,
-    FindingStatus,
 )
 from app.services.finding_service import FindingService
 

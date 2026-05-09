@@ -1,6 +1,5 @@
 """Shared test fixtures for the Wairz backend test suite."""
 
-import os
 from pathlib import Path
 from unittest.mock import MagicMock
 from uuid import uuid4

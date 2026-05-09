@@ -7,8 +7,6 @@ command injection in AFL++ command strings.
 
 import re
 import shlex
-from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
 
 import pytest
 
@@ -322,7 +320,6 @@ class TestRegexConsistency:
     """Ensure our test regex matches the one in the production code."""
 
     def test_regex_pattern_matches_service(self) -> None:
-        from app.services.fuzzing_service import re as service_re
 
         # The service uses re.match(r"^[A-Z_][A-Z0-9_]*$", k) inline.
         # Verify our extracted pattern behaves identically on edge cases.

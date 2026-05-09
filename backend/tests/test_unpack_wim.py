@@ -28,7 +28,6 @@ from app.workers.unpack_wim import (
     unpack_wim,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -163,7 +162,7 @@ async def test_unpack_wim_reports_apply_timeout(tmp_path: Path):
         # Coro must still be awaited to avoid "coroutine was never awaited"
         # warnings; but we want to surface the TimeoutError instead.
         coro.close()
-        raise asyncio.TimeoutError
+        raise TimeoutError
 
     with patch(
         "app.workers.unpack_wim.asyncio.create_subprocess_exec",

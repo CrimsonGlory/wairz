@@ -42,11 +42,9 @@ JSON column processor with the live_db.py shim and bomb at flush time.
 """
 from __future__ import annotations
 
-import os
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy import select
@@ -55,9 +53,7 @@ from app.models.firmware import Firmware
 from app.models.fuzzing import FuzzingCampaign, FuzzingCrash  # noqa: F401 — registers tables
 from app.models.project import Project
 from app.services.fuzzing_service import FuzzingService
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # Helpers

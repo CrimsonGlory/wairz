@@ -4,12 +4,11 @@ Verifies that known-safe permission groups (e.g., INTERNET + ACCESS_NETWORK_STAT
 correctly suppress or reduce confidence of false-positive findings.
 """
 
-import pytest
 
 from app.services.androguard_service import (
+    _SAFE_PERMISSION_GROUPS,
     ManifestFinding,
     _apply_permission_allowlisting,
-    _SAFE_PERMISSION_GROUPS,
 )
 
 

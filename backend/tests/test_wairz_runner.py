@@ -25,7 +25,6 @@ from app.services.wairz_runner import (
     compare_with_mobsf,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures: simulated AndroguardService.scan_manifest_security() output
 # ---------------------------------------------------------------------------

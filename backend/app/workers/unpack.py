@@ -9,14 +9,16 @@ Delegates to specialized modules:
 - unpack_android: OTA extraction, sparse images, super.img partitions
 """
 
-import asyncio
 import logging
 import os
 import uuid
 
+from app.workers.unpack_android import _extract_android_ota, _extract_boot_img  # noqa: F401
+
 # Re-export public API for backward compatibility
 from app.workers.unpack_common import (  # noqa: F401
     UnpackResult,
+    _find_binwalk_output_dir,
     check_extraction_limits,
     classify_firmware,
     cleanup_unblob_artifacts,
@@ -24,20 +26,18 @@ from app.workers.unpack_common import (  # noqa: F401
     find_filesystem_root,
     remove_extraction_escape_symlinks,
     run_binwalk_extraction,
-    run_unblob_extraction,
     run_uefi_extraction,
-    _find_binwalk_output_dir,
+    run_unblob_extraction,
 )
 from app.workers.unpack_linux import (  # noqa: F401
+    _firmware_tar_filter,
     check_tar_bomb,
     detect_architecture,
     detect_architecture_from_elf,
     detect_architecture_from_kernel,
     detect_kernel,
     detect_os_info,
-    _firmware_tar_filter,
 )
-from app.workers.unpack_android import _extract_android_ota, _extract_boot_img  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -404,6 +404,7 @@ async def _unpack_firmware_inner(
     if fw_type == "intel_hex":
         import json
         import shutil
+
         from app.services.binary_analysis_service import analyze_binary
         from app.services.rtos_detection_service import detect_rtos, extract_companion_components
 
@@ -528,6 +529,7 @@ async def _unpack_firmware_inner(
     if fw_type.endswith("_elf") and fw_type not in ("elf_binary",) or fw_type == "rtos_blob":
         import json
         import shutil
+
         from app.services.binary_analysis_service import analyze_binary
         from app.services.rtos_detection_service import detect_rtos, extract_companion_components
 
@@ -579,6 +581,7 @@ async def _unpack_firmware_inner(
 
     if fw_type in ("elf_binary", "pe_binary"):
         import shutil
+
         from app.services.binary_analysis_service import analyze_binary
 
         dest = os.path.join(extraction_dir, os.path.basename(firmware_path))
@@ -929,6 +932,7 @@ async def _unpack_firmware_inner(
         )
     if not result.success and fw_size <= _STANDALONE_BINARY_MAX:
         import shutil
+
         from app.services.binary_analysis_service import analyze_binary
 
         dest = os.path.join(extraction_dir, os.path.basename(firmware_path))

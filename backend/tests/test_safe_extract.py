@@ -12,16 +12,12 @@ Covers the verification battery specified in the intake:
 
 from __future__ import annotations
 
-import io
-import os
-import struct
 import zipfile
 from pathlib import Path
 
 import pytest
 
 from app.workers.safe_extract import ExtractionSizeError, safe_extract_zip
-
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 

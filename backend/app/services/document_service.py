@@ -311,7 +311,7 @@ class DocumentService:
 
         # Text-based formats: read directly
         try:
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
+            with open(path, encoding="utf-8", errors="replace") as f:
                 return f.read()
         except Exception as exc:
             return f"[Error reading file: {exc}]"

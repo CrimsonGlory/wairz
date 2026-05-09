@@ -18,9 +18,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from app.services.windows_update_diff_service import (
     MAX_RUN_SECONDS,
@@ -28,7 +26,6 @@ from app.services.windows_update_diff_service import (
     _build_diff_row,
     _scan_pkg_dlls_sync,
 )
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tunables

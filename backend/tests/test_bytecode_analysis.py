@@ -238,8 +238,8 @@ class TestScanApkIntegration:
             "androguard.misc.AnalyzeAPK",
             return_value=(mock_apk, [MagicMock()], MagicMock()),
         ):
-            import tempfile
             import os
+            import tempfile
 
             # Create a temp file to pass file existence check
             with tempfile.NamedTemporaryFile(suffix=".apk", delete=False) as f:

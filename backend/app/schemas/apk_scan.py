@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-
 # ---------------------------------------------------------------------------
 # Phase 1: Manifest scan response schemas
 # ---------------------------------------------------------------------------

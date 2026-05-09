@@ -20,12 +20,11 @@ import docker
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
-from app.utils.docker_client import get_docker_client
-
 from app.database import async_session_factory
 from app.models.emulation_session import EmulationSession
 from app.models.firmware import Firmware
 from app.models.project import Project
+from app.utils.docker_client import get_docker_client
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +208,7 @@ async def websocket_terminal(
 
     await websocket.send_json({
         "type": "output",
-        "data": f"\r\n  Firmware root: /workspace (read-only, sandboxed)\r\n\r\n",
+        "data": "\r\n  Firmware root: /workspace (read-only, sandboxed)\r\n\r\n",
     })
 
     async def read_container():

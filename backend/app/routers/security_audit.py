@@ -9,11 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from app.database import get_db
-from app.models.firmware import Firmware
 from app.models.finding import Finding
+from app.models.firmware import Firmware
 from app.models.project import Project
 from app.rate_limit import TIER_A_HEAVY, limiter
-from app.schemas.finding import FindingResponse, Severity
+from app.schemas.finding import Severity
 from app.schemas.security_audit import (
     AbusechScanResponse,
     ClamScanResponse,
@@ -28,15 +28,17 @@ from app.schemas.security_audit import (
 from app.services.finding_service import FindingService
 from app.services.security_audit import (
     SecurityFinding,
+    run_abusech_scan,
+    run_clamav_scan,
+    run_known_good_scan,
     run_security_audit,
     run_security_audit_multi,
-    run_clamav_scan,
     run_virustotal_scan,
-    run_abusech_scan,
-    run_known_good_scan,
 )
 from app.services.yara_service import (
     scan_firmware as yara_scan_firmware,
+)
+from app.services.yara_service import (
     scan_firmware_multi as yara_scan_firmware_multi,
 )
 
@@ -215,6 +217,7 @@ async def scan_uefi_modules(
     """
     import os
     import struct
+
     from app.ai.tools.uefi import _parse_info_txt
 
     result = await db.execute(select(Project).where(Project.id == project_id))

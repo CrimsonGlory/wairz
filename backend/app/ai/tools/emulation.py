@@ -7,10 +7,12 @@ reading boot logs, and diagnosing firmware emulation issues.
 
 import asyncio
 import os
+from datetime import UTC
+
+from sqlalchemy import select
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.config import get_settings
-from app.models.emulation_preset import EmulationPreset
 from app.models.emulation_session import EmulationSession
 from app.models.firmware import Firmware
 from app.services.emulation import EmulationService
@@ -21,8 +23,6 @@ from app.services.jsonb_normalizers import (
     _normalize_firmware_binary_info,
 )
 from app.services.kernel_service import KernelService
-
-from sqlalchemy import select
 
 
 def register_emulation_tools(registry: ToolRegistry) -> None:
@@ -968,7 +968,7 @@ async def _handle_start_emulation(input: dict, context: ToolContext) -> str:
     bi = _normalize_firmware_binary_info(firmware.binary_info)
     is_standalone = bi is not None
     lines = [
-        f"Emulation session started successfully.",
+        "Emulation session started successfully.",
         f"  Session ID: {session.id}",
         f"  Mode: {session.mode}{'  [standalone binary]' if is_standalone else ''}",
         f"  Architecture: {session.architecture}",
@@ -1160,9 +1160,9 @@ async def _handle_check_status(input: dict, context: ToolContext) -> str:
         if session.binary_path:
             lines.append(f"  Binary: {session.binary_path}")
         if session.started_at:
-            from datetime import datetime, timezone
-            uptime = datetime.now(timezone.utc) - session.started_at.replace(
-                tzinfo=timezone.utc if session.started_at.tzinfo is None else session.started_at.tzinfo
+            from datetime import datetime
+            uptime = datetime.now(UTC) - session.started_at.replace(
+                tzinfo=UTC if session.started_at.tzinfo is None else session.started_at.tzinfo
             )
             lines.append(f"  Uptime: {int(uptime.total_seconds())}s")
         if session.error_message:
@@ -1616,7 +1616,7 @@ async def _handle_diagnose_environment(input: dict, context: ToolContext) -> str
 
     # --- Build report ---
     lines = [
-        f"=== Emulation Pre-Flight Diagnosis ===",
+        "=== Emulation Pre-Flight Diagnosis ===",
         f"Firmware: {firmware.original_filename}",
         f"Architecture: {arch} ({firmware.endianness or 'unknown'} endian)",
         f"Filesystem root: {fs_root}",
@@ -2247,6 +2247,7 @@ async def _handle_get_crash_dump(input: dict, context: ToolContext) -> str:
         return "Error: session not found or no container."
 
     import docker
+
     from app.utils.docker_client import get_docker_client
     client = get_docker_client()
     try:
@@ -2307,7 +2308,7 @@ async def _handle_get_crash_dump(input: dict, context: ToolContext) -> str:
     # Run inside guest via serial — gdb-multiarch won't be there.
     # Alternative: tell user the core location and size.
     lines = [
-        f"Core Dump Analysis",
+        "Core Dump Analysis",
         f"  Core file: {core_path} ({core_size} bytes)",
         f"  Binary: {gdb_binary or '(unknown)'}",
         "",
@@ -2335,7 +2336,7 @@ async def _handle_get_crash_dump(input: dict, context: ToolContext) -> str:
         try:
             result = await svc.exec_command(
                 session_id=UUID(session_id),
-                command=f"dmesg",
+                command="dmesg",
                 timeout=10,
             )
             dmesg = result.get("stdout", "")
@@ -2387,6 +2388,7 @@ async def _handle_run_gdb_command(input: dict, context: ToolContext) -> str:
         return "Error: no container associated with this session."
 
     import docker
+
     from app.utils.docker_client import get_docker_client
     client = get_docker_client()
     try:
@@ -2427,7 +2429,6 @@ async def _handle_run_gdb_command(input: dict, context: ToolContext) -> str:
     gdb_script += "detach\nquit\n"
 
     # Write the script to a temp file in the container and execute
-    import shlex
     escaped_script = gdb_script.replace("'", "'\\''")
 
     exec_cmd = [
@@ -2524,7 +2525,7 @@ async def _handle_save_preset(input: dict, context: ToolContext) -> str:
         return f"Error saving preset: {exc}"
 
     lines = [
-        f"Preset saved successfully.",
+        "Preset saved successfully.",
         f"  Name: {preset.name}",
         f"  ID: {preset.id}",
         f"  Mode: {preset.mode}",
@@ -2631,8 +2632,9 @@ async def _handle_emulate_with_qiling(input: dict, context: ToolContext) -> str:
     trace_syscalls = input.get("trace_syscalls", True)
 
     # Auto-detect format
-    from app.services.binary_analysis_service import analyze_binary
     import asyncio
+
+    from app.services.binary_analysis_service import analyze_binary
     loop = asyncio.get_running_loop()
     info = await loop.run_in_executor(None, analyze_binary, path)
 
@@ -2646,10 +2648,9 @@ async def _handle_emulate_with_qiling(input: dict, context: ToolContext) -> str:
         )
 
     from app.services.qiling_service import (
-        run_binary_async,
         get_rootfs_path,
         is_qiling_supported,
-        check_rootfs_status,
+        run_binary_async,
     )
 
     if not is_qiling_supported(binary_format, architecture or ""):
@@ -2794,8 +2795,9 @@ async def _handle_start_system_emulation(input: dict, context: ToolContext) -> s
 
 async def _handle_system_emulation_status(input: dict, context: ToolContext) -> str:
     """Check FirmAE system emulation status."""
-    from app.services.system_emulation_service import SystemEmulationService
     from uuid import UUID
+
+    from app.services.system_emulation_service import SystemEmulationService
 
     session_id = input.get("session_id")
     if not session_id:
@@ -2829,9 +2831,9 @@ async def _handle_system_emulation_status(input: dict, context: ToolContext) -> 
     if session.error_message:
         lines.append(f"  Error: {session.error_message}")
     if session.started_at:
-        from datetime import datetime, timezone
-        uptime = datetime.now(timezone.utc) - session.started_at.replace(
-            tzinfo=timezone.utc if session.started_at.tzinfo is None else session.started_at.tzinfo
+        from datetime import datetime
+        uptime = datetime.now(UTC) - session.started_at.replace(
+            tzinfo=UTC if session.started_at.tzinfo is None else session.started_at.tzinfo
         )
         lines.append(f"  Uptime: {int(uptime.total_seconds())}s")
 
@@ -2840,8 +2842,9 @@ async def _handle_system_emulation_status(input: dict, context: ToolContext) -> 
 
 async def _handle_list_firmware_services(input: dict, context: ToolContext) -> str:
     """List network services discovered on the running firmware."""
-    from app.services.system_emulation_service import SystemEmulationService
     from uuid import UUID
+
+    from app.services.system_emulation_service import SystemEmulationService
 
     session_id = input.get("session_id")
     if not session_id:
@@ -2876,8 +2879,9 @@ async def _handle_list_firmware_services(input: dict, context: ToolContext) -> s
 
 async def _handle_run_command_in_firmware(input: dict, context: ToolContext) -> str:
     """Execute a command in the FirmAE sidecar."""
-    from app.services.system_emulation_service import SystemEmulationService
     from uuid import UUID
+
+    from app.services.system_emulation_service import SystemEmulationService
 
     session_id = input.get("session_id")
     command = input.get("command")
@@ -2914,8 +2918,9 @@ async def _handle_run_command_in_firmware(input: dict, context: ToolContext) -> 
 
 async def _handle_stop_system_emulation(input: dict, context: ToolContext) -> str:
     """Stop FirmAE system emulation."""
-    from app.services.system_emulation_service import SystemEmulationService
     from uuid import UUID
+
+    from app.services.system_emulation_service import SystemEmulationService
 
     session_id = input.get("session_id")
     if not session_id:
@@ -2933,8 +2938,9 @@ async def _handle_stop_system_emulation(input: dict, context: ToolContext) -> st
 
 async def _handle_capture_network_traffic(input: dict, context: ToolContext) -> str:
     """Capture network traffic from the emulated firmware."""
-    from app.services.system_emulation_service import SystemEmulationService
     from uuid import UUID
+
+    from app.services.system_emulation_service import SystemEmulationService
 
     session_id = input.get("session_id")
     if not session_id:
@@ -2968,8 +2974,9 @@ async def _handle_capture_network_traffic(input: dict, context: ToolContext) -> 
 
 async def _handle_get_nvram_state(input: dict, context: ToolContext) -> str:
     """Read NVRAM state from the running firmware."""
-    from app.services.system_emulation_service import SystemEmulationService
     from uuid import UUID
+
+    from app.services.system_emulation_service import SystemEmulationService
 
     session_id = input.get("session_id")
     if not session_id:
@@ -2995,8 +3002,9 @@ async def _handle_get_nvram_state(input: dict, context: ToolContext) -> str:
 
 async def _handle_interact_web_endpoint(input: dict, context: ToolContext) -> str:
     """Make HTTP request to the firmware's web interface."""
-    from app.services.system_emulation_service import SystemEmulationService
     from uuid import UUID
+
+    from app.services.system_emulation_service import SystemEmulationService
 
     session_id = input.get("session_id")
     if not session_id:

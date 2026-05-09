@@ -230,7 +230,7 @@ async def _handle_list_cab_contents(input: dict, context: ToolContext) -> str:
         )
     try:
         stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=30)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         try:
             await proc.communicate()
@@ -365,7 +365,7 @@ async def _handle_dump_msi_custom_actions(input: dict, context: ToolContext) -> 
         )
     try:
         stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=120)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         try:
             await proc.communicate()
@@ -391,7 +391,7 @@ async def _handle_dump_msi_custom_actions(input: dict, context: ToolContext) -> 
         )
 
     rel = os.path.relpath(dump_dir, context.extracted_path or msi_path)
-    out = [f"Custom-action dump complete (extract-only, NEVER executed).\n"]
+    out = ["Custom-action dump complete (extract-only, NEVER executed).\n"]
     out.append(f"Dumped to: {rel} ({len(dumped)} entries)")
     out.append("Each entry is a Binary table stream — typically a PE binary, "
                "VBScript, JScript, or DLL fragment that the MSI engine would "
@@ -422,9 +422,9 @@ async def _handle_parse_inf_basic(input: dict, context: ToolContext) -> str:
     try:
         text = await loop.run_in_executor(
             None,
-            lambda: open(inf_path, "r", encoding="utf-16-le", errors="replace").read()
+            lambda: open(inf_path, encoding="utf-16-le", errors="replace").read()
             if open(inf_path, "rb").read(2) == b"\xff\xfe"
-            else open(inf_path, "r", encoding="utf-8", errors="replace").read(),
+            else open(inf_path, encoding="utf-8", errors="replace").read(),
         )
     except OSError as exc:
         return f"INF read failed: {exc}"

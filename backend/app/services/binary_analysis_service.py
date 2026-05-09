@@ -7,7 +7,6 @@ LIEF and pyelftools do file I/O.
 
 import logging
 import os
-
 from typing import Any
 
 logger = logging.getLogger(__name__)

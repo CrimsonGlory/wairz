@@ -220,7 +220,7 @@ def _collect_init_script_binaries(root: str) -> set[str]:
 
     for script_path in scripts:
         try:
-            with open(script_path, "r", errors="replace") as f:
+            with open(script_path, errors="replace") as f:
                 content = f.read(64_000)
         except OSError:
             continue

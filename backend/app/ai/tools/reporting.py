@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 
@@ -7,10 +7,10 @@ from app.models.finding import Finding
 from app.models.firmware import Firmware
 from app.models.project import Project
 from app.models.sbom import SbomComponent, SbomVulnerability
-from app.schemas.finding import FindingCreate, FindingUpdate, Severity, FindingStatus
+from app.schemas.finding import FindingCreate, FindingStatus, FindingUpdate, Severity
 from app.services.document_service import DocumentService
 from app.services.finding_service import FindingService
-from app.services.report_service import generate_markdown_report, generate_html_report
+from app.services.report_service import generate_html_report, generate_markdown_report
 
 
 def register_reporting_tools(registry: ToolRegistry) -> None:
@@ -330,7 +330,7 @@ async def _handle_generate_assessment_report(input: dict, context: ToolContext) 
         ext = "md"
 
     # Build filename
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     if custom_title:
         safe_title = custom_title.strip().replace("/", "_").replace("\\", "_").replace(" ", "-")
         filename = f"{safe_title}.{ext}"
@@ -413,7 +413,7 @@ async def _handle_generate_executive_summary(input: dict, context: ToolContext) 
         f for f in findings if f.severity in ("critical", "high")
     ]
     if top_issues:
-        lines.append(f"\n--- Top Critical/High Issues ---")
+        lines.append("\n--- Top Critical/High Issues ---")
         for f in top_issues[:20]:
             file_info = f" in {f.file_path}" if f.file_path else ""
             cves = f" ({', '.join(f.cve_ids)})" if f.cve_ids else ""
@@ -435,12 +435,12 @@ async def _handle_generate_executive_summary(input: dict, context: ToolContext) 
     vuln_count = vuln_count_result.scalar_one()
 
     if comp_count > 0 or vuln_count > 0:
-        lines.append(f"\n--- SBOM ---")
+        lines.append("\n--- SBOM ---")
         lines.append(f"  Components: {comp_count}")
         lines.append(f"  Known vulnerabilities: {vuln_count}")
 
     # Risk posture
-    lines.append(f"\n--- Risk Posture ---")
+    lines.append("\n--- Risk Posture ---")
     critical_count = len(by_severity.get("critical", []))
     high_count = len(by_severity.get("high", []))
     if critical_count > 0:
@@ -474,7 +474,7 @@ async def _handle_run_full_assessment(input: dict, context: ToolContext) -> str:
 
     # Format output
     lines: list[str] = [
-        f"=== Full Security Assessment Complete ===",
+        "=== Full Security Assessment Complete ===",
         f"Total findings created: {result['total_findings_created']}",
         f"Total duration: {result['total_duration_s']}s",
         "",

@@ -7,26 +7,25 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database import async_session_factory, get_db
 from app.models.firmware import Firmware
 from app.models.project import Project
+from app.rate_limit import limiter
 from app.schemas.firmware import (
     FirmwareDetailResponse,
     FirmwareDetectionAuditResponse,
     FirmwareMetadataResponse,
     FirmwareUpdate,
-    FirmwareUploadResponse,
     FirmwareUploadStatusResponse,
 )
-from app.config import get_settings
-from app.rate_limit import limiter
+from app.services.extraction_pipeline import run_unpack
 from app.services.firmware_metadata_service import FirmwareMetadataService
 from app.services.firmware_paths import get_detection_roots
 from app.services.firmware_service import (
     FirmwareService,
     _run_upload_post_processing_background,
 )
-from app.services.extraction_pipeline import run_unpack
 from app.services.format_detection import (
     CAPABILITY_NOTES,
     EXTRACTION_CAPABILITY,
@@ -57,6 +56,7 @@ async def _get_arq_pool():
         return _arq_pool
     try:
         from arq import create_pool
+
         from app.workers.arq_worker import get_redis_settings
         _arq_pool = await create_pool(get_redis_settings())
         logger.info("arq pool connected — background jobs will use the worker queue")

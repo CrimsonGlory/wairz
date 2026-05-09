@@ -30,12 +30,11 @@ Tests use mocked Androguard objects — no real APK file needed.
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
-from unittest.mock import MagicMock, PropertyMock
+from unittest.mock import MagicMock
 
 import pytest
 
-from app.services.androguard_service import AndroguardService, ManifestFinding
-
+from app.services.androguard_service import AndroguardService
 
 # ---------------------------------------------------------------------------
 # InsecureBankv2 manifest XML (simplified from the real app)

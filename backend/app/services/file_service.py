@@ -4,7 +4,7 @@ import hashlib
 import os
 import re
 import stat
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import magic
 from elftools.elf.elffile import ELFFile

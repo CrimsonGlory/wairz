@@ -32,7 +32,6 @@ Strategy registration::
 from __future__ import annotations
 
 import asyncio
-import glob
 import logging
 import os
 import shutil
@@ -122,7 +121,7 @@ async def unpack_driver_package(
         stdout_b, stderr_b = await asyncio.wait_for(
             proc.communicate(), timeout=_CABEXTRACT_TIMEOUT_SECONDS,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         try:
             await proc.communicate()

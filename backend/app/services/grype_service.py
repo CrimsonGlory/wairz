@@ -13,7 +13,6 @@ import logging
 import os
 import tempfile
 import uuid
-from datetime import datetime, timezone
 from shutil import which
 
 from sqlalchemy import delete, select
@@ -146,7 +145,7 @@ async def scan_with_grype(
 
         grype_output = json.loads(stdout.decode(errors="replace"))
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.error("Grype scan timed out after %ds", settings.grype_timeout)
         raise RuntimeError(f"Grype scan timed out after {settings.grype_timeout}s")
     except json.JSONDecodeError as e:

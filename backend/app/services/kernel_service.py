@@ -12,7 +12,7 @@ import os
 import re
 import socket
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 import aiofiles
@@ -153,10 +153,10 @@ class KernelService:
         try:
             stat = os.stat(kernel_path)
             file_size = stat.st_size
-            mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
+            mtime = datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat()
         except OSError:
             file_size = 0
-            mtime = datetime.now(timezone.utc).isoformat()
+            mtime = datetime.now(UTC).isoformat()
 
         if sidecar:
             architecture = sidecar.get("architecture", _guess_arch(name) or "unknown")
@@ -245,7 +245,7 @@ class KernelService:
         sidecar = {
             "architecture": architecture,
             "description": description,
-            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+            "uploaded_at": datetime.now(UTC).isoformat(),
         }
         async with aiofiles.open(self._sidecar_path(name), "w") as f:
             await f.write(json.dumps(sidecar, indent=2))

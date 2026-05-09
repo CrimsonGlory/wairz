@@ -13,7 +13,7 @@ import asyncio
 import hashlib
 import logging
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.ai.tools._android_helpers import check_androguard, find_apk

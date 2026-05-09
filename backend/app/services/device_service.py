@@ -20,7 +20,7 @@ import os
 import shutil
 import traceback
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import select
@@ -231,7 +231,7 @@ class DeviceService:
                 # surface the cancellation either way.
                 pass
             row.status = "cancelled"
-            row.finished_at = datetime.now(timezone.utc)
+            row.finished_at = datetime.now(UTC)
             await self._db.commit()
         return row
 
@@ -302,7 +302,7 @@ class DeviceService:
         dump.result = {
             "schema_version": DUMP_RESULT_SCHEMA_VERSION,
             "imported_firmware_id": str(firmware.id),
-            "imported_at": datetime.now(timezone.utc).isoformat(),
+            "imported_at": datetime.now(UTC).isoformat(),
         }
         await self._db.flush()
 
@@ -330,7 +330,7 @@ async def _bridge_request_oneshot(request: dict) -> dict:
             asyncio.open_connection(host, port),
             timeout=5,
         )
-    except (OSError, asyncio.TimeoutError) as exc:
+    except (TimeoutError, OSError) as exc:
         raise ConnectionError(
             f"Cannot reach device bridge at {host}:{port}. "
             f"Is wairz-device-bridge.py running on the host? Error: {exc}"
@@ -372,7 +372,7 @@ async def _bridge_request_streaming(request: dict, progress_callback=None) -> di
             asyncio.open_connection(host, port),
             timeout=5,
         )
-    except (OSError, asyncio.TimeoutError) as exc:
+    except (TimeoutError, OSError) as exc:
         raise ConnectionError(
             f"Cannot reach device bridge at {host}:{port}. Error: {exc}"
         ) from exc
@@ -461,7 +461,7 @@ async def _run_dump_background(
                 return
 
             row.status = "running"
-            row.started_at = datetime.now(timezone.utc)
+            row.started_at = datetime.now(UTC)
             items = _normalize_partitions(row.partitions)
             await db.commit()
 
@@ -529,7 +529,7 @@ async def _run_dump_background(
                 # we're still in the running tier.
                 if row.status == "running":
                     row.status = final_status
-                row.finished_at = datetime.now(timezone.utc)
+                row.finished_at = datetime.now(UTC)
                 row.bytes_written = sum(
                     int(p.get("bytes_written", 0) or 0) for p in items
                 )
@@ -552,7 +552,7 @@ async def _run_dump_background(
                     ):
                         fail_row.status = "failed"
                         fail_row.error = err
-                        fail_row.finished_at = datetime.now(timezone.utc)
+                        fail_row.finished_at = datetime.now(UTC)
                         await fail_db.commit()
                 logger.exception("Background dump %s failed", dump_id)
     except Exception:

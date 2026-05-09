@@ -34,9 +34,9 @@ import docker
 
 from app.config import Settings
 from app.services.emulation_constants import (
+    _HOST_ARCH,
     BINFMT_ENTRIES,
     QEMU_USER_BIN_MAP,
-    _HOST_ARCH,
 )
 from app.services.sysroot_service import get_sysroot_path
 from app.utils.docker_client import get_docker_client

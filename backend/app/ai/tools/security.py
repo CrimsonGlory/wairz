@@ -15,7 +15,7 @@ import re
 import shutil
 import stat
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
@@ -207,7 +207,7 @@ async def _handle_analyze_config_security(input: dict, context: ToolContext) -> 
         return f"Error: '{path}' is not a file."
 
     try:
-        with open(full_path, "r", errors="replace") as f:
+        with open(full_path, errors="replace") as f:
             content = f.read(256_000)  # 256KB limit
     except PermissionError:
         return f"Error: Cannot read '{path}' — permission denied."
@@ -379,7 +379,7 @@ async def _handle_analyze_init_scripts(input: dict, context: ToolContext) -> str
     inittab_path = validate_path(real_root, "etc/inittab")
     if os.path.isfile(inittab_path):
         try:
-            with open(inittab_path, "r", errors="replace") as f:
+            with open(inittab_path, errors="replace") as f:
                 for line_num, line in enumerate(f.readlines()[:200], 1):
                     line = line.strip()
                     if not line or line.startswith("#"):
@@ -404,7 +404,7 @@ async def _handle_analyze_init_scripts(input: dict, context: ToolContext) -> str
             raw_entries.append(f"  /etc/init.d/{script_name}")
 
             try:
-                with open(script_path, "r", errors="replace") as f:
+                with open(script_path, errors="replace") as f:
                     content = f.read(8192).lower()
             except (PermissionError, OSError):
                 continue
@@ -431,7 +431,7 @@ async def _handle_analyze_init_scripts(input: dict, context: ToolContext) -> str
             raw_entries.append(f"  {systemd_dir}/{unit_name}")
             unit_path = os.path.join(sd_path, unit_name)
             try:
-                with open(unit_path, "r", errors="replace") as f:
+                with open(unit_path, errors="replace") as f:
                     content = f.read(4096).lower()
             except (PermissionError, OSError):
                 continue
@@ -645,7 +645,7 @@ def _audit_certificate(cert_data: bytes, file_path: str, real_root: str) -> dict
     """Parse and audit a single certificate. Returns a dict with info and issues."""
     try:
         from cryptography import x509
-        from cryptography.hazmat.primitives.asymmetric import rsa, ec, dsa
+        from cryptography.hazmat.primitives.asymmetric import dsa, ec, rsa
     except ImportError:
         return {"error": "cryptography library not installed"}
 
@@ -665,7 +665,7 @@ def _audit_certificate(cert_data: bytes, file_path: str, real_root: str) -> dict
         return {"error": f"Failed to parse certificate: {parse_error}"}
 
     rel_path = "/" + os.path.relpath(file_path, real_root)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Extract info
     info: dict = {
@@ -831,7 +831,7 @@ async def _handle_analyze_certificate(input: dict, context: ToolContext) -> str:
         lines.append(f"  Key:        {r['key_type']} {r['key_size']} bits")
         lines.append(f"  Signature:  {r['signature_algorithm']}")
         if r.get("self_signed"):
-            lines.append(f"  Self-signed: yes")
+            lines.append("  Self-signed: yes")
         if r.get("sans"):
             lines.append(f"  SANs:       {', '.join(r['sans'][:10])}")
 
@@ -898,7 +898,7 @@ def _parse_sysctl_files(real_root: str) -> dict[str, str]:
                 script_path = os.path.join(init_path, name)
                 if os.path.isfile(script_path):
                     try:
-                        with open(script_path, "r", errors="replace") as f:
+                        with open(script_path, errors="replace") as f:
                             for line in f:
                                 m = re.match(
                                     r'\s*sysctl\s+-w\s+([^=]+)=(\S+)', line
@@ -914,7 +914,7 @@ def _parse_sysctl_files(real_root: str) -> dict[str, str]:
 def _parse_single_sysctl(path: str, params: dict[str, str]) -> None:
     """Parse a single sysctl.conf file."""
     try:
-        with open(path, "r", errors="replace") as f:
+        with open(path, errors="replace") as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#") or line.startswith(";"):
@@ -999,7 +999,7 @@ async def _handle_check_kernel_hardening(
         lines.append(f"  Expected: {f['expected']} — {f['desc']}")
 
     lines.append("")
-    lines.append(f"Checked files: /etc/sysctl.conf, /etc/sysctl.d/*.conf, init scripts")
+    lines.append("Checked files: /etc/sysctl.conf, /etc/sysctl.d/*.conf, init scripts")
 
     return "\n".join(lines)
 
@@ -1040,7 +1040,7 @@ async def _handle_scan_with_yara(input: dict, context: ToolContext) -> str:
             lines.append(f"⚠ {err}")
         lines.append("")
 
-    lines.append(f"YARA scan complete:")
+    lines.append("YARA scan complete:")
     lines.append(f"  Rules loaded: {result.rules_loaded}")
     lines.append(f"  Files scanned: {result.files_scanned}")
     lines.append(f"  Files with matches: {result.files_matched}")
@@ -1154,10 +1154,10 @@ def _extract_kernel_config_from_path_sync(full_path: str, path: str) -> str:
 
     # Check if it's already a text config file
     try:
-        with open(full_path, "r", errors="replace") as f:
+        with open(full_path, errors="replace") as f:
             head = f.read(4096)
         if "CONFIG_" in head:
-            with open(full_path, "r", errors="replace") as f:
+            with open(full_path, errors="replace") as f:
                 config_text = f.read(512_000)
             lines = config_text.splitlines()
             return (
@@ -1222,7 +1222,7 @@ def _extract_kernel_config_auto_sync(extracted_root: str) -> str:
                     results.append(f"Found {rel} but failed to decompress")
             else:
                 try:
-                    with open(match_path, "r", errors="replace") as f:
+                    with open(match_path, errors="replace") as f:
                         config_text = f.read(512_000)
                     if "CONFIG_" in config_text:
                         lines = config_text.splitlines()
@@ -1330,7 +1330,7 @@ async def _handle_check_kernel_config(
                 return f"Error decompressing '{path}': {e}"
         else:
             try:
-                with open(full_path, "r", errors="replace") as f:
+                with open(full_path, errors="replace") as f:
                     config_text = f.read(512_000)
             except Exception as e:
                 return f"Error reading '{path}': {e}"
@@ -1373,7 +1373,7 @@ async def _handle_check_kernel_config(
             )
         except FileNotFoundError:
             return await _fallback_kernel_config_check(config_text)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return "Error: kconfig-hardened-check timed out after 60 seconds."
 
         # kconfig-hardened-check may return non-zero if there are FAIL results
@@ -1842,7 +1842,7 @@ async def _handle_scan_scripts(input: dict, context: ToolContext) -> str:
         stdout, stderr = await asyncio.wait_for(
             proc.communicate(), timeout=120
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return (
             "Error: Semgrep scan timed out after 120 seconds. "
             "Try scanning a smaller directory."
@@ -2053,7 +2053,7 @@ async def _handle_shellcheck_scan(input: dict, context: ToolContext) -> str:
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(), timeout=30
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             rel = _rel(script_path, extracted_root)
             errors.append(f"Timeout scanning {rel}")
             continue
@@ -2245,7 +2245,7 @@ async def _handle_bandit_scan(input: dict, context: ToolContext) -> str:
         stdout, stderr = await asyncio.wait_for(
             proc.communicate(), timeout=60
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return (
             "Error: Bandit scan timed out after 60 seconds. "
             "Try scanning a smaller directory or fewer files."
@@ -2438,7 +2438,7 @@ def _check_secure_boot_sync(
             if fname.endswith((".dtb", ".dts", ".its", ".itb")):
                 fpath = os.path.join(dirpath, fname)
                 try:
-                    with open(fpath, "r", errors="replace") as f:
+                    with open(fpath, errors="replace") as f:
                         content = f.read(256_000)
                     if "signature" in content.lower() or "hash" in content.lower():
                         rel = _rel(fpath, extracted_root)
@@ -2462,7 +2462,7 @@ def _check_secure_boot_sync(
                                 "utf-8", errors="replace"
                             )
                     else:
-                        with open(fpath, "r", errors="replace") as f:
+                        with open(fpath, errors="replace") as f:
                             content = f.read(512_000)
                     if "CONFIG_FIT_SIGNATURE" in content:
                         rel = _rel(fpath, extracted_root)
@@ -2550,7 +2550,7 @@ def _check_secure_boot_sync(
             if fname.startswith("fstab") or fname == "fstab":
                 fpath = os.path.join(dirpath, fname)
                 try:
-                    with open(fpath, "r", errors="replace") as f:
+                    with open(fpath, errors="replace") as f:
                         for line in f:
                             line = line.strip()
                             if not line or line.startswith("#"):
@@ -2588,7 +2588,7 @@ def _check_secure_boot_sync(
             if fname in ("build.prop", "default.prop"):
                 fpath = os.path.join(dirpath, fname)
                 try:
-                    with open(fpath, "r", errors="replace") as f:
+                    with open(fpath, errors="replace") as f:
                         for line in f:
                             if "ro.boot.verifiedbootstate" in line:
                                 rel = _rel(fpath, extracted_root)
@@ -2923,7 +2923,7 @@ def _detect_network_dependencies_sync(
             if not _is_net_dep_text_file(abs_path):
                 return
             try:
-                with open(abs_path, "r", errors="replace") as f:
+                with open(abs_path, errors="replace") as f:
                     content = f.read(256_000)
             except (OSError, PermissionError):
                 return
@@ -3122,7 +3122,7 @@ async def _handle_update_yara_rules(input: dict, context: ToolContext) -> str:
     )
     try:
         _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return "Error: download timed out after 120s"
 
     if proc.returncode != 0:
@@ -3192,7 +3192,6 @@ async def _handle_analyze_update_config(input: dict, context: ToolContext) -> st
 
 async def _handle_create_cra_assessment(input: dict, context: ToolContext) -> str:
     """Create a CRA compliance assessment for the current firmware."""
-    import uuid as _uuid
 
     from app.services.cra_compliance_service import CRAComplianceService
 
@@ -3679,7 +3678,7 @@ async def _handle_enrich_firmware_threat_intel(input: dict, context: ToolContext
 
     lines = [
         f"abuse.ch threat intel enrichment: {len(hashes)} binaries across {len(roots)} detection root(s)",
-        f"Services: MalwareBazaar, ThreatFox, URLhaus, YARAify",
+        "Services: MalwareBazaar, ThreatFox, URLhaus, YARAify",
         "",
     ]
 

@@ -25,7 +25,7 @@ The heavy lifting moves to topic modules:
 import logging
 import os
 import shlex
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 import docker
@@ -250,7 +250,7 @@ class EmulationService:
             # QEMU path (user-mode ELF + system-mode).
             try:
                 session.status = "booting"
-                session.started_at = datetime.now(timezone.utc)
+                session.started_at = datetime.now(UTC)
                 await db.commit()
 
                 container_id = await self._start_container(
@@ -281,7 +281,7 @@ class EmulationService:
                 logger.exception("Failed to spawn emulation session %s", session_id)
                 session.status = "error"
                 session.error_message = str(exc)
-                session.stopped_at = datetime.now(timezone.utc)
+                session.stopped_at = datetime.now(UTC)
                 try:
                     await db.commit()
                 except Exception:
@@ -309,7 +309,7 @@ class EmulationService:
 
             session.mode = "qiling"
             session.status = "booting"
-            session.started_at = datetime.now(timezone.utc)
+            session.started_at = datetime.now(UTC)
             await db.commit()
 
             qresult = await run_binary_async(
@@ -344,13 +344,13 @@ class EmulationService:
             session.logs = "\n\n".join(output_parts) if output_parts else "(no output)"
             session.error_message = qresult.error
             session.status = "stopped"
-            session.stopped_at = datetime.now(timezone.utc)
+            session.stopped_at = datetime.now(UTC)
             await db.commit()
         except Exception as exc:
             logger.exception("Qiling emulation failed")
             session.status = "error"
             session.error_message = str(exc)
-            session.stopped_at = datetime.now(timezone.utc)
+            session.stopped_at = datetime.now(UTC)
             try:
                 await db.commit()
             except Exception:
@@ -466,7 +466,7 @@ class EmulationService:
 
         try:
             session.status = "booting"
-            session.started_at = datetime.now(timezone.utc)
+            session.started_at = datetime.now(UTC)
             await self.db.flush()
 
             container_id = await self._start_container(
@@ -704,7 +704,7 @@ class EmulationService:
                 )
 
         session.status = "stopped"
-        session.stopped_at = datetime.now(timezone.utc)
+        session.stopped_at = datetime.now(UTC)
         await self.db.flush()
         return session
 
@@ -966,7 +966,7 @@ class EmulationService:
                         f"Emulation container exited unexpectedly.\n\n"
                         f"--- QEMU log ---\n{log}"
                     )
-                    session.stopped_at = datetime.now(timezone.utc)
+                    session.stopped_at = datetime.now(UTC)
                     await self.db.flush()
                 elif session.mode == "system":
                     # Container is running, but check if QEMU process
@@ -983,14 +983,14 @@ class EmulationService:
                                 f"QEMU process has exited.\n\n"
                                 f"--- QEMU log ---\n{log}"
                             )
-                            session.stopped_at = datetime.now(timezone.utc)
+                            session.stopped_at = datetime.now(UTC)
                             await self.db.flush()
                     except docker.errors.APIError:
                         pass  # transient Docker error, don't update status
             except docker.errors.NotFound:
                 session.status = "stopped"
                 session.error_message = "Container no longer exists"
-                session.stopped_at = datetime.now(timezone.utc)
+                session.stopped_at = datetime.now(UTC)
                 await self.db.flush()
             except Exception:
                 logger.exception("Error checking container status")
@@ -1047,7 +1047,7 @@ class EmulationService:
         Returns count stopped.
         """
         timeout_minutes = self._settings.emulation_timeout_minutes
-        cutoff = datetime.now(timezone.utc).timestamp() - (timeout_minutes * 60)
+        cutoff = datetime.now(UTC).timestamp() - (timeout_minutes * 60)
 
         result = await self.db.execute(
             select(EmulationSession).where(

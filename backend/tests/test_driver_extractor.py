@@ -18,8 +18,6 @@ import uuid
 from dataclasses import dataclass
 from unittest.mock import patch
 
-import pytest
-
 from app.models import Firmware, HardwareFirmwareBlob, Project, WindowsDriver
 from app.services.driver_extractor import (
     _classify_chain,
@@ -29,7 +27,6 @@ from app.services.driver_extractor import (
     scan_for_inf_triplets,
 )
 from tests._live_db import make_live_db
-
 
 # ── Synthetic INF + CAT fixture builders ────────────────────────────────────
 

@@ -43,7 +43,6 @@ import os
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Optional
 
 __all__ = [
     "safe_extract_zip",
@@ -77,7 +76,7 @@ def safe_extract_zip(
     dest: Path | str,
     *,
     max_size: int = _DEFAULT_MAX_SIZE,
-    entry_filter: Optional[Callable[[str], bool]] = None,
+    entry_filter: Callable[[str], bool] | None = None,
 ) -> None:
     """Extract *zip_path* into *dest* with zipslip, bomb, and symlink defences.
 

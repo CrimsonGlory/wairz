@@ -22,7 +22,6 @@ from pathlib import Path
 
 import pytest
 
-
 _BACKEND_DIR = Path(__file__).parent.parent
 _ALEMBIC_VERSIONS = _BACKEND_DIR / "alembic" / "versions"
 _FUZZING_SERVICE = _BACKEND_DIR / "app" / "services" / "fuzzing_service.py"

@@ -61,7 +61,6 @@ from app.services.jsonb_normalizers import (
     _stamp_windows_registry_extracts_parsed_tree,
 )
 
-
 logger = logging.getLogger(__name__)
 
 

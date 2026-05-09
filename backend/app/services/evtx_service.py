@@ -58,6 +58,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 import traceback
 import uuid
@@ -65,8 +66,6 @@ from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-
-import re
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession

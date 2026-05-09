@@ -30,7 +30,7 @@ class FirmwareMarkersStrategy(SbomStrategy):
                 if not os.path.isfile(abs_path):
                     continue
                 try:
-                    with open(abs_path, "r", errors="replace") as f:
+                    with open(abs_path, errors="replace") as f:
                         content = f.read(1024).strip()
                 except OSError:
                     continue

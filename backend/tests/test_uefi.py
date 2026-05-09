@@ -3,8 +3,6 @@
 import struct
 from pathlib import Path
 
-import pytest
-
 from app.workers.unpack import classify_firmware
 from app.workers.unpack_common import (
     _EFI_CAPSULE_GUID,
@@ -13,7 +11,6 @@ from app.workers.unpack_common import (
     _is_uefi_content,
     _is_uefi_firmware,
 )
-
 
 # ---------------------------------------------------------------------------
 # classify_firmware() — UEFI detection

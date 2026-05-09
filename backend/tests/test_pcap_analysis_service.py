@@ -41,7 +41,6 @@ Coverage targets:
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -49,13 +48,9 @@ import pytest
 
 from app.services.pcap_analysis_service import (
     Conversation,
-    DnsQuery,
-    InsecureProtocolFinding,
     PcapAnalysis,
     PcapAnalysisService,
-    TlsInfo,
 )
-
 
 # ===========================================================================
 # Helpers — real scapy packet builders (used by both unit tests + live canary)
@@ -88,7 +83,7 @@ def _build_http_packets(*, count: int = 2) -> list:
 
 def _build_dns_query_response() -> list:
     """Build a DNS query + response pair (port 53)."""
-    from scapy.all import IP, UDP, DNS, DNSQR, DNSRR
+    from scapy.all import DNS, DNSQR, DNSRR, IP, UDP
     query = IP(src="10.0.0.5", dst="10.0.0.1") / UDP(
         sport=33000, dport=53,
     ) / DNS(rd=1, qd=DNSQR(qname="example.com", qtype="A"))
@@ -112,7 +107,7 @@ def _build_arp_packets(*, count: int = 1) -> list:
 
 def _build_icmp_packets(*, count: int = 1) -> list:
     """ICMP echo packets — exercises ICMP branch of _classify_protocol."""
-    from scapy.all import IP, ICMP
+    from scapy.all import ICMP, IP
     return [IP(src="10.0.0.5", dst="10.0.0.1") / ICMP(type=8)
             for _ in range(count)]
 
@@ -368,7 +363,7 @@ class TestExtractDnsQueries:
         self.svc = PcapAnalysisService()
 
     def test_query_alone_returns_empty_resolved(self):
-        from scapy.all import IP, UDP, DNS, DNSQR
+        from scapy.all import DNS, DNSQR, IP, UDP
         query = IP(src="10.0.0.5", dst="10.0.0.1") / UDP(
             sport=33000, dport=53,
         ) / DNS(rd=1, qd=DNSQR(qname="alone.example.com", qtype="A"))

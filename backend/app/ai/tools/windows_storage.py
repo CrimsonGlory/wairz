@@ -33,18 +33,16 @@ Output truncation (Rule #29): tool outputs ≤ 30 KB.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import shutil
 import subprocess
 import uuid
-from pathlib import Path
 from typing import Any
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
-from app.services.firmware_paths import get_detection_roots
-
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +117,6 @@ def _walk_extraction_for(
     out: list[dict[str, Any]] = []
     roots = []
     if context.firmware_id:
-        from app.models.firmware import Firmware
-        from sqlalchemy import select as _select
         fw = (
             context.db.run_sync if False else None  # placeholder line for clarity
         )
@@ -205,26 +201,34 @@ async def _handle_dump_esedb_table(input: dict, context: ToolContext) -> str:
             ),
         })
     # Run esedbexport against the ESEDB; it emits a directory of files.
-    # We capture stdout as a sample (Rule #29 truncation applies).
+    # We capture stdout as a sample (Rule #29 truncation applies). Per
+    # Rule #5, sync subprocess inside an async handler must run in an
+    # executor so it doesn't block the event loop.
     argv = ["esedbexport", "-T", table_name, str(safe_path)] if table_name else ["esedbexport", str(safe_path)]
-    try:
-        proc = subprocess.run(
-            argv,
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=False,
-        )
-    except FileNotFoundError:
-        return _dump_json({"error": "esedbexport not found at runtime"})
-    except subprocess.TimeoutExpired:
-        return _dump_json({"error": "esedbexport timed out after 120s"})
-    return _dump_json({
-        "argv": argv,
-        "exit_code": proc.returncode,
-        "stdout_sample": proc.stdout[:5000] if proc.stdout else "",
-        "stderr_sample": proc.stderr[:1000] if proc.stderr else "",
-    })
+
+    def _run_sync():
+        try:
+            proc = subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+            return {
+                "argv": argv,
+                "exit_code": proc.returncode,
+                "stdout_sample": proc.stdout[:5000] if proc.stdout else "",
+                "stderr_sample": proc.stderr[:1000] if proc.stderr else "",
+            }
+        except FileNotFoundError:
+            return {"error": "esedbexport not found at runtime"}
+        except subprocess.TimeoutExpired:
+            return {"error": "esedbexport timed out after 120s"}
+
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, _run_sync)
+    return _dump_json(result)
 
 
 def has_esedbexport() -> bool:

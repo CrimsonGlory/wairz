@@ -6,14 +6,13 @@ that mismatched project_ids return 404.
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -34,9 +33,9 @@ def _make_session(project_id: uuid.UUID, session_id: uuid.UUID) -> MagicMock:
     session.container_id = "abc123"
     session.error_message = None
     session.logs = None
-    session.started_at = datetime.now(timezone.utc)
+    session.started_at = datetime.now(UTC)
     session.stopped_at = None
-    session.created_at = datetime.now(timezone.utc)
+    session.created_at = datetime.now(UTC)
     return session
 
 
@@ -56,8 +55,8 @@ def _make_preset(project_id: uuid.UUID, preset_id: uuid.UUID) -> MagicMock:
     preset.init_path = None
     preset.pre_init_script = None
     preset.stub_profile = "none"
-    preset.created_at = datetime.now(timezone.utc)
-    preset.updated_at = datetime.now(timezone.utc)
+    preset.created_at = datetime.now(UTC)
+    preset.updated_at = datetime.now(UTC)
     return preset
 
 

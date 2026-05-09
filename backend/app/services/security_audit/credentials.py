@@ -22,7 +22,11 @@ from app.services.security_audit._base import (
 )
 from app.utils.credential_patterns import (
     API_KEY_PATTERNS as _API_KEY_PATTERNS,
+)
+from app.utils.credential_patterns import (
     CREDENTIAL_PATTERNS as _CREDENTIAL_PATTERNS,
+)
+from app.utils.credential_patterns import (
     HASH_TYPES as _HASH_TYPES,
 )
 
@@ -48,7 +52,7 @@ def _scan_credentials(root: str, findings: list[SecurityFinding]) -> None:
                 continue
             rel_path = _rel(abs_path, root)
             try:
-                with open(abs_path, "r", errors="replace") as f:
+                with open(abs_path, errors="replace") as f:
                     for line_num, line in enumerate(f, 1):
                         if count >= MAX_FINDINGS_PER_CHECK:
                             break

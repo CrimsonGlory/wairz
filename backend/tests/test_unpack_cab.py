@@ -26,7 +26,6 @@ from app.workers.unpack_cab import (
     unpack_cab,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers (mirror test_unpack_wim.py)
 # ---------------------------------------------------------------------------
@@ -152,7 +151,7 @@ async def test_unpack_cab_reports_extract_timeout(tmp_path: Path):
             return await real_wait_for(coro, timeout=timeout)
         # Extract — raise.
         coro.close()
-        raise asyncio.TimeoutError
+        raise TimeoutError
 
     with patch(
         "app.workers.unpack_cab.asyncio.create_subprocess_exec",

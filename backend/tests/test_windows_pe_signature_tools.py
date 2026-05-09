@@ -25,6 +25,7 @@ from unittest.mock import patch
 
 import pytest
 
+from app.ai.tool_registry import ToolRegistry
 from app.ai.tools.windows_pe_signature import (
     _handle_decode_rich_header,
     _handle_detect_pe_arch_view,
@@ -34,7 +35,6 @@ from app.ai.tools.windows_pe_signature import (
     _handle_verify_authenticode,
     register_windows_pe_signature_tools,
 )
-from app.ai.tool_registry import ToolRegistry
 from app.models import (
     Firmware,
     HardwareFirmwareBlob,
@@ -43,7 +43,6 @@ from app.models import (
 )
 from app.services.authenticode_service import AuthenticodeVerdict
 from tests._live_db import make_live_db
-
 
 # ── Stub ToolContext ──────────────────────────────────────────────────────
 

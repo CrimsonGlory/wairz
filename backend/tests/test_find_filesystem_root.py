@@ -38,8 +38,6 @@ import os
 import struct
 from pathlib import Path
 
-import pytest
-
 from app.workers.unpack_common import (
     _dir_has_filesystem_image,
     _file_looks_like_fs_image,

@@ -10,9 +10,9 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.manifest_checks._base import (
-    ManifestFinding,
     _MIN_SDK_CRITICAL_THRESHOLD,
     _MIN_SDK_SECURE_THRESHOLD,
+    ManifestFinding,
     _sdk_to_android_version,
 )
 

@@ -6,7 +6,6 @@ walk the extraction tree for inner *.cab files and recurse one level.
 """
 from __future__ import annotations
 
-import asyncio
 import os
 import subprocess
 from pathlib import Path
@@ -117,7 +116,7 @@ async def test_unpack_msu_reports_outer_timeout(tmp_path: Path):
     async def _selective_wait_for(coro, timeout=None):
         state["calls"] += 1
         coro.close()
-        raise asyncio.TimeoutError
+        raise TimeoutError
 
     with patch(
         "app.workers.unpack_msu.asyncio.create_subprocess_exec",

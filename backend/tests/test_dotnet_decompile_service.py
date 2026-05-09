@@ -20,10 +20,7 @@ this file covers the unit-test surface.
 """
 from __future__ import annotations
 
-import os
 import uuid
-from datetime import datetime
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -37,7 +34,6 @@ from app.services.dotnet_decompile_service import (
     _firmware_output_dir,
     assert_no_execute_argv,
 )
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Rule #36 no-execute argv gate

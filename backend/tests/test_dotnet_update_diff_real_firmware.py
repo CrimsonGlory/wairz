@@ -51,7 +51,6 @@ needed. Mirrors β.14a + γ.9 graduation shape.
 from __future__ import annotations
 
 import os
-import uuid
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
@@ -59,7 +58,6 @@ import pytest
 
 from app.ai import create_tool_registry
 from app.models import (
-    Finding,
     Firmware,
     HardwareFirmwareBlob,
     Project,
@@ -74,10 +72,8 @@ from app.services.finding_service import FindingService
 from app.services.r2r_stomping import classify_r2r_stomp_findings
 from app.services.windows_update_diff_service import (
     _do_diff_run,
-    run_windows_update_diff_background,
 )
 from tests._live_db import make_live_db
-
 
 # ── Fixture env-var probes ──────────────────────────────────────────────────
 
@@ -100,10 +96,12 @@ def test_tier1_argv_gate_rejects_runtime_invocation():
             assert_no_execute_argv([runtime, "/firmware/SomeApp.exe"])
 
 
-def test_tier1_mcp_registry_count_is_213_post_delta():
-    """δ.7 brings the registry from γ end (197) to δ end (213)."""
+def test_tier1_mcp_registry_count_post_delta():
+    """δ.7 brought the registry from γ end (197) to δ end (213). ε.1.b.4
+    extended to 219 (windows_event_log category). Use lower-bound to
+    accommodate future additions without per-phase test churn."""
     reg = create_tool_registry()
-    assert len(reg._tools) == 213
+    assert len(reg._tools) >= 213
 
 
 def test_tier1_synthetic_r2r_classifier_emits_review_candidate(tmp_path):

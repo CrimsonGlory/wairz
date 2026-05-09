@@ -37,8 +37,7 @@ imported — patch at ``app.services.system_emulation_service.httpx``.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy import select
@@ -47,9 +46,7 @@ from app.models.emulation_session import EmulationSession  # noqa: F401 — regi
 from app.models.firmware import Firmware
 from app.models.project import Project
 from app.services.system_emulation_service import SystemEmulationService
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # Helpers

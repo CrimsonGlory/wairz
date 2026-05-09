@@ -9,8 +9,8 @@ per test via ``tmp_path``.
 from __future__ import annotations
 
 import struct
+from datetime import UTC
 from typing import Any
-
 
 # -----------------------------------------------------------------------------
 # ELF helpers (shared by .ko, OP-TEE TA, Qualcomm single-file MBN variants).
@@ -335,7 +335,7 @@ def build_mbn_v3(
 
 def build_self_signed_cert_der(common_name: str = "Wairz Test Signer") -> bytes:
     """Generate a self-signed RSA-2048 cert in DER (for MBN cert-chain fixture)."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from cryptography import x509
     from cryptography.hazmat.primitives import hashes, serialization
@@ -344,7 +344,7 @@ def build_self_signed_cert_der(common_name: str = "Wairz Test Signer") -> bytes:
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     builder = (
         x509.CertificateBuilder()
         .subject_name(name)

@@ -471,7 +471,7 @@ class ComponentMapService:
         for node in script_nodes:
             abs_path = os.path.join(self.extracted_root, node.id.lstrip("/"))
             try:
-                with open(abs_path, "r", errors="replace") as f:
+                with open(abs_path, errors="replace") as f:
                     content = f.read(MAX_FILE_READ)
             except OSError:
                 continue
@@ -544,7 +544,7 @@ class ComponentMapService:
     def _parse_inittab(self, source_id: str, abs_path: str) -> None:
         """Parse /etc/inittab for process entries."""
         try:
-            with open(abs_path, "r", errors="replace") as f:
+            with open(abs_path, errors="replace") as f:
                 content = f.read(MAX_FILE_READ)
         except OSError:
             return
@@ -564,7 +564,7 @@ class ComponentMapService:
     def _parse_systemd_unit(self, source_id: str, abs_path: str) -> None:
         """Parse a systemd unit file for ExecStart directives."""
         try:
-            with open(abs_path, "r", errors="replace") as f:
+            with open(abs_path, errors="replace") as f:
                 content = f.read(MAX_FILE_READ)
         except OSError:
             return
@@ -585,7 +585,7 @@ class ComponentMapService:
     def _parse_initd_script(self, source_id: str, abs_path: str) -> None:
         """Parse an init.d script for DAEMON=/BIN=/PROG= variables."""
         try:
-            with open(abs_path, "r", errors="replace") as f:
+            with open(abs_path, errors="replace") as f:
                 content = f.read(MAX_FILE_READ)
         except OSError:
             return
@@ -611,7 +611,7 @@ class ComponentMapService:
         for node in config_nodes:
             abs_path = os.path.join(self.extracted_root, node.id.lstrip("/"))
             try:
-                with open(abs_path, "r", errors="replace") as f:
+                with open(abs_path, errors="replace") as f:
                     content = f.read(MAX_FILE_READ)
             except OSError:
                 continue

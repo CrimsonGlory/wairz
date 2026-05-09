@@ -26,7 +26,7 @@ Coverage targets (per intake audit-test-coverage-routers-services-2026-05-04):
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -40,9 +40,7 @@ from app.models.finding import Finding
 from app.models.firmware import Firmware
 from app.models.project import Project
 from app.rate_limit import limiter
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -120,7 +118,7 @@ def _make_firmware(project_id: uuid.UUID, extracted_path: str) -> MagicMock:
     fw.project_id = project_id
     fw.extracted_path = extracted_path
     fw.extraction_dir = extracted_path
-    fw.created_at = datetime.now(timezone.utc)
+    fw.created_at = datetime.now(UTC)
     fw.device_metadata = None
     return fw
 

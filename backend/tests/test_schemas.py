@@ -19,8 +19,6 @@ fields that don't exist on the ORM, and must cover the well-known
 """
 from __future__ import annotations
 
-import pytest
-
 from app.models import (
     Finding,
     Firmware,

@@ -46,7 +46,7 @@ Coverage targets:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -55,9 +55,7 @@ from app.models.emulation_preset import EmulationPreset
 from app.models.project import Project
 from app.services import emulation_preset_service as preset_mod
 from app.services.emulation_preset_service import EmulationPresetService
-
 from tests._live_db import make_live_db
-
 
 # ===========================================================================
 # Helpers
@@ -181,7 +179,7 @@ class TestListPresets:
     async def test_descending_by_created_at(self):
         async with make_live_db() as db:
             project = await _seed_project(db)
-            base = datetime.now(timezone.utc)
+            base = datetime.now(UTC)
             for i, name in enumerate(("first", "second", "third")):
                 db.add(EmulationPreset(
                     project_id=project.id,

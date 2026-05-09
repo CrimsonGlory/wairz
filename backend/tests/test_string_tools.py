@@ -1,6 +1,5 @@
 """Tests for the AI string analysis tools."""
 
-import os
 from pathlib import Path
 from unittest.mock import MagicMock
 from uuid import uuid4
@@ -14,7 +13,6 @@ from app.ai.tools.strings import (
     _shannon_entropy,
     register_string_tools,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

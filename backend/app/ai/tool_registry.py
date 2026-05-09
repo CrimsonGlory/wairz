@@ -1,4 +1,3 @@
-import traceback
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from uuid import UUID

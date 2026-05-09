@@ -34,7 +34,7 @@ module-scope; the test patches the latter to an async no-op so the
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -48,9 +48,7 @@ from app.models.fuzzing import FuzzingCampaign, FuzzingCrash  # noqa: F401 — r
 from app.models.project import Project
 from app.rate_limit import limiter
 from app.routers.deps import resolve_firmware as resolve_firmware_dep
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -126,7 +124,7 @@ def _campaign_response_mock(
     c.error_message = None
     c.started_at = None
     c.stopped_at = None
-    c.created_at = datetime.now(timezone.utc)
+    c.created_at = datetime.now(UTC)
     return c
 
 
@@ -342,7 +340,7 @@ class TestCrashEndpoints:
         crash.triage_output = None
         crash.finding_id = None
         crash.crash_input = b"\xde\xad\xbe\xef" if with_input else None
-        crash.created_at = datetime.now(timezone.utc)
+        crash.created_at = datetime.now(UTC)
         return crash
 
     @pytest.mark.asyncio

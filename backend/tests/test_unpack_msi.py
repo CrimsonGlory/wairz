@@ -9,8 +9,6 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
-import struct
-import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -20,7 +18,6 @@ from app.workers.unpack_msi import (
     _MSIEXTRACT_TIMEOUT_SECONDS,
     unpack_msi,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -140,7 +137,7 @@ async def test_unpack_msi_reports_extract_timeout(tmp_path: Path):
         if state["calls"] == 1:
             return await real_wait_for(coro, timeout=timeout)
         coro.close()
-        raise asyncio.TimeoutError
+        raise TimeoutError
 
     with patch(
         "app.workers.unpack_msi.asyncio.create_subprocess_exec",

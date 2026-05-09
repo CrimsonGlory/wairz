@@ -6,7 +6,7 @@ consumer IoT cybersecurity and generates a structured compliance report.
 
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -338,7 +338,7 @@ class ETSIComplianceService:
         return {
             "standard": "ETSI EN 303 645",
             "standard_version": "V2.1.1 (2020-06)",
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
             "provisions": provisions,
             "summary": counts,
         }

@@ -3,7 +3,6 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-
 ALLOWED_EXTENSIONS = {
     ".txt", ".md", ".pdf", ".doc", ".docx",
     ".csv", ".json", ".xml", ".html",

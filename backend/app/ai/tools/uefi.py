@@ -183,7 +183,7 @@ def _parse_info_txt(info_path: str) -> dict[str, str]:
     """Parse UEFIExtract's info.txt into a key-value dict."""
     result: dict[str, str] = {}
     try:
-        with open(info_path, "r", errors="replace") as f:
+        with open(info_path, errors="replace") as f:
             for line in f:
                 line = line.strip()
                 if ": " in line:
@@ -336,7 +336,7 @@ def _read_uefi_module_sync(full_path: str, show_hex: bool) -> list[str]:
     info_path = os.path.join(full_path, "info.txt")
     if os.path.isfile(info_path):
         try:
-            with open(info_path, "r", errors="replace") as f:
+            with open(info_path, errors="replace") as f:
                 lines.append("=== Module Info ===")
                 lines.append(f.read().strip())
         except OSError:

@@ -1,7 +1,6 @@
 """REST endpoint for the firmware component dependency graph."""
 
 import asyncio
-import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession

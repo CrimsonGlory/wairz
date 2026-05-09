@@ -30,10 +30,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from alembic import command
 from alembic.config import Config
 from alembic.util import exc as alembic_exc
 
+from alembic import command
 
 _BACKEND_DIR = Path(__file__).parent.parent
 _ALEMBIC_INI = _BACKEND_DIR / "alembic.ini"

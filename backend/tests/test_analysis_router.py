@@ -38,7 +38,6 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -53,9 +52,7 @@ from app.models.firmware import Firmware
 from app.models.project import Project
 from app.rate_limit import limiter
 from app.routers.deps import resolve_firmware as resolve_firmware_dep
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

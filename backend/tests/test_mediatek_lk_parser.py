@@ -21,14 +21,12 @@ import pytest
 from app.services.hardware_firmware.classifier import classify
 from app.services.hardware_firmware.cve_matcher import extract_subcomponent
 from app.services.hardware_firmware.parsers.mediatek_gfh import (
-    LkHeader,
     derive_chipset,
     is_stub_descriptor,
     lookup_partition,
     parse_lk_header,
 )
 from app.services.hardware_firmware.parsers.mediatek_lk import MediatekLkParser
-
 
 _LK_MAGIC = 0x58881688
 _LK_FILE_INFO_MAGIC = 0x58891689

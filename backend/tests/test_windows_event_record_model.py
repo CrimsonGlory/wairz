@@ -41,7 +41,7 @@ async def test_windows_event_record_round_trip():
         db.add(firmware)
         await db.flush()
 
-        recorded = datetime.datetime(2026, 5, 10, 14, 23, 45, tzinfo=datetime.timezone.utc)
+        recorded = datetime.datetime(2026, 5, 10, 14, 23, 45, tzinfo=datetime.UTC)
         event = WindowsEventRecord(
             firmware_id=firmware.id,
             evtx_file_path="Windows/System32/winevt/Logs/Microsoft-Windows-Sysmon%4Operational.evtx",
@@ -111,7 +111,7 @@ async def test_windows_event_record_nullable_fields():
         db.add(firmware)
         await db.flush()
 
-        recorded = datetime.datetime(2026, 5, 10, tzinfo=datetime.timezone.utc)
+        recorded = datetime.datetime(2026, 5, 10, tzinfo=datetime.UTC)
         # Minimal event — only the NOT NULL columns populated.
         event = WindowsEventRecord(
             firmware_id=firmware.id,
@@ -158,7 +158,7 @@ async def test_windows_event_record_multiple_per_firmware():
                     evtx_file_path=f"path/{i}.evtx",
                     provider="Test",
                     event_id=i,
-                    recorded_at=datetime.datetime(2026, 5, 10, tzinfo=datetime.timezone.utc),
+                    recorded_at=datetime.datetime(2026, 5, 10, tzinfo=datetime.UTC),
                 )
             )
         await db.commit()

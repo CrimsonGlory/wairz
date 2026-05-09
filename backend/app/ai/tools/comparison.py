@@ -8,8 +8,8 @@ from sqlalchemy import select
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.models.firmware import Firmware
-from app.services.comparison_service import diff_binary, diff_filesystems
 from app.services import ghidra_service
+from app.services.comparison_service import diff_binary, diff_filesystems
 from app.utils.sandbox import validate_path
 from app.utils.truncation import truncate_output
 

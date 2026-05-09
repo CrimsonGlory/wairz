@@ -10,9 +10,9 @@ import json
 import os
 import uuid
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -22,9 +22,7 @@ from app.services.export_service import (
     _dumps,
     _json_serial,
     _write_file_to_zip,
-    _MIN_ZIP_DATE_TIME,
 )
-
 
 # ---------------------------------------------------------------------------
 # JSON serialization helpers
@@ -32,7 +30,7 @@ from app.services.export_service import (
 
 class TestJsonSerial:
     def test_datetime_serialized(self):
-        dt = datetime(2024, 6, 15, 12, 30, 0, tzinfo=timezone.utc)
+        dt = datetime(2024, 6, 15, 12, 30, 0, tzinfo=UTC)
         result = _json_serial(dt)
         assert "2024-06-15" in result
         assert "12:30" in result
@@ -53,7 +51,7 @@ class TestJsonSerial:
             _json_serial(set([1, 2, 3]))
 
     def test_dumps_uses_serial(self):
-        obj = {"id": uuid.uuid4(), "ts": datetime.now(timezone.utc)}
+        obj = {"id": uuid.uuid4(), "ts": datetime.now(UTC)}
         result = _dumps(obj)
         parsed = json.loads(result)
         assert isinstance(parsed["id"], str)
@@ -123,8 +121,8 @@ def _make_mock_project():
     p.name = "Test Project"
     p.description = "A test"
     p.status = "active"
-    p.created_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    p.updated_at = datetime(2024, 1, 2, tzinfo=timezone.utc)
+    p.created_at = datetime(2024, 1, 1, tzinfo=UTC)
+    p.updated_at = datetime(2024, 1, 2, tzinfo=UTC)
     return p
 
 
@@ -141,7 +139,7 @@ def _make_mock_firmware(project_id, tmp_path=None):
     fw.kernel_path = "/vmlinux"
     fw.version_label = "v1.0"
     fw.unpack_log = "Success"
-    fw.created_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    fw.created_at = datetime(2024, 1, 1, tzinfo=UTC)
     if tmp_path:
         storage = tmp_path / "firmware.bin"
         storage.write_bytes(b"\x7fELF" + b"\x00" * 100)
@@ -171,8 +169,8 @@ def _make_mock_finding(project_id):
     f.cwe_ids = ["CWE-79"]
     f.status = "open"
     f.source = "manual"
-    f.created_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    f.updated_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    f.created_at = datetime(2024, 1, 1, tzinfo=UTC)
+    f.updated_at = datetime(2024, 1, 1, tzinfo=UTC)
     return f
 
 

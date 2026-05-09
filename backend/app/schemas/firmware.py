@@ -4,7 +4,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-
 # State machine for the upload-side 202+polling refactor (Rule #29 + #33).
 # Mirrors the CHECK constraint ck_firmware_upload_stage on the firmware
 # table (alembic revision d2e3f4a5b6c7).

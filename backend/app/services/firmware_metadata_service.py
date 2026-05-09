@@ -5,8 +5,6 @@ variables, and MTD partition tables from firmware binary images.
 """
 
 import asyncio
-import csv
-import io
 import os
 import re
 import struct
@@ -177,7 +175,7 @@ class FirmwareMetadataService:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
         except FileNotFoundError:
             return []
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             return []
 

@@ -1,11 +1,10 @@
 """Tests for the YARA malware scanning service."""
 
-import os
 from pathlib import Path
 
 import pytest
 
-from app.services.yara_service import compile_rules, scan_firmware, YaraScanResult
+from app.services.yara_service import YaraScanResult, compile_rules, scan_firmware
 
 
 class TestCompileRules:

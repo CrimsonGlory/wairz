@@ -21,21 +21,18 @@ every β-phase postmortem since).
 """
 from __future__ import annotations
 
-import uuid
-
 import pytest
 from sqlalchemy import select
 
 from app.models import Finding, Firmware, Project
-from app.schemas.finding import Confidence, Severity
+from app.schemas.finding import Severity
 from app.services.finding_service import (
-    FindingService,
     _SOURCE_AUTHENTICODE,
     _SOURCE_DBX_REVOKED,
+    FindingService,
     classify_pe_verdict_findings,
 )
 from tests._live_db import make_live_db
-
 
 # ── classify_pe_verdict_findings — verdict-tuple → draft matrix ───────────────
 

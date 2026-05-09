@@ -11,8 +11,6 @@ import tarfile as _tarfile
 import zipfile as _zipfile
 from dataclasses import dataclass
 
-from elftools.elf.elffile import ELFFile
-
 logger = logging.getLogger(__name__)
 
 
@@ -706,7 +704,7 @@ async def run_binwalk_extraction(firmware_path: str, output_dir: str, timeout: i
     )
     try:
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         await proc.wait()
         raise TimeoutError(f"binwalk extraction timed out after {timeout}s")
@@ -738,7 +736,7 @@ async def run_unblob_extraction(firmware_path: str, output_dir: str, timeout: in
     )
     try:
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         await proc.wait()
         raise TimeoutError(f"unblob extraction timed out after {timeout}s")
@@ -775,7 +773,7 @@ async def run_uefi_extraction(firmware_path: str, output_dir: str, timeout: int 
     )
     try:
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         await proc.wait()
         raise TimeoutError(f"UEFIExtract timed out after {timeout}s")
@@ -1305,7 +1303,7 @@ def classify_firmware(firmware_path: str) -> str:
     if magic[:1] == b":" and all(c in b"0123456789ABCDEFabcdef:\r\n" for c in magic):
         # Validate more thoroughly: read first line and check record structure
         try:
-            with open(firmware_path, "r", errors="replace") as fh:
+            with open(firmware_path, errors="replace") as fh:
                 first_line = fh.readline().strip()
             if (
                 first_line.startswith(":")
@@ -1406,7 +1404,7 @@ def _is_partition_dump_tar(firmware_path: str) -> bool:
         return False
 
     # Partition names that indicate a raw dump (not a rootfs)
-    qualcomm_markers = {"aboot", "rpm", "tz", "hyp", "modem", "sbl1", "tz"}
+    qualcomm_markers = {"aboot", "rpm", "tz", "hyp", "modem", "sbl1"}
     mtk_markers = {"lk", "tee", "preloader", "md1img", "spmfw", "sspm"}
     generic_markers = {"boot", "recovery", "system", "vendor", "super", "vbmeta", "dtbo"}
     all_markers = qualcomm_markers | mtk_markers | generic_markers
@@ -1492,7 +1490,7 @@ def convert_intel_hex_to_binary(hex_path: str, output_path: str) -> dict:
     # Collect (full_address, data_bytes) tuples
     data_records: list[tuple[int, bytes]] = []
 
-    with open(hex_path, "r", errors="replace") as fh:
+    with open(hex_path, errors="replace") as fh:
         for line_no, raw_line in enumerate(fh, 1):
             line = raw_line.strip()
             if not line:

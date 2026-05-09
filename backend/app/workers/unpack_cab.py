@@ -147,7 +147,7 @@ async def unpack_cab(
             list_proc.communicate(),
             timeout=_CABEXTRACT_INFO_TIMEOUT_SECONDS,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         list_proc.kill()
         try:
             await list_proc.communicate()
@@ -207,7 +207,7 @@ async def unpack_cab(
         stdout_b, stderr_b = await asyncio.wait_for(
             proc.communicate(), timeout=_CABEXTRACT_TIMEOUT_SECONDS,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         try:
             await proc.communicate()

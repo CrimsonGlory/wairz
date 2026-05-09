@@ -10,7 +10,6 @@ Per Rule #39 — tier-1 tests call the INNER runner only; never the outer.
 """
 from __future__ import annotations
 
-import datetime
 import uuid
 
 import pytest
@@ -23,7 +22,6 @@ from app.services.evtx_service import (
     _relativize_evtx_path,
 )
 from tests._live_db import make_live_db
-
 
 # Synthetic EVTX event XML covering the canonical Windows EventLog schema.
 _SYSMON_1_XML = """<Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">

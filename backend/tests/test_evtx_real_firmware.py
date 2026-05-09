@@ -57,7 +57,6 @@ needed. Mirrors β.14a + γ.9 + δ.9 graduation shape.
 from __future__ import annotations
 
 import os
-import uuid
 from pathlib import Path
 from unittest.mock import patch
 
@@ -76,7 +75,6 @@ from app.services.evtx_service import (
 )
 from app.services.finding_service import FindingService
 from tests._live_db import make_live_db
-
 
 # ── Fixture env-var probes ──────────────────────────────────────────────────
 
@@ -334,6 +332,7 @@ def test_tier1_no_execute_discipline_in_evtx_paths():
     pipeline shells out."""
     import inspect
     import re
+
     from app.services import evtx_service
 
     src = inspect.getsource(evtx_service)

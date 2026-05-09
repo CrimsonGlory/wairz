@@ -26,7 +26,7 @@ import shutil
 import sys
 import tempfile
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 # ---------------------------------------------------------------------------
 # Patch pydantic-settings so ``app.config.get_settings()`` never reaches for
@@ -159,11 +159,12 @@ async def _create_temp_db(db_path: str):
     ORM queries -- it only collects the in-memory assessment result dict
     and reads simple Finding rows.
     """
-    from sqlalchemy import event, JSON, Text
+    from sqlalchemy import ARRAY as SA_ARRAY
+    from sqlalchemy import event
+    from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY
+    from sqlalchemy.dialects.postgresql import JSONB
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
     from sqlalchemy.ext.compiler import compiles
-    from sqlalchemy.dialects.postgresql import JSONB, ARRAY as PG_ARRAY
-    from sqlalchemy import ARRAY as SA_ARRAY
 
     # Teach SQLite how to render PostgreSQL-specific types
     @compiles(JSONB, "sqlite")
@@ -189,9 +190,9 @@ async def _create_temp_db(db_path: str):
         cursor.close()
 
     # Import Base *after* env vars are set so config doesn't explode
-    from app.database import Base  # noqa: E402
     # Force all models to be registered on Base.metadata
     import app.models  # noqa: F401, E402
+    from app.database import Base  # noqa: E402
 
     # SQLite cannot execute server_default=func.gen_random_uuid() or
     # other PG-specific server defaults. Strip them all before
@@ -275,6 +276,7 @@ def _extract_firmware(firmware_path: str, work_dir: str) -> str:
 async def _collect_findings(session_factory, project_id: uuid.UUID) -> list[dict]:
     """Read all findings back from the temp DB as plain dicts."""
     from sqlalchemy import select
+
     from app.models.finding import Finding
 
     async with session_factory() as session:
@@ -466,7 +468,7 @@ def _format_sarif(summary: dict, findings: list[dict]) -> str:
 
 def _format_vex(summary: dict, findings: list[dict], firmware_name: str) -> str:
     """Produce a CycloneDX VEX JSON document from findings."""
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     cdx_vulns = []
     for f in findings:
@@ -625,9 +627,10 @@ async def _run(args: argparse.Namespace) -> int:
 
         # Seed the temp DB with a project and firmware row so FK
         # constraints are satisfied.
-        from app.models.project import Project
-        from app.models.firmware import Firmware
         import hashlib
+
+        from app.models.firmware import Firmware
+        from app.models.project import Project
 
         # Compute a basic sha256 for the firmware record
         fw_path = args.firmware_path
@@ -747,7 +750,7 @@ def main():
         exit_code = asyncio.run(
             asyncio.wait_for(_run(args), timeout=args.timeout)
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         print(
             f"Error: scan timed out after {args.timeout} seconds",
             file=sys.stderr,

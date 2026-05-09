@@ -14,14 +14,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.services.firmware_service import (
-    _sanitize_filename,
-    _zip_contains_rootfs,
-    _is_android_firmware_zip,
+    FirmwareService,
     _extract_firmware_from_zip,
     _firmware_tar_filter,
-    FirmwareService,
+    _is_android_firmware_zip,
+    _sanitize_filename,
+    _zip_contains_rootfs,
 )
-
 
 # ---------------------------------------------------------------------------
 # _sanitize_filename

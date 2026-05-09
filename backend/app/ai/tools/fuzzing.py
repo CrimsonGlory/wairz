@@ -9,9 +9,7 @@ import base64
 from sqlalchemy import select
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
-from app.config import get_settings
 from app.models.firmware import Firmware
-from app.models.fuzzing import FuzzingCampaign, FuzzingCrash
 from app.services.fuzzing_service import FuzzingService
 from app.services.jsonb_normalizers import (
     _normalize_firmware_binary_info,
@@ -356,7 +354,7 @@ async def _handle_analyze_target(input: dict, context: ToolContext) -> str:
         linking = "static" if bi.get("is_static") else "dynamic"
         lines.append(f"    Linking: {linking}")
         if not bi.get("is_static"):
-            from app.services.sysroot_service import get_sysroot_path, check_dependencies
+            from app.services.sysroot_service import check_dependencies, get_sysroot_path
             sysroot = get_sysroot_path(firmware.architecture or "")
             lines.append(f"    Sysroot: {sysroot or 'unavailable'}")
             deps = bi.get("dependencies", [])
@@ -414,7 +412,7 @@ async def _handle_generate_dictionary(input: dict, context: ToolContext) -> str:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
         output = stdout.decode("utf-8", errors="replace")
         all_strings = output.strip().split("\n") if output.strip() else []
-    except asyncio.TimeoutError:
+    except TimeoutError:
         try:
             proc.kill()
         except ProcessLookupError:
@@ -769,7 +767,7 @@ async def _handle_start_campaign(input: dict, context: ToolContext) -> str:
         return f"Error starting campaign: {exc}"
 
     lines = [
-        f"Fuzzing campaign started successfully.",
+        "Fuzzing campaign started successfully.",
         f"  Campaign ID: {campaign.id}",
         f"  Binary: {campaign.binary_path}",
         f"  Status: {campaign.status}",
@@ -918,6 +916,7 @@ async def _handle_diagnose_campaign(input: dict, context: ToolContext) -> str:
         return "Error: campaign_id is required."
 
     from uuid import UUID
+
     import docker
     import docker.errors
 

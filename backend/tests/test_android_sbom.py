@@ -1,11 +1,10 @@
 """Tests for Android SBOM parsing — build.prop and init.rc files."""
 
-import os
 from pathlib import Path
 
 import pytest
 
-from app.services.sbom import IdentifiedComponent, SbomService
+from app.services.sbom import SbomService
 
 
 @pytest.fixture

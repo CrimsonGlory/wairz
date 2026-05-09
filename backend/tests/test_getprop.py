@@ -1,9 +1,7 @@
 """Tests for Android property file parsers."""
 
-import pytest
 
 from app.utils.getprop import extract_device_metadata, parse_build_prop, parse_getprop_txt
-
 
 # ---------------------------------------------------------------------------
 # parse_getprop_txt

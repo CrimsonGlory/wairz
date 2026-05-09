@@ -15,10 +15,7 @@ classifier.
 """
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from app.services.r2r_stomping import (
     R2R_PROLOGUE_HEAD_BYTES,
@@ -30,7 +27,6 @@ from app.services.r2r_stomping import (
     _R2RStompDraft,
     classify_r2r_stomp_findings,
 )
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants — align with the (δ.8) WindowsFindingSource Literal extension

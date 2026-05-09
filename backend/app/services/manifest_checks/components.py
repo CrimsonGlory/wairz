@@ -26,8 +26,8 @@ import logging
 from typing import Any
 
 from app.services.manifest_checks._base import (
-    ManifestFinding,
     _NS_ANDROID,
+    ManifestFinding,
 )
 
 logger = logging.getLogger(__name__)

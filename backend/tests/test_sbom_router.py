@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -47,9 +47,7 @@ from app.models.project import Project
 from app.models.sbom import SbomComponent, SbomVulnerability
 from app.rate_limit import limiter
 from app.routers.deps import resolve_firmware as resolve_firmware_dep
-
 from tests._live_db import make_live_db
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -114,7 +112,7 @@ def _make_firmware(project_id: uuid.UUID, extracted_path: str = "/tmp/x") -> Mag
     fw.original_filename = "test-firmware.bin"
     fw.device_metadata = None
     fw.os_info = None
-    fw.created_at = datetime.now(timezone.utc)
+    fw.created_at = datetime.now(UTC)
     return fw
 
 
@@ -138,7 +136,7 @@ def _make_component(
     comp.detection_confidence = "high"
     comp.file_paths = ["/usr/lib/libssl.so"]
     comp.metadata_ = {}
-    comp.created_at = datetime.now(timezone.utc)
+    comp.created_at = datetime.now(UTC)
     return comp
 
 
@@ -160,7 +158,7 @@ def _make_vulnerability(
     vuln.cvss_vector = "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
     vuln.severity = severity
     vuln.description = "Test vulnerability"
-    vuln.published_date = datetime.now(timezone.utc)
+    vuln.published_date = datetime.now(UTC)
     vuln.finding_id = None
     vuln.resolution_status = "open"
     vuln.resolution_justification = None
@@ -171,7 +169,7 @@ def _make_vulnerability(
     vuln.adjustment_rationale = None
     vuln.match_confidence = None
     vuln.match_tier = None
-    vuln.created_at = datetime.now(timezone.utc)
+    vuln.created_at = datetime.now(UTC)
     return vuln
 
 
@@ -488,7 +486,7 @@ class TestVulnerabilitySummary:
             "components_with_vulns": 2,
             "total_vulnerabilities": 3,
             "vulns_by_severity": {"critical": 1, "high": 2},
-            "scan_date": datetime.now(timezone.utc).isoformat(),
+            "scan_date": datetime.now(UTC).isoformat(),
             "open_count": 3,
             "resolved_count": 0,
         }
@@ -860,8 +858,8 @@ class TestVulnerabilityScanRule33:
         firmware = _make_firmware(project_id)
         firmware.id = uuid.uuid4()
         firmware.vuln_scan_status = "completed"
-        firmware.vuln_scan_started_at = datetime.now(timezone.utc)
-        firmware.vuln_scan_finished_at = datetime.now(timezone.utc)
+        firmware.vuln_scan_started_at = datetime.now(UTC)
+        firmware.vuln_scan_finished_at = datetime.now(UTC)
         firmware.vuln_scan_error = None
 
         # Stub the helper that builds the summary from a count query —
@@ -962,7 +960,7 @@ class TestVulnScanStatusLiveCanary:
                 extraction_dir="/tmp/canary",
                 original_filename="canary.bin",
                 vuln_scan_status="queued",
-                vuln_scan_started_at=datetime.now(timezone.utc),
+                vuln_scan_started_at=datetime.now(UTC),
                 vuln_scan_error=None,
             )
             db.add(firmware)
@@ -982,7 +980,7 @@ class TestVulnScanStatusLiveCanary:
             persisted.vuln_scan_status = "running"
             await db.flush()
             persisted.vuln_scan_status = "completed"
-            persisted.vuln_scan_finished_at = datetime.now(timezone.utc)
+            persisted.vuln_scan_finished_at = datetime.now(UTC)
             await db.flush()
 
             final = (
