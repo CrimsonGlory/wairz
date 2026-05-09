@@ -101,6 +101,8 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   windows_logon_failure: { icon: ShieldX, label: 'Logon Failure', className: 'border-rose-500/50 text-rose-600 dark:text-rose-400' },
   windows_amcache_install: { icon: Package, label: 'AmCache Install', className: 'border-cyan-500/50 text-cyan-600 dark:text-cyan-400' },
   windows_prefetch_execution: { icon: Bot, label: 'Prefetch Execution', className: 'border-violet-500/50 text-violet-600 dark:text-violet-400' },
+  windows_srum_network_activity: { icon: Network, label: 'SRUM Network', className: 'border-blue-500/50 text-blue-600 dark:text-blue-400' },
+  windows_srum_application_runtime: { icon: Cpu, label: 'SRUM Runtime', className: 'border-orange-500/50 text-orange-600 dark:text-orange-400' },
 }
 
 // ── Finding confidence ──

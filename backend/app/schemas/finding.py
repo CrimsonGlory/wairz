@@ -54,6 +54,18 @@ WindowsFindingSource = Literal[
     # a future ζ.X phase. Companion to windows_amcache_install (also
     # installation/execution-history baseline at LOW).
     "windows_prefetch_execution",
+    # Phase ζ.3.C — alignment slice with frontend FindingSource union +
+    # FINDING_SOURCE_CONFIG entries. Emitted by the SRUM finding-emit
+    # hook (``finding_service.emit_srum_findings_from_walk``) for the
+    # network_data_usage / network_connectivity (network_activity) and
+    # application_resource_usage (application_runtime) record types
+    # produced by the ζ.3.B walker — Persona-E ~30-60 day per-app
+    # network + runtime history. LOW confidence baseline; threat-feed
+    # correlation is deferred to a future ζ.X phase. Companions to
+    # windows_amcache_install + windows_prefetch_execution (all program-
+    # history baselines at LOW).
+    "windows_srum_network_activity",
+    "windows_srum_application_runtime",
 ]
 
 

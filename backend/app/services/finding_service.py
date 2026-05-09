@@ -92,6 +92,19 @@ _SOURCE_AMCACHE_INSTALL: WindowsFindingSource = "windows_amcache_install"
 # both surface program-history baseline at LOW.
 _SOURCE_PREFETCH_EXECUTION: WindowsFindingSource = "windows_prefetch_execution"
 
+# Phase ζ.3.C — SRUM (System Resource Usage Monitor) finding sources.
+# Emitted by ``emit_srum_findings_from_walk`` for the SRUM record_type
+# discriminator values:
+# - network_data_usage / network_connectivity → windows_srum_network_activity
+# - application_resource_usage → windows_srum_application_runtime
+# Both LOW confidence baseline; threat-feed correlation deferred.
+_SOURCE_SRUM_NETWORK_ACTIVITY: WindowsFindingSource = (
+    "windows_srum_network_activity"
+)
+_SOURCE_SRUM_APPLICATION_RUNTIME: WindowsFindingSource = (
+    "windows_srum_application_runtime"
+)
+
 
 @dataclass(frozen=True)
 class _PEFindingDraft:
@@ -475,6 +488,133 @@ def classify_prefetch_execution_findings(
             evidence=evidence,
         )
     ]
+
+
+def classify_srum_findings(
+    *,
+    record_type: str,
+    app_identifier: str | None,
+    user_identifier: str | None,
+    recorded_at: Any,
+    bytes_sent: int | None = None,
+    bytes_received: int | None = None,
+    bytes_read: int | None = None,
+    bytes_written: int | None = None,
+    cpu_foreground_seconds: int | None = None,
+    cpu_background_seconds: int | None = None,
+) -> list[_PEFindingDraft]:
+    """Phase ζ.3.C — map one WindowsSrumRecord row to a Finding draft.
+
+    Pure function — no DB access. Each SRUM row yields at most ONE Finding
+    draft, with the source tag determined by the record_type discriminator:
+
+    - record_type in {network_data_usage, network_connectivity} → emits
+      ``windows_srum_network_activity``.
+    - record_type == application_resource_usage → emits
+      ``windows_srum_application_runtime``.
+    - All other record_types (push_notification, energy_usage) → empty list
+      (low operator-triage value; surface in MCP search tool only).
+
+    Returns empty list when ``app_identifier`` is missing/empty (these
+    rows come from corrupted SruDbIdMapTable rows or rows with NULL
+    AppId — defensive boundary).
+
+    Confidence tier: LOW baseline (Severity.info). Same shape as
+    classify_prefetch_execution_findings + classify_amcache_install_findings.
+    """
+    if not app_identifier:
+        return []
+
+    if record_type in ("network_data_usage", "network_connectivity"):
+        source: WindowsFindingSource = _SOURCE_SRUM_NETWORK_ACTIVITY
+        evidence_lines = [f"App: {app_identifier}"]
+        if user_identifier:
+            evidence_lines.append(f"User: {user_identifier}")
+        if recorded_at is not None:
+            evidence_lines.append(f"Recorded: {recorded_at}")
+        if bytes_sent is not None:
+            evidence_lines.append(f"Bytes sent: {bytes_sent:,}")
+        if bytes_received is not None:
+            evidence_lines.append(f"Bytes received: {bytes_received:,}")
+        evidence_lines.append(f"SRUM record type: {record_type}")
+        evidence = "\n".join(evidence_lines)
+
+        # Title surfaces just the app basename for readability.
+        basename = (
+            app_identifier.rsplit("\\", 1)[-1]
+            if "\\" in app_identifier
+            else app_identifier
+        )
+        description = (
+            f"SRUM network record surfaces ~30-60 day per-app network "
+            f"history for {basename}"
+        )
+        if bytes_sent and bytes_received:
+            description += (
+                f" ({bytes_sent + bytes_received:,} total bytes transferred)"
+            )
+        description += (
+            ". LOW-confidence review candidate; correlate the app path / "
+            "interface_luid with threat-feeds for higher-confidence "
+            "verdicts in a follow-up triage."
+        )
+
+        return [
+            _PEFindingDraft(
+                source=source,
+                severity=Severity.info,
+                title=f"SRUM network activity: {basename}",
+                description=description,
+                evidence=evidence,
+            )
+        ]
+
+    if record_type == "application_resource_usage":
+        source = _SOURCE_SRUM_APPLICATION_RUNTIME
+        evidence_lines = [f"App: {app_identifier}"]
+        if user_identifier:
+            evidence_lines.append(f"User: {user_identifier}")
+        if recorded_at is not None:
+            evidence_lines.append(f"Recorded: {recorded_at}")
+        if cpu_foreground_seconds is not None:
+            evidence_lines.append(
+                f"CPU foreground (s): {cpu_foreground_seconds}"
+            )
+        if cpu_background_seconds is not None:
+            evidence_lines.append(
+                f"CPU background (s): {cpu_background_seconds}"
+            )
+        if bytes_read is not None:
+            evidence_lines.append(f"Bytes read: {bytes_read:,}")
+        if bytes_written is not None:
+            evidence_lines.append(f"Bytes written: {bytes_written:,}")
+        evidence_lines.append(f"SRUM record type: {record_type}")
+        evidence = "\n".join(evidence_lines)
+
+        basename = (
+            app_identifier.rsplit("\\", 1)[-1]
+            if "\\" in app_identifier
+            else app_identifier
+        )
+        description = (
+            f"SRUM application resource record surfaces ~30-60 day "
+            f"per-app runtime history for {basename}. LOW-confidence "
+            f"review candidate; correlate the app path / runtime "
+            f"signatures with threat-feeds for higher-confidence "
+            f"verdicts in a follow-up triage."
+        )
+
+        return [
+            _PEFindingDraft(
+                source=source,
+                severity=Severity.info,
+                title=f"SRUM app runtime: {basename}",
+                description=description,
+                evidence=evidence,
+            )
+        ]
+
+    return []
 
 
 def classify_registry_persistence_findings(
@@ -959,6 +1099,64 @@ class FindingService:
                     description=draft.description,
                     evidence=draft.evidence,
                     file_path=record.prefetch_file_path,
+                    confidence=Confidence.low,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_srum_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Phase ζ.3.D — emit windows_srum_* Finding rows for one firmware.
+
+        Reads every persisted ``WindowsSrumRecord`` row for the firmware
+        (rows are produced by the ζ.3.B walker) and projects each into
+        a LOW-confidence review-candidate Finding row via
+        :func:`classify_srum_findings`. The classifier dispatches by
+        record_type:
+
+        - network_data_usage / network_connectivity →
+          windows_srum_network_activity
+        - application_resource_usage → windows_srum_application_runtime
+        - push_notification / energy_usage → no Finding (low operator-
+          triage value; surface via MCP search tool only)
+
+        Idempotency is the caller's responsibility — same shape as
+        emit_prefetch_findings_from_walk; callers DELETE prior
+        windows_srum_* findings for the firmware before re-emitting.
+        """
+        from app.models.windows_srum_record import WindowsSrumRecord
+
+        stmt = select(WindowsSrumRecord).where(
+            WindowsSrumRecord.firmware_id == firmware_id
+        )
+        rows = (await self.db.execute(stmt)).scalars().all()
+
+        emitted: list[Finding] = []
+        for record in rows:
+            drafts = classify_srum_findings(
+                record_type=record.record_type,
+                app_identifier=record.app_identifier,
+                user_identifier=record.user_identifier,
+                recorded_at=record.recorded_at,
+                bytes_sent=record.bytes_sent,
+                bytes_received=record.bytes_received,
+                bytes_read=record.bytes_read,
+                bytes_written=record.bytes_written,
+                cpu_foreground_seconds=record.cpu_foreground_seconds,
+                cpu_background_seconds=record.cpu_background_seconds,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.source_path,
                     confidence=Confidence.low,
                     firmware_id=firmware_id,
                     source=draft.source,
