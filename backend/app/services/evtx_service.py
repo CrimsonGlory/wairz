@@ -66,14 +66,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import re
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session_factory
 from app.models.firmware import Firmware
+from app.models.windows_event_record import WindowsEventRecord
 from app.services.firmware_paths import get_detection_roots
 from app.services.jsonb_normalizers import (
     _stamp_firmware_evtx_walk_result,
+    _stamp_windows_event_records_message_xml,
 )
 
 logger = logging.getLogger(__name__)
@@ -316,6 +320,120 @@ async def _walk_evtx_files_async(roots: list[str]) -> list[str]:
     return await loop.run_in_executor(None, walk_evtx_files, roots)
 
 
+# ── ε.2.B per-event field extraction (regex-based for speed) ─────────────────
+
+
+# Best-effort regex extractors for the EVTX System.* fields. python-evtx
+# already produces the parsed XML; we re-extract via regex rather than
+# importing lxml at this layer (which would cost ~200 ms cold-import for
+# a parse already done in the layer above). The regex set covers the
+# canonical Windows EventLog schema; malformed events that fail extraction
+# are skipped from per-event persistence (the aggregate JSONB still counts
+# them).
+_PROVIDER_RE = re.compile(r'<Provider\s+(?:[^>]*\s+)?Name="([^"]+)"')
+_EID_RE = re.compile(r"<EventID(?:\s[^>]*)?>\s*(\d+)\s*</EventID>")
+_LEVEL_RE = re.compile(r"<Level>\s*(\d+)\s*</Level>")
+_CHANNEL_RE = re.compile(r"<Channel>([^<]+)</Channel>")
+_COMPUTER_RE = re.compile(r"<Computer>([^<]+)</Computer>")
+_TASK_RE = re.compile(r"<Task>\s*(\d+)\s*</Task>")
+_TIME_RE = re.compile(r'<TimeCreated\s+(?:[^>]*\s+)?SystemTime="([^"]+)"')
+
+
+def _extract_event_fields(xml: str) -> dict[str, Any]:
+    """Best-effort extraction of System.* fields from a single event's
+    raw XML. Returns a dict with as many of the WindowsEventRecord
+    columns as could be parsed; callers MUST verify the minimum set
+    (provider + event_id + recorded_at) before constructing a row.
+
+    Defensive: never raises. Returns empty dict on completely-malformed
+    XML so the per-file loop skips the event without aborting.
+    """
+    out: dict[str, Any] = {}
+    if m := _PROVIDER_RE.search(xml):
+        out["provider"] = m.group(1)[:256]
+    if m := _EID_RE.search(xml):
+        try:
+            out["event_id"] = int(m.group(1))
+        except ValueError:
+            pass
+    if m := _LEVEL_RE.search(xml):
+        try:
+            out["level"] = int(m.group(1))
+        except ValueError:
+            pass
+    if m := _CHANNEL_RE.search(xml):
+        out["channel"] = m.group(1)[:256]
+    if m := _COMPUTER_RE.search(xml):
+        out["computer"] = m.group(1)[:256]
+    if m := _TASK_RE.search(xml):
+        try:
+            out["task"] = int(m.group(1))
+        except ValueError:
+            pass
+    if m := _TIME_RE.search(xml):
+        ts = m.group(1)
+        # Windows EVTX SystemTime format: "2025-12-25T13:47:21.1234567Z"
+        # Python's fromisoformat handles up to microseconds (6 digits);
+        # truncate the 7-digit fractional seconds before parsing.
+        ts_norm = re.sub(r"(\.\d{6})\d+", r"\1", ts).replace("Z", "+00:00")
+        try:
+            out["recorded_at"] = datetime.fromisoformat(ts_norm)
+        except ValueError:
+            pass
+    return out
+
+
+def _relativize_evtx_path(full_path: str, roots: list[str]) -> str:
+    """Compute path relative to whichever detection root contains it.
+    Matches the WindowsEventRecord.evtx_file_path discipline (relative
+    to detection root for stable cross-extraction identifiers).
+    """
+    try:
+        real_full = os.path.realpath(full_path)
+    except OSError:
+        return os.path.basename(full_path)
+    for root in roots:
+        try:
+            real_root = os.path.realpath(root)
+        except OSError:
+            continue
+        if real_full == real_root or real_full.startswith(real_root + os.sep):
+            return real_full[len(real_root) + 1 :] if real_full != real_root else "."
+    return os.path.basename(full_path)
+
+
+def _build_event_record(
+    firmware_id: uuid.UUID,
+    evtx_file_path: str,
+    rec: dict[str, Any],
+) -> WindowsEventRecord | None:
+    """Construct a WindowsEventRecord from a python-evtx record + extracted
+    fields. Returns None if the minimum-required fields can't be extracted
+    (skipping the row keeps the bulk-insert flow simple)."""
+    raw_xml = rec.get("raw_xml") or ""
+    fields = _extract_event_fields(raw_xml)
+    if "provider" not in fields or "event_id" not in fields or "recorded_at" not in fields:
+        return None
+    # message_xml carries a structured envelope per Rule #35c. For ε.2.B
+    # we ship a minimal envelope (raw_xml preview) — ε.2.C will wire up
+    # MCP tools that consume it; full XML→dict conversion is a follow-up.
+    preview = raw_xml[:1024] if raw_xml else ""
+    return WindowsEventRecord(
+        firmware_id=firmware_id,
+        evtx_file_path=evtx_file_path[:1024],
+        provider=fields["provider"],
+        event_id=fields["event_id"],
+        level=fields.get("level"),
+        channel=fields.get("channel"),
+        computer=fields.get("computer"),
+        task=fields.get("task"),
+        recorded_at=fields["recorded_at"],
+        message_xml=_stamp_windows_event_records_message_xml({"raw_xml_preview": preview}),
+        raw_xml=raw_xml if raw_xml else None,
+        record_number=rec.get("record_num"),
+    )
+
+
 async def _parse_evtx_file_async(path: str) -> dict[str, Any]:
     """Async wrapper around :func:`parse_evtx_file` (Rule #5)."""
     loop = asyncio.get_running_loop()
@@ -451,6 +569,20 @@ async def _do_evtx_walk_run(
         for rec in sample:
             prov = _provider_from_record(rec)
             by_provider[prov] = by_provider.get(prov, 0) + 1
+
+        # ε.2.B per-event persistence — bulk-insert WindowsEventRecord
+        # rows for this file. Skips records missing the minimum field
+        # set (provider + event_id + recorded_at). Per-file flush keeps
+        # session memory bounded; outer wrapper owns the commit.
+        relpath = _relativize_evtx_path(evtx_path, roots)
+        event_objs: list[WindowsEventRecord] = []
+        for rec in sample:
+            obj = _build_event_record(firmware_id, relpath, rec)
+            if obj is not None:
+                event_objs.append(obj)
+        if event_objs:
+            db.add_all(event_objs)
+            await db.flush()
 
         # Total-records cap protects the aggregate when walking many
         # files. Once hit we still parse remaining files for status
