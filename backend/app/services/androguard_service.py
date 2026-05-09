@@ -806,8 +806,8 @@ class AndroguardService:
     @staticmethod
     def _is_debug_cert(sig_info: dict[str, Any]) -> bool:
         """Heuristic check for debug/test signing certificates."""
-        for field in ("issuer", "subject"):
-            val = sig_info.get(field, "").lower()
+        for cert_field in ("issuer", "subject"):
+            val = sig_info.get(cert_field, "").lower()
             if any(kw in val for kw in ("android debug", "debug", "test", "cn=android debug")):
                 return True
         return False

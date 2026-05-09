@@ -108,14 +108,23 @@ Mechanical fix; defusedxml is widely used in the codebase already.
 - `lint-defer-frontend-react-hooks.md` — 40 react-hooks warnings; per-page
   review needed.
 
-## Numbers
+## Numbers (final, 2026-05-10)
 
-- Real bugs caught + fixed: 3 (F601 UEFI, F811 firmware_service, S314 ×2)
-- Cosmetic fixes deferred: ~75 hits across F841/E402/E741/UP-family
-- Defensive-boundary suppressions justified: ~310 hits across
-  S110/S112/B904/B007/B008
-- Total ruff suppressions to remove this campaign: 3 (S314, F601, F811)
+- **Real bugs caught + fixed: 4** — F601 UEFI dup key (B.1), F811
+  firmware_service dup def (B.2), S314 ×2 untrusted-XML (B.3).
+- **Cosmetic fixes shipped: 4** — E741 ×3 single-letter loop vars (B.4),
+  F402 ×1 loop-var shadowing module-level import (B.4).
+- **Cosmetic fixes deferred: ~70 hits** across F841/E402/UP-family +
+  pre-existing F401 test-fixture availability probes.
+- **Defensive-boundary suppressions justified: ~310 hits** across
+  S110/S112/B904/B007/B008 (kept with refined rationale).
+- **Total ruff suppressions removed this campaign: 5** — S314, F601,
+  F811, E741, F402.
+- **Total bandit suppressions removed this campaign: 1** — B314 (call-
+  site signal eliminated; B405 import-level kept since defusedxml does
+  not re-export Element).
 
-After this campaign's Lint.B-D fixes, the suppression list shrinks from
-35 → 32 ruff codes. Further reduction requires the deferred ASYNC family
-cleanup (multi-session).
+After this campaign's Lint.B.1–B.4 fixes, the ruff `[tool.ruff.lint]
+ignore` list shrinks from 35 → 30 codes; bandit `[tool.bandit] skips`
+shrinks from 16 → 15. Further reduction requires the deferred ASYNC
+family cleanup (multi-session, intake `lint-defer-async-correctness.md`).

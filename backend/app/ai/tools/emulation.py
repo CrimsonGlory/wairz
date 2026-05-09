@@ -1786,11 +1786,11 @@ async def _handle_enumerate_services(input: dict, context: ToolContext) -> str:
         return "\n".join(lines)
 
     lines = [f"Found {len(listeners)} listening TCP service(s):", ""]
-    for l in listeners:
-        prog = l.get("program", "-")
+    for listener in listeners:
+        prog = listener.get("program", "-")
         lines.append(
-            f"  {l.get('protocol', 'tcp'):>5}  {l.get('address', '?'):>25}  "
-            f"port {l['port']:<6}  {prog}"
+            f"  {listener.get('protocol', 'tcp'):>5}  {listener.get('address', '?'):>25}  "
+            f"port {listener['port']:<6}  {prog}"
         )
 
     if ps_output:
@@ -2342,8 +2342,8 @@ async def _handle_get_crash_dump(input: dict, context: ToolContext) -> str:
             dmesg = result.get("stdout", "")
             # Look for segfault/signal messages related to the binary
             crash_lines = [
-                l for l in dmesg.splitlines()
-                if core_binary_name in l and ("segfault" in l.lower() or "signal" in l.lower() or "killed" in l.lower())
+                line for line in dmesg.splitlines()
+                if core_binary_name in line and ("segfault" in line.lower() or "signal" in line.lower() or "killed" in line.lower())
             ]
             if crash_lines:
                 lines.append("")
@@ -2464,7 +2464,7 @@ async def _handle_run_gdb_command(input: dict, context: ToolContext) -> str:
 
     if stderr:
         # Filter warnings but keep errors
-        err_lines = [l for l in stderr.splitlines() if "warning:" not in l.lower()]
+        err_lines = [line for line in stderr.splitlines() if "warning:" not in line.lower()]
         if err_lines:
             lines.append("")
             lines.append("Errors:")

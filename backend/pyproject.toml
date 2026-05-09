@@ -197,9 +197,11 @@ ignore = [
     "UP042",     # str enum inheritance — 11 hits; intentional in Pydantic-compatible enums
     "UP040",     # TypeAlias annotation — 2 hits; pre-existing
     "UP046",     # Generic class typing — 1 hit; pre-existing
-    "E741",      # ambiguous variable name — 3 hits; pre-existing tech debt
+    # E741 (ambiguous variable name) closed 2026-05-10 (Phase Lint.B.4) —
+    # 3 hits in app/ai/tools/emulation.py; renamed `l` → `listener`/`line`.
     "F401",      # unused imports — pre-existing test/fixture availability probes
-    "F402",      # import shadowed by loop var — 1 hit; pre-existing
+    # F402 (import shadowed by loop var) closed 2026-05-10 (Phase Lint.B.4)
+    # — 1 hit in androguard_service.py; loop var `field` → `cert_field`.
     # F601 (repeated dict key) closed 2026-05-10 (Phase Lint.B.1) — the
     # 1 hit was a duplicate UEFI GUID entry silently overriding the
     # correct mapping; removed at source.
