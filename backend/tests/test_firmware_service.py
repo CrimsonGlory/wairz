@@ -259,7 +259,11 @@ class TestFirmwareTarFilter:
     def test_rejects_path_traversal(self, tmp_path: Path):
         member = tarfile.TarInfo(name="../../etc/shadow")
         member.type = tarfile.REGTYPE
-        with pytest.raises(ValueError, match="traversal"):
+        # The imported `_firmware_tar_filter` (from `unpack_linux`) raises
+        # `tarfile.AbsolutePathError` (a `FilterError` subclass) for paths
+        # that escape the destination — this replaces the prior local `ValueError`
+        # behaviour as part of Phase Lint.B.2 (2026-05-10) F811 dedup.
+        with pytest.raises(tarfile.AbsolutePathError):
             _firmware_tar_filter(member, str(tmp_path))
 
 

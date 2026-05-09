@@ -219,24 +219,11 @@ def _extract_firmware_from_zip(zip_path: str, output_dir: str) -> str | None:
         return primary_path
 
 
-def _firmware_tar_filter(member, dest_path):
-    """Tar filter for firmware archives — allows absolute symlinks.
-
-    Python 3.12's filter="data" rejects symlinks to absolute paths,
-    but firmware rootfs archives legitimately use them. This filter
-    allows symlinks while still preventing path traversal and
-    rejecting device nodes.
-    """
-    name = member.name.lstrip("/")
-    if name != member.name:
-        member = member.replace(name=name, deep=False)
-    resolved = os.path.realpath(os.path.join(dest_path, name))
-    real_dest = os.path.realpath(dest_path)
-    if not resolved.startswith(real_dest + os.sep) and resolved != real_dest:
-        raise ValueError(f"Path traversal detected in archive: {member.name}")
-    if not (member.isreg() or member.isdir() or member.issym() or member.islnk()):
-        return None
-    return member
+# `_firmware_tar_filter` is imported from `app.workers.unpack_linux` (line 40);
+# the previous local redefinition here was a Phase Lint.B.2 (2026-05-10) F811
+# cleanup — the imported version is the authoritative implementation, with
+# stricter `_tarfile.AbsolutePathError` semantics + hard-link target
+# validation that the local copy lacked.
 
 
 def _extract_archive(archive_path: str, output_dir: str) -> None:

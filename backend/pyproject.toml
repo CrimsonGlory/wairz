@@ -193,7 +193,10 @@ ignore = [
     # F601 (repeated dict key) closed 2026-05-10 (Phase Lint.B.1) — the
     # 1 hit was a duplicate UEFI GUID entry silently overriding the
     # correct mapping; removed at source.
-    "F811",      # redefined-while-unused — 1 hit; pre-existing
+    # F811 (redefined-while-unused) closed 2026-05-10 (Phase Lint.B.2) —
+    # the 1 hit was a duplicate `_firmware_tar_filter` def in
+    # `firmware_service.py` shadowing the imported (stricter) version
+    # from `unpack_linux`; removed local def, kept the import.
     "F821",      # undefined name — 2 hits; pre-existing latent (NetDepFinding); cleanup follow-up
     "B023",      # loop variable closure — 3 hits; pre-existing tech debt
     "B905",      # zip() without strict= — 3 hits; pre-existing
