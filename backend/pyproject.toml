@@ -190,7 +190,9 @@ ignore = [
     "E741",      # ambiguous variable name — 3 hits; pre-existing tech debt
     "F401",      # unused imports — pre-existing test/fixture availability probes
     "F402",      # import shadowed by loop var — 1 hit; pre-existing
-    "F601",      # repeated dict key — 1 hit; pre-existing tech debt
+    # F601 (repeated dict key) closed 2026-05-10 (Phase Lint.B.1) — the
+    # 1 hit was a duplicate UEFI GUID entry silently overriding the
+    # correct mapping; removed at source.
     "F811",      # redefined-while-unused — 1 hit; pre-existing
     "F821",      # undefined name — 2 hits; pre-existing latent (NetDepFinding); cleanup follow-up
     "B023",      # loop variable closure — 3 hits; pre-existing tech debt

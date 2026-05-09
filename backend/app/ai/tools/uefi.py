@@ -41,7 +41,12 @@ _KNOWN_GUIDS: dict[str, str] = {
     "025BBFC7-E6A9-4B8B-82AD-6815A1AEAF4A": "MnpDxe",
     "A210F973-229D-4F4D-AA37-9895E6C9EABA": "DpcDxe",
     "529D3F93-E8E9-4E73-B1E1-BDF6A9D50113": "ArpDxe",
-    "E4F61863-FE2C-4B56-A8F4-08519BC439DF": "FaultTolerantWriteDxe",
+    # NOTE: removed 2026-05-10 (Phase Lint.B.1) — duplicate of line 38.
+    # GUID E4F61863-FE2C-4B56-A8F4-08519BC439DF is EFI_VARIABLE_GUID
+    # (Variable / NVRAM) per UEFI spec. The previous "FaultTolerantWriteDxe"
+    # mapping here was wrong — that protocol uses GUID
+    # 0AABDB99-77B6-4E7E-B12C-5CF6D2DC51AB. The ruff F601 suppression
+    # picked this up as a "repeated dict key" — fixed at the source.
     "28A03FF4-12B3-4305-A417-BB1A4F94081E": "CpuDxe",
     "222C386D-5ABC-4FB4-B124-FBB82488ACF4": "SmmAccess2Dxe",
     "A0BAD966-B83B-4A78-87AB-A4E2D1E24094": "SmmControl2Dxe",
