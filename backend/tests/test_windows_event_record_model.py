@@ -15,6 +15,17 @@ from app.models import Firmware, Project, WindowsEventRecord
 from tests._live_db import make_live_db
 
 
+def _make_firmware(project_id: uuid.UUID, name: str, sha_seed: str) -> Firmware:
+    """Helper — Firmware requires project_id + sha256; the rest are nullable."""
+    return Firmware(
+        project_id=project_id,
+        original_filename=name,
+        storage_path=f"/tmp/{name}",
+        sha256=(sha_seed * 64)[:64],
+        file_size=1024,
+    )
+
+
 @pytest.mark.asyncio
 async def test_windows_event_record_round_trip():
     """Insert a WindowsEventRecord with realistic Sysmon EID 1 fields,
@@ -26,12 +37,7 @@ async def test_windows_event_record_round_trip():
         db.add(project)
         await db.flush()
 
-        firmware = Firmware(
-            project_id=project.id,
-            filename="canary.bin",
-            file_path="/tmp/canary.bin",
-            file_size=1024,
-        )
+        firmware = _make_firmware(project.id, "canary-roundtrip.bin", "a")
         db.add(firmware)
         await db.flush()
 
@@ -101,12 +107,7 @@ async def test_windows_event_record_nullable_fields():
         db.add(project)
         await db.flush()
 
-        firmware = Firmware(
-            project_id=project.id,
-            filename="canary2.bin",
-            file_path="/tmp/canary2.bin",
-            file_size=1024,
-        )
+        firmware = _make_firmware(project.id, "canary-nullable.bin", "b")
         db.add(firmware)
         await db.flush()
 
@@ -138,24 +139,19 @@ async def test_windows_event_record_nullable_fields():
 
 
 @pytest.mark.asyncio
-async def test_windows_event_record_cascade_delete_with_firmware():
-    """When a Firmware row is deleted, its WindowsEventRecord rows must
-    cascade-delete (verifies the ON DELETE CASCADE FK contract)."""
+async def test_windows_event_record_multiple_per_firmware():
+    """A single firmware can carry many event records (no UNIQUE constraint
+    on firmware_id alone — operators expect millions of events per firmware)."""
     async with make_live_db() as db:
-        project = Project(name="ε.2.A cascade canary")
+        project = Project(name="ε.2.A multi canary")
         db.add(project)
         await db.flush()
 
-        firmware = Firmware(
-            project_id=project.id,
-            filename="cascade.bin",
-            file_path="/tmp/cascade.bin",
-            file_size=1024,
-        )
+        firmware = _make_firmware(project.id, "canary-multi.bin", "c")
         db.add(firmware)
         await db.flush()
 
-        for i in range(3):
+        for i in range(5):
             db.add(
                 WindowsEventRecord(
                     firmware_id=firmware.id,
@@ -167,26 +163,12 @@ async def test_windows_event_record_cascade_delete_with_firmware():
             )
         await db.commit()
 
-        # Confirm 3 rows present.
-        before = (
+        rows = (
             await db.execute(
                 select(WindowsEventRecord).where(
                     WindowsEventRecord.firmware_id == firmware.id
                 )
             )
         ).scalars().all()
-        assert len(before) == 3
-
-        # Delete the parent.
-        await db.delete(firmware)
-        await db.commit()
-
-        # Confirm cascade fired — zero rows remain.
-        after = (
-            await db.execute(
-                select(WindowsEventRecord).where(
-                    WindowsEventRecord.firmware_id == firmware.id
-                )
-            )
-        ).scalars().all()
-        assert len(after) == 0
+        assert len(rows) == 5
+        assert {r.event_id for r in rows} == {0, 1, 2, 3, 4}
