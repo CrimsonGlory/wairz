@@ -44,6 +44,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     srecord \
     file \
     libmagic1 \
+    libesedb-utils \
+    libpff-utils \
+    libregf-utils \
     build-essential \
     git \
     zlib1g-dev \
