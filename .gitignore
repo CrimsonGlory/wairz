@@ -43,3 +43,14 @@ test-firmware/
 
 # PostgreSQL backups (pg-backup service default target, see docs/operations/backup-recovery.md)
 /backups/
+
+# Operational state files (harness-mutated; closeout antipattern #4 closure 2026-05-10)
+# These files are written by the Citadel harness during agent sessions and have
+# no semantic value to commit. Tracking them creates noise in `git status` and
+# breaks `git stash --include-untracked` checkpoint flows (cf. windows-coverage-godmode
+# epsilon-1b postmortem antipattern #7).
+.claude/circuit-breaker-state.json
+.claude/consent-session-externalActions.json
+.planning/daemon.json
+.planning/telemetry/*.jsonl
+.planning/fleet/session-*.md

@@ -1,7 +1,0 @@
-{
-  "consecutiveFailures": 2,
-  "lifetimeTrips": 82,
-  "lastFailedTool": "Bash",
-  "lastFailureTime": "2026-04-18T18:18:19.368Z",
-  "lastError": "Exit code 128\nwarning: could not open directory 'frontend/frontend/src/components/hardware-firmware/': No such file or directory\nfatal: pathspec 'frontend/src/components/hardware-firmware/PartitionTre"
-}
