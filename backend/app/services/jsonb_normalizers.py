@@ -1273,6 +1273,50 @@ def _stamp_windows_event_records_message_xml(payload: dict) -> dict:
     return payload
 
 
+# ── firmware.prefetch_walk_result (Phase ζ.2.B) ──────────────────────────────
+#
+# Per-firmware aggregate from a single Prefetch walk. Mirrors the
+# evtx_walk_result / registry_hive_walk_result shape — a flat dict with
+# top-level summary fields. The runner stamps this once at completion.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,
+#     "prefetch_count": int,                    # total .pf files walked
+#     "by_status": {"ok": int, "error": int},   # parse outcomes
+#     "executable_count": int,                  # unique executables seen
+#     "total_runs_recorded": int,               # sum of run_count across files
+#     "errors": list[str],                      # session-level errors
+#     "per_file": list[dict],                   # [{"path": str, "status": str,
+#                                                  "executable_name": str|None,
+#                                                  "run_count": int|None,
+#                                                  "error": str|None}]
+#   }
+
+FIRMWARE_PREFETCH_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_prefetch_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.prefetch_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_prefetch_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.prefetch_walk_result``. Idempotent."""
+    payload["schema_version"] = FIRMWARE_PREFETCH_WALK_RESULT_SCHEMA_VERSION
+    return payload
+
+
 # ── windows_prefetch_records JSONB columns (Phase ζ.2.A) ──────────────────────
 #
 # Three JSONB columns on ``windows_prefetch_records``:

@@ -94,6 +94,18 @@ dependencies = [
     # python-evtx parses the EVTX binary AS DATA; nothing in wairz
     # invokes wevtutil, Get-WinEvent, or any other event-replay tool.
     "python-evtx>=0.8",
+    # ── Phase ζ.2: Windows Prefetch (.pf) parsing ──────────────
+    # windowsprefetch — pure-Python Windows Prefetch parser.
+    # Supports versions 17/23/26/30 (XP through Win10+ MAM-compressed).
+    # Used by the ζ.2 walker to surface application-execution history
+    # (last run times, run counts, files referenced) from extracted
+    # Windows installs. Persona-E #14 forensic-format coverage.
+    # Pure-Python — no C-extension build deps, matches the regipy /
+    # python-evtx / dnfile precedent. Rule #36 no-execute discipline
+    # applies: windowsprefetch reads .pf files AS DATA; nothing in
+    # wairz invokes pftriage / Get-CimInstance Win32_PrefetchedApp /
+    # any other execution-replay tool.
+    "windowsprefetch>=4.0.3",
 ]
 
 [project.scripts]
