@@ -1205,3 +1205,69 @@ def _stamp_firmware_evtx_walk_result(payload: dict) -> dict:
     """
     payload["schema_version"] = FIRMWARE_EVTX_WALK_RESULT_SCHEMA_VERSION
     return payload
+
+
+# ── windows_event_records.message_xml (Phase ε.2.A) ──────────────────────────
+#
+# Per-event parsed-EVTX-detail payload. ε.1.b's walker aggregates summaries
+# into ``firmware.evtx_walk_result``; ε.2.A introduces the per-event landing
+# zone so future search-events MCP tools (ε.2.C, deferred) can paginate
+# filtered results without re-walking. Writer is the ε.2.B walker extension
+# (deferred to a follow-up session per the windows-coverage-godmode-housekeeping
+# campaign decomposition); readers will be the ε.2.C MCP search tools +
+# any FE search-page renderer.
+#
+# 3+ consumer files projected at full ε.2 shipping (writer + 2-3 search MCP
+# tools + 1 FE page) → schema_version discriminator strategy per Rule #35c.
+# Ship the stamp helper now so ε.2.B doesn't need a follow-up commit when
+# the consumer count crosses the threshold.
+#
+# Canonical shape (provider+EID-dependent; per-EID schemas can be discriminated
+# by readers via the ``provider`` + ``event_id`` columns, NOT by inspecting
+# message_xml):
+#
+#   {
+#     "schema_version": 1,
+#     "EventData": dict | list[dict] | None,    # parsed System.EventData (Win)
+#     "UserData": dict | None,                  # parsed System.UserData (rare)
+#     "DebugData": dict | None,                 # parsed System.DebugData (rarer)
+#     "Binary": str | None,                     # System.Binary (hex string)
+#     ... (other parser-emitted top-level keys)
+#   }
+#
+# python-evtx's ``Evtx.Record.lxml`` produces an XML tree; the walker (ε.2.B)
+# converts it to a dict per Microsoft's WindowsEventLog schema (RFC-style),
+# stamping schema_version onto the resulting dict before persisting.
+#
+# Forward-discipline: bump SCHEMA_VERSION + extend dispatch in the normaliser
+# if the per-event envelope shape changes (e.g. add a flattened ``params``
+# convenience map for common EIDs, or move from XML-derived dict to a
+# protobuf-style normalised form).
+
+WINDOWS_EVENT_RECORDS_MESSAGE_XML_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_event_records_message_xml(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``WindowsEventRecord.message_xml``.
+
+    ``None`` is preserved — semantic load is "raw event captured, parsed
+    payload not extracted" (e.g. parser-skipped, EVTX corruption, or
+    storage-budget walker config). Wrong-typed values collapse to ``None``
+    (treat as "unusable persisted payload"; the raw_xml column remains
+    available for full-text fallback).
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_windows_event_records_message_xml(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``WindowsEventRecord.message_xml``.
+
+    Idempotent. The walker constructs the dict from python-evtx's parsed
+    XML tree, then calls this helper before passing to ``db.add()``.
+    """
+    payload["schema_version"] = WINDOWS_EVENT_RECORDS_MESSAGE_XML_SCHEMA_VERSION
+    return payload

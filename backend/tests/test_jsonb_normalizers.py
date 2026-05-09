@@ -94,6 +94,9 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_dotnet_decompile_result,
     _stamp_firmware_windows_update_diff_result,
     _stamp_firmware_evtx_walk_result,
+    WINDOWS_EVENT_RECORDS_MESSAGE_XML_SCHEMA_VERSION,
+    _normalize_windows_event_records_message_xml,
+    _stamp_windows_event_records_message_xml,
 )
 
 
@@ -1926,3 +1929,66 @@ def test_stamp_firmware_evtx_walk_result_idempotent():
 
 def test_firmware_evtx_walk_result_schema_version_constant():
     assert FIRMWARE_EVTX_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+# ── _normalize_windows_event_records_message_xml (Phase ε.2.A) ───────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical pass-through.
+        (
+            {
+                "schema_version": 1,
+                "EventData": {"SubjectUserName": "alice", "TargetUserName": "bob"},
+            },
+            {
+                "schema_version": 1,
+                "EventData": {"SubjectUserName": "alice", "TargetUserName": "bob"},
+            },
+        ),
+        # Empty dict pass-through (writer may stamp before populating).
+        ({}, {}),
+        # None preserved — semantic load is "no parsed payload available".
+        (None, None),
+        # Wrong type collapses to None — defensive coercion.
+        ("<Event>not a dict</Event>", None),
+        ([{"EventData": "list-shaped"}], None),
+        (42, None),
+    ],
+)
+def test_normalize_windows_event_records_message_xml(value, expected):
+    assert _normalize_windows_event_records_message_xml(value) == expected
+
+
+def test_normalize_windows_event_records_message_xml_idempotent():
+    canonical = {
+        "schema_version": 1,
+        "EventData": {
+            "ProcessName": "C:\\Windows\\System32\\notepad.exe",
+            "CommandLine": "notepad.exe foo.txt",
+        },
+    }
+    once = _normalize_windows_event_records_message_xml(canonical)
+    twice = _normalize_windows_event_records_message_xml(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_event_records_message_xml_adds_version():
+    payload = {"EventData": {"SubjectUserName": "alice"}}
+    out = _stamp_windows_event_records_message_xml(payload)
+    assert out["schema_version"] == WINDOWS_EVENT_RECORDS_MESSAGE_XML_SCHEMA_VERSION
+    assert out["EventData"]["SubjectUserName"] == "alice"
+
+
+def test_stamp_windows_event_records_message_xml_idempotent():
+    payload = {"EventData": {}}
+    once = _stamp_windows_event_records_message_xml(payload)
+    twice = _stamp_windows_event_records_message_xml(once)
+    assert once == twice
+    assert once["schema_version"] == WINDOWS_EVENT_RECORDS_MESSAGE_XML_SCHEMA_VERSION
+
+
+def test_windows_event_records_message_xml_schema_version_constant():
+    assert WINDOWS_EVENT_RECORDS_MESSAGE_XML_SCHEMA_VERSION == 1

@@ -19,6 +19,7 @@ from app.models.windows_registry_extract import WindowsRegistryExtract
 from app.models.windows_driver import WindowsDriver
 from app.models.windows_update_package import WindowsUpdatePackage
 from app.models.windows_update_dll_diff import WindowsUpdateDllDiff
+from app.models.windows_event_record import WindowsEventRecord
 
 __all__ = [
     "Project", "Firmware", "Conversation", "AnalysisCache",
@@ -29,4 +30,5 @@ __all__ = [
     "CraAssessment", "CraRequirementResult", "HardwareFirmwareBlob",
     "DeviceDumpSession", "WindowsPESignature", "WindowsRegistryExtract",
     "WindowsDriver", "WindowsUpdatePackage", "WindowsUpdateDllDiff",
+    "WindowsEventRecord",
 ]
