@@ -31,7 +31,7 @@ test.describe('Firmware Upload', () => {
 
   test('upload firmware to a new project', async ({ page }) => {
     // Create a project first
-    const projectUrl = await createProject(page, `FW Upload Test ${Date.now()}`);
+    const _projectUrl = await createProject(page, `FW Upload Test ${Date.now()}`);
 
     // We should be on the project detail page.
     // The "Upload Firmware" card should be visible since no firmware was uploaded yet.

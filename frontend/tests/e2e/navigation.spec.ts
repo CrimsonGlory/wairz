@@ -66,7 +66,7 @@ test.describe('Navigation', () => {
   });
 
   test('sidebar navigation links work for project subpages', async ({ page }) => {
-    const projectUrl = await ensureProjectExists(page);
+    const _projectUrl = await ensureProjectExists(page);
 
     // The sidebar should show the project expanded with sub-page links.
     // Click through a few sidebar links and verify URL changes.
