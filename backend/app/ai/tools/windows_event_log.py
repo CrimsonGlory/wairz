@@ -42,8 +42,11 @@ from typing import Any
 
 from sqlalchemy import select
 
+from datetime import datetime
+
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.models.firmware import Firmware
+from app.models.windows_event_record import WindowsEventRecord
 from app.services.jsonb_normalizers import (
     _normalize_firmware_evtx_walk_result,
 )
@@ -288,6 +291,108 @@ async def _handle_evtx_walk_summary(input: dict, context: ToolContext) -> str:
     return _truncate(json.dumps(summary, indent=2))
 
 
+async def _handle_search_events(input: dict, context: ToolContext) -> str:
+    """Phase ε.2.C — paginate windows_event_records by provider / EID /
+    time range. Reads from the per-event landing zone (ε.2.A table)
+    populated by ε.2.B's walker. Returns paginated results with total_count
+    so operators can navigate million-row Security.evtx walks.
+    """
+    firmware_id = (
+        uuid.UUID(context.firmware_id)
+        if isinstance(context.firmware_id, str)
+        else context.firmware_id
+    )
+
+    provider = input.get("provider")  # str | None — exact match (provider names are stable)
+    event_id = input.get("event_id")  # int | None
+    time_range_start = input.get("time_range_start")  # ISO string | None
+    time_range_end = input.get("time_range_end")  # ISO string | None
+    limit = int(input.get("limit", 50))
+    offset = int(input.get("offset", 0))
+
+    # Bound the limit defensively (Rule #29 — output cap protects MCP client).
+    if limit > 500:
+        limit = 500
+    if limit < 1:
+        limit = 1
+    if offset < 0:
+        offset = 0
+
+    # Build the filter query. Indexes cover (firmware_id, provider, event_id)
+    # and (firmware_id, recorded_at) — query planner picks based on filters.
+    from sqlalchemy import func as sa_func
+
+    base_where = [WindowsEventRecord.firmware_id == firmware_id]
+    if provider:
+        base_where.append(WindowsEventRecord.provider == provider)
+    if event_id is not None:
+        base_where.append(WindowsEventRecord.event_id == int(event_id))
+    if time_range_start:
+        try:
+            ts = datetime.fromisoformat(time_range_start.replace("Z", "+00:00"))
+            base_where.append(WindowsEventRecord.recorded_at >= ts)
+        except ValueError:
+            return json.dumps({"error": f"invalid time_range_start: {time_range_start[:100]}"})
+    if time_range_end:
+        try:
+            ts = datetime.fromisoformat(time_range_end.replace("Z", "+00:00"))
+            base_where.append(WindowsEventRecord.recorded_at <= ts)
+        except ValueError:
+            return json.dumps({"error": f"invalid time_range_end: {time_range_end[:100]}"})
+
+    # Total count (uses the same indexes as the page query).
+    total_q = select(sa_func.count(WindowsEventRecord.id)).where(*base_where)
+    total = (await context.db.execute(total_q)).scalar_one()
+
+    # Page query — order by recorded_at DESC for forensic-timeline UX
+    # (most recent first).
+    page_q = (
+        select(WindowsEventRecord)
+        .where(*base_where)
+        .order_by(WindowsEventRecord.recorded_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    rows = (await context.db.execute(page_q)).scalars().all()
+
+    events = [
+        {
+            "id": str(r.id),
+            "evtx_file_path": r.evtx_file_path,
+            "provider": r.provider,
+            "event_id": r.event_id,
+            "level": r.level,
+            "channel": r.channel,
+            "computer": r.computer,
+            "task": r.task,
+            "recorded_at": r.recorded_at.isoformat() if r.recorded_at else None,
+            "record_number": r.record_number,
+        }
+        for r in rows
+    ]
+
+    out = {
+        "firmware_id": str(firmware_id),
+        "total_count": total,
+        "limit": limit,
+        "offset": offset,
+        "events": events,
+        "filters": {
+            "provider": provider,
+            "event_id": event_id,
+            "time_range_start": time_range_start,
+            "time_range_end": time_range_end,
+        },
+    }
+    if total == 0:
+        out["message"] = (
+            "No event records match. The walker may not have run yet "
+            "(call trigger_evtx_walk and poll evtx_walk_status), or your "
+            "filters may be too narrow."
+        )
+    return _truncate(json.dumps(out, indent=2))
+
+
 # ── Registration ─────────────────────────────────────────────────────────────
 
 
@@ -411,6 +516,57 @@ def register_windows_event_log_tools(registry: ToolRegistry) -> None:
             "additionalProperties": False,
         },
         handler=_handle_trigger_evtx_walk,
+    )
+
+    registry.register(
+        name="search_events",
+        description=(
+            "Phase ε.2.C — paginate the per-event windows_event_records "
+            "table for the active firmware by provider name (exact), Event "
+            "ID (exact), and ISO-8601 time range. Returns up to `limit` "
+            "rows per page (default 50, max 500) with total_count so the "
+            "operator can navigate large walks (real Win11 Security.evtx "
+            "carries millions of events). Distinct from query_evtx_events "
+            "which scans the per-file aggregate sample; this tool reads "
+            "the full ε.2.A landing zone populated by ε.2.B's walker. "
+            "Order: recorded_at DESC (forensic-timeline UX). Indexes "
+            "(firmware_id, provider, event_id) + (firmware_id, recorded_at) "
+            "cover the common filter shapes."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "provider": {
+                    "type": "string",
+                    "description": "Exact provider match (e.g. 'Microsoft-Windows-Sysmon').",
+                },
+                "event_id": {
+                    "type": "integer",
+                    "description": "Exact Event ID (e.g. 1 for Sysmon process-create, 4624 for logon success).",
+                },
+                "time_range_start": {
+                    "type": "string",
+                    "description": "ISO-8601 timestamp (inclusive lower bound). Example: '2025-12-25T00:00:00Z'.",
+                },
+                "time_range_end": {
+                    "type": "string",
+                    "description": "ISO-8601 timestamp (inclusive upper bound).",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Page size (default 50, min 1, max 500).",
+                    "minimum": 1,
+                    "maximum": 500,
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Page offset for pagination (default 0).",
+                    "minimum": 0,
+                },
+            },
+            "additionalProperties": False,
+        },
+        handler=_handle_search_events,
     )
 
     registry.register(
