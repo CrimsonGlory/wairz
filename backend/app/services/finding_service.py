@@ -66,6 +66,18 @@ _SOURCE_DRIVER_IMPORTS: WindowsFindingSource = "windows_driver_imports"
 _SOURCE_R2R_STOMP: WindowsFindingSource = "windows_r2r_stomp"
 _SOURCE_IL_CAPA: WindowsFindingSource = "windows_il_capa"
 
+# ── Phase ε.1.b.4 — EVTX (Windows Event Log) source constants ────────────────
+#
+# Same Rule #33 .c discipline as β.12b + γ.8 + δ.8 — narrow Literal at the
+# helper boundary catches typos at code-load time without disturbing the
+# legacy ``FindingCreate.source: str`` contract. The DB CHECK
+# (ck_findings_source from ε.1.b.4 alembic e1a2b3c4d5e6) is the durable
+# safety floor enforcing the full allowlist (28 sources at ε shipping
+# time).
+_SOURCE_SYSMON_PROC_CREATE: WindowsFindingSource = "windows_sysmon_proc_create"
+_SOURCE_LOGON_SUCCESS: WindowsFindingSource = "windows_logon_success"
+_SOURCE_LOGON_FAILURE: WindowsFindingSource = "windows_logon_failure"
+
 
 @dataclass(frozen=True)
 class _PEFindingDraft:
@@ -781,6 +793,143 @@ class FindingService:
                     confidence=confidence,
                     firmware_id=firmware_id,
                     source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_evtx_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Emit forensic-timeline Finding rows for one firmware's EVTX
+        walk (Phase ε.1.b.4).
+
+        Reads the firmware's ``evtx_walk_result`` aggregate (ε.1.b.3),
+        walks the per-file ``records`` lists (sample-records cap from
+        ε.1.b.3) classifying by Event ID:
+
+        - Sysmon EID 1 (process create) → :data:`_SOURCE_SYSMON_PROC_CREATE`
+        - Security EID 4624 (logon success) → :data:`_SOURCE_LOGON_SUCCESS`
+        - Security EID 4625 (logon failure) → :data:`_SOURCE_LOGON_FAILURE`
+
+        Idempotency is the caller's responsibility — this emitter
+        DELETEs prior ε.1.b.4 sources for the firmware before re-
+        emitting, mirroring the β.12c + γ.8 + δ.8 patterns.
+
+        ε.1.b.4 ships LOW confidence baseline only (every record gets
+        a low-confidence review-candidate Finding). Higher-tier
+        classification (heuristic-match → MEDIUM, threat-feed
+        correlation → HIGH) is deferred to a future ζ.X phase once
+        per-event row persistence lands and supports full record
+        inspection. The aggregate's per-file sample is sufficient
+        evidence for the LOW baseline.
+        """
+        from app.services.jsonb_normalizers import (
+            _normalize_firmware_evtx_walk_result,
+        )
+        from app.models.firmware import Firmware
+        from app.models.finding import Finding as FindingModel
+
+        fw = (
+            await self.db.execute(
+                select(Firmware).where(Firmware.id == firmware_id)
+            )
+        ).scalar_one_or_none()
+        if fw is None:
+            return []
+
+        aggregate = _normalize_firmware_evtx_walk_result(fw.evtx_walk_result) or {}
+        per_file = aggregate.get("per_file") or []
+        if not per_file:
+            return []
+
+        # Pre-emit cleanup — delete prior ε.1.b.4 sources so re-runs
+        # don't accumulate duplicate review candidates.
+        await self.db.execute(
+            FindingModel.__table__.delete().where(
+                FindingModel.firmware_id == firmware_id,
+                FindingModel.source.in_(
+                    (
+                        _SOURCE_SYSMON_PROC_CREATE,
+                        _SOURCE_LOGON_SUCCESS,
+                        _SOURCE_LOGON_FAILURE,
+                    )
+                ),
+            )
+        )
+
+        # Re-walk the .evtx files to extract sample records — the
+        # aggregate carries the per-file shape (paths + status) but
+        # the records list is held in memory only during the walk run.
+        # For ε.1.b.4 we re-parse a bounded sample per file via
+        # parse_evtx_file (Rule #5 sync I/O wrapped in run_in_executor).
+        from app.services.evtx_service import parse_evtx_file as _parse_evtx
+        import asyncio
+        import re
+
+        loop = asyncio.get_running_loop()
+        emitted: list[Finding] = []
+
+        # Per-EID classification table: regex matches the Event ID in
+        # the raw_xml string. Cheap regex extraction beats lxml parse
+        # for the dispatch — the heuristic only needs the EID + provider
+        # for routing.
+        _EID_RE = re.compile(r"<EventID(?:\s+[^>]*)?>(\d+)</EventID>")
+
+        for file_entry in per_file:
+            if not isinstance(file_entry, dict):
+                continue
+            path = file_entry.get("path")
+            if not path or file_entry.get("status") != "ok":
+                continue
+
+            try:
+                parsed = await loop.run_in_executor(None, _parse_evtx, path)
+            except Exception:  # noqa: BLE001 — defensive
+                continue
+            records = parsed.get("records") or []
+            if not records:
+                continue
+
+            for rec in records:
+                xml = rec.get("raw_xml") or ""
+                m = _EID_RE.search(xml)
+                if not m:
+                    continue
+                eid = int(m.group(1))
+
+                # Route by EID — Sysmon-1 / 4624 / 4625 only at ε.
+                source: WindowsFindingSource | None
+                if eid == 1 and "Sysmon" in xml:
+                    source = _SOURCE_SYSMON_PROC_CREATE
+                    title = f"Sysmon process-create event (EID 1) at {path}"
+                elif eid == 4624:
+                    source = _SOURCE_LOGON_SUCCESS
+                    title = f"Logon success (EID 4624) at {path}"
+                elif eid == 4625:
+                    source = _SOURCE_LOGON_FAILURE
+                    title = f"Logon failure (EID 4625) at {path}"
+                else:
+                    continue
+
+                # Truncate the raw_xml evidence to keep finding rows
+                # under the title-512 + standard-Text limits.
+                evidence = xml[:2000] if xml else None
+                data = FindingCreate(
+                    title=title[:255],
+                    severity=Severity.info,
+                    description=(
+                        f"Forensic-timeline Finding from EVTX walk. EID={eid}; "
+                        f"file={path}; record_num={rec.get('record_num')}. "
+                        "ε.1.b.4 baseline (LOW confidence review candidate); "
+                        "higher-tier heuristic classification deferred to ζ.X."
+                    ),
+                    evidence=evidence,
+                    file_path=path,
+                    confidence=Confidence.low,
+                    firmware_id=firmware_id,
+                    source=source,
                 )
                 emitted.append(await self.create(project_id, data))
         return emitted

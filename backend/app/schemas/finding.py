@@ -27,6 +27,16 @@ WindowsFindingSource = Literal[
     # - Future capa-on-IL emitter → capability badges per .NET assembly.
     "windows_r2r_stomp",
     "windows_il_capa",
+    # Phase ε.1.b.4 — alignment slice with frontend FindingSource union +
+    # FINDING_SOURCE_CONFIG entries. Emitted by the EVTX walk emit hook
+    # (``finding_service.emit_evtx_findings_from_walk``) for the
+    # forensic-timeline trio (Persona-E #4):
+    # - Sysmon EID 1 (process create) → windows_sysmon_proc_create.
+    # - Security EID 4624 (logon success) → windows_logon_success.
+    # - Security EID 4625 (logon failure) → windows_logon_failure.
+    "windows_sysmon_proc_create",
+    "windows_logon_success",
+    "windows_logon_failure",
 ]
 
 

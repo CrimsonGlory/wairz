@@ -13,6 +13,7 @@ import {
   Shield,
   Smartphone,
   Code,
+  Eye,
   FileSearch,
   Lock,
   Target,
@@ -95,6 +96,9 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   windows_driver_imports: { icon: Network, label: 'Driver Imports', className: 'border-sky-500/50 text-sky-600 dark:text-sky-400' },
   windows_r2r_stomp: { icon: ShieldAlert, label: 'R2R Stomp', className: 'border-red-500/50 text-red-600 dark:text-red-400' },
   windows_il_capa: { icon: Code, label: 'IL Capa', className: 'border-fuchsia-500/50 text-fuchsia-600 dark:text-fuchsia-400' },
+  windows_sysmon_proc_create: { icon: Eye, label: 'Sysmon Proc Create', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
+  windows_logon_success: { icon: User, label: 'Logon Success', className: 'border-emerald-500/50 text-emerald-600 dark:text-emerald-400' },
+  windows_logon_failure: { icon: ShieldX, label: 'Logon Failure', className: 'border-rose-500/50 text-rose-600 dark:text-rose-400' },
 }
 
 // ── Finding confidence ──

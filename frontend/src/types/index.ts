@@ -223,7 +223,7 @@ export interface BinaryInfoResponse {
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info'
 export type Confidence = 'high' | 'medium' | 'low'
 export type FindingStatus = 'open' | 'confirmed' | 'false_positive' | 'fixed'
-export type FindingSource = 'manual' | 'ai_discovered' | 'sbom_scan' | 'fuzzing' | 'security_review' | 'security_audit' | 'yara_scan' | 'abusech_scan' | 'apk-manifest-scan' | 'apk-bytecode-scan' | 'apk-mobsfscan' | 'unpack_audit' | 'attack_surface' | 'clamav_scan' | 'cwe_checker' | 'hardware_firmware_graph' | 'uefi_scan' | 'vt_scan' | 'windows_authenticode' | 'windows_dbx_revoked' | 'windows_registry_persistence' | 'windows_inf' | 'windows_driver_imports' | 'windows_r2r_stomp' | 'windows_il_capa'
+export type FindingSource = 'manual' | 'ai_discovered' | 'sbom_scan' | 'fuzzing' | 'security_review' | 'security_audit' | 'yara_scan' | 'abusech_scan' | 'apk-manifest-scan' | 'apk-bytecode-scan' | 'apk-mobsfscan' | 'unpack_audit' | 'attack_surface' | 'clamav_scan' | 'cwe_checker' | 'hardware_firmware_graph' | 'uefi_scan' | 'vt_scan' | 'windows_authenticode' | 'windows_dbx_revoked' | 'windows_registry_persistence' | 'windows_inf' | 'windows_driver_imports' | 'windows_r2r_stomp' | 'windows_il_capa' | 'windows_sysmon_proc_create' | 'windows_logon_success' | 'windows_logon_failure'
 
 export interface Finding {
   id: string
