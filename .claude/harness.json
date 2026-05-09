@@ -297,6 +297,24 @@
         "pattern": "docker\\s+cp\\s+(?:[^/\\s]+/)*tests/[^\\s]+\\s+\\S+:/app/tests/(?:tests/)?[^\\s]+",
         "filePattern": "**/*.{md,sh,yml,yaml}",
         "message": "Learned from phase-2-test-coverage-routers-services-2026-05-06 anti-pattern #5: relative-path `docker cp tests/test_X.py <container>:/app/tests/test_X.py` invocations from inside `backend/` land files at `/app/tests/tests/test_X.py` (nested) instead of `/app/tests/test_X.py` due to host-CWD-prefix interpretation. The stale dir accumulates outdated test files across sessions and produces phantom failures in full-suite smoke runs. Use HOST-ABSOLUTE paths in `docker cp`: `docker cp /home/<user>/code/wairz/backend/tests/test_X.py <container>:/app/tests/test_X.py`. See .planning/knowledge/phase-2-test-coverage-routers-services-antipatterns.md anti-pattern #5."
+      },
+      {
+        "name": "auto-final-eps2c-zeta1-2026-05-09-mcp-count-eq-assertion",
+        "pattern": "assert\\s+len\\(\\s*[a-zA-Z_]+\\._tools\\s*\\)\\s*==\\s*\\d+",
+        "filePattern": "backend/tests/**/*.py",
+        "message": "Learned from windows-coverage-godmode final (Rule-of-Three): use `>=` for growing-collection counts (MCP registry, finding-source allowlist). Equality assertions break at every phase boundary that adds tools/sources. Move the phase-shipping count to a docstring; relax the assertion."
+      },
+      {
+        "name": "auto-final-eps2c-zeta1-2026-05-09-finding-source-eq-count",
+        "pattern": "assert\\s+len\\(\\s*WindowsFindingSource\\s*\\)\\s*==\\s*\\d+|len\\(\\s*get_args\\(\\s*WindowsFindingSource\\s*\\)\\s*\\)\\s*==\\s*\\d+",
+        "filePattern": "backend/tests/**/*.py",
+        "message": "Learned from windows-coverage-godmode final: use `>=` for the WindowsFindingSource Literal value count. Equality breaks every time the cross-stack alignment slice extends ck_findings_source."
+      },
+      {
+        "name": "auto-final-eps2c-zeta1-2026-05-09-pr-close-comment-flag",
+        "pattern": "gh\\s+pr\\s+close\\s+[^|]*--comment\\b",
+        "filePattern": "**/*.{sh,md,py,js,ts}",
+        "message": "Learned from windows-coverage-godmode final: `gh pr close --comment` is unsupported in some gh versions. Use two-step: `gh pr comment <N> --body \"...\"` then `gh pr close <N>`."
       }
     ]
   },
@@ -359,7 +377,7 @@
     "sessions": 0,
     "campaigns": 0,
     "override": null,
-    "sessions_completed": 175
+    "sessions_completed": 176
   },
   "consent": {
     "externalActions": "session-allow"
