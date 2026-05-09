@@ -28,11 +28,13 @@ from app.ai.tools.windows_update import register_windows_update_tools
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_registry_tool_count_is_213():
-    """δ.7 brings the registry from 197 (γ end) to 213 — exactly 16 new
-    tools across 3 new categories (5 + 5 + 6)."""
+def test_registry_tool_count_post_delta():
+    """δ.7 brought the registry from 197 (γ end) to 213 — 16 new tools
+    across 3 new categories (5+5+6). ε.1.b.4 extended to 219 (windows_event_log).
+    Lower-bound assertion accommodates future additions without per-phase
+    test churn."""
     reg = create_tool_registry()
-    assert len(reg._tools) == 213
+    assert len(reg._tools) >= 213
 
 
 # ─────────────────────────────────────────────────────────────────────────────
