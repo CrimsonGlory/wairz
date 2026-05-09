@@ -86,15 +86,17 @@ _HOST_REAL_EVTX_PAIRED = os.environ.get("WAIRZ_TEST_REAL_EVTX_PAIRED")
 # ── Tier 1 (always runs) ────────────────────────────────────────────────────
 
 
-def test_tier1_mcp_registry_count_is_219_post_epsilon():
-    """ε.1.b.4 brings the registry from δ end (213) to ε end (219)
-    via the new windows_event_log category (6 tools)."""
+def test_tier1_mcp_registry_count_post_epsilon():
+    """ε.1.b.4 brought the registry from δ end (213) to ε end (219)
+    via the new windows_event_log category (6 tools). ε.2.C added
+    search_events (220). Lower-bound assertion accommodates future
+    phase additions without per-phase test churn."""
     reg = create_tool_registry()
     # Use the public registry API to get tool count rather than touching
     # private attribute, but accept either form for backwards compatibility.
     tools = list(reg._tools.keys()) if hasattr(reg, "_tools") else reg.list()
-    assert len(tools) == 219, (
-        f"expected 219 MCP tools post-ε.1.b.4 (δ end + 6 windows_event_log), "
+    assert len(tools) >= 219, (
+        f"expected >= 219 MCP tools post-ε.1.b.4 (δ end + 6 windows_event_log), "
         f"got {len(tools)}"
     )
     evtx_tools = sorted(t for t in tools if "evtx" in t.lower())
