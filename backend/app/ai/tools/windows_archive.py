@@ -34,7 +34,18 @@ import asyncio
 import logging
 import os
 import re
-import xml.etree.ElementTree as ET
+
+# defusedxml hardens against XXE / billion-laughs / external-entity attacks
+# on untrusted XML (Phase Lint.B.3, 2026-05-10). MSIX AppxManifest.xml
+# comes from extracted firmware archives — untrusted source. defusedxml
+# exposes `fromstring` that wraps the stdlib parser with attack-rejecting
+# policies; the resulting Element tree uses the stdlib's
+# `xml.etree.ElementTree.Element` type (defusedxml does not re-export it),
+# so type annotations and ParseError handling continue to come from the
+# stdlib module.
+import xml.etree.ElementTree as ET  # type-only: ET.ParseError, traversal helpers
+
+from defusedxml.ElementTree import fromstring as _safe_fromstring
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
 
@@ -266,9 +277,10 @@ async def _handle_read_msix_manifest(input: dict, context: ToolContext) -> str:
         return f"Manifest read failed: {exc}"
 
     try:
-        # MSIX manifests are ASCII-XML; ET.fromstring tolerates any encoding
-        # the XML declaration specifies.
-        root = ET.fromstring(xml_bytes)
+        # MSIX manifests are ASCII-XML; _safe_fromstring (defusedxml) tolerates
+        # any encoding the XML declaration specifies, while rejecting XXE /
+        # entity-expansion / external-entity attacks.
+        root = _safe_fromstring(xml_bytes)
     except ET.ParseError as exc:
         return f"Manifest XML parse failed: {exc}"
 

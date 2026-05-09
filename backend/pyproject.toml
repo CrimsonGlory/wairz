@@ -123,6 +123,16 @@ dependencies = [
     # wairz invokes esedbutil / Get-CimInstance SRUMState / scriptable
     # replay.
     "libesedb-python>=20240420",
+    # ── Phase Lint.B.3: hardened XML parsing for untrusted firmware sources ──
+    # defusedxml — drop-in replacement for xml.etree.ElementTree that
+    # rejects entity-expansion / external-entity / DTD-fetch attacks. Used
+    # by manifest_checks/network_security.py (Android NSC parser — input
+    # is extracted firmware) and ai/tools/windows_archive.py (MSIX
+    # AppxManifest parser — input is extracted MSIX archive). Both inputs
+    # come from extracted firmware which we treat as untrusted (Rule #36
+    # adjacent: parse-as-data still requires defending against XXE).
+    # Pure-Python; no C-extension build deps.
+    "defusedxml>=0.7.1",
 ]
 
 [project.scripts]
@@ -202,7 +212,12 @@ ignore = [
     "B905",      # zip() without strict= — 3 hits; pre-existing
     "S104",      # bind to all interfaces — 1 hit; intentional in dev tooling
     "S105",      # hardcoded password — 1 hit; false positive on `pass_` field
-    "S314",      # xml without defusedxml — 2 hits; pre-existing; cleanup follow-up
+    # S314 (xml without defusedxml) closed 2026-05-10 (Phase Lint.B.3) —
+    # both call sites swapped to defusedxml.ElementTree.fromstring; the
+    # 2 affected files (manifest_checks/network_security.py + ai/tools/
+    # windows_archive.py) keep `xml.etree.ElementTree` imports purely for
+    # `Element` type annotations + `ParseError` exception handling, which
+    # defusedxml deliberately re-uses from the stdlib.
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -223,11 +238,18 @@ skips = [
     "B104",  # hardcoded_bind_all_interfaces (intentional for dev/MCP listeners)
     "B108",  # hardcoded_tmp_directory (firmware emulation scratch space)
     "B202",  # tarfile_unsafe_members (firmware extraction workflow)
-    "B314",  # xml_bad_etree (trusted-source parsing; defusedxml migration is follow-up)
+    # B314 (xml_bad_etree call-site) closed 2026-05-10 (Phase Lint.B.3) —
+    # ET.fromstring / ET.parse call sites all migrated to
+    # defusedxml.ElementTree.fromstring.
     "B324",  # hashlib weak hashes (md5 for hash-compare-only, not security)
     "B404",  # subprocess import (unavoidable for CLI tool integration)
-    "B405",  # xml import (paired with B314)
-    "B408",  # xml_bad_minidom (paired with B314)
+    # B405 (xml.etree.ElementTree import) — kept skipped: bandit's blacklist
+    # treats the bare type-only import as unsafe even when the actual parsing
+    # is delegated to defusedxml. defusedxml does not re-export `Element`,
+    # so type annotations like `root: ET.Element` legitimately need the
+    # stdlib import. (Phase Lint.B.3, 2026-05-10.)
+    "B405",
+    "B408",  # xml_bad_minidom (legacy code paths still using minidom)
     "B413",  # pycrypto import (legacy key-handling code)
     "B501",  # request_with_no_cert_validation (offline-trust-anchor discipline; see Rule #37)
     "B105",  # hardcoded_password_string (false-positive on common dev-env field names)

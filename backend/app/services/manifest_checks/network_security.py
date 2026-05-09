@@ -16,8 +16,18 @@ with ``_check_network_security_config`` which drives them.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+# defusedxml hardens against XXE / billion-laughs / external-entity attacks
+# on untrusted XML (Phase Lint.B.3, 2026-05-10). Android NSC config XML
+# comes from extracted firmware — untrusted source. defusedxml exposes
+# `fromstring` + `parse` etc. that wrap the stdlib parser with attack-
+# rejecting policies; the resulting Element tree uses the stdlib's
+# `xml.etree.ElementTree.Element` type, so type annotations still come
+# from the stdlib module. defusedxml.ElementTree.ParseError is the same
+# class as xml.etree.ElementTree.ParseError (re-export).
+import xml.etree.ElementTree as ET  # type-only: ET.Element / ET.ParseError
 from typing import Any
+
+from defusedxml.ElementTree import fromstring as _safe_fromstring
 
 from app.services.manifest_checks._base import (
     ManifestFinding,
@@ -133,7 +143,7 @@ class NetworkSecurityChecks:
             return findings
 
         try:
-            root = ET.fromstring(nsc_xml)
+            root = _safe_fromstring(nsc_xml)
         except ET.ParseError as exc:
             findings.append(
                 ManifestFinding(
