@@ -45,6 +45,15 @@ WindowsFindingSource = Literal[
     # history, LOW confidence baseline; threat-feed correlation defers
     # to a future ζ.X phase).
     "windows_amcache_install",
+    # Phase ζ.2.C — alignment slice with frontend FindingSource union +
+    # FINDING_SOURCE_CONFIG entries. Emitted by the Prefetch finding-emit
+    # hook (``finding_service.emit_prefetch_findings_from_walk``) for
+    # every ``WindowsPrefetchRecord`` row produced by the ζ.2.B walker —
+    # Persona-E application-execution history. LOW confidence baseline;
+    # threat-feed correlation (file path / executable hash) deferred to
+    # a future ζ.X phase. Companion to windows_amcache_install (also
+    # installation/execution-history baseline at LOW).
+    "windows_prefetch_execution",
 ]
 
 

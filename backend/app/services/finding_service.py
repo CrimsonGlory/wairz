@@ -84,6 +84,14 @@ _SOURCE_LOGON_FAILURE: WindowsFindingSource = "windows_logon_failure"
 # correlation tier is deferred to a future ζ.X phase).
 _SOURCE_AMCACHE_INSTALL: WindowsFindingSource = "windows_amcache_install"
 
+# Phase ζ.2.C — Prefetch application-execution history finding source.
+# Emitted by ``emit_prefetch_findings_from_walk`` for every WindowsPrefetchRecord
+# row produced by the ζ.2.B walker. LOW confidence baseline (execution-history
+# facts are not malicious by themselves; threat-feed correlation tier is
+# deferred to a future ζ.X phase). Companion to _SOURCE_AMCACHE_INSTALL —
+# both surface program-history baseline at LOW.
+_SOURCE_PREFETCH_EXECUTION: WindowsFindingSource = "windows_prefetch_execution"
+
 
 @dataclass(frozen=True)
 class _PEFindingDraft:
@@ -393,6 +401,80 @@ def classify_amcache_install_findings(
             )
         )
     return drafts
+
+
+def classify_prefetch_execution_findings(
+    *,
+    prefetch_file_path: str,
+    executable_name: str,
+    run_count: int | None,
+    last_run_time: Any,
+    version: int | None = None,
+    prefetch_hash: str | None = None,
+) -> list[_PEFindingDraft]:
+    """Phase ζ.2.C — map one WindowsPrefetchRecord row to one
+    application-execution-history Finding draft.
+
+    Pure function — no DB access. Each Prefetch row yields exactly one
+    LOW-confidence review-candidate Finding draft surfacing the
+    executable name + run count + last-run timestamp.
+
+    Returns empty list when ``executable_name`` is missing/empty
+    (defensive boundary mirrors the walker's _build_record contract —
+    rows without an executable_name aren't persisted, but this guard
+    catches any caller that bypasses the walker).
+
+    Confidence tier: LOW baseline (Severity.info). Threat-feed
+    correlation against the file path / executable hash / curated
+    suspicious-binary list is deferred to a future ζ.X phase. Same
+    shape as ζ.1's classify_amcache_install_findings.
+
+    Why an emit hook on top of the per-row table:
+    - The walker (ζ.2.B) writes one ``WindowsPrefetchRecord`` per .pf
+      file. The Finding emitter (ζ.2.D) projects each row to an
+      operator-triageable surface (Severity + title + description +
+      evidence) so the same data appears in the Findings UI.
+    - Operators then triage in one place — the Findings page — rather
+      than learning a separate Prefetch viewer.
+    """
+    if not executable_name:
+        return []
+
+    evidence_lines = [
+        f"Executable: {executable_name}",
+    ]
+    if run_count is not None:
+        evidence_lines.append(f"Run count: {run_count}")
+    if last_run_time is not None:
+        evidence_lines.append(f"Last run: {last_run_time}")
+    if version is not None:
+        evidence_lines.append(f"Prefetch version: {version}")
+    if prefetch_hash:
+        evidence_lines.append(f"Prefetch hash: {prefetch_hash}")
+    evidence_lines.append(f"Prefetch file: {prefetch_file_path}")
+    evidence = "\n".join(evidence_lines)
+
+    description = (
+        f"Windows Prefetch record surfaces application-execution history "
+        f"for {executable_name}"
+    )
+    if run_count:
+        description += f" (run {run_count} times)"
+    description += (
+        ". LOW-confidence review candidate; correlate the executable "
+        "path / hash with threat-feeds for higher-confidence verdicts "
+        "in a follow-up triage."
+    )
+
+    return [
+        _PEFindingDraft(
+            source=_SOURCE_PREFETCH_EXECUTION,
+            severity=Severity.info,
+            title=f"Prefetch execution: {executable_name}",
+            description=description,
+            evidence=evidence,
+        )
+    ]
 
 
 def classify_registry_persistence_findings(
@@ -822,6 +904,61 @@ class FindingService:
                     description=draft.description,
                     evidence=draft.evidence,
                     file_path=extract.hive_path,
+                    confidence=Confidence.low,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_prefetch_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Phase ζ.2.D — emit windows_prefetch_execution Finding rows for one firmware.
+
+        Reads every persisted ``WindowsPrefetchRecord`` row for the
+        firmware (rows are produced by the ζ.2.B walker) and projects
+        each into one LOW-confidence review-candidate Finding row via
+        :func:`classify_prefetch_execution_findings`.
+
+        The walker (ζ.2.B) and the emitter (ζ.2.D) are deliberately
+        separate concerns:
+        - Walker: forensic-data extraction. Records every .pf as a
+          structured row in ``windows_prefetch_records``. No Severity.
+        - Emitter: operator-facing triage surface. Projects each row
+          into a Finding the operator can review/dismiss/escalate.
+
+        Idempotency is the caller's responsibility — same shape as
+        emit_registry_findings_from_walk; callers DELETE prior
+        windows_prefetch_execution findings for the firmware before
+        re-emitting.
+        """
+        from app.models.windows_prefetch_record import WindowsPrefetchRecord
+
+        stmt = select(WindowsPrefetchRecord).where(
+            WindowsPrefetchRecord.firmware_id == firmware_id
+        )
+        rows = (await self.db.execute(stmt)).scalars().all()
+
+        emitted: list[Finding] = []
+        for record in rows:
+            drafts = classify_prefetch_execution_findings(
+                prefetch_file_path=record.prefetch_file_path,
+                executable_name=record.executable_name,
+                run_count=record.run_count,
+                last_run_time=record.last_run_time,
+                version=record.version,
+                prefetch_hash=record.prefetch_hash,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.prefetch_file_path,
                     confidence=Confidence.low,
                     firmware_id=firmware_id,
                     source=draft.source,

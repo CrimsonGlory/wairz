@@ -100,6 +100,7 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   windows_logon_success: { icon: User, label: 'Logon Success', className: 'border-emerald-500/50 text-emerald-600 dark:text-emerald-400' },
   windows_logon_failure: { icon: ShieldX, label: 'Logon Failure', className: 'border-rose-500/50 text-rose-600 dark:text-rose-400' },
   windows_amcache_install: { icon: Package, label: 'AmCache Install', className: 'border-cyan-500/50 text-cyan-600 dark:text-cyan-400' },
+  windows_prefetch_execution: { icon: Bot, label: 'Prefetch Execution', className: 'border-violet-500/50 text-violet-600 dark:text-violet-400' },
 }
 
 // ── Finding confidence ──
