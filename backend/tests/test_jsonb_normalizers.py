@@ -44,6 +44,9 @@ from app.services.jsonb_normalizers import (
     WINDOWS_EVENT_RECORDS_MESSAGE_XML_SCHEMA_VERSION,
     WINDOWS_PE_SIGNATURES_ARCH_VIEW_SCHEMA_VERSION,
     WINDOWS_PE_SIGNATURES_RICH_HEADER_JSON_SCHEMA_VERSION,
+    WINDOWS_PREFETCH_RECORDS_ALL_RUN_TIMES_SCHEMA_VERSION,
+    WINDOWS_PREFETCH_RECORDS_FILENAMES_REFERENCED_SCHEMA_VERSION,
+    WINDOWS_PREFETCH_RECORDS_VOLUMES_SCHEMA_VERSION,
     WINDOWS_REGISTRY_EXTRACTS_PARSED_TREE_SCHEMA_VERSION,
     WINDOWS_UPDATE_PACKAGES_UPDATE_METADATA_SCHEMA_VERSION,
     _normalize_analysis_cache_result,
@@ -76,6 +79,9 @@ from app.services.jsonb_normalizers import (
     _normalize_windows_event_records_message_xml,
     _normalize_windows_pe_signatures_arch_view,
     _normalize_windows_pe_signatures_rich_header_json,
+    _normalize_windows_prefetch_records_all_run_times,
+    _normalize_windows_prefetch_records_filenames_referenced,
+    _normalize_windows_prefetch_records_volumes,
     _normalize_windows_registry_extracts_parsed_tree,
     _normalize_windows_update_packages_update_metadata,
     _stamp_analysis_cache_result,
@@ -95,6 +101,9 @@ from app.services.jsonb_normalizers import (
     _stamp_windows_event_records_message_xml,
     _stamp_windows_pe_signatures_arch_view,
     _stamp_windows_pe_signatures_rich_header_json,
+    _stamp_windows_prefetch_records_all_run_times,
+    _stamp_windows_prefetch_records_filenames_referenced,
+    _stamp_windows_prefetch_records_volumes,
     _stamp_windows_registry_extracts_parsed_tree,
     _stamp_windows_update_packages_update_metadata,
 )
@@ -1991,3 +2000,143 @@ def test_stamp_windows_event_records_message_xml_idempotent():
 
 def test_windows_event_records_message_xml_schema_version_constant():
     assert WINDOWS_EVENT_RECORDS_MESSAGE_XML_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp_windows_prefetch_records_* (Phase ζ.2.A) ───────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical envelope pass-through.
+        (
+            {"schema_version": 1, "items": ["2026-05-09T14:23:45+00:00"]},
+            ["2026-05-09T14:23:45+00:00"],
+        ),
+        # Bare list (legacy / pre-stamp) pass-through.
+        (["2026-05-09T14:23:45+00:00"], ["2026-05-09T14:23:45+00:00"]),
+        # None → empty list (no run times recorded).
+        (None, []),
+        # Wrong type → empty list (defensive).
+        ("2026-05-09", []),
+        (42, []),
+        # Empty envelope.
+        ({"schema_version": 1, "items": []}, []),
+        # None entries within the list dropped.
+        (
+            {"schema_version": 1, "items": ["t1", None, "t2"]},
+            ["t1", "t2"],
+        ),
+    ],
+)
+def test_normalize_windows_prefetch_records_all_run_times(value, expected):
+    assert _normalize_windows_prefetch_records_all_run_times(value) == expected
+
+
+def test_normalize_windows_prefetch_records_all_run_times_idempotent():
+    canonical = {"schema_version": 1, "items": ["t1", "t2", "t3"]}
+    once = _normalize_windows_prefetch_records_all_run_times(canonical)
+    twice = _normalize_windows_prefetch_records_all_run_times(once)
+    assert once == twice == ["t1", "t2", "t3"]
+
+
+def test_stamp_windows_prefetch_records_all_run_times_adds_version():
+    out = _stamp_windows_prefetch_records_all_run_times(["t1", "t2"])
+    assert out["schema_version"] == WINDOWS_PREFETCH_RECORDS_ALL_RUN_TIMES_SCHEMA_VERSION
+    assert out["items"] == ["t1", "t2"]
+
+
+def test_stamp_windows_prefetch_records_all_run_times_idempotent():
+    once = _stamp_windows_prefetch_records_all_run_times(["t1"])
+    twice = _stamp_windows_prefetch_records_all_run_times(once)
+    assert once == twice
+    assert once["items"] == ["t1"]
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {"schema_version": 1, "items": ["\\WIN\\SYS32\\NTDLL.DLL"]},
+            ["\\WIN\\SYS32\\NTDLL.DLL"],
+        ),
+        (["\\WIN\\SYS32\\NTDLL.DLL"], ["\\WIN\\SYS32\\NTDLL.DLL"]),
+        (None, []),
+        ("not a list", []),
+    ],
+)
+def test_normalize_windows_prefetch_records_filenames_referenced(value, expected):
+    assert _normalize_windows_prefetch_records_filenames_referenced(value) == expected
+
+
+def test_stamp_windows_prefetch_records_filenames_referenced_adds_version():
+    out = _stamp_windows_prefetch_records_filenames_referenced(["a.dll"])
+    assert (
+        out["schema_version"]
+        == WINDOWS_PREFETCH_RECORDS_FILENAMES_REFERENCED_SCHEMA_VERSION
+    )
+    assert out["items"] == ["a.dll"]
+
+
+def test_stamp_windows_prefetch_records_filenames_referenced_idempotent():
+    once = _stamp_windows_prefetch_records_filenames_referenced(["a.dll"])
+    twice = _stamp_windows_prefetch_records_filenames_referenced(once)
+    assert once == twice
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {
+                "schema_version": 1,
+                "items": [
+                    {
+                        "device_path": "\\DEVICE\\HARDDISKVOLUME3",
+                        "serial_number": "12345678",
+                    }
+                ],
+            },
+            [
+                {
+                    "device_path": "\\DEVICE\\HARDDISKVOLUME3",
+                    "serial_number": "12345678",
+                }
+            ],
+        ),
+        # Bare list pass-through.
+        (
+            [{"device_path": "\\DEVICE\\HARDDISKVOLUME0"}],
+            [{"device_path": "\\DEVICE\\HARDDISKVOLUME0"}],
+        ),
+        # None → empty.
+        (None, []),
+        # Non-dict entries inside list are filtered out.
+        (
+            {"schema_version": 1, "items": [{"a": 1}, "not-a-dict", 42]},
+            [{"a": 1}],
+        ),
+    ],
+)
+def test_normalize_windows_prefetch_records_volumes(value, expected):
+    assert _normalize_windows_prefetch_records_volumes(value) == expected
+
+
+def test_stamp_windows_prefetch_records_volumes_adds_version():
+    out = _stamp_windows_prefetch_records_volumes(
+        [{"device_path": "\\DEVICE\\HARDDISKVOLUME3"}]
+    )
+    assert out["schema_version"] == WINDOWS_PREFETCH_RECORDS_VOLUMES_SCHEMA_VERSION
+    assert out["items"] == [{"device_path": "\\DEVICE\\HARDDISKVOLUME3"}]
+
+
+def test_stamp_windows_prefetch_records_volumes_idempotent():
+    once = _stamp_windows_prefetch_records_volumes([{"a": 1}])
+    twice = _stamp_windows_prefetch_records_volumes(once)
+    assert once == twice
+
+
+def test_windows_prefetch_records_schema_version_constants():
+    assert WINDOWS_PREFETCH_RECORDS_ALL_RUN_TIMES_SCHEMA_VERSION == 1
+    assert WINDOWS_PREFETCH_RECORDS_FILENAMES_REFERENCED_SCHEMA_VERSION == 1
+    assert WINDOWS_PREFETCH_RECORDS_VOLUMES_SCHEMA_VERSION == 1

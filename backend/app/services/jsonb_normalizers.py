@@ -1271,3 +1271,119 @@ def _stamp_windows_event_records_message_xml(payload: dict) -> dict:
     """
     payload["schema_version"] = WINDOWS_EVENT_RECORDS_MESSAGE_XML_SCHEMA_VERSION
     return payload
+
+
+# ── windows_prefetch_records JSONB columns (Phase ζ.2.A) ──────────────────────
+#
+# Three JSONB columns on ``windows_prefetch_records``:
+#   - ``all_run_times``: list-shaped (list of ISO-8601 strings)
+#   - ``filenames_referenced``: list-shaped (list of UTF-16-decoded paths)
+#   - ``volumes``: list-shaped (list of dicts: serial + path + creation_time)
+#
+# Per Rule #35c, list-shaped JSONB columns get the SCHEMA_VERSION constant
+# but NO inline stamp marker (the discriminator can't live INSIDE the list
+# cleanly). Wrap the payload in ``{"schema_version": N, "items": [...]}``
+# at the writer boundary so the discriminator AND the list can coexist.
+#
+# Writer (Phase ζ.2.B inner runner):
+#   record.all_run_times = _stamp_windows_prefetch_records_all_run_times(
+#       [ts.isoformat() for ts in pf.timestamps]
+#   )
+#
+# Reader (any consumer; canary is the search MCP tool ζ.2.E):
+#   ts_list = _normalize_windows_prefetch_records_all_run_times(
+#       record.all_run_times
+#   )  # always returns list[str], never None
+#
+# 3+ consumer files projected at full ζ.2 shipping (writer + search MCP +
+# any FE renderer + Finding-emit classifier) → schema_version discriminator
+# strategy per Rule #35c.
+
+WINDOWS_PREFETCH_RECORDS_ALL_RUN_TIMES_SCHEMA_VERSION = 1
+WINDOWS_PREFETCH_RECORDS_FILENAMES_REFERENCED_SCHEMA_VERSION = 1
+WINDOWS_PREFETCH_RECORDS_VOLUMES_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_prefetch_records_all_run_times(value: Any) -> list[str]:
+    """Return the canonical ``list[str]`` shape for
+    ``WindowsPrefetchRecord.all_run_times``.
+
+    Accepts the canonical envelope ``{"schema_version": 1, "items": [...]}``,
+    bare list (legacy / pre-stamp), and ``None``. Returns ``list[str]``
+    unconditionally — empty list semantically means "no run times recorded"
+    (e.g. parser couldn't decode any of the 8 timestamp slots).
+    """
+    if isinstance(value, dict) and isinstance(value.get("items"), list):
+        return [str(x) for x in value["items"] if x is not None]
+    if isinstance(value, list):
+        return [str(x) for x in value if x is not None]
+    return []
+
+
+def _stamp_windows_prefetch_records_all_run_times(items: list[str]) -> dict:
+    """Stamp the schema_version envelope onto an ``all_run_times`` payload.
+
+    Idempotent — calling twice with the result of a prior stamp is safe
+    (the envelope's items field is what we're wrapping; double-wrapping
+    is detected via the dict shape).
+    """
+    if isinstance(items, dict) and "items" in items:
+        items = items["items"]
+    return {
+        "schema_version": WINDOWS_PREFETCH_RECORDS_ALL_RUN_TIMES_SCHEMA_VERSION,
+        "items": list(items),
+    }
+
+
+def _normalize_windows_prefetch_records_filenames_referenced(value: Any) -> list[str]:
+    """Return the canonical ``list[str]`` shape for
+    ``WindowsPrefetchRecord.filenames_referenced``.
+
+    Same envelope as ``all_run_times``. Defensive coercion to str via
+    ``str(x)`` so non-UTF-8 paths don't trip readers.
+    """
+    if isinstance(value, dict) and isinstance(value.get("items"), list):
+        return [str(x) for x in value["items"] if x is not None]
+    if isinstance(value, list):
+        return [str(x) for x in value if x is not None]
+    return []
+
+
+def _stamp_windows_prefetch_records_filenames_referenced(items: list[str]) -> dict:
+    """Stamp the schema_version envelope onto a ``filenames_referenced``
+    payload. Idempotent."""
+    if isinstance(items, dict) and "items" in items:
+        items = items["items"]
+    return {
+        "schema_version": WINDOWS_PREFETCH_RECORDS_FILENAMES_REFERENCED_SCHEMA_VERSION,
+        "items": list(items),
+    }
+
+
+def _normalize_windows_prefetch_records_volumes(value: Any) -> list[dict]:
+    """Return the canonical ``list[dict]`` shape for
+    ``WindowsPrefetchRecord.volumes``.
+
+    Each entry is a dict with shape:
+        {"device_path": str, "serial_number": str | None,
+         "creation_time": str | None}
+
+    Defensive: skips non-dict entries silently (treat as "unparseable
+    volume row in legacy data").
+    """
+    if isinstance(value, dict) and isinstance(value.get("items"), list):
+        return [v for v in value["items"] if isinstance(v, dict)]
+    if isinstance(value, list):
+        return [v for v in value if isinstance(v, dict)]
+    return []
+
+
+def _stamp_windows_prefetch_records_volumes(items: list[dict]) -> dict:
+    """Stamp the schema_version envelope onto a ``volumes`` payload.
+    Idempotent."""
+    if isinstance(items, dict) and "items" in items:
+        items = items["items"]
+    return {
+        "schema_version": WINDOWS_PREFETCH_RECORDS_VOLUMES_SCHEMA_VERSION,
+        "items": list(items),
+    }
