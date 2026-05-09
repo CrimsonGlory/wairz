@@ -55,13 +55,51 @@ absent (now installed via Phase ε.2 Dockerfile delta).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import time
+import traceback
+import uuid
 from collections.abc import Iterable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import async_session_factory
+from app.models.firmware import Firmware
+from app.services.firmware_paths import get_detection_roots
+from app.services.jsonb_normalizers import (
+    _stamp_firmware_evtx_walk_result,
+)
+
 logger = logging.getLogger(__name__)
+
+
+# ── Runner tunables ──────────────────────────────────────────────────────────
+
+
+# Maximum sample event records persisted PER .evtx file. A real
+# Security.evtx can carry millions of events; the per-firmware aggregate
+# JSONB caps at this many per file so the row size stays bounded.
+# Operators wanting full inspection re-walk via the MCP ``parse_evtx_file``
+# tool against a specific path. Per ε.1.b campaign Decision #1, per-event
+# row persistence is deferred to a future ζ.X phase.
+_DEFAULT_SAMPLE_RECORDS_PER_FILE: int = 32
+
+# Maximum total records SUMMED across all .evtx files in one walk.
+# Protects walk_result row size when a firmware contains an unusually
+# large number of EVTX files (e.g. a forensic capture spanning months).
+_DEFAULT_TOTAL_RECORDS_CAP: int = 50000
+
+# Maximum walk wall-clock per .evtx file. python-evtx is generally fast
+# but a multi-GB Security.evtx in a degraded image could send the parser
+# into a long iteration. The cap is a soft-limit (checked between files,
+# not per-record) — current value matches γ.4's per-hive cap.
+_DEFAULT_PER_FILE_TIMEOUT_SECONDS: float = 60.0
 
 
 # ── Walker constants ────────────────────────────────────────────────────────
@@ -201,6 +239,9 @@ __all__ = [
     "is_python_evtx_available",
     "parse_evtx_file",
     "walk_evtx_files",
+    "_do_evtx_walk_run",
+    "run_evtx_walk_background",
+    "auto_walk_firmware_safe",
 ]
 
 
@@ -264,3 +305,292 @@ def walk_evtx_files(roots: Iterable[str]) -> list[str]:
                     continue
                 hits.append(real_full)
     return hits
+
+
+# ── Async wrappers (Rule #5 sync-I/O discipline) ─────────────────────────────
+
+
+async def _walk_evtx_files_async(roots: list[str]) -> list[str]:
+    """Async wrapper around :func:`walk_evtx_files` (Rule #5)."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, walk_evtx_files, roots)
+
+
+async def _parse_evtx_file_async(path: str) -> dict[str, Any]:
+    """Async wrapper around :func:`parse_evtx_file` (Rule #5)."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, parse_evtx_file, path)
+
+
+# ── Aggregate helpers ────────────────────────────────────────────────────────
+
+
+def _empty_walk_result(run_seconds: float) -> dict[str, Any]:
+    """Aggregate shape for "no .evtx files found" or "no detection roots"."""
+    return {
+        "run_seconds": round(run_seconds, 3),
+        "evtx_count": 0,
+        "by_provider": {},
+        "by_status": {"ok": 0, "error": 0, "unavailable": 0},
+        "total_records": 0,
+        "sample_records_per_file": _DEFAULT_SAMPLE_RECORDS_PER_FILE,
+        "errors": [],
+        "per_file": [],
+    }
+
+
+def _provider_from_record(record: dict[str, Any]) -> str:
+    """Extract the provider name from a parsed EVTX record dict.
+
+    The parser returns records as ``{"record_num": int, "raw_xml": str}``
+    — provider lives inside the XML. Cheap regex extraction beats lxml
+    parse for the aggregate (we don't need every field; just the
+    provider for the by_provider histogram).
+    """
+    xml = record.get("raw_xml") or ""
+    # ``<Provider Name='Microsoft-Windows-Sysmon' …`` — match either
+    # single or double quotes; tolerate attribute order.
+    import re
+
+    m = re.search(r"<Provider\b[^>]*\bName=['\"]([^'\"]+)['\"]", xml)
+    return m.group(1) if m else "unknown"
+
+
+# ── Inner orchestrator (accepts a db; reusable in tier-1 live canaries) ──────
+
+
+async def _do_evtx_walk_run(
+    db: AsyncSession,
+    firmware_id: uuid.UUID,
+    *,
+    sample_records_per_file: int = _DEFAULT_SAMPLE_RECORDS_PER_FILE,
+    total_records_cap: int = _DEFAULT_TOTAL_RECORDS_CAP,
+    per_file_timeout_seconds: float = _DEFAULT_PER_FILE_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    """Walk every ``.evtx`` file in ``firmware_id``'s extracted tree.
+
+    1. Resolve detection roots via :func:`get_detection_roots` (Rule #16).
+    2. Scan filesystem for ``.evtx`` files (extension match + sandbox
+       check via :func:`walk_evtx_files`).
+    3. For each file: parse via :func:`parse_evtx_file` (run_in_executor
+       for Rule #5 sync I/O), aggregate per-provider + per-status counts,
+       cap sample records per file.
+    4. Compute aggregate result; caller stamps it onto firmware row.
+
+    Inner-vs-outer split per δ Pattern #2 — this function accepts a
+    ``db`` so tier-1 live canary tests (Rule #35b) can drive the FULL
+    walk against a real test DB without DNS resolution issues from
+    ``async_session_factory()``. The outer wrapper
+    :func:`run_evtx_walk_background` owns the Rule #33 .a state machine
+    transitions; this inner runner is pure logic.
+
+    Returns the aggregate dict (UNSTAMPED — caller stamps via
+    :func:`_stamp_firmware_evtx_walk_result` before assigning).
+    """
+    started = time.monotonic()
+
+    firmware = (
+        await db.execute(select(Firmware).where(Firmware.id == firmware_id))
+    ).scalar_one_or_none()
+    if firmware is None:
+        return _empty_walk_result(0.0)
+
+    roots = await get_detection_roots(firmware, db=db)
+    if not roots:
+        return _empty_walk_result(time.monotonic() - started)
+
+    evtx_paths = await _walk_evtx_files_async(roots)
+    if not evtx_paths:
+        return _empty_walk_result(time.monotonic() - started)
+
+    # ── Per-file parse + aggregate ──
+    by_provider: dict[str, int] = {}
+    by_status: dict[str, int] = {"ok": 0, "error": 0, "unavailable": 0}
+    total_records = 0
+    errors: list[str] = []
+    per_file: list[dict[str, Any]] = []
+
+    for evtx_path in evtx_paths:
+        # Per-file wall-clock cap (soft) — checked between files, not
+        # per-record. A pathological file that exceeds the cap during
+        # parse will still complete the call but is logged.
+        file_started = time.monotonic()
+        try:
+            parsed = await _parse_evtx_file_async(evtx_path)
+        except Exception as exc:  # noqa: BLE001 — defensive boundary
+            err = f"parse failed for {evtx_path}: {type(exc).__name__}: {str(exc)[:200]}"
+            errors.append(err)
+            by_status["error"] += 1
+            per_file.append(
+                {
+                    "path": evtx_path,
+                    "status": "error",
+                    "record_count": 0,
+                    "error": err,
+                }
+            )
+            continue
+
+        elapsed = time.monotonic() - file_started
+        if elapsed > per_file_timeout_seconds:
+            errors.append(
+                f"slow parse for {evtx_path}: {elapsed:.2f}s "
+                f"exceeded {per_file_timeout_seconds}s soft cap"
+            )
+
+        status = parsed.get("status", "error")
+        record_count = int(parsed.get("record_count", 0))
+        by_status[status] = by_status.get(status, 0) + 1
+
+        # Aggregate per-provider counts from sample records (saves a
+        # full re-parse). Records past the per-file sample cap are
+        # counted in record_count but don't contribute to by_provider —
+        # acceptable trade-off for bounded row size.
+        records = parsed.get("records") or []
+        sample = records[:sample_records_per_file]
+        for rec in sample:
+            prov = _provider_from_record(rec)
+            by_provider[prov] = by_provider.get(prov, 0) + 1
+
+        # Total-records cap protects the aggregate when walking many
+        # files. Once hit we still parse remaining files for status
+        # accounting but stop accumulating sample records.
+        contribution = (
+            min(record_count, total_records_cap - total_records)
+            if total_records < total_records_cap
+            else 0
+        )
+        total_records += contribution
+
+        per_file_entry: dict[str, Any] = {
+            "path": evtx_path,
+            "status": status,
+            "record_count": record_count,
+            "error": parsed.get("error"),
+        }
+        per_file.append(per_file_entry)
+
+    return {
+        "run_seconds": round(time.monotonic() - started, 3),
+        "evtx_count": len(evtx_paths),
+        "by_provider": by_provider,
+        "by_status": by_status,
+        "total_records": total_records,
+        "sample_records_per_file": sample_records_per_file,
+        "errors": errors,
+        "per_file": per_file,
+    }
+
+
+# ── Outer wrapper (Rule #33 .a state machine; uses async_session_factory) ────
+
+
+async def run_evtx_walk_background(firmware_id: uuid.UUID) -> None:
+    """202+polling background runner for the EVTX walk.
+
+    Owns its own AsyncSession via :func:`async_session_factory`; outer
+    guard catches anything that escapes; failure persistence on a
+    fresh session because the inner one rolled back. Mirrors the γ.4
+    ``_run_registry_hive_walk_background`` shape (Rule #33 reference
+    recipe).
+
+    Status transitions: ``idle → running → completed | failed``. The
+    ``queued`` state belongs to the trigger router (idempotent POST
+    + 409-on-conflict per Rule #33 .a) which lands in ε.1.b.4 alongside
+    the MCP tools.
+    """
+    try:
+        async with async_session_factory() as db:
+            row = (
+                await db.execute(
+                    select(Firmware).where(Firmware.id == firmware_id)
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                logger.warning("evtx_walk: firmware %s not found", firmware_id)
+                return
+
+            row.evtx_walk_status = "running"
+            row.evtx_walk_started_at = datetime.utcnow()
+            await db.commit()
+
+            try:
+                result = await _do_evtx_walk_run(db, firmware_id)
+                row.evtx_walk_status = "completed"
+                row.evtx_walk_finished_at = datetime.utcnow()
+                row.evtx_walk_result = _stamp_firmware_evtx_walk_result(result)
+                await db.commit()
+                logger.info(
+                    "evtx_walk: firmware %s completed in %.2fs (%d evtx files, %d records)",
+                    firmware_id,
+                    result["run_seconds"],
+                    result["evtx_count"],
+                    result["total_records"],
+                )
+            except Exception as exc:  # noqa: BLE001 — defensive boundary
+                await db.rollback()
+                err = "\n".join(
+                    traceback.format_exception(type(exc), exc, exc.__traceback__)
+                )[-2000:]
+                async with async_session_factory() as fail_db:
+                    fail_row = (
+                        await fail_db.execute(
+                            select(Firmware).where(Firmware.id == firmware_id)
+                        )
+                    ).scalar_one_or_none()
+                    if fail_row is not None:
+                        fail_row.evtx_walk_status = "failed"
+                        fail_row.evtx_walk_finished_at = datetime.utcnow()
+                        fail_row.evtx_walk_error = err
+                        await fail_db.commit()
+                logger.exception("evtx_walk: firmware %s failed", firmware_id)
+    except Exception:
+        logger.exception("evtx_walk: unrecoverable for %s", firmware_id)
+
+
+# ── Auto-walk-on-unpack hook ────────────────────────────────────────────────
+
+
+async def auto_walk_firmware_safe(firmware_id: uuid.UUID) -> None:
+    """Fire-and-forget entry point invoked by ``unpack._run_*`` hooks
+    after detection completes. Same shape as
+    :func:`registry_hive_walker.auto_walk_firmware_safe` (γ.4 precedent).
+
+    Distinct from :func:`run_evtx_walk_background`: the background
+    runner (a) transitions the firmware status column through
+    queued → running → completed/failed, and (b) is intended for
+    explicit operator-triggered walks via the 202+polling endpoint
+    (ε.1.b.4 MCP tools hand the trigger). The auto-walk-on-unpack
+    flow runs the SAME orchestrator (``_do_evtx_walk_run``) but DOES
+    NOT transition the status column — it stays ``idle`` until an
+    operator explicitly triggers a re-walk via the trigger MCP tool,
+    which resets and runs again. This matches the existing
+    auto_walk_firmware_safe shape from γ.4.
+    """
+    try:
+        async with async_session_factory() as db:
+            result = await _do_evtx_walk_run(db, firmware_id)
+            row = (
+                await db.execute(
+                    select(Firmware).where(Firmware.id == firmware_id)
+                )
+            ).scalar_one_or_none()
+            if row is not None:
+                # Stamp the result aggregate so the operator can see
+                # the walk happened, but leave status at idle so a
+                # manual re-trigger via the MCP tool still works
+                # without 409 conflict (status='running' would block).
+                row.evtx_walk_result = _stamp_firmware_evtx_walk_result(result)
+                await db.commit()
+            logger.info(
+                "evtx_walk auto: firmware %s walked %d evtx files in %.2fs",
+                firmware_id,
+                result["evtx_count"],
+                result["run_seconds"],
+            )
+    except Exception:
+        logger.warning(
+            "evtx_walk auto: firmware %s failed",
+            firmware_id,
+            exc_info=True,
+        )

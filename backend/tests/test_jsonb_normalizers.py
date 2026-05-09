@@ -36,6 +36,7 @@ from app.services.jsonb_normalizers import (
     WINDOWS_UPDATE_PACKAGES_UPDATE_METADATA_SCHEMA_VERSION,
     FIRMWARE_DOTNET_DECOMPILE_RESULT_SCHEMA_VERSION,
     FIRMWARE_WINDOWS_UPDATE_DIFF_RESULT_SCHEMA_VERSION,
+    FIRMWARE_EVTX_WALK_RESULT_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
     CRA_REQUIREMENT_RESULTS_FINDING_IDS_SCHEMA_VERSION,
@@ -76,6 +77,7 @@ from app.services.jsonb_normalizers import (
     _normalize_windows_update_packages_update_metadata,
     _normalize_firmware_dotnet_decompile_result,
     _normalize_firmware_windows_update_diff_result,
+    _normalize_firmware_evtx_walk_result,
     _stamp_firmware_authenticode_chain_result,
     _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
@@ -91,6 +93,7 @@ from app.services.jsonb_normalizers import (
     _stamp_windows_update_packages_update_metadata,
     _stamp_firmware_dotnet_decompile_result,
     _stamp_firmware_windows_update_diff_result,
+    _stamp_firmware_evtx_walk_result,
 )
 
 
@@ -1807,3 +1810,119 @@ def test_stamp_firmware_windows_update_diff_result_idempotent():
 
 def test_firmware_windows_update_diff_result_schema_version_constant():
     assert FIRMWARE_WINDOWS_UPDATE_DIFF_RESULT_SCHEMA_VERSION == 1
+
+
+# ── _normalize_firmware_evtx_walk_result (Phase ε.1.b.3) ─────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical Phase ε.1.b.3 inner-runner aggregate shape.
+        (
+            {
+                "schema_version": 1,
+                "run_seconds": 0.5,
+                "evtx_count": 2,
+                "by_provider": {"Microsoft-Windows-Sysmon": 142, "Microsoft-Windows-Security-Auditing": 98},
+                "by_status": {"ok": 2, "error": 0, "unavailable": 0},
+                "total_records": 240,
+                "sample_records_per_file": 32,
+                "errors": [],
+                "per_file": [
+                    {"path": "/extracted/Windows/System32/winevt/Logs/Sysmon.evtx",
+                     "status": "ok", "record_count": 142, "error": None},
+                    {"path": "/extracted/Windows/System32/winevt/Logs/Security.evtx",
+                     "status": "ok", "record_count": 98, "error": None},
+                ],
+            },
+            {
+                "schema_version": 1,
+                "run_seconds": 0.5,
+                "evtx_count": 2,
+                "by_provider": {"Microsoft-Windows-Sysmon": 142, "Microsoft-Windows-Security-Auditing": 98},
+                "by_status": {"ok": 2, "error": 0, "unavailable": 0},
+                "total_records": 240,
+                "sample_records_per_file": 32,
+                "errors": [],
+                "per_file": [
+                    {"path": "/extracted/Windows/System32/winevt/Logs/Sysmon.evtx",
+                     "status": "ok", "record_count": 142, "error": None},
+                    {"path": "/extracted/Windows/System32/winevt/Logs/Security.evtx",
+                     "status": "ok", "record_count": 98, "error": None},
+                ],
+            },
+        ),
+        # Empty walk — preserved (matches the _empty_walk_result default).
+        (
+            {
+                "run_seconds": 0.0,
+                "evtx_count": 0,
+                "by_provider": {},
+                "by_status": {"ok": 0, "error": 0, "unavailable": 0},
+                "total_records": 0,
+                "sample_records_per_file": 32,
+                "errors": [],
+                "per_file": [],
+            },
+            {
+                "run_seconds": 0.0,
+                "evtx_count": 0,
+                "by_provider": {},
+                "by_status": {"ok": 0, "error": 0, "unavailable": 0},
+                "total_records": 0,
+                "sample_records_per_file": 32,
+                "errors": [],
+                "per_file": [],
+            },
+        ),
+        # Empty dict — preserved.
+        ({}, {}),
+        # None — durable signal for "no completed run yet" (matches the
+        # cve_match_result + authenticode_chain_result null contract).
+        (None, None),
+        # Wrong type — list — coerced to None.
+        ([{"evtx_count": 1}], None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_evtx_walk_result(value, expected):
+    assert _normalize_firmware_evtx_walk_result(value) == expected
+
+
+def test_normalize_firmware_evtx_walk_result_idempotent():
+    canonical = {
+        "schema_version": 1,
+        "run_seconds": 0.1,
+        "evtx_count": 1,
+        "by_provider": {"Microsoft-Windows-Sysmon": 5},
+        "by_status": {"ok": 1, "error": 0, "unavailable": 0},
+        "total_records": 5,
+        "sample_records_per_file": 32,
+        "errors": [],
+        "per_file": [{"path": "/x.evtx", "status": "ok", "record_count": 5, "error": None}],
+    }
+    once = _normalize_firmware_evtx_walk_result(canonical)
+    twice = _normalize_firmware_evtx_walk_result(once)
+    assert once == twice == canonical
+
+
+def test_stamp_firmware_evtx_walk_result_adds_version():
+    payload = {"evtx_count": 3, "total_records": 1234}
+    out = _stamp_firmware_evtx_walk_result(payload)
+    assert out["schema_version"] == FIRMWARE_EVTX_WALK_RESULT_SCHEMA_VERSION
+    assert out["evtx_count"] == 3
+    assert out["total_records"] == 1234
+
+
+def test_stamp_firmware_evtx_walk_result_idempotent():
+    payload = {"evtx_count": 0}
+    once = _stamp_firmware_evtx_walk_result(payload)
+    twice = _stamp_firmware_evtx_walk_result(once)
+    assert once == twice
+    assert once["schema_version"] == FIRMWARE_EVTX_WALK_RESULT_SCHEMA_VERSION
+
+
+def test_firmware_evtx_walk_result_schema_version_constant():
+    assert FIRMWARE_EVTX_WALK_RESULT_SCHEMA_VERSION == 1

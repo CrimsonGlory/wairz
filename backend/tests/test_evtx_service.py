@@ -1,12 +1,14 @@
-"""Phase ε.1 — Tier-1 unit tests for the EVTX parser scaffold.
+"""Phase ε.1 — Tier-1 unit tests for the EVTX parser scaffold + walker
++ inner runner (Rule #35b live canary).
 
 Mirrors the new ``.mex/patterns/real-firmware-skip-tier-canary.md``
 recipe (committed on ``feat/postmortem-followups-2026-05-09`` /
 PR #2) — tier-1 always runs against synthetic / on-disk fixtures with
 the third-party lib unavailable OR present-but-given-bad-input. The
 tier-2/3 real-firmware canaries (a real Windows 11 ``Security.evtx``
-+ a paired before/after Sysmon log) are added in ε.1.b alongside the
-auto-walk hook + outer state-machine runner.
++ a paired before/after Sysmon log) live in
+``test_evtx_real_firmware.py`` (ε.1.b.5) per the recipe's per-test-file
+discipline.
 
 Rule #19 evidence-first probe codified as a test:
 :func:`test_is_python_evtx_available_probe_is_callable` exercises
@@ -19,17 +21,22 @@ from __future__ import annotations
 
 import os
 import tempfile
+import uuid
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+from app.models.firmware import Firmware
+from app.models.project import Project
 from app.services.evtx_service import (
     PYTHON_EVTX_UNAVAILABLE,
+    _do_evtx_walk_run,
     is_python_evtx_available,
     parse_evtx_file,
     walk_evtx_files,
 )
+from tests._live_db import make_live_db
 
 
 # ── Tier 1 (always runs) ────────────────────────────────────────────────────
@@ -281,6 +288,192 @@ def test_walk_evtx_files_handles_multiple_roots(tmp_path: Path) -> None:
     hits = walk_evtx_files([str(root_a), str(root_b)])
     names = sorted(os.path.basename(h) for h in hits)
     assert names == ["a.evtx", "b.evtx"]
+
+
+# ── Tier 1 (always runs) — _do_evtx_walk_run inner runner (ε.1.b.3) ─────────
+#
+# Live canary per Rule #35b — drives the inner runner against the real
+# ORM with synthetic on-disk EVTX fixtures + mocked python-evtx parser.
+# The outer state-machine wrapper ``run_evtx_walk_background`` is NOT
+# tested here because it uses ``async_session_factory()`` which resolves
+# the ``postgres`` Docker hostname; host pytest can't reach it. The inner
+# runner accepts a ``db`` directly so it's exercisable under
+# ``make_live_db()`` (δ Pattern #2 inner-vs-outer split).
+
+
+async def _seed_firmware(db, *, extracted_path: str) -> uuid.UUID:
+    """Create a Project + Firmware row pointing at extracted_path."""
+    project = Project(name="ε-test")
+    db.add(project)
+    await db.flush()
+
+    firmware = Firmware(
+        project_id=project.id,
+        sha256="0" * 64,
+        extracted_path=extracted_path,
+    )
+    db.add(firmware)
+    await db.flush()
+    return firmware.id
+
+
+async def test_do_evtx_walk_run_returns_empty_when_no_evtx_files(
+    tmp_path: Path,
+) -> None:
+    """A firmware with no .evtx files in any detection root produces
+    the canonical empty aggregate (evtx_count=0, all status counters
+    at 0). Same shape as registry_hive_walker's _empty_walk_result."""
+    rootfs = tmp_path / "rootfs"
+    rootfs.mkdir()
+
+    async with make_live_db() as db:
+        firmware_id = await _seed_firmware(db, extracted_path=str(rootfs))
+        await db.commit()
+
+        async def _fake_roots(_firmware, db=None):  # noqa: ARG001
+            return [str(rootfs)]
+
+        with patch("app.services.evtx_service.get_detection_roots", new=_fake_roots):
+            result = await _do_evtx_walk_run(db, firmware_id)
+
+    assert result["evtx_count"] == 0
+    assert result["by_status"] == {"ok": 0, "error": 0, "unavailable": 0}
+    assert result["total_records"] == 0
+    assert result["per_file"] == []
+
+
+async def test_do_evtx_walk_run_aggregates_per_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Drive the inner runner end-to-end against synthetic .evtx
+    fixtures. Asserts:
+
+    - aggregate.evtx_count == files found
+    - aggregate.by_status counts
+    - aggregate.by_provider extracted from sample-record XML
+    - aggregate.total_records summed
+    - aggregate.per_file shape
+
+    Rule #35b live canary — exercises the REAL ORM round-trip via
+    make_live_db() so the value-flow contract (runner sets X →
+    aggregate has X) is verified end-to-end (mock-only would miss
+    the F-A-06-shape constructor-args-vs-persisted-fields class).
+    """
+    rootfs = tmp_path / "rootfs"
+    logs_dir = rootfs / "Windows" / "System32" / "winevt" / "Logs"
+    logs_dir.mkdir(parents=True)
+    sysmon_path = logs_dir / "Microsoft-Windows-Sysmon.evtx"
+    security_path = logs_dir / "Security.evtx"
+    sysmon_path.write_bytes(b"\x45\x6c\x66\x46")  # not validated
+    security_path.write_bytes(b"\x45\x6c\x66\x46")
+
+    # Mock parse_evtx_file at the SOURCE module per Rule #30 — patch
+    # the symbol used by _do_evtx_walk_run via its run_in_executor
+    # wrapper. Each call gets a different return based on path.
+    def _fake_parse(path: str):
+        if "Sysmon" in path:
+            return {
+                "status": "ok",
+                "record_count": 3,
+                "records": [
+                    {"record_num": 1, "raw_xml":
+                     "<Event><Provider Name='Microsoft-Windows-Sysmon'/></Event>"},
+                    {"record_num": 2, "raw_xml":
+                     "<Event><Provider Name='Microsoft-Windows-Sysmon'/></Event>"},
+                    {"record_num": 3, "raw_xml":
+                     "<Event><Provider Name='Microsoft-Windows-Sysmon'/></Event>"},
+                ],
+            }
+        else:  # Security.evtx
+            return {
+                "status": "ok",
+                "record_count": 2,
+                "records": [
+                    {"record_num": 1, "raw_xml":
+                     "<Event><Provider Name='Microsoft-Windows-Security-Auditing'/></Event>"},
+                    {"record_num": 2, "raw_xml":
+                     "<Event><Provider Name='Microsoft-Windows-Security-Auditing'/></Event>"},
+                ],
+            }
+
+    monkeypatch.setattr("app.services.evtx_service.parse_evtx_file", _fake_parse)
+
+    async with make_live_db() as db:
+        firmware_id = await _seed_firmware(db, extracted_path=str(rootfs))
+        await db.commit()
+
+        async def _fake_roots(_firmware, db=None):  # noqa: ARG001
+            return [str(rootfs)]
+
+        with patch("app.services.evtx_service.get_detection_roots", new=_fake_roots):
+            result = await _do_evtx_walk_run(db, firmware_id)
+
+    # Aggregate shape — Rule #35b value-flow assertions, not just call shape.
+    assert result["evtx_count"] == 2
+    assert result["by_status"]["ok"] == 2
+    assert result["by_status"]["error"] == 0
+    assert result["by_status"]["unavailable"] == 0
+    assert result["by_provider"]["Microsoft-Windows-Sysmon"] == 3
+    assert result["by_provider"]["Microsoft-Windows-Security-Auditing"] == 2
+    assert result["total_records"] == 5
+
+    # Per-file shape.
+    paths = sorted(entry["path"] for entry in result["per_file"])
+    assert any(p.endswith("Microsoft-Windows-Sysmon.evtx") for p in paths)
+    assert any(p.endswith("Security.evtx") for p in paths)
+    statuses = {entry["status"] for entry in result["per_file"]}
+    assert statuses == {"ok"}
+
+
+async def test_do_evtx_walk_run_handles_parse_errors_per_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A corrupted .evtx that raises during parse is captured as
+    status=error in the per-file list AND counted in by_status.error;
+    the walk continues to subsequent files (defensive boundary per
+    γ.4 precedent)."""
+    rootfs = tmp_path / "rootfs"
+    rootfs.mkdir()
+    (rootfs / "good.evtx").write_bytes(b"\x45\x6c\x66\x46")
+    (rootfs / "bad.evtx").write_bytes(b"truncated")
+
+    def _fake_parse(path: str):
+        if "bad" in path:
+            return {
+                "status": "error",
+                "record_count": 0,
+                "records": [],
+                "error": "synthetic parse failure",
+            }
+        return {
+            "status": "ok",
+            "record_count": 1,
+            "records": [
+                {"record_num": 1, "raw_xml":
+                 "<Event><Provider Name='Microsoft-Windows-Eventlog'/></Event>"},
+            ],
+        }
+
+    monkeypatch.setattr("app.services.evtx_service.parse_evtx_file", _fake_parse)
+
+    async with make_live_db() as db:
+        firmware_id = await _seed_firmware(db, extracted_path=str(rootfs))
+        await db.commit()
+
+        async def _fake_roots(_firmware, db=None):  # noqa: ARG001
+            return [str(rootfs)]
+
+        with patch("app.services.evtx_service.get_detection_roots", new=_fake_roots):
+            result = await _do_evtx_walk_run(db, firmware_id)
+
+    assert result["evtx_count"] == 2
+    assert result["by_status"]["ok"] == 1
+    assert result["by_status"]["error"] == 1
+    assert result["total_records"] == 1
+    # The error path's per_file entry carries the error message.
+    bad_entry = next(e for e in result["per_file"] if "bad.evtx" in e["path"])
+    assert bad_entry["status"] == "error"
+    assert "synthetic parse failure" in (bad_entry["error"] or "")
 
 
 # ── Tier 2/3 (deferred to ε.1.b.5 — real-firmware canary set) ───────────────

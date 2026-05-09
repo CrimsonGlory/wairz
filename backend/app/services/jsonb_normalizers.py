@@ -1147,3 +1147,61 @@ def _stamp_firmware_windows_update_diff_result(payload: dict) -> dict:
     """
     payload["schema_version"] = FIRMWARE_WINDOWS_UPDATE_DIFF_RESULT_SCHEMA_VERSION
     return payload
+
+
+# ── firmware.evtx_walk_result (Phase ε.1.b.3) ────────────────────────────────
+#
+# Per-firmware aggregate written by ``run_evtx_walk_background`` (ε.1.b.3)
+# from the inner ``_do_evtx_walk_run`` orchestrator. ε.1.b.4 MCP tools
+# read it for the run summary; ε.1.b.4 frontend ``EvtxWalkPage`` reads
+# it for the last-known-result render. Per ε.1.b campaign Decision #1,
+# per-event row persistence is DEFERRED to a future ζ.X phase — the
+# walker's full-record list lives only in this aggregate (sample + counts;
+# operators can re-walk to inspect specific records). 3+ consumer files
+# at ε shipping time → schema_version discriminator strategy per Rule
+# #35c.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,                     # wall-clock for the run
+#     "evtx_count": int,                        # total .evtx files walked
+#     "by_provider": dict[str, int],            # {"Microsoft-Windows-Sysmon": 142, ...}
+#     "by_status": dict[str, int],              # {"ok": 4, "error": 1, "unavailable": 0}
+#     "total_records": int,                     # sum of record_count across files
+#     "sample_records_per_file": int,           # cap on sample-records persisted per .evtx
+#     "errors": list[str],                      # session-level errors (per-file errors live in the per_file list)
+#     "per_file": list[dict],                   # [{"path": str, "status": str, "record_count": int, "error": str|None}]
+#   }
+#
+# Forward-discipline: bump SCHEMA_VERSION + extend dispatch in the
+# normaliser if the aggregate shape changes (e.g. add by-EID histogram
+# for the future ζ.X "search events" feature).
+
+FIRMWARE_EVTX_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_evtx_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.evtx_walk_result``.
+
+    ``None`` is preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None`` (treat as "unusable
+    persisted result"; the next run will overwrite).
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_evtx_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.evtx_walk_result``.
+
+    Always receives a non-None dict (the runner always writes a populated
+    aggregate when transitioning to ``completed``), so this helper is
+    unconditionally additive. Idempotent.
+    """
+    payload["schema_version"] = FIRMWARE_EVTX_WALK_RESULT_SCHEMA_VERSION
+    return payload
