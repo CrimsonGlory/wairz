@@ -221,6 +221,27 @@ class Firmware(Base):
     prefetch_walk_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     prefetch_walk_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
+    # Phase ζ.3.B SRUM walker columns (CLAUDE.md Rule #33 contract).
+    # Background runner ``run_srum_walk_background`` walks every
+    # ``SRUDB.dat`` across the firmware's detection roots (libesedb-python
+    # read-only ESEDB binding per Rule #36 — DATA only, never invoked via
+    # esedbutil / Get-CimInstance SRUMState), persists per-record rows
+    # into ``windows_srum_records`` (table from ζ.3.A), and stamps an
+    # aggregate JSONB result onto ``srum_walk_result``. Rule #33 .c CHECK
+    # enforces the 5-state machine; Rule #33 .d — asyncio.create_task
+    # dispatch (in-process libesedb-python parser).
+    srum_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    srum_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    srum_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    srum_walk_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    srum_walk_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

@@ -34,6 +34,7 @@ from app.services.jsonb_normalizers import (
     FIRMWARE_DOTNET_DECOMPILE_RESULT_SCHEMA_VERSION,
     FIRMWARE_EVTX_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_REGISTRY_HIVE_WALK_RESULT_SCHEMA_VERSION,
+    FIRMWARE_SRUM_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_WINDOWS_ARTIFACTS_SCHEMA_VERSION,
     FIRMWARE_WINDOWS_UPDATE_DIFF_RESULT_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION,
@@ -48,6 +49,7 @@ from app.services.jsonb_normalizers import (
     WINDOWS_PREFETCH_RECORDS_FILENAMES_REFERENCED_SCHEMA_VERSION,
     WINDOWS_PREFETCH_RECORDS_VOLUMES_SCHEMA_VERSION,
     WINDOWS_REGISTRY_EXTRACTS_PARSED_TREE_SCHEMA_VERSION,
+    WINDOWS_SRUM_RECORDS_EXTRA_METADATA_SCHEMA_VERSION,
     WINDOWS_UPDATE_PACKAGES_UPDATE_METADATA_SCHEMA_VERSION,
     _normalize_analysis_cache_result,
     _normalize_attack_surface_entries_dangerous_imports,
@@ -69,6 +71,7 @@ from app.services.jsonb_normalizers import (
     _normalize_firmware_dotnet_decompile_result,
     _normalize_firmware_evtx_walk_result,
     _normalize_firmware_registry_hive_walk_result,
+    _normalize_firmware_srum_walk_result,
     _normalize_firmware_windows_artifacts,
     _normalize_firmware_windows_update_diff_result,
     _normalize_fuzzing_campaigns_config,
@@ -83,6 +86,7 @@ from app.services.jsonb_normalizers import (
     _normalize_windows_prefetch_records_filenames_referenced,
     _normalize_windows_prefetch_records_volumes,
     _normalize_windows_registry_extracts_parsed_tree,
+    _normalize_windows_srum_records_extra_metadata,
     _normalize_windows_update_packages_update_metadata,
     _stamp_analysis_cache_result,
     _stamp_attack_surface_entries_score_breakdown,
@@ -92,6 +96,7 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_dotnet_decompile_result,
     _stamp_firmware_evtx_walk_result,
     _stamp_firmware_registry_hive_walk_result,
+    _stamp_firmware_srum_walk_result,
     _stamp_firmware_windows_artifacts,
     _stamp_firmware_windows_update_diff_result,
     _stamp_fuzzing_campaigns_config,
@@ -105,6 +110,7 @@ from app.services.jsonb_normalizers import (
     _stamp_windows_prefetch_records_filenames_referenced,
     _stamp_windows_prefetch_records_volumes,
     _stamp_windows_registry_extracts_parsed_tree,
+    _stamp_windows_srum_records_extra_metadata,
     _stamp_windows_update_packages_update_metadata,
 )
 
@@ -2140,3 +2146,83 @@ def test_windows_prefetch_records_schema_version_constants():
     assert WINDOWS_PREFETCH_RECORDS_ALL_RUN_TIMES_SCHEMA_VERSION == 1
     assert WINDOWS_PREFETCH_RECORDS_FILENAMES_REFERENCED_SCHEMA_VERSION == 1
     assert WINDOWS_PREFETCH_RECORDS_VOLUMES_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp_windows_srum_records_extra_metadata (Phase ζ.3.A) ─────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical pass-through.
+        (
+            {"schema_version": 1, "guid_table": "{973F5D5C-...}"},
+            {"schema_version": 1, "guid_table": "{973F5D5C-...}"},
+        ),
+        # Empty dict pass-through.
+        ({}, {}),
+        # None preserved.
+        (None, None),
+        # Wrong type collapses to None.
+        ("not a dict", None),
+        ([{"a": 1}], None),
+        (42, None),
+    ],
+)
+def test_normalize_windows_srum_records_extra_metadata(value, expected):
+    assert _normalize_windows_srum_records_extra_metadata(value) == expected
+
+
+def test_stamp_windows_srum_records_extra_metadata_adds_version():
+    out = _stamp_windows_srum_records_extra_metadata(
+        {"guid_table": "{973F5D5C-...}"}
+    )
+    assert (
+        out["schema_version"]
+        == WINDOWS_SRUM_RECORDS_EXTRA_METADATA_SCHEMA_VERSION
+    )
+
+
+def test_stamp_windows_srum_records_extra_metadata_idempotent():
+    once = _stamp_windows_srum_records_extra_metadata({"a": 1})
+    twice = _stamp_windows_srum_records_extra_metadata(once)
+    assert once == twice
+
+
+def test_windows_srum_records_extra_metadata_schema_version_constant():
+    assert WINDOWS_SRUM_RECORDS_EXTRA_METADATA_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp_firmware_srum_walk_result (Phase ζ.3.B) ───────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {"schema_version": 1, "srudb_count": 1, "total_records": 100},
+            {"schema_version": 1, "srudb_count": 1, "total_records": 100},
+        ),
+        ({}, {}),
+        (None, None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_srum_walk_result(value, expected):
+    assert _normalize_firmware_srum_walk_result(value) == expected
+
+
+def test_stamp_firmware_srum_walk_result_adds_version():
+    out = _stamp_firmware_srum_walk_result({"srudb_count": 0})
+    assert out["schema_version"] == FIRMWARE_SRUM_WALK_RESULT_SCHEMA_VERSION
+
+
+def test_stamp_firmware_srum_walk_result_idempotent():
+    once = _stamp_firmware_srum_walk_result({"srudb_count": 0})
+    twice = _stamp_firmware_srum_walk_result(once)
+    assert once == twice
+
+
+def test_firmware_srum_walk_result_schema_version_constant():
+    assert FIRMWARE_SRUM_WALK_RESULT_SCHEMA_VERSION == 1

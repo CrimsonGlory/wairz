@@ -106,6 +106,23 @@ dependencies = [
     # wairz invokes pftriage / Get-CimInstance Win32_PrefetchedApp /
     # any other execution-replay tool.
     "windowsprefetch>=4.0.3",
+    # ── Phase ζ.3: Windows SRUM (System Resource Usage Monitor) ─
+    # libesedb-python — Python binding for libesedb (Extensible
+    # Storage Engine Database, ESEDB). The binding name is
+    # ``pyesedb`` (libesedb-python is the PyPI package name). Used by
+    # the ζ.3 walker to parse SRUDB.dat — Windows' ~30-60 day per-app
+    # + per-user resource usage database, the highest-value forensic
+    # source after EVTX (Persona-E #14 IR signal: "did this binary
+    # make network connections in the last 30 days?" answered without
+    # re-running it). C-extension; build-essential is already in the
+    # backend Dockerfile. ``libesedb-utils`` (esedbexport / esedbinfo
+    # CLI) is also installed as a fallback (Dockerfile:47), so the
+    # walker can degrade gracefully via subprocess shell-out if the
+    # Python binding ever fails to import. Rule #36 no-execute
+    # discipline: libesedb-python reads SRUDB.dat AS DATA; nothing in
+    # wairz invokes esedbutil / Get-CimInstance SRUMState / scriptable
+    # replay.
+    "libesedb-python>=20240420",
 ]
 
 [project.scripts]

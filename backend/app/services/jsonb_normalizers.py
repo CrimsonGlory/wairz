@@ -1431,3 +1431,81 @@ def _stamp_windows_prefetch_records_volumes(items: list[dict]) -> dict:
         "schema_version": WINDOWS_PREFETCH_RECORDS_VOLUMES_SCHEMA_VERSION,
         "items": list(items),
     }
+
+
+# ── windows_srum_records.extra_metadata (Phase ζ.3.A) ────────────────────────
+#
+# Type-specific overflow + future-proofing for SRUM records. The five
+# canonical record_type values ('network_data_usage', 'network_connectivity',
+# 'application_resource_usage', 'push_notification', 'energy_usage') each
+# have typed columns for their primary metrics; ``extra_metadata`` carries
+# any per-record-type fields that didn't fit a typed column AND any
+# walker-time enrichments (e.g. raw ESEDB column-name dump for forensic
+# audit, GUID-table-name for traceability).
+#
+# Canonical envelope per Rule #35c — discriminator key + payload dict.
+# Wrong-typed values collapse to None (treat as "no extra metadata"; the
+# typed columns remain authoritative for the row's metrics).
+
+WINDOWS_SRUM_RECORDS_EXTRA_METADATA_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_srum_records_extra_metadata(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``WindowsSrumRecord.extra_metadata``.
+
+    ``None`` preserved — semantic load is "no extra metadata captured".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_windows_srum_records_extra_metadata(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``WindowsSrumRecord.extra_metadata``. Idempotent."""
+    payload["schema_version"] = WINDOWS_SRUM_RECORDS_EXTRA_METADATA_SCHEMA_VERSION
+    return payload
+
+
+# ── firmware.srum_walk_result (Phase ζ.3.B) ─────────────────────────────────
+#
+# Per-firmware aggregate from a single SRUM walk. Mirrors the
+# evtx_walk_result / prefetch_walk_result shape — a flat dict with
+# top-level summary fields. The runner stamps this once at completion.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,
+#     "srudb_count": int,                       # SRUDB.dat files walked
+#     "by_record_type": {                       # counts per discriminator
+#         "network_data_usage": int, ...
+#     },
+#     "by_status": {"ok": int, "error": int, "unavailable": int},
+#     "total_records": int,                     # rows persisted
+#     "unique_apps": int,                       # distinct app_identifier
+#     "errors": list[str],
+#     "per_file": list[dict],                   # [{"path": str, "status":
+#                                                  str, "record_count":
+#                                                  int, "error": str|None}]
+#   }
+
+FIRMWARE_SRUM_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_srum_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.srum_walk_result``."""
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_srum_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.srum_walk_result``. Idempotent."""
+    payload["schema_version"] = FIRMWARE_SRUM_WALK_RESULT_SCHEMA_VERSION
+    return payload

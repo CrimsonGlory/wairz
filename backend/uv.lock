@@ -1409,6 +1409,17 @@ wheels = [
 ]
 
 [[package]]
+name = "libesedb-python"
+version = "20240420"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/08/2c/fcdd510619f21633a32ad00dc4211efc2d5380697c5bc02c6a0801bdc4af/libesedb-python-20240420.tar.gz", hash = "sha256:4727d0a6e3d151f4a14107e8b8e3f8cced10b9466657cc6a856c9c7f86d7d081", size = 1936770, upload-time = "2024-04-20T14:34:11.514Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9c/72/2dd81f5a128bc2f492f86c1a7e8a85e9047183429b41ade360e94ec9e6e7/libesedb_python-20240420-cp312-cp312-macosx_12_0_x86_64.whl", hash = "sha256:317d3889d9ca07226452eee900fac73ba50e5a2d47cdca096145ddc10ed16fc9", size = 607042, upload-time = "2024-04-21T06:44:59.924Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/b8/fe4a877898d0022c5fb33deed2fdc53262e24f550551e9e55ae5b42fb201/libesedb_python-20240420-cp312-cp312-win32.whl", hash = "sha256:bec5d7d4f5666d930943dc114dab8819eda7218f8c353424bd864e0c5483e08f", size = 463303, upload-time = "2024-04-21T06:09:57.944Z" },
+    { url = "https://files.pythonhosted.org/packages/72/21/bb8a4adc71ba781815c191b349dce34b60b188e5e6b557c6770894250794/libesedb_python-20240420-cp312-cp312-win_amd64.whl", hash = "sha256:e7b5abec7d2f0054de99e1ff6229f501572ef6b24d48529c50f1524f3ba59bcb", size = 505381, upload-time = "2024-04-21T06:17:45.043Z" },
+]
+
+[[package]]
 name = "libsast"
 version = "3.1.6"
 source = { registry = "https://pypi.org/simple" }
@@ -3610,6 +3621,7 @@ dependencies = [
     { name = "fdt" },
     { name = "flare-capa" },
     { name = "httpx" },
+    { name = "libesedb-python" },
     { name = "lief" },
     { name = "mcp", extra = ["cli"] },
     { name = "mobsfscan" },
@@ -3667,6 +3679,7 @@ requires-dist = [
     { name = "fdt", specifier = ">=0.3.3" },
     { name = "flare-capa", specifier = ">=9.4" },
     { name = "httpx", specifier = ">=0.27.0" },
+    { name = "libesedb-python", specifier = ">=20240420" },
     { name = "lief", specifier = ">=0.15.0" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.2.0" },
     { name = "mobsfscan", specifier = ">=0.3.0" },
