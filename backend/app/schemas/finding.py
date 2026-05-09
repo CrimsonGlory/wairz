@@ -36,6 +36,15 @@ WindowsFindingSource = Literal[
     "windows_sysmon_proc_create",
     "windows_logon_success",
     "windows_logon_failure",
+    # Phase ζ.1 — alignment slice with frontend FindingSource union +
+    # FINDING_SOURCE_CONFIG entries. Emitted by the Amcache finding-emit
+    # hook (``finding_service.emit_amcache_findings_from_walk``) for
+    # InventoryApplicationFile entries on parsed AmCache.hve registry
+    # extracts (γ.4 already walks the hive; ζ.1 layers Finding emission
+    # on top without a new walker — Persona-E program-installation
+    # history, LOW confidence baseline; threat-feed correlation defers
+    # to a future ζ.X phase).
+    "windows_amcache_install",
 ]
 
 

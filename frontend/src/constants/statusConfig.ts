@@ -99,6 +99,7 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   windows_sysmon_proc_create: { icon: Eye, label: 'Sysmon Proc Create', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
   windows_logon_success: { icon: User, label: 'Logon Success', className: 'border-emerald-500/50 text-emerald-600 dark:text-emerald-400' },
   windows_logon_failure: { icon: ShieldX, label: 'Logon Failure', className: 'border-rose-500/50 text-rose-600 dark:text-rose-400' },
+  windows_amcache_install: { icon: Package, label: 'AmCache Install', className: 'border-cyan-500/50 text-cyan-600 dark:text-cyan-400' },
 }
 
 // ── Finding confidence ──

@@ -77,6 +77,13 @@ _SOURCE_SYSMON_PROC_CREATE: WindowsFindingSource = "windows_sysmon_proc_create"
 _SOURCE_LOGON_SUCCESS: WindowsFindingSource = "windows_logon_success"
 _SOURCE_LOGON_FAILURE: WindowsFindingSource = "windows_logon_failure"
 
+# Phase ζ.1 — Amcache program-installation history finding source.
+# Emitted by ``emit_amcache_findings_from_walk`` for InventoryApplicationFile
+# entries on parsed AmCache.hve registry extracts. LOW confidence baseline
+# (installation-history facts are not malicious by themselves; threat-feed
+# correlation tier is deferred to a future ζ.X phase).
+_SOURCE_AMCACHE_INSTALL: WindowsFindingSource = "windows_amcache_install"
+
 
 @dataclass(frozen=True)
 class _PEFindingDraft:
@@ -286,6 +293,106 @@ def _format_registry_evidence(
         sample_names = [v.get("name", "") for v in values[:3]]
         parts.append(f"sample_values={sample_names}")
     return "; ".join(parts)
+
+
+def classify_amcache_install_findings(
+    *,
+    hive_path: str,
+    hive_type: str,
+    parsed_tree: Any,
+) -> list[_PEFindingDraft]:
+    """Phase ζ.1 — map one AmCache.hve's parsed_tree to N install-history
+    Finding drafts.
+
+    Pure function — no DB access. Walks the canonical parsed_tree subkey
+    list looking for ``Root\\InventoryApplicationFile\\<hash>`` entries
+    (Win10/11 AmCache shape). Each entry yields one LOW-confidence
+    review-candidate Finding draft surfacing the file path + sha1 +
+    install-source metadata.
+
+    Returns empty list when ``parsed_tree`` is None / wrong-typed
+    (defensive boundary mirrors the JSONB normaliser shape) OR when
+    ``hive_type != 'AmCache'`` (callers should not pass non-AmCache
+    hives but the guard prevents accidental misuse).
+
+    Confidence tier: LOW baseline. Threat-feed correlation (hash against
+    known-malicious database) and heuristic matching against curated
+    suspicious-product lists are deferred to a future ζ.X phase.
+    """
+    if hive_type != "AmCache":
+        return []
+    if not isinstance(parsed_tree, dict):
+        return []
+    subkeys = parsed_tree.get("subkeys") or []
+    if not isinstance(subkeys, list):
+        return []
+
+    drafts: list[_PEFindingDraft] = []
+    for sk in subkeys:
+        if not isinstance(sk, dict):
+            continue
+        subkey_path = sk.get("path") or ""
+        # Match the canonical InventoryApplicationFile subkey shape.
+        # Win10 1709+ hives use Root\InventoryApplicationFile\<filename>|<sha1>
+        # under the per-program key. We look for the parent path token.
+        if "InventoryApplicationFile" not in subkey_path:
+            continue
+        values = sk.get("values") or []
+        if not values:
+            continue
+
+        # Extract the program identity from the values list. Shape per
+        # python-regipy: list of dicts with name + value. We look for
+        # the canonical fields without raising on missing entries.
+        value_map: dict[str, Any] = {}
+        for v in values:
+            if isinstance(v, dict):
+                name = v.get("name") or ""
+                if name:
+                    value_map[name] = v.get("value")
+
+        file_path = value_map.get("LowerCaseLongPath") or value_map.get("Name") or "(unknown)"
+        sha1 = value_map.get("FileId") or ""
+        # FileId is "0000<sha1>" in Win10+ — strip the leading zero pad if present.
+        if isinstance(sha1, str) and sha1.startswith("0000"):
+            sha1 = sha1[4:]
+        product = value_map.get("ProductName") or ""
+        publisher = value_map.get("Publisher") or ""
+        size = value_map.get("Size") or 0
+
+        evidence_lines = [
+            f"File: {file_path}",
+            f"SHA1: {sha1}" if sha1 else "SHA1: (not present)",
+        ]
+        if product:
+            evidence_lines.append(f"Product: {product}")
+        if publisher:
+            evidence_lines.append(f"Publisher: {publisher}")
+        if size:
+            evidence_lines.append(f"Size: {size} bytes")
+        evidence_lines.append(f"AmCache subkey: {subkey_path}")
+        evidence_lines.append(f"Hive: {hive_path}")
+        evidence = "\n".join(evidence_lines)
+
+        # Title surfaces just the executable basename for readability;
+        # full path lives in the evidence.
+        basename = file_path.rsplit("\\", 1)[-1] if isinstance(file_path, str) else "(unknown)"
+
+        drafts.append(
+            _PEFindingDraft(
+                source=_SOURCE_AMCACHE_INSTALL,
+                severity=Severity.info,
+                title=f"AmCache install record: {basename}",
+                description=(
+                    f"AmCache InventoryApplicationFile entry surfaces installation "
+                    f"history for {basename}. LOW-confidence review candidate; "
+                    f"correlate the SHA1 with threat-feeds for higher-confidence "
+                    f"verdicts in a follow-up triage."
+                ),
+                evidence=evidence,
+            )
+        )
+    return drafts
 
 
 def classify_registry_persistence_findings(
@@ -655,6 +762,67 @@ class FindingService:
                     evidence=draft.evidence,
                     file_path=extract.hive_path,
                     confidence=Confidence.medium,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_amcache_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Phase ζ.1 — emit windows_amcache_install Finding rows for one firmware.
+
+        Reads every persisted ``WindowsRegistryExtract`` row for the
+        firmware where ``hive_type == 'AmCache'``, extracts every
+        ``Root\\InventoryApplicationFile`` entry's program-identity
+        metadata via :func:`classify_amcache_install_findings`, and
+        persists the resulting drafts as Finding rows.
+
+        γ.4's registry walker already populates AmCache hives into
+        ``windows_registry_extracts`` rows; ζ.1 layers Finding emission
+        on top WITHOUT introducing a new walker service. This shape
+        keeps Rule #39 inner/outer/safe runner triplet count unchanged
+        (still Rule-of-Three at γ.4 + δ.5 + ε.1.b.3) — ζ.1 is a finding-
+        emit hook, not a new walker.
+
+        Idempotency is the caller's responsibility — same shape as
+        emit_registry_findings_from_walk; callers DELETE prior
+        windows_amcache_install findings for the firmware before re-emitting.
+        """
+        from app.models.hardware_firmware import HardwareFirmwareBlob
+        from app.models.windows_registry_extract import WindowsRegistryExtract
+
+        stmt = (
+            select(WindowsRegistryExtract, HardwareFirmwareBlob)
+            .join(
+                HardwareFirmwareBlob,
+                WindowsRegistryExtract.blob_id == HardwareFirmwareBlob.id,
+            )
+            .where(
+                HardwareFirmwareBlob.firmware_id == firmware_id,
+                WindowsRegistryExtract.hive_type == "AmCache",
+            )
+        )
+        rows = (await self.db.execute(stmt)).all()
+
+        emitted: list[Finding] = []
+        for extract, _blob in rows:
+            drafts = classify_amcache_install_findings(
+                hive_path=extract.hive_path,
+                hive_type=extract.hive_type,
+                parsed_tree=extract.parsed_tree,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=extract.hive_path,
+                    confidence=Confidence.low,
                     firmware_id=firmware_id,
                     source=draft.source,
                 )
