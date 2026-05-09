@@ -38,11 +38,10 @@ import json
 import logging
 import re
 import uuid
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
-
-from datetime import datetime
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.models.firmware import Firmware
