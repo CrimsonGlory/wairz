@@ -25,6 +25,7 @@ from app.ai.tools.windows_dotnet import register_windows_dotnet_tools
 from app.ai.tools.windows_driver import register_windows_driver_tools
 from app.ai.tools.windows_event_log import register_windows_event_log_tools
 from app.ai.tools.windows_pe_signature import register_windows_pe_signature_tools
+from app.ai.tools.windows_prefetch import register_windows_prefetch_tools
 from app.ai.tools.windows_registry import register_windows_registry_tools
 from app.ai.tools.windows_storage import register_windows_storage_tools
 from app.ai.tools.windows_update import register_windows_update_tools
@@ -62,4 +63,5 @@ def create_tool_registry() -> ToolRegistry:
     register_windows_storage_tools(registry)
     register_windows_dotnet_tools(registry)
     register_windows_event_log_tools(registry)
+    register_windows_prefetch_tools(registry)
     return registry
