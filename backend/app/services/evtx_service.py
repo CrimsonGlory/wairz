@@ -4,32 +4,27 @@ Reads on-disk ``.evtx`` Event Log files from extracted Windows
 installations / live-system images and surfaces event records as
 plain dictionaries for downstream finding-emit hooks.
 
-**Scope (Phase ε.1 — scaffold + parser foundation).**
+**Scope (Phase ε.1 — scaffold + parser foundation + walker).**
 
-This module ships the *parser foundation* + helper for walking an
-extracted firmware tree to locate ``.evtx`` files. The full
-forensic-format inspection pipeline (auto-walk hook from
-``unpack_common.py`` post-detection + Rule #33 outer state-machine
-runner + persisted ``WindowsEventLogWalk`` / ``WindowsEventRecord``
-ORM rows + MCP tool category + FE skeleton page + Finding emit hook)
-is tracked as ε.1.b and lands in a follow-up commit; this commit
-keeps the surface intentionally narrow so the dependency probe
-(:func:`is_python_evtx_available`) and the parse contract
-(:func:`parse_evtx_file`) can be exercised + reviewed in isolation.
+ε.1.a shipped the *parser foundation* (:func:`parse_evtx_file` +
+:func:`is_python_evtx_available`). ε.1.b.1 (this commit) adds the
+*walker* (:func:`walk_evtx_files`) — the on-disk scanner that yields
+``.evtx`` paths under any iterable of detection roots. Subsequent
+ε.1.b commits add Rule #33 outer state-machine runner + auto-walk
+hook + MCP tool category + FE skeleton page + Finding emit hook.
 
 **Mirrors γ.4 / δ.5 precedent shape.** Per the new
 ``.mex/patterns/real-firmware-skip-tier-canary.md`` recipe (committed
 on ``feat/postmortem-followups-2026-05-09``, PR #2) and CLAUDE.md
-Rule #33, the next commit (ε.1.b) will add:
+Rule #33, subsequent ε.1.b commits will add:
 
-- ``walk_evtx_files(extracted_path: Path) -> Iterator[Path]`` — walks
-  an extracted-path tree (using ``app.services.firmware_paths``'s
-  ``get_detection_roots`` per Rule #16) yielding ``.evtx`` paths.
 - ``_do_evtx_walk_run(db: AsyncSession, firmware_id: uuid.UUID) -> dict``
   — INNER orchestrator (accepts a ``db``; the live canary tier-1
   shape from δ Pattern #2). Walks every ``.evtx`` in the firmware's
-  detection roots, batches event records into a ``WindowsEventRecord``
-  table via natural-key UPSERT (mirroring δ.5 ``windows_update_dll_diffs``).
+  detection roots (resolved via :func:`app.services.firmware_paths.get_detection_roots`
+  per Rule #16), aggregates event records into a JSONB result on
+  ``firmware.evtx_walk_result`` (per-event persistence deferred to a
+  future ζ.X phase per the ε.1.b campaign Decision #1).
 - ``run_evtx_walk_background(firmware_id: uuid.UUID) -> None`` —
   OUTER state-machine wrapper (owns the Rule #33 .a status
   transitions ``idle → queued → running → completed | failed`` via
@@ -61,10 +56,24 @@ absent (now installed via Phase ε.2 Dockerfile delta).
 from __future__ import annotations
 
 import logging
+import os
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+# ── Walker constants ────────────────────────────────────────────────────────
+
+
+# Canonical Windows Event Log file extension. Real EVTX files always end
+# in ``.evtx`` (case-insensitive on Windows; we match case-insensitively
+# here so an EXTRACTED tree from a case-preserving filesystem doesn't
+# miss files capitalised by the unpacker). Files with the extension
+# without the EVTX magic header are still surfaced — :func:`parse_evtx_file`
+# will degrade them to ``status="error"`` rather than crashing.
+_EVTX_EXTENSION: str = ".evtx"
 
 
 # ── Rule #19 dependency probe ───────────────────────────────────────────────
@@ -191,4 +200,67 @@ __all__ = [
     "PYTHON_EVTX_UNAVAILABLE",
     "is_python_evtx_available",
     "parse_evtx_file",
+    "walk_evtx_files",
 ]
+
+
+# ── Walker ──────────────────────────────────────────────────────────────────
+
+
+def walk_evtx_files(roots: Iterable[str]) -> list[str]:
+    """Walk every detection root and return a list of ``.evtx`` file paths.
+
+    Mirrors :func:`registry_hive_walker.scan_for_hives` (γ.4 precedent)
+    exactly — case-insensitive extension match + sandbox check that
+    rejects symlinks pointing outside the root tree (Rule #1 spirit;
+    the unpacker may have legitimate symlinks within the rootfs but
+    escape symlinks are a sandbox concern).
+
+    Sync I/O — wrap in ``run_in_executor`` for async callers
+    (Rule #5). Defensive against missing roots, permission errors,
+    short reads — every error path is swallowed at the per-root /
+    per-file level so one corrupted detection root doesn't abort the
+    entire walk.
+
+    Caller responsibility per Rule #16: pass roots resolved via
+    :func:`app.services.firmware_paths.get_detection_roots` — NEVER
+    a single ``firmware.extracted_path`` (scatter-zip uploads, multi-
+    archive medical firmware, and nested unblob output produce sibling
+    detection roots that ``extracted_path`` misses entirely).
+    """
+    hits: list[str] = []
+    for root in roots:
+        try:
+            real_root = os.path.realpath(root)
+        except OSError:
+            continue
+        if not os.path.isdir(real_root):
+            continue
+        for dirpath, _dirnames, filenames in os.walk(root, followlinks=False):
+            for name in filenames:
+                # Case-insensitive match — Windows filesystems are
+                # case-preserving but case-insensitive, and unpackers
+                # vary on case-normalisation behavior.
+                if not name.lower().endswith(_EVTX_EXTENSION):
+                    continue
+                full = os.path.join(dirpath, name)
+                # Sandbox check — never surface a file whose realpath
+                # escapes the root tree. Same shape as scan_for_hives;
+                # legitimate intra-rootfs symlinks pass through, escape
+                # symlinks are dropped silently.
+                try:
+                    real_full = os.path.realpath(full)
+                except OSError:
+                    continue
+                if not real_full.startswith(real_root):
+                    continue
+                # ``os.path.isfile`` after realpath confirms the symlink
+                # target (if any) actually exists as a regular file —
+                # broken symlinks within the sandbox are rejected.
+                try:
+                    if not os.path.isfile(real_full):
+                        continue
+                except OSError:
+                    continue
+                hits.append(real_full)
+    return hits
