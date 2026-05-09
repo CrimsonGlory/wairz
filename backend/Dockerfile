@@ -45,8 +45,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     file \
     libmagic1 \
     libesedb-utils \
-    libpff-utils \
     libregf-utils \
+    python3-pypff \
     build-essential \
     git \
     zlib1g-dev \
