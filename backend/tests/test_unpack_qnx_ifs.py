@@ -487,37 +487,77 @@ async def test_unpack_qnx_ifs_uses_verified_cli_flags(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# 10. Rule #35b live canary — SKIPPED (no public QNX IFS test corpus
-#     available at handler-ship time). Tracked in
+# 10. Rule #35b live canary — env-gated on WAIRZ_TEST_QNX_IFS_FIXTURE.
+#     No redistribution-safe public QNX IFS corpus exists (QNX runtime
+#     licensing blocks even SDP-built synthetic IFS; openqnx + forks
+#     carry $QNXLicenseC$ headers), so a committed fixture is not
+#     viable.  Durable closure documented in
 #     .planning/intake/qnx-ifs-test-corpus-2026-05-07.md.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skip(
-    reason=(
-        "No QNX IFS test corpus available at Phase 2 handler 5 ship "
-        "time. See .planning/intake/qnx-ifs-test-corpus-2026-05-07.md "
-        "for sourcing notes (BMW HU NBT EVO, Audi MMI, public test "
-        "images, OpenQNX archives, automotive ECU dumps)."
-    ),
-)
-def test_unpack_qnx_ifs_live_canary_real_ifs():
-    """Build / source a real QNX .ifs and round-trip through the actual
-    ifsdump CLI.
+@pytest.mark.asyncio
+async def test_unpack_qnx_ifs_live_canary_real_ifs(tmp_path: Path) -> None:
+    """Round-trip a real QNX .ifs through ``unpack_qnx_ifs`` via the real ifsdump.
 
-    Rule #35b live canary — mocks confirm the contract we wrote, this
-    test confirms the contract ifsdump actually has. Skipped until a
-    fixture .ifs lands at backend/tests/fixtures/qnx_ifs/. When
-    enabled, this test should:
+    Rule #35b live canary — mocks confirm the contract we wrote; this
+    test confirms the contract ifsdump actually has against real-world
+    IFS variants.  Gated on ``WAIRZ_TEST_QNX_IFS_FIXTURE`` per the
+    durable closure in
+    ``.planning/intake/qnx-ifs-test-corpus-2026-05-07.md``: no
+    redistribution-safe public corpus exists (QNX runtime licensing
+    blocks SDP-built synthetic IFS; openqnx + forks carry
+    ``$QNXLicenseC$`` headers; varghes/Raspberry-QNX and the official
+    QNX Quick Start Image are both academic-use-only).  Developers
+    with their own .ifs (locally-licensed QNX SDP build, archived
+    automotive firmware, etc.) can set::
 
-      1. Read backend/tests/fixtures/qnx_ifs/sample.ifs (skip if missing).
-      2. Call unpack_qnx_ifs(firmware_path, output_base_dir).
-      3. Assert result.success is True.
-      4. Walk result.extracted_path / result.extraction_dir; assert
-         the expected files for that fixture exist.
-      5. Assert "ifsdump --list exit=0" + "ifsdump --extract exit=0"
-         in result.unpack_log.
+        WAIRZ_TEST_QNX_IFS_FIXTURE=/path/to/real.ifs \\
+            pytest backend/tests/test_unpack_qnx_ifs.py::test_unpack_qnx_ifs_live_canary_real_ifs
 
-    Mirrors the test_unpack_wim_live_canary_real_wim shape but builds
-    from a fixture rather than capture-then-extract because no
-    ``ifscapture`` tool exists for round-trip verification.
+    to enable this canary locally.  CI does NOT set the var, so this
+    remains skipped on every public CI run until either (a) a
+    redistribution-permissive corpus becomes available (re-open
+    triggers documented in the intake), or (b) a wairz user uploads
+    a real IFS that fails extraction and authorises contributing it
+    as a fixture.
+
+    Mirrors ``test_unpack_wim_live_canary_real_wim`` shape but reads
+    from an env-supplied fixture rather than capture-then-extract,
+    because no ``ifscapture`` round-trip-build tool exists in the
+    wairz container.
     """
+    fixture = os.environ.get("WAIRZ_TEST_QNX_IFS_FIXTURE")
+    if not fixture:
+        pytest.skip(
+            "WAIRZ_TEST_QNX_IFS_FIXTURE not set — see "
+            ".planning/intake/qnx-ifs-test-corpus-2026-05-07.md "
+            "for the durable closure rationale (no committable corpus exists).",
+        )
+
+    fixture_path = Path(fixture)
+    if not fixture_path.is_file():  # noqa: ASYNC240 — pre-flight stat on env-supplied fixture path before bounded sync subprocess (ifsdump via unpack_qnx_ifs)
+        pytest.skip(
+            f"WAIRZ_TEST_QNX_IFS_FIXTURE={fixture_path!r} is not a regular file",
+        )
+
+    output_base = tmp_path / "out"
+    output_base.mkdir()
+
+    result = await unpack_qnx_ifs(
+        firmware_path=str(fixture_path),
+        output_base_dir=str(output_base),
+    )
+
+    assert result.success is True, f"expected success, got error={result.error!r}"
+    assert result.extracted_path is not None
+    log = result.unpack_log or ""
+    assert "ifsdump" in log
+    assert "exit=0" in log
+
+    extract_root = result.extraction_dir or result.extracted_path
+    found_count = 0
+    for _root, _dirs, files in os.walk(extract_root):
+        found_count += len(files)
+    assert found_count > 0, (
+        f"expected at least one extracted file under {extract_root!r}"
+    )
