@@ -21,6 +21,7 @@ import {
   Cpu,
   Terminal,
   CalendarClock,
+  Link2,
 } from 'lucide-react'
 import type { Severity, FindingStatus, FindingSource, Confidence } from '@/types'
 
@@ -107,6 +108,7 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   windows_srum_application_runtime: { icon: Cpu, label: 'SRUM Runtime', className: 'border-orange-500/50 text-orange-600 dark:text-orange-400' },
   windows_powershell_script_block: { icon: Terminal, label: 'PowerShell Script', className: 'border-yellow-500/50 text-yellow-600 dark:text-yellow-400' },
   windows_scheduled_task_persistence: { icon: CalendarClock, label: 'Scheduled Task', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
+  windows_lnk_abnormal_target: { icon: Link2, label: 'LNK Abnormal Target', className: 'border-rose-500/50 text-rose-600 dark:text-rose-400' },
 }
 
 // ── Finding confidence ──

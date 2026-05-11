@@ -98,6 +98,24 @@ WindowsFindingSource = Literal[
     # metadata into the finding's confidence + evidence rather than
     # separate Literal values per tier).
     "windows_scheduled_task_persistence",
+    # Phase η.C.D — alignment slice with frontend FindingSource union +
+    # FINDING_SOURCE_CONFIG entries. Emitted by
+    # ``emit_lnk_findings_from_walk`` for every ``WindowsLnkRecord``
+    # row produced by the η.C.C walker whose target / arguments shape
+    # matches T1547.009 Shortcut Modification persistence indicators.
+    # Confidence tier mapping is heuristic-driven:
+    # - HIGH (Confidence.high) — target is a known script-host binary
+    #   (cmd / cscript / wscript / powershell / pwsh / mshta / regsvr32
+    #   / rundll32) AND arguments contain encoded-PowerShell pattern
+    #   (Qakbot signature: ``-EncodedCommand`` / ``-enc`` /
+    #   ``FromBase64String`` / ``Invoke-Expression`` / ``[char[]]`` /
+    #   ``DownloadString`` / ``IEX``).
+    # - MEDIUM (Confidence.medium) — target_path is non-Microsoft
+    #   (NOT under \\Windows\\, %SystemRoot%, %windir%, C:\\Program Files\\
+    #   Microsoft *, C:\\ProgramData\\Microsoft\\, etc.).
+    # - LOW (Confidence.low) — baseline review-candidate row.
+    # Per intake style: ONE Literal value covers all 3 tiers.
+    "windows_lnk_abnormal_target",
 ]
 
 

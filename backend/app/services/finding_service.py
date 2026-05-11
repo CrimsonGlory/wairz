@@ -134,6 +134,24 @@ _SOURCE_SCHEDULED_TASK_PERSISTENCE: WindowsFindingSource = (
 )
 
 
+# Phase η.C.D — LNK abnormal-target finding source. Emitted by
+# ``emit_lnk_findings_from_walk`` for every ``WindowsLnkRecord`` row
+# produced by the η.C.C walker whose target / arguments shape matches
+# T1547.009 Shortcut Modification persistence indicators.
+# Confidence tier mapping is heuristic-driven:
+# - HIGH (Confidence.high) — target is a known script-host binary AND
+#   arguments contain encoded-PowerShell pattern (Qakbot signature).
+#   Detected via ``lnk_walker.is_script_host_target`` +
+#   ``lnk_walker.is_arguments_encoded_powershell``.
+# - MEDIUM (Confidence.medium) — target_path is non-Microsoft (per
+#   ``lnk_walker.is_microsoft_target`` returning False).
+# - LOW (Confidence.low) — baseline review-candidate row.
+# Per intake style: ONE Literal value covers all 3 tiers.
+_SOURCE_LNK_ABNORMAL_TARGET: WindowsFindingSource = (
+    "windows_lnk_abnormal_target"
+)
+
+
 # ── Phase η.E — PowerShell EID classifier helper ──
 #
 # Heuristic detection for obfuscated/encoded PowerShell content. The
@@ -896,6 +914,176 @@ def classify_scheduled_task_persistence_findings(
     ]
 
 
+# ── Phase η.C.D — LNK abnormal-target classifier ────────────────────────────
+
+
+@dataclass(frozen=True)
+class _LnkFindingDraft:
+    """One LNK Finding row to emit. Carries an explicit confidence
+    tier alongside the standard _PEFindingDraft fields so the emit
+    hook can preserve the tier-mapping that
+    classify_lnk_abnormal_target_findings derives from the parsed
+    LNK metadata.
+
+    Distinct from _PEFindingDraft (fixes confidence at emit site)
+    and from _ScheduledTaskFindingDraft (different tier-mapping
+    semantics) because LNKs have a heuristic-driven 3-tier map
+    (HIGH on script-host + encoded-PS / MEDIUM on non-Microsoft
+    target / LOW baseline) — the same source value can land at any
+    of the 3 tiers.
+    """
+    source: WindowsFindingSource
+    severity: Severity
+    title: str
+    description: str
+    evidence: str
+    confidence: Confidence
+
+
+def classify_lnk_abnormal_target_findings(
+    *,
+    lnk_filename: str,
+    source_path: str,
+    target_path: str | None,
+    working_directory: str | None,
+    arguments: str | None,
+    description: str | None,
+    show_command: str | None,
+    hotkey: str | None,
+) -> list[_LnkFindingDraft]:
+    """Phase η.C.D — map one WindowsLnkRecord row to ONE
+    persistence Finding draft.
+
+    Pure function — no DB access. Each row yields at most ONE Finding
+    draft; the confidence tier is heuristic-driven:
+
+    - HIGH (Confidence.high) — target_path resolves to a known
+      script-host binary (cmd / cscript / wscript / powershell /
+      pwsh / mshta / regsvr32 / rundll32) AND arguments contain
+      encoded-PowerShell pattern (Qakbot signature: ``-EncodedCommand``
+      / ``-enc`` / ``FromBase64String`` / ``Invoke-Expression`` /
+      ``[char[]]`` / ``DownloadString`` / ``IEX``). Detected via
+      ``lnk_walker.is_script_host_target`` +
+      ``lnk_walker.is_arguments_encoded_powershell``. Severity: high.
+    - MEDIUM (Confidence.medium) — target_path is non-Microsoft (NOT
+      under \\Windows\\, %SystemRoot%, %windir%, C:\\Program Files\\
+      Microsoft *, C:\\ProgramData\\Microsoft\\, etc.). Detected via
+      ``lnk_walker.is_microsoft_target`` returning False. LNKs
+      targeting user-writable directories are atypical for legitimate
+      Start Menu / Recent docs entries. Severity: medium.
+    - LOW (Confidence.low) — baseline review-candidate row.
+      Severity: info.
+
+    Returns empty list when ``lnk_filename`` is missing/empty
+    (defensive boundary — the walker's _build_record contract
+    requires lnk_filename).
+
+    Mirrors classify_scheduled_task_persistence_findings shape with
+    a tier-bearing draft type to preserve the tier-mapping at the
+    emit site.
+    """
+    if not lnk_filename:
+        return []
+
+    # Lazy import per Rule #30 to avoid lnk_walker ↔ finding_service
+    # circular at module load. The three helpers are pure-Python
+    # regex / prefix / set checks; the import overhead is one-time
+    # per process.
+    from app.services.lnk_walker import (
+        is_arguments_encoded_powershell,
+        is_microsoft_target,
+        is_script_host_target,
+    )
+
+    # Dispatch tier — first match wins (HIGH > MEDIUM > LOW).
+    has_script_host = is_script_host_target(target_path)
+    has_encoded_ps = is_arguments_encoded_powershell(arguments)
+    is_ms_target = is_microsoft_target(target_path)
+
+    confidence: Confidence
+    severity: Severity
+    tier_label: str
+    if has_script_host and has_encoded_ps:
+        confidence = Confidence.high
+        severity = Severity.high
+        tier_label = (
+            "HIGH (script-host target + encoded-PowerShell arguments — "
+            "Qakbot / cobalt-strike pattern)"
+        )
+    elif target_path and not is_ms_target:
+        confidence = Confidence.medium
+        severity = Severity.medium
+        tier_label = (
+            "MEDIUM (non-Microsoft target — atypical for legitimate "
+            "Start Menu / Recent docs entries)"
+        )
+    else:
+        confidence = Confidence.low
+        severity = Severity.info
+        tier_label = "LOW (baseline review-candidate)"
+
+    evidence_lines = [
+        f"Tier: {tier_label}",
+        f"LNK filename: {lnk_filename}",
+        f"Source path: {source_path}",
+    ]
+    if target_path:
+        evidence_lines.append(f"Target path: {target_path}")
+    if working_directory:
+        evidence_lines.append(f"Working directory: {working_directory}")
+    if arguments:
+        # Truncate very long encoded-PS argument payloads for readability.
+        args_truncated = (
+            arguments[:200] + "…"
+            if len(arguments) > 200
+            else arguments
+        )
+        evidence_lines.append(f"Arguments: {args_truncated}")
+    if description:
+        evidence_lines.append(f"Description: {description}")
+    if show_command:
+        evidence_lines.append(f"ShowCommand: {show_command}")
+    if hotkey and hotkey not in ("UNSET - UNSET {0x0000}", "UNSET"):
+        evidence_lines.append(f"Hotkey: {hotkey}")
+
+    evidence = "\n".join(evidence_lines)
+
+    description_text = (
+        f"Windows Shell Link (LNK) record surfaces shortcut "
+        f"{lnk_filename}"
+    )
+    if has_script_host and has_encoded_ps:
+        description_text += (
+            " whose target resolves to a script-host binary AND whose "
+            "arguments carry an encoded-PowerShell pattern. T1547.009 "
+            "Shortcut Modification persistence — HIGH-confidence Qakbot "
+            "/ cobalt-strike indicator. Investigate the resolved target "
+            "+ Base64-decoded payload against threat-feeds."
+        )
+    elif confidence == Confidence.medium:
+        description_text += (
+            " pointing at a non-Microsoft target binary. MEDIUM-confidence "
+            "candidate — verify the target's signing chain (Authenticode "
+            "+ DBX) and review the LNK's source location for tampering."
+        )
+    else:
+        description_text += (
+            ". LOW-confidence baseline review candidate; the row "
+            "documents shortcut metadata for forensic-timeline context."
+        )
+
+    return [
+        _LnkFindingDraft(
+            source=_SOURCE_LNK_ABNORMAL_TARGET,
+            severity=severity,
+            title=f"LNK: {lnk_filename}",
+            description=description_text,
+            evidence=evidence,
+            confidence=confidence,
+        )
+    ]
+
+
 def classify_registry_persistence_findings(
     *,
     hive_path: str,
@@ -1511,6 +1699,73 @@ class FindingService:
                     # the heuristic 3-tier confidence map (HIGH on
                     # encoded-PS, MEDIUM on HighestAvailable + non-system
                     # Author, LOW baseline).
+                    confidence=draft.confidence,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_lnk_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Phase η.C.D — emit windows_lnk_abnormal_target Finding rows
+        for one firmware.
+
+        Reads every persisted ``WindowsLnkRecord`` row for the firmware
+        (rows are produced by the η.C.C walker) and projects each into
+        ONE Finding row via :func:`classify_lnk_abnormal_target_findings`.
+        Confidence tier is heuristic-driven by the classifier:
+
+        - HIGH — target_path is a known script-host binary AND
+          arguments contain encoded-PowerShell pattern (Qakbot
+          signature). Severity: high.
+        - MEDIUM — target_path is non-Microsoft. Severity: medium.
+        - LOW — baseline review-candidate row. Severity: info.
+
+        Unlike emit_srum_findings_from_walk / emit_prefetch_findings_from_walk
+        (which fix Confidence.low at the emit site), this emit method
+        passes the classifier-derived ``draft.confidence`` through to
+        the FindingCreate so the heuristic 3-tier mapping is preserved.
+        Mirrors emit_scheduled_task_findings_from_walk shape.
+
+        Idempotency is the caller's responsibility — same shape as
+        emit_prefetch_findings_from_walk; callers DELETE prior
+        windows_lnk_abnormal_target findings for the firmware before
+        re-emitting.
+        """
+        from app.models.windows_lnk_record import WindowsLnkRecord
+
+        stmt = select(WindowsLnkRecord).where(
+            WindowsLnkRecord.firmware_id == firmware_id
+        )
+        rows = (await self.db.execute(stmt)).scalars().all()
+
+        emitted: list[Finding] = []
+        for record in rows:
+            drafts = classify_lnk_abnormal_target_findings(
+                lnk_filename=record.lnk_filename,
+                source_path=record.source_path,
+                target_path=record.target_path,
+                working_directory=record.working_directory,
+                arguments=record.arguments,
+                description=record.description,
+                show_command=record.show_command,
+                hotkey=record.hotkey,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.source_path,
+                    # Tier-bearing draft per η.C.D classifier — preserve
+                    # the heuristic 3-tier confidence map (HIGH on
+                    # script-host + encoded-PS, MEDIUM on non-Microsoft
+                    # target, LOW baseline).
                     confidence=draft.confidence,
                     firmware_id=firmware_id,
                     source=draft.source,
