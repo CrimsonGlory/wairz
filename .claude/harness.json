@@ -333,6 +333,12 @@
         "pattern": "\\|\\s+(tail|head|grep|less|awk|sed|jq)\\b[^;\\n]*;\\s*echo\\s+[^|\\n]*\\$\\?",
         "filePattern": "**/*.{sh,md,py,js,ts}",
         "message": "Learned from async-cleanup-2026-05-11 Rule #35a/Antipattern A1 (reinforcement): `cmd | tail|head|grep|jq|awk|sed; echo $?` captures the PIPE's last-command exit, NOT the original cmd's. To capture the real exit: `cmd; ec=$?` BEFORE the pipe, or use `${PIPESTATUS[0]}` after the pipeline, or `set -o pipefail` before the pipe. The Bash tool does NOT enable pipefail by default. Companion to existing rule `auto-audit-intakes-2026-05-05-ci-silent-zero` which covers the `2>/dev/null || echo 0` variant."
+      },
+      {
+        "name": "auto-windows-coverage-godmode-eta-2026-05-11-regex-word-boundary-non-word-prefix",
+        "pattern": "\\\\b-[A-Za-z]",
+        "filePattern": "backend/app/**/*.py",
+        "message": "Learned from windows-coverage-godmode-eta-2026-05-11 (Rule-of-Two: η.B classifier `\\\\b-enc\\\\b` + η.C classifier `\\\\b\\\\[char\\\\[\\\\]\\\\]\\\\(` independently failed): regex `\\\\b` word-boundary metachar does NOT match between two non-word characters or at string-start when next char is non-word. So `\\\\b-enc\\\\b` silently fails to match the literal `-enc` flag at string-start. Symptom: classifier returns None on intended targets; tier-1 test catches if present. Fix: use explicit `(?:^|[^A-Za-z0-9])<token>(?:[^A-Za-z0-9]|$)` lookarounds for adjacency-to-non-word checks. Mechanical detection: any classifier regex containing `\\\\b` followed by a non-word character is suspect."
       }
     ]
   },
