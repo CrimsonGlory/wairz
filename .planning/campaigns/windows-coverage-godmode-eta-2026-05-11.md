@@ -114,10 +114,19 @@ Deferred to θ (next campaign letter):
 - Rule #25 single-slice exception #2 cross-stack alignment: Rule-of-Eight → Rule-of-Eleven (3 alignment commits this session)
 - Rule #41 Lint must-complete CI: green on every per-piece push within ~1 minute
 
-**Cut-over verification (post Rule #8 backend+worker+migrator rebuild — see end-of-session steps):**
+**Cut-over verification (post Rule #8 backend+worker+migrator rebuild — COMPLETE):**
 
-- Rule #11 import smoke for the 3 new walker modules + LnkParse3 in container: TBD (will run after the rebuild background task completes)
-- 81/81 finding_service regression sweep PASS (3 alignment + 19 base + 14 PE + 18 reg/driver + 12 PowerShell + 7 sched-task + 8 LNK)
+- Rule #8 `docker compose up -d --build backend worker migrator`: completed; new images for backend + worker + migrator (migrator exit 0; backend + worker UP).
+- Rule #11 import smoke against REBUILT backend container: ALL OK
+  - `from app.services.scheduled_task_walker import _do_scheduled_task_run, run_scheduled_task_walk_background, auto_scheduled_task_walk_firmware_safe` → OK
+  - `from app.services.lnk_walker import _do_lnk_run, run_lnk_walk_background, auto_lnk_walk_firmware_safe` → OK
+  - `from app.services.finding_service import _classify_powershell_event, _SOURCE_POWERSHELL_SCRIPT_BLOCK, _SOURCE_SCHEDULED_TASK_PERSISTENCE, _SOURCE_LNK_ABNORMAL_TARGET` → OK
+  - `from app.schemas.finding import WindowsFindingSource; len(get_args(WindowsFindingSource))` → 17
+  - `import LnkParse3` → OK
+- Single alembic head verified in rebuilt container: `a7b8c9d0e1f2` ← η.C.D extension
+- 81/81 finding_service regression sweep PASS (3 alignment + 19 base + 14 PE + 18 reg/driver + 12 PowerShell + 7 sched-task + 8 LNK) — host-side .venv pre-rebuild
+- Lint CI green on every per-piece push of the session's 14 commits (verified via `gh run list`)
+- Backend Tests CI: cancelled on intermediate per Pattern P5 / Rule #41 expected behavior under `concurrency.cancel-in-progress`; latest commit `9f56876` Backend Tests in_progress at session-close
 
 ## Continuation State
 
