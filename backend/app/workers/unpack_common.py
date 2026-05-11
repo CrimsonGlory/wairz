@@ -14,6 +14,18 @@ from dataclasses import dataclass
 logger = logging.getLogger(__name__)
 
 
+def reset_extraction_dir_sync(extraction_dir: str) -> None:
+    """Synchronous helper: rmtree-if-exists + makedirs in one executor hop.
+
+    Shared by every unpack_<format>.py worker that prepares a clean
+    extraction_dir at the start of unpack(). Combines existence-check +
+    rmtree + makedirs into a single executor hop (Rule #5 minimum-hop).
+    """
+    if os.path.exists(extraction_dir):
+        _shutil.rmtree(extraction_dir, ignore_errors=True)
+    os.makedirs(extraction_dir, exist_ok=True)
+
+
 def widen_read_perms(root: str) -> int:
     """Ensure every regular file and directory under ``root`` is readable
     (and dirs are traversable) by the backend user.
