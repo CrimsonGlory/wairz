@@ -79,7 +79,7 @@ from app.utils.credential_patterns import (
 
 
 async def _run_subprocess(
-    args: list[str], cwd: str, timeout: int = 30
+    args: list[str], cwd: str, timeout: int = 30  # noqa: ASYNC109 — caller-supplied per-invocation timeout passed to asyncio.wait_for
 ) -> tuple[str, str]:
     """Run a subprocess asynchronously with timeout.
 
@@ -181,7 +181,8 @@ async def _handle_extract_strings(input: dict, context: ToolContext) -> str:
     if max_results <= 0:
         max_results = None  # unlimited
 
-    if not os.path.isfile(path):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, path):
         return f"Error: '{input['path']}' is not a file."
 
     stdout, _ = await _run_subprocess(
@@ -903,13 +904,15 @@ async def _handle_find_hardcoded_ips(input: dict, context: ToolContext) -> str:
         scan_roots = [context.resolve_path(input_path)]
     else:
         scan_roots = list(context.get_detection_roots() or [context.extracted_path])
-    real_roots = [os.path.realpath(r) for r in scan_roots if r]
+    loop = asyncio.get_running_loop()
+    real_roots = await loop.run_in_executor(
+        None, lambda: [os.path.realpath(r) for r in scan_roots if r],
+    )
 
     findings: list[dict] = []
     ips_found: Counter = Counter()
 
     # Phase 1 (sync via executor): walk + classify files (text vs binary)
-    loop = asyncio.get_running_loop()
     file_specs, files_scanned = await loop.run_in_executor(
         None, _classify_files_for_ip_scan_sync,
         scan_roots, real_roots, context.extracted_path, include_binaries,
