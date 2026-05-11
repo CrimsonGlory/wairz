@@ -238,7 +238,10 @@ async def scan_apk_manifest_endpoint(
 
     firmware = await _get_firmware(project_id, firmware_id, db)
     extracted_path = firmware.extracted_path
-    if not extracted_path or not os.path.isdir(extracted_path):
+    loop = asyncio.get_event_loop()
+    if not extracted_path or not await loop.run_in_executor(
+        None, os.path.isdir, extracted_path,
+    ):
         raise HTTPException(400, "Firmware not yet extracted")
 
     abs_apk_path = _find_apk_in_firmware(extracted_path, apk_path)
@@ -246,7 +249,6 @@ async def scan_apk_manifest_endpoint(
     # Check cache first
     from app.services import _cache
 
-    loop = asyncio.get_event_loop()
     sha256 = await loop.run_in_executor(None, _compute_sha256, abs_apk_path)
 
     cached = await _cache.get_cached(
@@ -263,7 +265,7 @@ async def scan_apk_manifest_endpoint(
         return resp
 
     # Detect firmware context
-    rel_path = os.path.relpath(abs_apk_path, extracted_path)
+    rel_path = os.path.relpath(abs_apk_path, extracted_path)  # noqa: ASYNC240 — pure-string path op; no I/O
     is_priv_app = is_priv_app_path(abs_apk_path, extracted_path)
 
     # Detect platform signing via manifest heuristics (declared permissions
@@ -507,7 +509,10 @@ async def scan_apk_bytecode_endpoint(
 
     firmware = await _get_firmware(project_id, firmware_id, db)
     extracted_path = firmware.extracted_path
-    if not extracted_path or not os.path.isdir(extracted_path):
+    loop = asyncio.get_event_loop()
+    if not extracted_path or not await loop.run_in_executor(
+        None, os.path.isdir, extracted_path,
+    ):
         raise HTTPException(400, "Firmware not yet extracted")
 
     abs_apk_path = _find_apk_in_firmware(extracted_path, apk_path)
@@ -515,7 +520,6 @@ async def scan_apk_bytecode_endpoint(
     # Check cache first
     from app.services import _cache
 
-    loop = asyncio.get_event_loop()
     sha256 = await loop.run_in_executor(
         None, _compute_sha256, abs_apk_path
     )
@@ -539,7 +543,7 @@ async def scan_apk_bytecode_endpoint(
         from app.services.bytecode_analysis_service import BytecodeAnalysisService
 
         svc = BytecodeAnalysisService()
-        apk_location = "/" + os.path.relpath(abs_apk_path, extracted_path)
+        apk_location = "/" + os.path.relpath(abs_apk_path, extracted_path)  # noqa: ASYNC240 — pure-string path op; no I/O
 
         result = await loop.run_in_executor(
             None,
@@ -561,7 +565,7 @@ async def scan_apk_bytecode_endpoint(
 
     # Cache result
     try:
-        rel_path = os.path.relpath(abs_apk_path, extracted_path)
+        rel_path = os.path.relpath(abs_apk_path, extracted_path)  # noqa: ASYNC240 — pure-string path op; no I/O
         await _cache.store_cached(
             db,
             firmware_id,
@@ -650,7 +654,7 @@ async def scan_apk_sast_endpoint(
         False,
         description="Skip cache and force a fresh scan",
     ),
-    timeout: int = Query(
+    timeout: int = Query(  # noqa: ASYNC109 — caller-supplied per-request override; flows into pipeline.scan_apk(timeout=...) which uses asyncio.wait_for internally per Rule #29
         600,
         ge=30,
         le=900,
@@ -686,11 +690,14 @@ async def scan_apk_sast_endpoint(
 
     firmware = await _get_firmware(project_id, firmware_id, db)
     extracted_path = firmware.extracted_path
-    if not extracted_path or not os.path.isdir(extracted_path):
+    loop = asyncio.get_event_loop()
+    if not extracted_path or not await loop.run_in_executor(
+        None, os.path.isdir, extracted_path,
+    ):
         raise HTTPException(400, "Firmware not yet extracted")
 
     abs_apk_path = _find_apk_in_firmware(extracted_path, apk_path)
-    apk_rel_path = os.path.relpath(abs_apk_path, extracted_path)
+    apk_rel_path = os.path.relpath(abs_apk_path, extracted_path)  # noqa: ASYNC240 — pure-string path op; no I/O
 
     pipeline = get_mobsfscan_pipeline()
 
@@ -801,7 +808,10 @@ async def list_decompiled_sources_endpoint(
     """
     firmware = await _get_firmware(project_id, firmware_id, db)
     extracted_path = firmware.extracted_path
-    if not extracted_path or not os.path.isdir(extracted_path):
+    loop = asyncio.get_event_loop()
+    if not extracted_path or not await loop.run_in_executor(
+        None, os.path.isdir, extracted_path,
+    ):
         raise HTTPException(400, "Firmware not yet extracted")
 
     abs_apk_path = _find_apk_in_firmware(extracted_path, apk_path)
@@ -847,7 +857,10 @@ async def get_decompiled_source_endpoint(
     """
     firmware = await _get_firmware(project_id, firmware_id, db)
     extracted_path = firmware.extracted_path
-    if not extracted_path or not os.path.isdir(extracted_path):
+    loop = asyncio.get_event_loop()
+    if not extracted_path or not await loop.run_in_executor(
+        None, os.path.isdir, extracted_path,
+    ):
         raise HTTPException(400, "Firmware not yet extracted")
 
     abs_apk_path = _find_apk_in_firmware(extracted_path, apk_path)
