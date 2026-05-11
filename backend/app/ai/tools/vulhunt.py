@@ -107,7 +107,7 @@ class VulHuntClient:
         return self._req_id
 
     async def _call(
-        self, method: str, params: dict | None = None, timeout: float = 60
+        self, method: str, params: dict | None = None, timeout: float = 60  # noqa: ASYNC109 — caller-supplied per-RPC timeout passed to asyncio.wait_for
     ) -> dict[str, Any]:
         """Send a JSON-RPC request to the VulHunt MCP server."""
         msg: dict[str, Any] = {
@@ -158,7 +158,7 @@ class VulHuntClient:
         return result.get("result", {})
 
     async def call_tool(
-        self, name: str, arguments: dict, timeout: float = 300
+        self, name: str, arguments: dict, timeout: float = 300  # noqa: ASYNC109 — caller-supplied per-tool-call timeout passed through to _call
     ) -> dict[str, Any]:
         """Call an MCP tool on the VulHunt server."""
         result = await self._call("tools/call", {
@@ -363,7 +363,7 @@ return results
 
 
 async def _scan_binary_via_mcp(
-    client: VulHuntClient, path: str, kind: str, timeout: float = 300
+    client: VulHuntClient, path: str, kind: str, timeout: float = 300  # noqa: ASYNC109 — caller-supplied per-binary scan timeout passed through to call_tool
 ) -> list[dict]:
     """Open a binary in VulHunt and query for vulnerabilities."""
     try:
@@ -545,7 +545,7 @@ async def _handle_vulhunt_scan_firmware(
         pass  # SSE is best-effort
 
     for binary_path, is_pe in binaries:
-        binary_name = os.path.relpath(binary_path, last_root)
+        binary_name = os.path.relpath(binary_path, last_root)  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         kind = _infer_uefi_kind(binary_path) if is_pe else "DxeDriver"
         findings = await _scan_binary_via_mcp(
             client, binary_path, kind=kind, timeout=settings.vulhunt_timeout
