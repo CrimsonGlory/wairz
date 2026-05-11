@@ -448,13 +448,17 @@ async def run_mobsf_scan(
     # Offline mode: load from pre-exported JSON report
     if report_path:
         rp = Path(report_path)
-        if not rp.is_file():
+        loop = asyncio.get_event_loop()
+        if not await loop.run_in_executor(None, rp.is_file):
             return MobsfScanResult(
                 success=False,
                 error=f"MobSF report not found: {report_path}",
             )
         try:
-            report_json = json.loads(rp.read_text(encoding="utf-8"))
+            report_text = await loop.run_in_executor(
+                None, lambda: rp.read_text(encoding="utf-8"),
+            )
+            report_json = json.loads(report_text)
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             return MobsfScanResult(
                 success=False,
@@ -511,7 +515,8 @@ async def compare_apk(
         Side-by-side diff with match/miss/extra classifications.
     """
     p = Path(apk_path)
-    if not p.is_file():
+    loop = asyncio.get_event_loop()
+    if not await loop.run_in_executor(None, p.is_file):
         report = ComparisonReport(
             apk_path=apk_path,
             timestamp=datetime.now(UTC).isoformat(),
@@ -842,7 +847,11 @@ async def async_main(args: argparse.Namespace) -> int:
 
     # Write output
     if args.output:
-        Path(args.output).write_text(output, encoding="utf-8")
+        out_path = Path(args.output)
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None, lambda: out_path.write_text(output, encoding="utf-8"),
+        )
         logger.info("Report written to %s", args.output)
     else:
         print(output)
