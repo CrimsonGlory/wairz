@@ -32,6 +32,7 @@ Output truncation (Rule #29): tool outputs ≤ 30 KB.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -69,6 +70,48 @@ def _json_default(obj: Any) -> Any:
 
 def _dump_json(payload: Any) -> str:
     return _truncate(json.dumps(payload, indent=2, default=_json_default))
+
+
+# ── Sync I/O helpers (call via run_in_executor) ────────────────────────────
+
+
+def _walk_assemblies_sync(target_dir: str) -> tuple[bool, list[dict[str, Any]]]:
+    """Sync: enumerate IL/CS decompile outputs under ``target_dir``.
+
+    Returns ``(exists, assemblies)``. ``exists`` is False when the
+    directory is missing (caller surfaces an error); ``assemblies``
+    is the same shape ``_handle_list_extracted_assemblies`` emits.
+    """
+    if not os.path.isdir(target_dir):
+        return False, []
+    assemblies: list[dict[str, Any]] = []
+    for dirpath, _dirs, filenames in os.walk(target_dir):
+        for fn in filenames:
+            if fn.endswith((".il", ".cs", ".decompiled.cs")):
+                full = os.path.join(dirpath, fn)
+                try:
+                    st = os.stat(full)
+                except OSError:
+                    continue
+                assemblies.append({
+                    "path": os.path.relpath(full, target_dir),  # pure-string after walk
+                    "size": st.st_size,
+                    "kind": "il" if fn.endswith(".il") else "cs",
+                })
+    return True, assemblies
+
+
+def _read_assembly_sync(safe_path: str, cap: int) -> tuple[bool, str]:
+    """Sync: existence check + capped read of a decompiled assembly.
+
+    Returns ``(exists, content)``. ``exists`` is False when the file is
+    missing; ``content`` may be empty when read fails after the existence
+    check (caller distinguishes via the boolean).
+    """
+    if not os.path.isfile(safe_path):
+        return False, ""
+    with open(safe_path, encoding="utf-8", errors="replace") as fh:
+        return True, fh.read(cap + 1024)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -143,26 +186,16 @@ async def _handle_list_extracted_assemblies(input: dict, context: ToolContext) -
             break
     if target_dir is None:
         return _dump_json({"error": "bundle not found", "bundle_path": bundle_path})
-    if not os.path.isdir(target_dir):
+    loop = asyncio.get_running_loop()
+    exists, assemblies = await loop.run_in_executor(
+        None, _walk_assemblies_sync, target_dir,
+    )
+    if not exists:
         return _dump_json({
             "error": "decompile output directory does not exist (rebuild "
             "with INCLUDE_DOTNET=1 + re-run decompile)",
             "decompile_target_dir": target_dir,
         })
-    assemblies: list[dict[str, Any]] = []
-    for dirpath, _dirs, filenames in os.walk(target_dir):
-        for fn in filenames:
-            if fn.endswith((".il", ".cs", ".decompiled.cs")):
-                full = os.path.join(dirpath, fn)
-                try:
-                    st = os.stat(full)
-                except OSError:
-                    continue
-                assemblies.append({
-                    "path": os.path.relpath(full, target_dir),
-                    "size": st.st_size,
-                    "kind": "il" if fn.endswith(".il") else "cs",
-                })
     return _dump_json({
         "bundle_path": bundle_path,
         "decompile_target_dir": target_dir,
@@ -174,13 +207,15 @@ async def _handle_list_extracted_assemblies(input: dict, context: ToolContext) -
 async def _handle_get_assembly_il(input: dict, context: ToolContext) -> str:
     assembly_path = input["assembly_path"]
     safe_path = context.resolve_path(assembly_path)
-    if not os.path.isfile(safe_path):
-        return _dump_json({"error": "assembly file not found", "assembly_path": assembly_path})
+    loop = asyncio.get_running_loop()
     try:
-        with open(safe_path, encoding="utf-8", errors="replace") as fh:
-            content = fh.read(_OUTPUT_CAP_BYTES + 1024)
+        exists, content = await loop.run_in_executor(
+            None, _read_assembly_sync, safe_path, _OUTPUT_CAP_BYTES,
+        )
     except Exception as exc:
         return _dump_json({"error": f"read failed: {exc}", "assembly_path": assembly_path})
+    if not exists:
+        return _dump_json({"error": "assembly file not found", "assembly_path": assembly_path})
     return _truncate(content)
 
 
