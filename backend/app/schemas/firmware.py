@@ -17,6 +17,17 @@ UploadStage = Literal[
     "failed",
 ]
 
+# Phase η.B.B Scheduled Task XML walker — Rule #33 .c Pydantic Literal
+# typo-gate at the trigger MCP tool / status reader boundary. The DB
+# CHECK constraint ``ck_firmware_scheduled_task_walk_status`` (alembic
+# revision f9a0b1c2d3e4) is the durable safety floor; this Literal
+# adds compile-time typo detection for new callers. Mirrors the
+# VulnScanStatus / CveMatchStatus shapes from sbom.py /
+# hardware_firmware.py.
+ScheduledTaskWalkStatus = Literal[
+    "idle", "queued", "running", "completed", "failed"
+]
+
 
 class FirmwareUploadResponse(BaseModel):
     model_config = {"from_attributes": True}

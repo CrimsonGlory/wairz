@@ -1633,3 +1633,51 @@ def _stamp_windows_scheduled_tasks_settings(payload: dict) -> dict:
     ``WindowsScheduledTask.settings``. Idempotent."""
     payload["schema_version"] = WINDOWS_SCHEDULED_TASKS_SETTINGS_SCHEMA_VERSION
     return payload
+
+
+# ── firmware.scheduled_task_walk_result (Phase η.B.B) ───────────────────────
+#
+# Per-firmware aggregate from a single Scheduled Task XML walk. Mirrors
+# the evtx_walk_result / prefetch_walk_result / srum_walk_result shape
+# — a flat dict with top-level summary fields. The runner stamps this
+# once at completion.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,
+#     "task_count": int,                        # total .xml task files walked
+#     "by_status": {"ok": int, "error": int},   # parse outcomes
+#     "unique_authors": int,                    # distinct Author values
+#     "highest_available_count": int,           # tasks with RunLevel=HighestAvailable
+#     "encoded_powershell_count": int,          # tasks with encoded-PS action shape
+#     "errors": list[str],                      # session-level errors
+#     "per_file": list[dict],                   # [{"path": str, "status":
+#                                                  str, "task_uri": str|None,
+#                                                  "author": str|None,
+#                                                  "error": str|None}]
+#   }
+
+FIRMWARE_SCHEDULED_TASK_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_scheduled_task_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.scheduled_task_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_scheduled_task_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.scheduled_task_walk_result``. Idempotent."""
+    payload["schema_version"] = (
+        FIRMWARE_SCHEDULED_TASK_WALK_RESULT_SCHEMA_VERSION
+    )
+    return payload

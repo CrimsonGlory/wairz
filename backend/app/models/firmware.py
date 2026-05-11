@@ -242,6 +242,32 @@ class Firmware(Base):
     srum_walk_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     srum_walk_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
+    # Phase η.B.B Scheduled Task XML walker columns (CLAUDE.md Rule #33
+    # contract). Background runner ``run_scheduled_task_walk_background``
+    # walks every ``\Windows\System32\Tasks\**\*`` XML file across the
+    # firmware's detection roots (defusedxml.ElementTree.fromstring per
+    # Rule #36 — DATA only, never invoked via schtasks /create or
+    # Register-ScheduledTask), persists per-task rows into
+    # ``windows_scheduled_tasks`` (table from η.B.A), and stamps an
+    # aggregate JSONB result onto ``scheduled_task_walk_result``.
+    # Rule #33 .c CHECK enforces the 5-state machine; Rule #33 .d —
+    # asyncio.create_task dispatch (in-process pure-Python parser).
+    scheduled_task_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    scheduled_task_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    scheduled_task_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    scheduled_task_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    scheduled_task_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
