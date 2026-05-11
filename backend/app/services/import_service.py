@@ -1,5 +1,6 @@
 """Project import service — restores a .wairz ZIP archive into a new project."""
 
+import asyncio
 import base64
 import io
 import json
@@ -39,6 +40,22 @@ def _parse_dt(val) -> datetime | None:
         return datetime.fromisoformat(val)
     except (TypeError, ValueError):
         return None
+
+
+def _stream_extract_sync(
+    zf: zipfile.ZipFile,
+    arc_name: str,
+    dest_path: str,
+) -> None:
+    """Sync: stream-copy one ZIP member to ``dest_path``.
+
+    Both ends are blocking — ``zipfile.ZipExtFile.read`` and ``open(...,
+    "wb")`` — so callers must invoke this via ``run_in_executor`` to
+    keep the event loop responsive on large archives.
+    """
+    with zf.open(arc_name) as src, open(dest_path, "wb") as dst:
+        while chunk := src.read(65536):
+            dst.write(chunk)
 
 
 class ImportService:
@@ -176,9 +193,10 @@ class ImportService:
         if orig_files:
             orig_name = os.path.basename(orig_files[0])
             storage_path = os.path.join(fw_dir, orig_name)
-            with zf.open(orig_files[0]) as src, open(storage_path, "wb") as dst:
-                while chunk := src.read(65536):
-                    dst.write(chunk)
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None, _stream_extract_sync, zf, orig_files[0], storage_path,
+            )
 
         # Extract extracted filesystem
         extracted_path = None
@@ -357,9 +375,10 @@ class ImportService:
             )
 
             if arc_name in zf.namelist():
-                with zf.open(arc_name) as src, open(storage_path, "wb") as dst:
-                    while chunk := src.read(65536):
-                        dst.write(chunk)
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(
+                    None, _stream_extract_sync, zf, arc_name, storage_path,
+                )
             else:
                 storage_path = ""
 
