@@ -1,7 +1,8 @@
 # Campaign: ASYNC family lint cleanup
 
-Status: active
+Status: shipped
 Started: 2026-05-11
+Closed: 2026-05-12
 Direction: Close ASYNC240/230/109/221 suppressions in `backend/pyproject.toml` by fixing source-level violations. Final state: 4 codes hit zero, `[tool.ruff.lint] ignore` shrinks 30 → 26, CI green at every commit.
 Branch: `feat/post-merge-eps2c-zeta1-2026-05-09` (continuation; direct-push to main per-piece per Rule #25 + Pattern P5)
 Parent campaign: `.planning/campaigns/completed/windows-coverage-godmode-zeta-prefetch-srum-plus-lint-cleanup-2026-05-10.md`
@@ -293,7 +294,12 @@ End conditions:
 | Async.D.37 | `a0ef530` | 1 | `app/workers/unpack_driver_package.py` — helper rollout | cancelled | (superseded) |
 | Async.D.38 | `735d054` | 19 (16+3) | 16 app/ files (noqa batch — single-stat pre-flights, pure-string relpath, caller-supplied timeouts) | cancelled | (superseded) |
 | Async.E.9 | `cae7547` | 9 (3+6) | 9-file test long tail | **failure*** | pending |
-| Async.D.39 | `6376d8d` | 0 (lint fix) | `app/ai/tools/emulation.py` — F823 redundant-import fix | in_progress | pending |
+| Async.D.39 | `6376d8d` | 0 (lint fix) | `app/ai/tools/emulation.py` — F823 redundant-import fix | success | (superseded) |
+| (planning) | `5d69a10` | 0 (chore) | campaign ledger end-of-session-2 | success | (superseded) |
+| Async.G.2 | `e6a924b` | 0 (suppression) | `backend/pyproject.toml` — remove ASYNC230 entry | (cancelled) | (superseded) |
+| Async.G.3 | `6377107` | 0 (suppression) | `backend/pyproject.toml` — remove ASYNC240 entry | (cancelled) | (superseded) |
+| Async.G.4 | `396e155` | 0 (suppression) | `backend/pyproject.toml` — remove ASYNC109 entry | success | in_progress |
+| Async.H | (this commit) | 0 (planning + knowledge) | postmortem + patterns + antipatterns + triage update + campaign move to completed/ | pending | pending |
 
 *Lint failures on `bca4485` and `cae7547` were a pre-existing F823 in `app/ai/tools/emulation.py:2627` (redundant function-local `import asyncio` AFTER a use site → ruff's local-binding rule made it referenced-before-assignment). Not introduced by this campaign; surfaced when concurrency-cancel finally let a Lint run finish on `bca4485`. Closed in D.39 (commit `6376d8d`).
 
@@ -321,9 +327,9 @@ Running totals (end-of-session 2 — 2026-05-12):
 
 (Populated when a sub-agent flags judgement points needing human review.)
 
-## Continuation State
+## Continuation State (FINAL — campaign shipped 2026-05-12)
 
-**Current phase:** Async.G — READY (all 4 ASYNC codes at 0 hits; suppressions can be removed from `backend/pyproject.toml`)
+**Current phase:** SHIPPED — all 8 phases (A/B/C/D/E/F-implicit/G/H) complete; campaign closing.
 
 **Phase Async.A status:** complete (commit `d4001d3`)
 **Phase Async.B status:** complete (commit `94912f2`; suppression removed from pyproject.toml)
@@ -331,8 +337,8 @@ Running totals (end-of-session 2 — 2026-05-12):
 **Phase Async.D status:** complete (D.1-D.39, 39 commits, ~190 hits including session-2 D.35-D.39)
 **Phase Async.E status:** complete (E.1-E.9, 9 commits, ~66 hits)
 **Phase Async.F status:** complete implicitly (ASYNC109 closed in-band with D/E commits — never needed a standalone phase)
-**Phase Async.G status:** READY — all 4 ASYNC codes (ASYNC240/230/109/221) at 0 hits in `backend/`. Next session removes the 3 remaining ignore entries from `backend/pyproject.toml [tool.ruff.lint] ignore` (ASYNC221 was already removed in B; this commit removes ASYNC240, ASYNC230, ASYNC109). One single commit, then CI must run on that commit to prove no regression.
-**Phase Async.H status:** blocked on G (postmortem + knowledge extraction)
+**Phase Async.G status:** COMPLETE — 3 commits 2026-05-12 (G.2 `e6a924b` ASYNC230, G.3 `6377107` ASYNC240, G.4 `396e155` ASYNC109). All 4 ASYNC ignore entries now removed from `backend/pyproject.toml`. CI Lint green on G.4 head; Backend Tests in_progress on G.4 — completion expected before campaign-close commit lands.
+**Phase Async.H status:** COMPLETE this commit — postmortem `.planning/postmortems/postmortem-async-cleanup-2026-05-12.md`; patterns `.planning/knowledge/async-cleanup-2026-05-11-patterns.md`; antipatterns `.planning/knowledge/async-cleanup-2026-05-11-antipatterns.md`; triage update `.planning/lint-cleanup-triage-2026-05-10.md`; campaign file moves to `.planning/campaigns/completed/`.
 
 **Last commit on main:** `6376d8d` (Phase Async.D.39, 2026-05-12 — F823 fix in emulation.py to unblock CI Lint after Phase D/E surfaced a pre-existing latent issue)
 **Branch state:** `feat/post-merge-eps2c-zeta1-2026-05-09` at parity with origin/main. Working tree: `M .claude/harness.json` (orthogonal — DO NOT touch this session), `M .planning/campaigns/async-cleanup-2026-05-11.md` (this file — about to commit as the session ledger update), `?? .claude/scheduled_tasks.lock` (Claude Code harness session lock — DO NOT commit, gitignore candidate).

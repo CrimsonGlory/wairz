@@ -14,10 +14,10 @@ each as **fix-now** / **keep-with-justification** / **defer-with-issue**.
 
 | Code | Hits | Category | Severity | Triage | Reasoning |
 |---|---|---|---|---|---|
-| ASYNC240 | 226 | sync I/O in async | Real (perf+correctness) | **defer** | 226 hits across many files; cleanup is multi-session refactor (intake `lint-defer-async-correctness.md`) |
-| ASYNC230 | 50 | open() in async | Real | **defer** | Pairs with ASYNC240 |
-| ASYNC109 | 36 | timeout param in async fn | Mostly cosmetic | **defer** | Stylistic; flag for cleanup |
-| ASYNC221 | 8 | blocking subprocess in async | Real | **defer** | Pairs with ASYNC240 |
+| ASYNC240 | 226 → 0 | sync I/O in async | Real (perf+correctness) | **CLOSED 2026-05-12** | Closed by `async-cleanup-2026-05-11` campaign (Phase G.3 commit `6377107`). 60-commit cleanup across 2 sessions; executor wraps + helper extractions + per-line noqa with rationale per Decision D4. |
+| ASYNC230 | 50 → 0 | open() in async | Real | **CLOSED 2026-05-12** | Closed by `async-cleanup-2026-05-11` campaign (Phase G.2 commit `e6a924b`). |
+| ASYNC109 | 36 → 0 | timeout param in async fn | Mostly cosmetic | **CLOSED 2026-05-12** | Closed by `async-cleanup-2026-05-11` campaign (Phase G.4 commit `396e155`). |
+| ASYNC221 | 8 → 0 | blocking subprocess in async | Real | **CLOSED 2026-05-11** | Closed by `async-cleanup-2026-05-11` campaign Phase B (commit `94912f2`). Per-line noqa per Decision D4 (tests-only). |
 | B008 | 206 | function call in default arg | Intentional (FastAPI Depends) | **keep** | The Depends() pattern is intentional |
 | B007 | 30 | unused loop variable | Cosmetic | **keep** | Pre-existing; low priority |
 | B017 | 4 | broad pytest.raises | Test-only | **keep** | Test-quality issue, not prod |
@@ -128,3 +128,22 @@ After this campaign's Lint.B.1–B.4 fixes, the ruff `[tool.ruff.lint]
 ignore` list shrinks from 35 → 30 codes; bandit `[tool.bandit] skips`
 shrinks from 16 → 15. Further reduction requires the deferred ASYNC
 family cleanup (multi-session, intake `lint-defer-async-correctness.md`).
+
+## ASYNC family follow-up — CLOSED 2026-05-12
+
+The deferred ASYNC family cleanup (intake `lint-defer-async-correctness.md`)
+ran as campaign `async-cleanup-2026-05-11` and closed 2026-05-12:
+
+- 60 commits across 2 sessions, 3 archon turns
+- 319 source-level hits closed (226 ASYNC240 + 50 ASYNC230 + 36 ASYNC109 + 7 ASYNC221)
+- 1 latent F823 bug discovered + fixed mid-campaign (`emulation.py:2627`
+  function-local import placed after first reference; commits
+  `cae7547` surfaced → `6376d8d` fixed)
+- All 4 ASYNC ignore-entries removed from `pyproject.toml` (Phase G.1
+  `94912f2`, G.2 `e6a924b`, G.3 `6377107`, G.4 `396e155`)
+- Final ruff `ignore` list: 24 codes (parent campaign also incidentally
+  cleaned 2 commented placeholders during ASYNC-removal edits)
+
+Postmortem: `.planning/postmortems/postmortem-async-cleanup-2026-05-12.md`
+Patterns: `.planning/knowledge/async-cleanup-2026-05-11-patterns.md`
+Antipatterns: `.planning/knowledge/async-cleanup-2026-05-11-antipatterns.md`
