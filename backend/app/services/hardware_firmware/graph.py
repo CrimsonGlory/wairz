@@ -178,8 +178,13 @@ async def build_driver_firmware_graph(
     fw_stmt = select(Firmware).where(Firmware.id == firmware_id)
     fw_row = (await db.execute(fw_stmt)).scalar_one_or_none()
 
-    if fw_row and fw_row.kernel_path and os.path.isfile(fw_row.kernel_path):
-        loop = asyncio.get_event_loop()
+    loop = asyncio.get_event_loop()
+    kernel_is_file = bool(
+        fw_row and fw_row.kernel_path and await loop.run_in_executor(
+            None, os.path.isfile, fw_row.kernel_path,
+        )
+    )
+    if kernel_is_file:
         vmlinux_refs = await loop.run_in_executor(
             None, _scan_vmlinux_firmware_strings, fw_row.kernel_path,
         )
@@ -192,18 +197,9 @@ async def build_driver_firmware_graph(
         from app.services.firmware_paths import get_detection_roots
 
         detection_roots = await get_detection_roots(fw_row, db=db)
-        vmlinux_path = fw_row.kernel_path
-        kernel_real = os.path.realpath(fw_row.kernel_path)
-        for root in detection_roots:
-            try:
-                root_real = os.path.realpath(root)
-                rel = os.path.relpath(kernel_real, root_real)
-            except ValueError:
-                continue
-            # Accept only a descendant path (no ``..`` escape).
-            if not rel.startswith(".."):
-                vmlinux_path = "/" + rel
-                break
+        vmlinux_path = await loop.run_in_executor(
+            None, _resolve_vmlinux_relative_path, fw_row.kernel_path, list(detection_roots),
+        )
 
         for ref in vmlinux_refs:
             match_blobs = _resolve_firmware_name(ref, fw_by_name)
@@ -301,6 +297,27 @@ def _scan_vmlinux_firmware_strings(path: str) -> list[str]:
         if len(seen) >= _VMLINUX_MAX_REFS:
             break
     return sorted(seen)
+
+
+def _resolve_vmlinux_relative_path(kernel_path: str, detection_roots: list[str]) -> str:
+    """Resolve a stable absolute or root-relative vmlinux path.
+
+    Sync: call via ``run_in_executor``. ``os.path.realpath`` walks symlinks
+    (real I/O) so this must not run on the event loop. Returns either
+    ``"/<rel>"`` when the kernel is a descendant of one of the detection
+    roots, or the original ``kernel_path`` otherwise.
+    """
+    kernel_real = os.path.realpath(kernel_path)
+    for root in detection_roots:
+        try:
+            root_real = os.path.realpath(root)
+            rel = os.path.relpath(kernel_real, root_real)  # pure-string after realpath
+        except ValueError:
+            continue
+        # Accept only a descendant path (no ``..`` escape).
+        if not rel.startswith(".."):
+            return "/" + rel
+    return kernel_path
 
 
 async def _write_missing_firmware_findings(
