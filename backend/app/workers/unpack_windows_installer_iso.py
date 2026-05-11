@@ -145,13 +145,13 @@ async def unpack_windows_installer_iso(
 
     log_lines.append(f"Detected {len(candidates)} inner WIM/ESD payload(s):")
     for c in candidates:
-        log_lines.append(f"  - {os.path.relpath(c, extraction_dir)}")
+        log_lines.append(f"  - {os.path.relpath(c, extraction_dir)}")  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
 
     # ── Step 3: extract each inner WIM in-place ──
     # Reserve 80% of the progress range for WIM expansion (10..90%).
     progress_per_wim = 80.0 / max(len(candidates), 1)
     for idx, wim_path in enumerate(candidates):
-        rel = os.path.relpath(wim_path, extraction_dir)
+        rel = os.path.relpath(wim_path, extraction_dir)  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         await _report(
             f"Expanding inner WIM: {rel}",
             int(10 + progress_per_wim * idx),

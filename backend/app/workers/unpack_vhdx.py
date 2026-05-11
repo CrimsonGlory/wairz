@@ -65,6 +65,13 @@ _VHDX_MAGIC = b"vhdxfile"
 _VHDX_MAGIC_PROBE_BYTES = 8
 
 
+def _reset_extraction_dir_sync(extraction_dir: str) -> None:
+    """Synchronous helper: rmtree-if-exists + makedirs in one executor hop."""
+    if os.path.exists(extraction_dir):
+        shutil.rmtree(extraction_dir, ignore_errors=True)
+    os.makedirs(extraction_dir, exist_ok=True)
+
+
 async def unpack_vhdx(
     firmware_path: str,
     output_base_dir: str,
@@ -98,11 +105,10 @@ async def unpack_vhdx(
                 pass
 
     result = UnpackResult()
-    extraction_dir = os.path.join(output_base_dir, "extracted")
+    extraction_dir = os.path.join(output_base_dir, "extracted")  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
 
-    if os.path.exists(extraction_dir):
-        shutil.rmtree(extraction_dir, ignore_errors=True)
-    os.makedirs(extraction_dir, exist_ok=True)
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _reset_extraction_dir_sync, extraction_dir)
 
     # ---- Step 1: validate VHDX magic ----
     await _report("Validating VHDX magic", 5)
@@ -274,7 +280,7 @@ async def unpack_vhdx(
         pass
 
     log_head += (
-        f"\nRaw disk image written to {os.path.relpath(raw_path, output_base_dir)} "
+        f"\nRaw disk image written to {os.path.relpath(raw_path, output_base_dir)} "  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         f"({raw_size:,} bytes).\n"
         "Use the windows_storage MCP tools (Phase α.4): `list_vhdx_partitions`, "
         "`mount_vhdx_readonly`, `scan_ntfs_alternate_data_streams`. NTFS "
