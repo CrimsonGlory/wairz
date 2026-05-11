@@ -137,7 +137,9 @@ class FirmwareMetadataService:
         # thread-pool worker via run_in_executor — the helpers stay sync;
         # only the call site is moved off the loop.
         loop = asyncio.get_running_loop()
-        file_size = os.path.getsize(firmware_storage_path)
+        file_size = await loop.run_in_executor(
+            None, os.path.getsize, firmware_storage_path,
+        )
         sections = await self._run_binwalk_scan(firmware_storage_path)
         uboot_header = await loop.run_in_executor(
             None, self._detect_uboot_header, firmware_storage_path,
@@ -224,7 +226,8 @@ class FirmwareMetadataService:
             ))
 
         # Compute sizes from offsets (each section runs until the next one)
-        file_size = os.path.getsize(path)
+        loop = asyncio.get_running_loop()
+        file_size = await loop.run_in_executor(None, os.path.getsize, path)
         for i, section in enumerate(sections):
             if i + 1 < len(sections):
                 section.size = sections[i + 1].offset - section.offset

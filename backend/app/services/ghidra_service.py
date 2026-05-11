@@ -386,7 +386,8 @@ async def ensure_analysis(
 
     Uses a concurrency guard so only one Ghidra process runs per binary.
     """
-    if not os.path.isfile(binary_path):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, binary_path):
         raise FileNotFoundError(f"Binary not found: {binary_path}")
 
     binary_sha256 = await _get_binary_sha256(binary_path)
@@ -634,7 +635,8 @@ async def decompile_function(
     First tries the full-analysis cache. If the function wasn't in the top 200
     decompiled, falls back to running DecompileFunction.java for that specific function.
     """
-    if not os.path.isfile(binary_path):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, binary_path):
         raise FileNotFoundError(f"Binary not found: {binary_path}")
 
     binary_sha256 = await _get_binary_sha256(binary_path)
