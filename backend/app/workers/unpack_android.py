@@ -218,25 +218,23 @@ async def _try_extract_partition(
 BOOT_IMG_MAGIC = b"ANDROID!"
 
 
-async def _extract_boot_img(
-    boot_path: str, output_dir: str, log_lines: list[str]
-) -> bool:
-    """Extract kernel, ramdisk, and DTB from an Android boot.img.
+def _extract_boot_img_sync(
+    boot_path: str, output_dir: str,
+) -> tuple[bool, list[str], bytes | None, str | None]:
+    """Synchronous boot.img component extraction.
 
-    Supports boot image header v0-v4 (covers all mainstream Android devices).
-    The format is page-aligned: header at page 0, then kernel, ramdisk,
-    second-stage, and optionally recovery DTBO and DTB.
+    Returns (header_ok, log_lines, ramdisk_data, error_msg). The async wrapper
+    handles the ramdisk decompression after this returns.
     """
+    log_lines: list[str] = []
     try:
         with open(boot_path, "rb") as f:
             header = f.read(1648)
     except OSError as e:
-        log_lines.append(f"Cannot read boot.img: {e}")
-        return False
+        return False, [f"Cannot read boot.img: {e}"], None, str(e)
 
     if len(header) < 1648 or header[:8] != BOOT_IMG_MAGIC:
-        log_lines.append("Not a valid Android boot image (bad magic)")
-        return False
+        return False, ["Not a valid Android boot image (bad magic)"], None, "bad_magic"
 
     # Parse v0/v1/v2 header (all share the same base layout)
     (
@@ -271,7 +269,8 @@ async def _extract_boot_img(
     ramdisk_offset = kernel_offset + _page_align(kernel_size)
     second_offset = ramdisk_offset + _page_align(ramdisk_size)
 
-    extracted = []
+    extracted: list[str] = []
+    ramdisk_data: bytes | None = None
 
     with open(boot_path, "rb") as f:
         # Extract kernel
@@ -291,15 +290,6 @@ async def _extract_boot_img(
             with open(ramdisk_path, "wb") as out:
                 out.write(ramdisk_data)
             extracted.append(f"ramdisk ({ramdisk_size} bytes)")
-
-            # Try to decompress and extract ramdisk (usually gzip'd cpio)
-            ramdisk_dir = os.path.join(output_dir, "ramdisk")
-            os.makedirs(ramdisk_dir, exist_ok=True)
-            try:
-                await _extract_ramdisk(ramdisk_data, ramdisk_dir)
-                extracted.append("ramdisk contents extracted")
-            except Exception as e:
-                log_lines.append(f"Ramdisk extraction failed: {e}")
 
         # Extract second-stage bootloader
         if second_size > 0:
@@ -342,10 +332,39 @@ async def _extract_boot_img(
 
     if extracted:
         log_lines.append(f"boot.img extracted: {', '.join(extracted)}")
-        return True
+        return True, log_lines, ramdisk_data, None
 
     log_lines.append("boot.img: no components found to extract")
-    return False
+    return False, log_lines, None, None
+
+
+async def _extract_boot_img(
+    boot_path: str, output_dir: str, log_lines: list[str]
+) -> bool:
+    """Extract kernel, ramdisk, and DTB from an Android boot.img.
+
+    Supports boot image header v0-v4 (covers all mainstream Android devices).
+    The format is page-aligned: header at page 0, then kernel, ramdisk,
+    second-stage, and optionally recovery DTBO and DTB.
+    """
+    loop = asyncio.get_running_loop()
+    extracted_ok, sync_logs, ramdisk_data, _err = await loop.run_in_executor(
+        None, _extract_boot_img_sync, boot_path, output_dir,
+    )
+    log_lines.extend(sync_logs)
+
+    # After sync extraction, decompress + extract the ramdisk asynchronously
+    # (it spawns the cpio subprocess).
+    if ramdisk_data is not None and extracted_ok:
+        ramdisk_dir = os.path.join(output_dir, "ramdisk")
+        os.makedirs(ramdisk_dir, exist_ok=True)
+        try:
+            await _extract_ramdisk(ramdisk_data, ramdisk_dir)
+            log_lines.append("ramdisk contents extracted")
+        except Exception as e:
+            log_lines.append(f"Ramdisk extraction failed: {e}")
+
+    return extracted_ok
 
 
 async def _extract_ramdisk(data: bytes, output_dir: str) -> None:
@@ -376,6 +395,10 @@ async def _extract_ramdisk(data: bytes, output_dir: str) -> None:
         tmp.write(decompressed)
         tmp_path = tmp.name
 
+    def _read_cpio_sync(path: str) -> bytes:
+        with open(path, "rb") as f:
+            return f.read()
+
     try:
         proc = await asyncio.create_subprocess_exec(
             "cpio", "-idm", "--no-absolute-filenames",
@@ -384,26 +407,21 @@ async def _extract_ramdisk(data: bytes, output_dir: str) -> None:
             stderr=asyncio.subprocess.PIPE,
             cwd=output_dir,
         )
-        with open(tmp_path, "rb") as f:
-            cpio_data = f.read()
+        loop = asyncio.get_running_loop()
+        cpio_data = await loop.run_in_executor(None, _read_cpio_sync, tmp_path)
         await asyncio.wait_for(proc.communicate(input=cpio_data), timeout=60)
     finally:
         os.unlink(tmp_path)
 
 
-async def _scan_super_partitions(
-    raw_path: str, rootfs_dir: str, log_lines: list[str]
-) -> tuple[int, int]:
-    """Scan a raw super.img for embedded EROFS/ext4 partitions and extract them.
+def _scan_super_partitions_layout_sync(
+    raw_path: str,
+) -> tuple[list[tuple[str, int]], str | None]:
+    """Mmap-scan a super.img for EROFS/ext4 partition offsets.
 
-    Returns ``(extracted_count, partitions_detected)``.  Callers compare the
-    two to decide whether the raw container can be removed safely: when
-    every detected partition was carved into ``rootfs/``, the raw LP2
-    container is redundant; when extraction was partial we keep the raw
-    so corrupt inner partitions remain recoverable.
+    Returns (sorted_partitions, error_msg). Each partition is (fs_type, offset).
     """
     import mmap
-    import tempfile
 
     EROFS_MAGIC = b"\xe2\xe1\xf5\xe0"
     EXT4_MAGIC = b"\x53\xef"
@@ -425,14 +443,59 @@ async def _scan_super_partitions(
 
             mm.close()
     except Exception as e:
-        log_lines.append(f"Error scanning super.img: {e}")
+        return [], str(e)
+
+    partitions.sort(key=lambda x: x[1])
+    return partitions, None
+
+
+def _carve_partition_to_tmp_sync(
+    raw_path: str, start_offset: int, part_size: int, suffix: str,
+) -> str:
+    """Carve [start_offset, start_offset+part_size) from raw_path into a new tmp file.
+
+    Returns the tmp_path. Caller is responsible for unlinking.
+    """
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp_path = tmp.name
+        with open(raw_path, "rb") as src:
+            src.seek(start_offset)
+            remaining = part_size
+            while remaining > 0:
+                chunk = src.read(min(remaining, 8 * 1024 * 1024))
+                if not chunk:
+                    break
+                tmp.write(chunk)
+                remaining -= len(chunk)
+    return tmp_path
+
+
+async def _scan_super_partitions(
+    raw_path: str, rootfs_dir: str, log_lines: list[str]
+) -> tuple[int, int]:
+    """Scan a raw super.img for embedded EROFS/ext4 partitions and extract them.
+
+    Returns ``(extracted_count, partitions_detected)``.  Callers compare the
+    two to decide whether the raw container can be removed safely: when
+    every detected partition was carved into ``rootfs/``, the raw LP2
+    container is redundant; when extraction was partial we keep the raw
+    so corrupt inner partitions remain recoverable.
+    """
+    loop = asyncio.get_running_loop()
+    partitions, err = await loop.run_in_executor(
+        None, _scan_super_partitions_layout_sync, raw_path,
+    )
+    if err is not None:
+        log_lines.append(f"Error scanning super.img: {err}")
         return 0, 0
 
     if not partitions:
         log_lines.append("No EROFS or ext4 partitions found in super.img")
         return 0, 0
 
-    partitions.sort(key=lambda x: x[1])
+    raw_size = await loop.run_in_executor(None, os.path.getsize, raw_path)
     log_lines.append(f"Found {len(partitions)} partition(s) in super.img")
 
     extracted_count = 0
@@ -440,7 +503,7 @@ async def _scan_super_partitions(
         if i + 1 < len(partitions):
             part_size = partitions[i + 1][1] - start_offset
         else:
-            part_size = os.path.getsize(raw_path) - start_offset
+            part_size = raw_size - start_offset
 
         # Keep anything above _MIN_PARTITION_BYTES so we don't silently drop
         # tiny stub partitions (e.g. GFH-only headers a few KB long).  The
@@ -449,19 +512,14 @@ async def _scan_super_partitions(
             continue
 
         partition_name = f"partition_{i}_{fs_type}"
+        tmp_path: str | None = None
 
         try:
-            with tempfile.NamedTemporaryFile(suffix=f".{fs_type}", delete=False) as tmp:
-                tmp_path = tmp.name
-                with open(raw_path, "rb") as src:
-                    src.seek(start_offset)
-                    remaining = part_size
-                    while remaining > 0:
-                        chunk = src.read(min(remaining, 8 * 1024 * 1024))
-                        if not chunk:
-                            break
-                        tmp.write(chunk)
-                        remaining -= len(chunk)
+            tmp_path = await loop.run_in_executor(
+                None,
+                _carve_partition_to_tmp_sync,
+                raw_path, start_offset, part_size, f".{fs_type}",
+            )
 
             if await _try_extract_partition(tmp_path, rootfs_dir, partition_name, log_lines):
                 identified = _identify_partition_by_content(
@@ -470,7 +528,10 @@ async def _scan_super_partitions(
                 if identified and identified != partition_name:
                     old_path = os.path.join(rootfs_dir, partition_name)
                     new_path = os.path.join(rootfs_dir, identified)
-                    if not os.path.exists(new_path):
+                    new_exists = await loop.run_in_executor(
+                        None, os.path.exists, new_path,
+                    )
+                    if not new_exists:
                         os.rename(old_path, new_path)
                         log_lines.append(f"Identified {partition_name} as '{identified}'")
                         partition_name = identified
@@ -478,13 +539,33 @@ async def _scan_super_partitions(
         except Exception as e:
             log_lines.append(f"Error extracting partition at offset 0x{start_offset:x}: {e}")
         finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+            if tmp_path is not None:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
 
     log_lines.append(f"Extracted {extracted_count}/{len(partitions)} partitions from super.img")
     return extracted_count, len(partitions)
+
+
+def _read_magic_sync(path: str, n: int) -> bytes | None:
+    """Read the first `n` bytes of a file; return None on OSError."""
+    try:
+        with open(path, "rb") as f:
+            return f.read(n)
+    except OSError:
+        return None
+
+
+def _read_super_lp_magic_sync(path: str) -> bytes | None:
+    """Read the 4-byte LP2 super-partition magic at offset 0x1000; return None on error."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0x1000)
+            return f.read(4)
+    except Exception:
+        return None
 
 
 async def _extract_android_ota(firmware_path: str, extraction_dir: str) -> str:
@@ -493,6 +574,7 @@ async def _extract_android_ota(firmware_path: str, extraction_dir: str) -> str:
     import zipfile as _zipfile
 
     log_lines: list[str] = []
+    loop = asyncio.get_running_loop()
 
     if _zipfile.is_zipfile(firmware_path):
         from app.workers.safe_extract import safe_extract_zip as _safe_extract_zip
@@ -579,7 +661,8 @@ async def _extract_android_ota(firmware_path: str, extraction_dir: str) -> str:
             search_dirs.append(entry.path)
 
     for search_dir in search_dirs:
-        if not os.path.isdir(search_dir):
+        is_dir = await loop.run_in_executor(None, os.path.isdir, search_dir)
+        if not is_dir:
             continue
         for img_name in sorted(os.listdir(search_dir)):
             if not img_name.endswith(".img"):
@@ -593,7 +676,10 @@ async def _extract_android_ota(firmware_path: str, extraction_dir: str) -> str:
             # analysing.  See `_is_user_data_partition` for the set.
             if _is_user_data_partition(img_name):
                 try:
-                    size_mb = os.path.getsize(img_path) // (1024 * 1024)
+                    raw_size = await loop.run_in_executor(
+                        None, os.path.getsize, img_path,
+                    )
+                    size_mb = raw_size // (1024 * 1024)
                 except OSError:
                     size_mb = 0
                 try:
@@ -610,16 +696,19 @@ async def _extract_android_ota(firmware_path: str, extraction_dir: str) -> str:
             # (DPCS10 modem.img is 528 B, md1dsp.img ~2 KB).  The previous
             # 1 MiB floor silently dropped them.
             try:
-                if os.path.getsize(img_path) < _MIN_PARTITION_BYTES:
+                img_size = await loop.run_in_executor(
+                    None, os.path.getsize, img_path,
+                )
+                if img_size < _MIN_PARTITION_BYTES:
                     continue
             except OSError:
                 continue
 
             # Check for boot.img (ANDROID! magic)
-            try:
-                with open(img_path, "rb") as f:
-                    img_magic = f.read(8)
-            except OSError:
+            img_magic = await loop.run_in_executor(
+                None, _read_magic_sync, img_path, 8,
+            )
+            if img_magic is None:
                 continue
 
             if img_magic[:8] == BOOT_IMG_MAGIC:
@@ -643,9 +732,12 @@ async def _extract_android_ota(firmware_path: str, extraction_dir: str) -> str:
                     # keep the original sparse — downstream can retry.
                     verified, note = _verify_simg_output(raw_path)
                     if verified:
+                        raw_mb = (await loop.run_in_executor(
+                            None, os.path.getsize, raw_path,
+                        )) // (1024 * 1024)
                         log_lines.append(
                             f"Converted {img_name} sparse → raw "
-                            f"({os.path.getsize(raw_path) // (1024*1024)}MB, {note})"
+                            f"({raw_mb}MB, {note})"
                         )
                         # Only remove the sparse source once the raw output
                         # is verified — else we'd destroy the only copy.
@@ -659,7 +751,10 @@ async def _extract_android_ota(firmware_path: str, extraction_dir: str) -> str:
                             "keeping original sparse image"
                         )
                         try:
-                            if os.path.exists(raw_path):
+                            raw_exists = await loop.run_in_executor(
+                                None, os.path.exists, raw_path,
+                            )
+                            if raw_exists:
                                 os.remove(raw_path)
                         except OSError:
                             pass
@@ -669,15 +764,12 @@ async def _extract_android_ota(firmware_path: str, extraction_dir: str) -> str:
                 continue
 
             is_super = False
-            try:
-                with open(raw_path, "rb") as f:
-                    f.seek(0x1000)
-                    lp_magic = f.read(4)
-                    if lp_magic == b"\x67\x44\x6c\x61":
-                        is_super = True
-                        log_lines.append(f"{img_name} is a super partition — scanning for embedded filesystems")
-            except Exception:
-                pass
+            lp_magic = await loop.run_in_executor(
+                None, _read_super_lp_magic_sync, raw_path,
+            )
+            if lp_magic == b"\x67\x44\x6c\x61":
+                is_super = True
+                log_lines.append(f"{img_name} is a super partition — scanning for embedded filesystems")
 
             if is_super:
                 extracted_count, total_partitions = await _scan_super_partitions(
@@ -697,7 +789,9 @@ async def _extract_android_ota(firmware_path: str, extraction_dir: str) -> str:
                 )
                 if all_extracted:
                     try:
-                        raw_mb = os.path.getsize(raw_path) // (1024 * 1024)
+                        raw_mb = (await loop.run_in_executor(
+                            None, os.path.getsize, raw_path,
+                        )) // (1024 * 1024)
                     except OSError:
                         raw_mb = 0
                     try:
