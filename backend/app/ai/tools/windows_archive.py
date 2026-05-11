@@ -224,7 +224,8 @@ def register_windows_archive_tools(registry: ToolRegistry) -> None:
 
 async def _handle_list_cab_contents(input: dict, context: ToolContext) -> str:
     cab_path = context.resolve_path(input.get("path", ""))
-    if not os.path.isfile(cab_path):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, cab_path):
         return f"CAB file not found: {cab_path}"
 
     try:
@@ -265,10 +266,9 @@ async def _handle_list_cab_contents(input: dict, context: ToolContext) -> str:
 
 async def _handle_read_msix_manifest(input: dict, context: ToolContext) -> str:
     manifest_path = context.resolve_path(input.get("path", ""))
-    if not os.path.isfile(manifest_path):
-        return f"Manifest file not found: {manifest_path}"
-
     loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, manifest_path):
+        return f"Manifest file not found: {manifest_path}"
     try:
         xml_bytes = await loop.run_in_executor(
             None, lambda: open(manifest_path, "rb").read(),
@@ -352,7 +352,8 @@ async def _handle_read_msix_manifest(input: dict, context: ToolContext) -> str:
 
 async def _handle_dump_msi_custom_actions(input: dict, context: ToolContext) -> str:
     msi_path = context.resolve_path(input.get("path", ""))
-    if not os.path.isfile(msi_path):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, msi_path):
         return f"MSI file not found: {msi_path}"
 
     # msidump writes to a directory; create a sibling _custom_actions/ dir.
@@ -390,10 +391,24 @@ async def _handle_dump_msi_custom_actions(input: dict, context: ToolContext) -> 
     if rc != 0:
         return f"msidump exit={rc}\nstderr: {stderr[-500:]}"
 
-    # Inventory the dumped files for the operator.
-    loop = asyncio.get_running_loop()
-    dumped = await loop.run_in_executor(
-        None, lambda: sorted(os.listdir(dump_dir)) if os.path.isdir(dump_dir) else [],
+    # Inventory the dumped files for the operator. Single executor hop:
+    # listdir + per-entry getsize for the first 50 entries, returning
+    # ``(names, sizes)`` so the async caller doesn't stall the loop per
+    # file (Rule #5).
+    def _inventory_dump_dir_sync(directory: str) -> tuple[list[str], dict[str, int]]:
+        if not os.path.isdir(directory):
+            return [], {}
+        names_sync = sorted(os.listdir(directory))
+        sizes_sync: dict[str, int] = {}
+        for n in names_sync[:50]:
+            try:
+                sizes_sync[n] = os.path.getsize(os.path.join(directory, n))
+            except OSError:
+                pass
+        return names_sync, sizes_sync
+
+    dumped, sizes = await loop.run_in_executor(
+        None, _inventory_dump_dir_sync, dump_dir,
     )
 
     if not dumped:
@@ -402,7 +417,9 @@ async def _handle_dump_msi_custom_actions(input: dict, context: ToolContext) -> 
             f"emitted to {dump_dir}. The MSI may have no custom actions."
         )
 
-    rel = os.path.relpath(dump_dir, context.extracted_path or msi_path)
+    rel = os.path.relpath(  # noqa: ASYNC240 — pure-string path op; no I/O
+        dump_dir, context.extracted_path or msi_path,
+    )
     out = ["Custom-action dump complete (extract-only, NEVER executed).\n"]
     out.append(f"Dumped to: {rel} ({len(dumped)} entries)")
     out.append("Each entry is a Binary table stream — typically a PE binary, "
@@ -411,11 +428,9 @@ async def _handle_dump_msi_custom_actions(input: dict, context: ToolContext) -> 
                "operator's analysis via the existing binary tools.\n")
     out.append("Files:")
     for name in dumped[:50]:
-        full = os.path.join(dump_dir, name)
-        try:
-            size = os.path.getsize(full)
-            out.append(f"  - {name} ({size:,} bytes)")
-        except OSError:
+        if name in sizes:
+            out.append(f"  - {name} ({sizes[name]:,} bytes)")
+        else:
             out.append(f"  - {name}")
     if len(dumped) > 50:
         out.append(f"  ... and {len(dumped) - 50} more.")
@@ -427,10 +442,9 @@ _INF_SECTION_RE = re.compile(r"^\[([^\]]+)\]\s*$")
 
 async def _handle_parse_inf_basic(input: dict, context: ToolContext) -> str:
     inf_path = context.resolve_path(input.get("path", ""))
-    if not os.path.isfile(inf_path):
-        return f"INF file not found: {inf_path}"
-
     loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, inf_path):
+        return f"INF file not found: {inf_path}"
     try:
         text = await loop.run_in_executor(
             None,
@@ -496,10 +510,9 @@ async def _handle_parse_inf_basic(input: dict, context: ToolContext) -> str:
 
 async def _handle_identify_psf_baseline(input: dict, context: ToolContext) -> str:
     psf_path = context.resolve_path(input.get("path", ""))
-    if not os.path.isfile(psf_path):
-        return f"PSF file not found: {psf_path}"
-
     loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, psf_path):
+        return f"PSF file not found: {psf_path}"
     try:
         head = await loop.run_in_executor(
             None, lambda: open(psf_path, "rb").read(4096),
@@ -566,7 +579,8 @@ async def _handle_classify_driver_package_subtype(
     input: dict, context: ToolContext,
 ) -> str:
     pkg_dir = context.resolve_path(input.get("path", ""))
-    if not os.path.isdir(pkg_dir):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isdir, pkg_dir):
         return f"Driver-package directory not found: {pkg_dir}"
 
     def _walk_extensions(root: str) -> dict[str, list[str]]:
@@ -578,7 +592,6 @@ async def _handle_classify_driver_package_subtype(
                     out[ext].append(os.path.relpath(os.path.join(r, name), root))
         return out
 
-    loop = asyncio.get_running_loop()
     components = await loop.run_in_executor(None, _walk_extensions, pkg_dir)
 
     n_inf = len(components["inf"])
