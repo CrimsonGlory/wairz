@@ -161,7 +161,7 @@ class TestListFunctions:
         ):
             resp = await client.get(
                 f"/api/v1/projects/{project_id}/analysis/functions",
-                params={"path": os.path.relpath(str(binary), str(tmp_path))},
+                params={"path": os.path.relpath(str(binary), str(tmp_path))},  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
             )
         assert resp.status_code == 504
         assert "timed out" in resp.json()["detail"].lower()
@@ -181,7 +181,7 @@ class TestListFunctions:
         ):
             resp = await client.get(
                 f"/api/v1/projects/{project_id}/analysis/functions",
-                params={"path": os.path.relpath(str(binary), str(tmp_path))},
+                params={"path": os.path.relpath(str(binary), str(tmp_path))},  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
             )
         assert resp.status_code == 400
         assert "Failed to analyze binary" in resp.json()["detail"]
@@ -205,7 +205,7 @@ class TestListFunctions:
         ):
             resp = await client.get(
                 f"/api/v1/projects/{project_id}/analysis/functions",
-                params={"path": os.path.relpath(str(binary), str(tmp_path))},
+                params={"path": os.path.relpath(str(binary), str(tmp_path))},  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
             )
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -244,7 +244,7 @@ class TestListImports:
         ):
             resp = await client.get(
                 f"/api/v1/projects/{project_id}/analysis/imports",
-                params={"path": os.path.relpath(str(binary), str(tmp_path))},
+                params={"path": os.path.relpath(str(binary), str(tmp_path))},  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
             )
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -271,7 +271,7 @@ class TestDisassemble:
             resp = await client.get(
                 f"/api/v1/projects/{project_id}/analysis/disasm",
                 params={
-                    "path": os.path.relpath(str(binary), str(tmp_path)),
+                    "path": os.path.relpath(str(binary), str(tmp_path)),  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
                     "function": "main",
                 },
             )
@@ -294,7 +294,7 @@ class TestDisassemble:
             resp = await client.get(
                 f"/api/v1/projects/{project_id}/analysis/disasm",
                 params={
-                    "path": os.path.relpath(str(binary), str(tmp_path)),
+                    "path": os.path.relpath(str(binary), str(tmp_path)),  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
                     "function": "main",
                 },
             )
@@ -330,7 +330,7 @@ class TestBinaryInfo:
         ):
             resp = await client.get(
                 f"/api/v1/projects/{project_id}/analysis/binary-info",
-                params={"path": os.path.relpath(str(binary), str(tmp_path))},
+                params={"path": os.path.relpath(str(binary), str(tmp_path))},  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
             )
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -364,7 +364,7 @@ class TestCleanedCode:
             resp = await client.get(
                 f"/api/v1/projects/{project_id}/analysis/cleaned-code",
                 params={
-                    "path": os.path.relpath(str(binary), str(tmp_path)),
+                    "path": os.path.relpath(str(binary), str(tmp_path)),  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
                     "function": "main",
                 },
             )
@@ -396,7 +396,7 @@ class TestDecompile:
             resp = await client.get(
                 f"/api/v1/projects/{project_id}/analysis/decompile",
                 params={
-                    "path": os.path.relpath(str(binary), str(tmp_path)),
+                    "path": os.path.relpath(str(binary), str(tmp_path)),  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
                     "function": "main",
                 },
             )
@@ -417,7 +417,7 @@ class TestDecompile:
             resp = await client.get(
                 f"/api/v1/projects/{project_id}/analysis/decompile",
                 params={
-                    "path": os.path.relpath(str(binary), str(tmp_path)),
+                    "path": os.path.relpath(str(binary), str(tmp_path)),  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
                     "function": "main",
                 },
             )
@@ -440,7 +440,7 @@ class TestDecompile:
             resp = await client.get(
                 f"/api/v1/projects/{project_id}/analysis/decompile",
                 params={
-                    "path": os.path.relpath(str(binary), str(tmp_path)),
+                    "path": os.path.relpath(str(binary), str(tmp_path)),  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
                     "function": "main",
                 },
             )
@@ -463,7 +463,7 @@ class TestDecompile:
             resp = await client.get(
                 f"/api/v1/projects/{project_id}/analysis/decompile",
                 params={
-                    "path": os.path.relpath(str(binary), str(tmp_path)),
+                    "path": os.path.relpath(str(binary), str(tmp_path)),  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
                     "function": "main",
                 },
             )
@@ -517,7 +517,7 @@ class TestCleanedCodeLiveCanary:
             # cache lookup actually hits.
             import hashlib
             sha = hashlib.sha256()
-            with open(binary, "rb") as f:
+            with open(binary, "rb") as f:  # noqa: ASYNC230 — test fixture: SHA256 of small binary mirrors router's own digest path; sync open acceptable
                 sha.update(f.read())
             binary_sha256 = sha.hexdigest()
 
