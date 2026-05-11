@@ -5,6 +5,7 @@ of truth -- no database table needed. JSON sidecar files store metadata
 alongside each kernel binary.
 """
 
+import asyncio
 import ipaddress
 import json
 import logging
@@ -232,10 +233,13 @@ class KernelService:
             )
 
         kernel_path = self._kernel_path(name)
-        if os.path.exists(kernel_path):
+        loop = asyncio.get_running_loop()
+        if await loop.run_in_executor(None, os.path.exists, kernel_path):
             raise ValueError(f"Kernel '{name}' already exists")
 
-        os.makedirs(self._kernel_dir, exist_ok=True)
+        await loop.run_in_executor(
+            None, lambda: os.makedirs(self._kernel_dir, exist_ok=True),
+        )
 
         # Write binary
         async with aiofiles.open(kernel_path, "wb") as f:
@@ -278,7 +282,8 @@ class KernelService:
         """Upload an initrd/initramfs to pair with an existing kernel."""
         _validate_kernel_name(kernel_name)
         kernel_path = self._kernel_path(kernel_name)
-        if not os.path.isfile(kernel_path):
+        loop = asyncio.get_running_loop()
+        if not await loop.run_in_executor(None, os.path.isfile, kernel_path):
             raise ValueError(f"Kernel '{kernel_name}' not found")
 
         initrd_name = f"{kernel_name}.initrd"
@@ -287,15 +292,21 @@ class KernelService:
         async with aiofiles.open(initrd_path, "wb") as f:
             await f.write(file_data)
 
-        # Update sidecar to reference the initrd
+        # Update sidecar to reference the initrd. The existence check +
+        # JSON read is a single sync helper offloaded via run_in_executor
+        # (Rule #5) — same shape as Phase C's `_extract_boot_img_sync`.
         sidecar_path = self._sidecar_path(kernel_name)
-        sidecar = {}
-        if os.path.isfile(sidecar_path):
+
+        def _load_sidecar_sync(path: str) -> dict:
+            if not os.path.isfile(path):
+                return {}
             try:
-                with open(sidecar_path) as f:
-                    sidecar = json.load(f)
+                with open(path) as fh:
+                    return json.load(fh)
             except (json.JSONDecodeError, OSError):
-                pass
+                return {}
+
+        sidecar = await loop.run_in_executor(None, _load_sidecar_sync, sidecar_path)
         sidecar["initrd"] = initrd_name
         async with aiofiles.open(sidecar_path, "w") as f:
             await f.write(json.dumps(sidecar, indent=2))
@@ -359,11 +370,21 @@ class KernelService:
 
             result = await self.upload_kernel(name, architecture, description, file_data)
 
-            # Add download source to sidecar metadata
+            # Add download source to sidecar metadata. Single sync helper
+            # offloaded via run_in_executor for the isfile+open pair (Rule #5).
             sidecar_path = self._sidecar_path(name)
-            if os.path.isfile(sidecar_path):
-                with open(sidecar_path) as f:
-                    sidecar = json.load(f)
+            loop = asyncio.get_running_loop()
+
+            def _read_sidecar_sync(path: str) -> dict | None:
+                if not os.path.isfile(path):
+                    return None
+                with open(path) as fh:
+                    return json.load(fh)
+
+            sidecar = await loop.run_in_executor(
+                None, _read_sidecar_sync, sidecar_path,
+            )
+            if sidecar is not None:
                 sidecar["source_url"] = url
                 async with aiofiles.open(sidecar_path, "w") as f:
                     await f.write(json.dumps(sidecar, indent=2))
@@ -377,5 +398,10 @@ class KernelService:
         except httpx.RequestError as exc:
             raise ValueError(f"Failed to download kernel: {exc}") from exc
         finally:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+            cleanup_loop = asyncio.get_running_loop()
+
+            def _cleanup_tmp_sync(path: str) -> None:
+                if os.path.exists(path):
+                    os.unlink(path)
+
+            await cleanup_loop.run_in_executor(None, _cleanup_tmp_sync, tmp_path)
