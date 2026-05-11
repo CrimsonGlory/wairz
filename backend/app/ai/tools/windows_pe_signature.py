@@ -264,11 +264,11 @@ def register_windows_pe_signature_tools(registry: ToolRegistry) -> None:
 
 async def _handle_verify_authenticode(input: dict, context: ToolContext) -> str:
     pe_path = context.resolve_path(input.get("path", ""))
-    if not os.path.isfile(pe_path):
-        return f"PE file not found: {pe_path}"
-
     # Rule #5 — verify_pe_file is sync; offload to thread executor.
     loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, pe_path):
+        return f"PE file not found: {pe_path}"
+
     try:
         verdict = await loop.run_in_executor(None, verify_pe_file, pe_path)
     except Exception as exc:  # noqa: BLE001
@@ -282,10 +282,10 @@ async def _handle_verify_authenticode(input: dict, context: ToolContext) -> str:
 
 async def _handle_decode_rich_header(input: dict, context: ToolContext) -> str:
     pe_path = context.resolve_path(input.get("path", ""))
-    if not os.path.isfile(pe_path):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, pe_path):
         return f"PE file not found: {pe_path}"
 
-    loop = asyncio.get_running_loop()
     try:
         decoded = await loop.run_in_executor(None, decode_rich_header, pe_path)
     except Exception as exc:  # noqa: BLE001
@@ -319,9 +319,9 @@ async def _handle_scan_dbx_revocation(input: dict, context: ToolContext) -> str:
     # Path branch: extract the serial via signify first.
     if path:
         pe_path = context.resolve_path(path)
-        if not os.path.isfile(pe_path):
-            return f"PE file not found: {pe_path}"
         loop = asyncio.get_running_loop()
+        if not await loop.run_in_executor(None, os.path.isfile, pe_path):
+            return f"PE file not found: {pe_path}"
         try:
             verdict = await loop.run_in_executor(None, verify_pe_file, pe_path)
         except Exception as exc:  # noqa: BLE001
@@ -355,10 +355,10 @@ async def _handle_scan_dbx_revocation(input: dict, context: ToolContext) -> str:
 
 async def _handle_detect_pe_arch_view(input: dict, context: ToolContext) -> str:
     pe_path = context.resolve_path(input.get("path", ""))
-    if not os.path.isfile(pe_path):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, pe_path):
         return f"PE file not found: {pe_path}"
 
-    loop = asyncio.get_running_loop()
     try:
         view = await loop.run_in_executor(None, detect_pe_arch_view, pe_path)
     except Exception as exc:  # noqa: BLE001
