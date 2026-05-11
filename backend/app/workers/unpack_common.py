@@ -695,7 +695,7 @@ def remove_extraction_escape_symlinks(extraction_dir: str) -> int:
     return removed
 
 
-async def run_binwalk_extraction(firmware_path: str, output_dir: str, timeout: int = 600) -> str:
+async def run_binwalk_extraction(firmware_path: str, output_dir: str, timeout: int = 600) -> str:  # noqa: ASYNC109 — caller-supplied per-call timeout passed through to asyncio.wait_for (Rule #29)
     """Run binwalk3 -e to extract firmware contents. Returns stdout+stderr."""
     proc = await asyncio.create_subprocess_exec(
         "binwalk3", "-e", "-C", output_dir, firmware_path,
@@ -712,7 +712,7 @@ async def run_binwalk_extraction(firmware_path: str, output_dir: str, timeout: i
     return stdout.decode(errors="replace").replace("\x00", "")
 
 
-async def run_unblob_extraction(firmware_path: str, output_dir: str, timeout: int = 1200) -> str:
+async def run_unblob_extraction(firmware_path: str, output_dir: str, timeout: int = 1200) -> str:  # noqa: ASYNC109 — caller-supplied per-call timeout passed through to asyncio.wait_for (Rule #29)
     """Run unblob to extract firmware — handles 78+ formats.
 
     Unblob handles Rockchip RKFW, MediaTek, Qualcomm, and many proprietary
@@ -744,7 +744,7 @@ async def run_unblob_extraction(firmware_path: str, output_dir: str, timeout: in
     return stdout.decode(errors="replace").replace("\x00", "")
 
 
-async def run_uefi_extraction(firmware_path: str, output_dir: str, timeout: int = 300) -> str:
+async def run_uefi_extraction(firmware_path: str, output_dir: str, timeout: int = 300) -> str:  # noqa: ASYNC109 — caller-supplied per-call timeout passed through to asyncio.wait_for (Rule #29)
     """Run UEFIExtract to parse and extract UEFI/BIOS firmware.
 
     UEFIExtract produces a hierarchical .dump/ directory with all firmware
