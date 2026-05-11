@@ -2634,10 +2634,7 @@ async def _handle_emulate_with_qiling(input: dict, context: ToolContext) -> str:
     trace_syscalls = input.get("trace_syscalls", True)
 
     # Auto-detect format
-    import asyncio
-
     from app.services.binary_analysis_service import analyze_binary
-    loop = asyncio.get_running_loop()
     info = await loop.run_in_executor(None, analyze_binary, path)
 
     binary_format = info.get("format", "unknown")
