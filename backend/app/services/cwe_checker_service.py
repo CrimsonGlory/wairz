@@ -32,6 +32,17 @@ def _timeout() -> int:
     return get_settings().cwe_checker_timeout
 
 
+def _resolve_real_file_sync(binary_path: str) -> tuple[str, bool]:
+    """Synchronous helper: resolve realpath AND check isfile in one hop.
+
+    Both realpath (stats every symlink component) and isfile (stat) are
+    blocking I/O; combining them keeps the executor hop count to one per
+    Rule #5 minimum-hop discipline.
+    """
+    real_path = os.path.realpath(binary_path)
+    return real_path, os.path.isfile(real_path)
+
+
 def _memory() -> str:
     return get_settings().cwe_checker_memory_limit
 
@@ -143,7 +154,7 @@ async def run_cwe_checker(
     binary_path: str,
     firmware_id: uuid.UUID,
     db: AsyncSession,
-    timeout: int | None = None,
+    timeout: int | None = None,  # noqa: ASYNC109 — caller-supplied per-binary timeout override; falls through to _timeout() default
     checks: list[str] | None = None,
 ) -> CweCheckResult:
     """Run cwe_checker on a single ELF binary.
@@ -189,8 +200,11 @@ async def run_cwe_checker(
         )
 
     # Resolve the host path for Docker volume mount
-    real_path = os.path.realpath(binary_path)
-    if not os.path.isfile(real_path):
+    loop = asyncio.get_running_loop()
+    real_path, is_file = await loop.run_in_executor(
+        None, _resolve_real_file_sync, binary_path,
+    )
+    if not is_file:
         return CweCheckResult(
             binary_path=binary_path,
             binary_name=binary_name,
@@ -276,7 +290,7 @@ async def run_cwe_checker_batch(
     binary_paths: list[str],
     firmware_id: uuid.UUID,
     db: AsyncSession,
-    timeout: int | None = None,
+    timeout: int | None = None,  # noqa: ASYNC109 — caller-supplied per-batch timeout override; passed to each run_cwe_checker call
     max_concurrent: int = 2,  # retained for API compatibility; no longer used
 ) -> list[CweCheckResult]:
     """Run cwe_checker on multiple binaries sequentially.
