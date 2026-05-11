@@ -115,7 +115,7 @@ def mobsfscan_available() -> bool:
 async def run_mobsfscan(
     source_dir: str,
     *,
-    timeout: int | None = None,
+    timeout: int | None = None,  # noqa: ASYNC109 — caller-supplied per-scan timeout; falls through to _DEFAULT_TIMEOUT
 ) -> MobsfScanResult:
     """Execute ``mobsfscan`` against *source_dir* and return parsed results.
 
@@ -143,7 +143,8 @@ async def run_mobsfscan(
     effective_timeout = timeout or _DEFAULT_TIMEOUT
 
     # ------- pre-flight checks -------
-    if not os.path.isdir(source_dir):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isdir, source_dir):
         raise FileNotFoundError(
             f"Source directory does not exist or is not a directory: {source_dir}"
         )

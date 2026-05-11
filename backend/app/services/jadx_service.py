@@ -59,7 +59,7 @@ async def run_jadx_subprocess(
     apk_path: str,
     output_dir: str,
     *,
-    timeout: int | None = None,
+    timeout: int | None = None,  # noqa: ASYNC109 — caller-supplied per-invocation timeout passed to asyncio.wait_for
     extra_args: list[str] | None = None,
 ) -> tuple[str, str, int]:
     """Run the JADX CLI on an APK/DEX file and return (stdout, stderr, returncode).
@@ -411,7 +411,8 @@ class JadxDecompilationCache:
         RuntimeError
             If JADX fails to produce any output.
         """
-        if not os.path.isfile(apk_path):
+        loop = asyncio.get_running_loop()
+        if not await loop.run_in_executor(None, os.path.isfile, apk_path):
             raise FileNotFoundError(f"APK not found: {apk_path}")
 
         apk_sha256 = await self._get_apk_sha256(apk_path)
@@ -531,7 +532,8 @@ class JadxDecompilationCache:
         Returns None if decompilation has not been run yet.
         Does NOT trigger decompilation.
         """
-        if not os.path.isfile(apk_path):
+        loop = asyncio.get_running_loop()
+        if not await loop.run_in_executor(None, os.path.isfile, apk_path):
             return None
 
         apk_sha256 = await self._get_apk_sha256(apk_path)
