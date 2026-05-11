@@ -268,6 +268,33 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # Phase η.C.B Windows Shell Link (.lnk) walker columns (CLAUDE.md
+    # Rule #33 contract). Background runner ``run_lnk_walk_background``
+    # walks every ``*.lnk`` file under user-profile + system shortcut
+    # locations across the firmware's detection roots
+    # (LnkParse3.lnk_file(fhandle=...) per Rule #36 — DATA only,
+    # never invoked via cscript / wscript / Start-Process / cmd /c on
+    # the resolved target_path), persists per-LNK rows into
+    # ``windows_lnk_records`` (table from η.C.A), and stamps an
+    # aggregate JSONB result onto ``lnk_walk_result``. Rule #33 .c
+    # CHECK enforces the 5-state machine; Rule #33 .d —
+    # asyncio.create_task dispatch (in-process pure-Python parser).
+    lnk_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    lnk_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    lnk_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    lnk_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    lnk_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
