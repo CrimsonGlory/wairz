@@ -91,39 +91,71 @@ Deferred to θ (next campaign letter):
 
 ## Active Context
 
-**This session (2026-05-11):**
+**This session (2026-05-11) — END STATE:**
 
 - Phase 0 + Phase 1 (research + synthesis) COMPLETE
-- Phase 2 (intake + tracking file) JUST COMPLETED (this writeup)
-- Wave 1 dispatch: η.B + η.C + η.E parallel via Agent worktrees — IMMINENT
-- η.A (NTFS) + η.D (BYOVD) DEFERRED to next session
+- Phase 2 (intake + tracking + 3 scout reports) COMPLETE — `f27f0ee`
+- η.E (PowerShell EID 4103/4104 annotation) COMPLETE — `ac98e55` (1 atomic alignment commit; Rule-of-Nine)
+- η.B (Scheduled Task XML walker) COMPLETE — `24d72ee` → `110584d` (5 per-piece commits; Rule-of-Ten + Rule #39 Rule-of-Six)
+- η.C (LNK file walker) COMPLETE — `88c3be0` → `d321ef2` (6 per-piece commits; Rule-of-Eleven + Rule #39 Rule-of-Seven)
+- η.A (NTFS $MFT walker) DEFERRED to next session (LARGEST stream; pre-decomposed in this file's η.A section + intake's η.A section)
+- η.D (BYOVD LOLDrivers fingerprinting) DEFERRED to next session (Rule #37 anchor work has its own focused scope)
 
-**Direction check:** aligned. Original direction was "next-frontier η+ decomposition for windows-coverage-godmode"; output is η decomposition with execution starting on the 3 cheapest streams. Larger streams properly scoped for next session.
+**Direction check:** aligned. Original direction was "next-frontier η+ decomposition for windows-coverage-godmode"; output is η decomposition with execution shipping 3 of the 5 streams (η.B + η.C + η.E) plus full pre-decomposition of the deferred η.A + η.D streams with end conditions ready for next-session pickup.
+
+**Session totals:**
+- 14 commits to main this session: 1 housekeeping + 1 Phase 2 + 1 η.E + 5 η.B + 6 η.C
+- 82 new tier-1 tests (12 PowerShell + 41 Scheduled Task + 41 LNK) — but more accurately 12 + 41 + 41 = 94 if we count η.B and η.C model + walker + emit + tools tests separately
+- WindowsFindingSource Literal: 14 (post-η.E) → 16 (post-η.B.D) → 17 (post-η.C.D) values; FE union mirrors at 34 values; alignment test green pairwise post-each-commit
+- DB ck_findings_source CHECK: 30 (pre-session baseline post ζ.3.C) → 31 (η.E) → 32 (η.B.D) → 33 (η.C.D) values
+- MCP tool count: 226 → 232 (+6 tools across windows_scheduled_task ×3 + windows_lnk ×3)
+- Alembic head: `c5f6e7d8a9b0` (start) → `a7b8c9d0e1f2` (end) — 6 new revisions chained
+- Rule #39 walker triplet recipe: Rule-of-Five → Rule-of-Seven (Pattern P4 1-day-per-walker stays durable)
+- Rule #25 single-slice exception #2 cross-stack alignment: Rule-of-Eight → Rule-of-Eleven (3 alignment commits this session)
+- Rule #41 Lint must-complete CI: green on every per-piece push within ~1 minute
+
+**Cut-over verification (post Rule #8 backend+worker+migrator rebuild — see end-of-session steps):**
+
+- Rule #11 import smoke for the 3 new walker modules + LnkParse3 in container: TBD (will run after the rebuild background task completes)
+- 81/81 finding_service regression sweep PASS (3 alignment + 19 base + 14 PE + 18 reg/driver + 12 PowerShell + 7 sched-task + 8 LNK)
 
 ## Continuation State
 
-**Files modified so far this session (Archon control plane):**
-- `.planning/intake/windows-coverage-godmode-eta-2026-05-11.md` (NEW — full η scope + sub-tasks + end conditions)
-- `.planning/campaigns/windows-coverage-godmode-eta-2026-05-11.md` (NEW — this file)
-- `.planning/research/eta-scope-2026-05-11/scout-{1,2,3}*.md` (NEW — 3 scout reports)
+**Files modified this session — 14 commits to main:**
 
-**Files modified this session (housekeeping carryover, pre-Archon):**
-- `.claude/harness.json` (counter bump 183→184) — committed in `69283ff`
-- `.planning/postmortems/postmortem-rec-closures-2026-05-11.md` (NEW closure artifact) — committed in `69283ff`
-- `.planning/knowledge/postmortem-rec-closures-2026-05-11-{patterns,antipatterns}.md` (NEW closure artifacts) — committed in `69283ff`
+```
+69283ff chore(planning): housekeeping carryover from postmortem-rec-closures-2026-05-11 + session counter
+f27f0ee chore(planning): open windows-coverage-godmode Phase η — intake + campaign + 3 scout reports
+ac98e55 feat(findings): PowerShell EID 4103/4104 cross-stack alignment + emit (Phase η.E)
+24d72ee feat(scheduled-tasks): add windows_scheduled_tasks model + alembic + JSONB normalizers (Phase η.B.A)
+829c991 feat(firmware): scheduled_task_walk_* 5-column 202+poll status set (Phase η.B.B)
+ac31527 feat(scheduled-tasks): Rule #39 walker triplet for Windows Scheduled Task XML (Phase η.B.C)
+e149dcf feat(findings): scheduled-task persistence cross-stack alignment + emit (Phase η.B.D)
+110584d feat(mcp): windows_scheduled_task MCP tool category — 3 tools (Phase η.B.E)
+88c3be0 deps(backend): add LnkParse3>=1.5 for Phase η.C LNK file walker
+4dffb0e feat(lnk): add windows_lnk_records model + alembic + JSONB normalizers (Phase η.C.A)
+59fa091 feat(firmware): lnk_walk_* 5-column 202+poll status set (Phase η.C.B)
+7e56881 feat(lnk): Rule #39 walker triplet for Windows Shell Link (.lnk) (Phase η.C.C)
+fd7cd23 feat(findings): LNK abnormal-target cross-stack alignment + emit (Phase η.C.D)
+d321ef2 feat(mcp): windows_lnk MCP tool category — 3 tools (Phase η.C.E)
+```
 
-**What should happen next** (in this session):
-- Stage + commit + push the intake + campaign + 3 scout reports as ONE Phase 2 closure commit
-- Dispatch 3 parallel Agent worktree streams for η.B + η.C + η.E
-- Wait for stream completions
-- Per-stream review + per-piece direct-push to main per Pattern P5
-- End-of-session HANDOFF + next-session resume prompt
+**What should happen NEXT session (per CLAUDE.md Rules #25/#38/#35a/#41/#43):**
 
-**What should happen next session:**
-- Pick up η.A (NTFS $MFT walker) — read this file's η.A sub-task list + end conditions
-- Pick up η.D (BYOVD LOLDrivers fingerprinting) — read η.D sub-task list + Rule #37 anchor discipline
-- Both can run in parallel (file-disjoint subsystems)
-- Cron empirical (parent kickoff Item #1) — verify nightly backend-tests run on/after 2026-05-13 06:00 UTC
+1. **Verify state with `git -C /home/dustin/code/wairz log --oneline -16`** — HEAD should be `d321ef2` plus a 15th commit being this campaign-file Feature Ledger update commit (TBD when Archon commits + pushes).
+2. **Cron empirical** (kickoff Item #1; deferred from this session): on/after 2026-05-13 06:00 UTC, run `gh run list --workflow=backend-tests.yml --limit 10 --json event,conclusion,createdAt,headSha | jq '.[] | select(.event=="schedule")'`. If green, declare Rule #41 mechanism (b) validated and update `.mex/patterns/rule-41-must-complete-ci.md`. If failed pre-pytest, tune `pytest-must-complete` setup steps.
+3. **Pick up η.A (NTFS $MFT walker)** — read this file's η.A sub-task list + intake's η.A section. LARGEST stream (~600-900 LOC across walker + 3 ORM + finding emit). Recipe is now under-2-day per walker (η.B + η.C each took ~25-30 min via single sub-agent dispatch). Add `dissect.ntfs>=3.10` to pyproject; mirror `lnk_walker.py` (η.C.C) shape but for $MFT.
+4. **Pick up η.D (BYOVD LOLDrivers fingerprinting)** — read this file's η.D sub-task list + intake's η.D section. Distinct shape from η.A/B/C (NO new walker — extends α.2.6 driver-package unpacker + γ Services walk with hash-match against bundled `loldrivers.json`); requires Rule #37 offline-trust-anchor discipline (Dockerfile delta + `scripts/refresh-loldrivers.sh` quarterly cron).
+5. **η.A + η.D can run in parallel via Rule #23 worktrees** (file-disjoint subsystems: NTFS walker vs driver hash-match service). Pre-allocated alembic chain order if parallel: η.A migrations (3) chain first, η.D migration (1 alignment only — no table) chains after η.A's tail.
+
+**Deferred items list (kickoff-style):**
+
+| Item | Status | Trigger / next-session notes |
+|---|---|---|
+| Cron empirical (Item #1) | DEFERRED until 2026-05-13 06:00 UTC | Diagnostic command in this file's "What should happen NEXT session" #2 |
+| η.A NTFS $MFT walker | DEFERRED to next session | Pre-decomposed in this file's η.A section (8 sub-tasks; 6+ commits expected; ~2-day single-stream OR 1-day with sub-agent dispatch) |
+| η.D BYOVD LOLDrivers | DEFERRED to next session | Pre-decomposed in this file's η.D section (8 sub-tasks; 5+ commits expected; Rule #37 anchor refresh discipline) |
+| θ phase scope | DEFERRED | WMI persistence + Boot chain artefacts + Volatility 3 + Shim .sdb / EFS / EVT / ETL / hibernate.sys — see this file's "Out of scope (deferred to θ)" section in the parent intake |
 
 ## Feature Ledger
 
@@ -131,22 +163,21 @@ Deferred to θ (next campaign letter):
 
 | Phase | Sub-task | SHA | Description | Tests |
 |---|---|---|---|---|
-| Phase 0 | Research scout pre-pass | (no commit) | 3 parallel scouts dispatched + synthesized | n/a |
-| Phase 1 | Scope decision | (no commit) | 5 streams locked (η.A through η.E) | n/a |
-| Phase 2 | Intake + tracking file | TBD | this writeup | n/a |
-| η.B.A | scheduled tasks model | TBD | TBD | TBD |
-| η.B.B | scheduled tasks status | TBD | TBD | TBD |
-| η.B.C | scheduled tasks walker | TBD | TBD | TBD |
-| η.B.D | scheduled tasks alignment | TBD | TBD | TBD |
-| η.B.E | scheduled tasks MCP tools | TBD | TBD | TBD |
-| η.C.0 | LnkParse3 dep | TBD | TBD | TBD |
-| η.C.A | lnk records model | TBD | TBD | TBD |
-| η.C.B | lnk walk status | TBD | TBD | TBD |
-| η.C.C | lnk walker triplet | TBD | TBD | TBD |
-| η.C.D | lnk alignment | TBD | TBD | TBD |
-| η.C.E | lnk MCP tools | TBD | TBD | TBD |
-| η.E.A | powershell alignment | TBD | TBD | TBD |
-| η.E.B | powershell emit hook | TBD | TBD | TBD |
+| Pre-η | housekeeping carryover | `69283ff` | postmortem-rec-closures-2026-05-11 closure artifacts + session counter bump 183→184 | n/a |
+| Phase 0/1 | research scouts + synthesis | (no commit) | 3 parallel scouts dispatched + synthesized → η.A-E scope locked | n/a |
+| Phase 2 | intake + tracking + scouts | `f27f0ee` | `.planning/intake` + `.planning/campaigns` + `.planning/research/eta-scope-2026-05-11/scout-{1,2,3}*.md` (5 files, +655 LOC) | n/a |
+| η.E | PowerShell EID 4103/4104 cross-stack alignment + emit (atomic) | `ac98e55` | alembic `e7f8a9b0c1d2` + Literal + `_classify_powershell_event` helper + 16-entry obfuscation table + `emit_evtx_findings_from_walk` extension + FE union + FE config + 12 tier-1 tests; **Rule-of-Nine** | 12/12 PASS; 3 alignment PASS; 66/66 broader |
+| η.B.A | scheduled tasks model + alembic + JSONB normalizers | `24d72ee` | alembic `f8a9b0c1d2e3` + `WindowsScheduledTask` + register + 5 normalizers/stamps + 5 SCHEMA_VERSION constants + 5 ORM tests | 5/5 PASS |
+| η.B.B | scheduled_task_walk_* status set | `829c991` | alembic `f9a0b1c2d3e4` + 5-column 202+poll set + Pydantic Literal + DB CHECK `ck_firmware_scheduled_task_walk_status` | (covered by walker tests) |
+| η.B.C | scheduled task walker triplet | `ac31527` | Rule #39 inner/outer/safe `scheduled_task_walker.py` (defusedxml swap; **Rule-of-Six** for walker triplet recipe) + 19 walker tests | 19/19 PASS |
+| η.B.D | scheduled task cross-stack alignment | `e149dcf` | alembic `a0b1c2d3e4f5` + Literal + classifier + emit + FE union + FE config + 7 emit tests; **Rule-of-Ten** | 7/7 PASS; alignment green |
+| η.B.E | windows_scheduled_task MCP tools | `110584d` | 3 tools (search + status + trigger) + 10 tool tests; tool count 226 → 229 | 10/10 PASS |
+| η.C.0 | LnkParse3>=1.5 dep | `88c3be0` | pyproject + uv.lock; resolves LnkParse3==1.6.0 (closes 2026-05-07 intake TODO) | (host import smoke OK) |
+| η.C.A | lnk records model + alembic + JSONB normalizers | `4dffb0e` | alembic `b1d2e3f4a5c6` + `WindowsLnkRecord` + register + normalizers + 6 ORM tests | 6/6 PASS |
+| η.C.B | lnk_walk_* status set | `59fa091` | alembic `c2e3f4a5b6d7` + 5-column 202+poll + Pydantic Literal + DB CHECK | (covered by walker tests) |
+| η.C.C | lnk walker triplet | `7e56881` | Rule #39 inner/outer/safe `lnk_walker.py` (LnkParse3 + `_jsonify` datetime coercer; **Rule-of-Seven** for walker triplet recipe) + 17 walker tests | 17/17 PASS |
+| η.C.D | lnk cross-stack alignment | `fd7cd23` | alembic `a7b8c9d0e1f2` + Literal + `_LnkFindingDraft` dataclass + classifier + emit + FE union + FE config + 8 emit tests; **Rule-of-Eleven** | 8/8 PASS; alignment green |
+| η.C.E | windows_lnk MCP tools | `d321ef2` | 3 tools (search + status + trigger) + 10 tool tests; tool count 229 → 232 | 10/10 PASS |
 
 ## Reversibility
 
