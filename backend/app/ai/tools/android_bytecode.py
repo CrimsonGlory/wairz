@@ -235,7 +235,7 @@ async def _cache_bytecode_result(
     """Store bytecode scan results (delete-then-insert upsert)."""
     from app.services import _cache
 
-    rel_path = os.path.relpath(apk_path, context.extracted_path)
+    rel_path = os.path.relpath(apk_path, context.extracted_path)  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
     await _cache.store_cached(
         context.db,
         context.firmware_id,
@@ -270,7 +270,7 @@ async def _persist_bytecode_findings(
     from app.models.finding import Finding
     from app.services.bytecode_analysis_service import CONFIDENCE_ORDER
 
-    rel_path = os.path.relpath(apk_path, context.extracted_path)
+    rel_path = os.path.relpath(apk_path, context.extracted_path)  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
     package = result.get("package", "unknown")
 
     for f in result["findings"]:

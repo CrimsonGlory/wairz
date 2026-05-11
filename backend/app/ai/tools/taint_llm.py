@@ -29,6 +29,7 @@ is ``VARCHAR(512)`` — our keys are ~30 chars (CLAUDE.md rule 15).
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -513,7 +514,8 @@ async def _handle_scan_taint_analysis(
     except Exception as exc:  # sandbox rejections
         return f"Error: invalid binary_path ({exc})"
 
-    if not os.path.isfile(path):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, path):
         return f"Error: Binary not found: {input['binary_path']}"
 
     min_confidence = (input.get("min_confidence") or "medium").lower()
@@ -642,7 +644,8 @@ async def _handle_deep_dive_taint_analysis(
     focus_cwe_raw = input.get("focus_cwe") or []
     focus_cwe = [c.strip() for c in focus_cwe_raw if isinstance(c, str)]
 
-    if not os.path.isfile(path):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, path):
         return f"Error: Binary not found: {input['binary_path']}"
 
     try:
