@@ -82,6 +82,22 @@ WindowsFindingSource = Literal[
     # rather than into separate Literal values per EID). 4105/4106
     # (Pipeline state-change) are NOISE — not emitted.
     "windows_powershell_script_block",
+    # Phase η.B.D — alignment slice with frontend FindingSource union +
+    # FINDING_SOURCE_CONFIG entries. Emitted by
+    # ``emit_scheduled_task_findings_from_walk`` for every
+    # ``WindowsScheduledTask`` row produced by the η.B.C walker.
+    # Confidence tier mapping is heuristic-driven:
+    # - HIGH (Confidence.high) — Action contains encoded-PowerShell
+    #   pattern (Qakbot signature: ``-EncodedCommand`` / ``-enc`` /
+    #   ``FromBase64String`` / ``Invoke-Expression`` / ``[char[]]`` /
+    #   ``DownloadString`` / ``IEX``).
+    # - MEDIUM (Confidence.medium) — RunLevel=HighestAvailable AND
+    #   non-system Author (Author NOT prefixed by "Microsoft").
+    # - LOW (Confidence.low) — baseline review-candidate row.
+    # Per intake style: ONE Literal value covers all 3 tiers (tier
+    # metadata into the finding's confidence + evidence rather than
+    # separate Literal values per tier).
+    "windows_scheduled_task_persistence",
 ]
 
 

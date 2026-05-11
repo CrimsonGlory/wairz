@@ -117,6 +117,22 @@ _SOURCE_POWERSHELL_SCRIPT_BLOCK: WindowsFindingSource = (
     "windows_powershell_script_block"
 )
 
+# Phase η.B.D — Scheduled Task persistence finding source. Emitted by
+# ``emit_scheduled_task_findings_from_walk`` for every
+# ``WindowsScheduledTask`` row produced by the η.B.C walker.
+# Confidence tier mapping is heuristic-driven:
+# - HIGH (Confidence.high) — Action contains encoded-PowerShell pattern
+#   (Qakbot signature). Detected via
+#   ``scheduled_task_walker.is_action_encoded_powershell``.
+# - MEDIUM (Confidence.medium) — RunLevel=HighestAvailable AND
+#   non-system Author (per
+#   ``scheduled_task_walker.is_system_author``).
+# - LOW (Confidence.low) — baseline review-candidate row.
+# Per intake style: ONE Literal value covers all 3 tiers.
+_SOURCE_SCHEDULED_TASK_PERSISTENCE: WindowsFindingSource = (
+    "windows_scheduled_task_persistence"
+)
+
 
 # ── Phase η.E — PowerShell EID classifier helper ──
 #
@@ -694,6 +710,192 @@ def classify_srum_findings(
     return []
 
 
+# ── Phase η.B.D — Scheduled Task persistence classifier ─────────────────────
+
+
+@dataclass(frozen=True)
+class _ScheduledTaskFindingDraft:
+    """One Scheduled Task Finding row to emit. Carries an explicit
+    confidence tier alongside the standard _PEFindingDraft fields so
+    the emit hook can preserve the tier-mapping that
+    classify_scheduled_task_persistence_findings derives from the
+    parsed task data.
+
+    Distinct from _PEFindingDraft (which fixes confidence at the emit
+    site) because Scheduled Tasks have a heuristic-driven 3-tier
+    map (HIGH on encoded-PS / MEDIUM on HighestAvailable + non-system
+    Author / LOW baseline) — the same source value can land at any
+    of the 3 tiers.
+    """
+    source: WindowsFindingSource
+    severity: Severity
+    title: str
+    description: str
+    evidence: str
+    confidence: Confidence
+
+
+def classify_scheduled_task_persistence_findings(
+    *,
+    task_name: str,
+    task_uri: str | None,
+    author: str | None,
+    run_level: str | None,
+    run_as_user: str | None,
+    triggers: list[dict[str, Any]],
+    actions: list[dict[str, Any]],
+    source_path: str,
+) -> list[_ScheduledTaskFindingDraft]:
+    """Phase η.B.D — map one WindowsScheduledTask row to ONE
+    persistence Finding draft.
+
+    Pure function — no DB access. Each row yields at most ONE Finding
+    draft; the confidence tier is heuristic-driven:
+
+    - HIGH (Confidence.high) — Action contains encoded-PowerShell
+      pattern (Qakbot signature: ``-EncodedCommand`` / ``-enc`` /
+      ``FromBase64String`` / ``Invoke-Expression`` / ``[char[]]`` /
+      ``DownloadString`` / ``IEX``). Detected via
+      ``scheduled_task_walker.is_action_encoded_powershell``.
+      Severity: high.
+    - MEDIUM (Confidence.medium) — RunLevel=HighestAvailable AND
+      non-system Author (Author NOT prefixed by "Microsoft").
+      Detected via ``scheduled_task_walker.is_system_author``.
+      Severity: medium.
+    - LOW (Confidence.low) — baseline review-candidate row.
+      Severity: info.
+
+    Returns empty list when ``task_name`` is missing/empty
+    (defensive boundary — the walker's _build_record contract
+    requires task_name).
+
+    Mirrors classify_srum_findings / classify_amcache_install_findings
+    shape but with a tier-bearing draft type to preserve the
+    tier-mapping at the emit site.
+    """
+    if not task_name:
+        return []
+
+    # Lazy import per Rule #30 to avoid scheduled_task_walker ↔
+    # finding_service circular at module load. The two helpers are
+    # pure-Python regex / string-prefix checks; the import overhead
+    # is one-time per process.
+    from app.services.scheduled_task_walker import (
+        is_action_encoded_powershell,
+        is_system_author,
+    )
+
+    # Dispatch tier — first match wins.
+    encoded_ps_action: dict[str, Any] | None = None
+    for act in actions or []:
+        if not isinstance(act, dict):
+            continue
+        if is_action_encoded_powershell(
+            act.get("command"), act.get("arguments")
+        ):
+            encoded_ps_action = act
+            break
+
+    confidence: Confidence
+    severity: Severity
+    tier_label: str
+    if encoded_ps_action is not None:
+        confidence = Confidence.high
+        severity = Severity.high
+        tier_label = "HIGH (encoded-PowerShell action — Qakbot pattern)"
+    elif run_level == "HighestAvailable" and not is_system_author(author):
+        confidence = Confidence.medium
+        severity = Severity.medium
+        tier_label = (
+            "MEDIUM (RunLevel=HighestAvailable + non-system Author)"
+        )
+    else:
+        confidence = Confidence.low
+        severity = Severity.info
+        tier_label = "LOW (baseline review-candidate)"
+
+    # Title surfaces task_name for fast operator triage; URI lives in
+    # the evidence for full path reference.
+    display_uri = task_uri or task_name
+
+    evidence_lines = [
+        f"Tier: {tier_label}",
+        f"Task name: {task_name}",
+        f"Task URI: {display_uri}",
+    ]
+    if author:
+        evidence_lines.append(f"Author: {author}")
+    if run_level:
+        evidence_lines.append(f"RunLevel: {run_level}")
+    if run_as_user:
+        evidence_lines.append(f"RunAs: {run_as_user}")
+
+    # Surface trigger types for forensic context (one line per trigger).
+    if triggers:
+        trigger_summary = ", ".join(
+            t.get("type", "?")
+            for t in triggers
+            if isinstance(t, dict)
+        )
+        evidence_lines.append(f"Triggers: {trigger_summary}")
+
+    # Surface the encoded-PS action explicitly when present (HIGH tier);
+    # otherwise surface the first action's command for any-tier context.
+    if encoded_ps_action is not None:
+        cmd = encoded_ps_action.get("command", "")
+        args = encoded_ps_action.get("arguments", "")
+        # Truncate very long encoded-PS payloads for readability.
+        args_truncated = (args[:200] + "…") if args and len(args) > 200 else args
+        evidence_lines.append(f"Encoded-PS Command: {cmd}")
+        if args_truncated:
+            evidence_lines.append(f"Encoded-PS Arguments: {args_truncated}")
+    elif actions:
+        first_action = next(
+            (a for a in actions if isinstance(a, dict)), None
+        )
+        if first_action is not None:
+            cmd = first_action.get("command")
+            if cmd:
+                evidence_lines.append(f"Action Command: {cmd}")
+
+    evidence_lines.append(f"Source path: {source_path}")
+    evidence = "\n".join(evidence_lines)
+
+    description = (
+        f"Windows Scheduled Task persistence record surfaces task "
+        f"{display_uri}"
+    )
+    if encoded_ps_action is not None:
+        description += (
+            " with encoded-PowerShell action shape (Qakbot pattern). "
+            "HIGH-confidence persistence indicator — investigate the "
+            "Action's <Command>/<Arguments> against threat-feeds."
+        )
+    elif confidence == Confidence.medium:
+        description += (
+            " running at RunLevel=HighestAvailable with a non-Microsoft "
+            "Author. MEDIUM-confidence privilege-escalation candidate; "
+            "verify the author identity and Action shape."
+        )
+    else:
+        description += (
+            ". LOW-confidence baseline review candidate; the row "
+            "documents persistent task definition for forensic-timeline "
+            "context."
+        )
+
+    return [
+        _ScheduledTaskFindingDraft(
+            source=_SOURCE_SCHEDULED_TASK_PERSISTENCE,
+            severity=severity,
+            title=f"Scheduled Task: {task_name}",
+            description=description,
+            evidence=evidence,
+            confidence=confidence,
+        )
+    ]
+
+
 def classify_registry_persistence_findings(
     *,
     hive_path: str,
@@ -1235,6 +1437,81 @@ class FindingService:
                     evidence=draft.evidence,
                     file_path=record.source_path,
                     confidence=Confidence.low,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_scheduled_task_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Phase η.B.D — emit windows_scheduled_task_persistence Finding
+        rows for one firmware.
+
+        Reads every persisted ``WindowsScheduledTask`` row for the
+        firmware (rows are produced by the η.B.C walker) and projects
+        each into ONE Finding row via
+        :func:`classify_scheduled_task_persistence_findings`. Confidence
+        tier is heuristic-driven by the classifier:
+
+        - HIGH — Action contains encoded-PowerShell pattern (Qakbot
+          signature). Severity: high.
+        - MEDIUM — RunLevel=HighestAvailable AND non-system Author.
+          Severity: medium.
+        - LOW — baseline review-candidate row. Severity: info.
+
+        Unlike emit_srum_findings_from_walk / emit_prefetch_findings_from_walk
+        (which fix Confidence.low at the emit site), this emit method
+        passes the classifier-derived ``draft.confidence`` through to
+        the FindingCreate so the heuristic 3-tier mapping is preserved.
+
+        Idempotency is the caller's responsibility — same shape as
+        emit_prefetch_findings_from_walk; callers DELETE prior
+        windows_scheduled_task_persistence findings for the firmware
+        before re-emitting.
+        """
+        from app.models.windows_scheduled_task import WindowsScheduledTask
+        from app.services.jsonb_normalizers import (
+            _normalize_windows_scheduled_tasks_actions,
+            _normalize_windows_scheduled_tasks_triggers,
+        )
+
+        stmt = select(WindowsScheduledTask).where(
+            WindowsScheduledTask.firmware_id == firmware_id
+        )
+        rows = (await self.db.execute(stmt)).scalars().all()
+
+        emitted: list[Finding] = []
+        for record in rows:
+            drafts = classify_scheduled_task_persistence_findings(
+                task_name=record.task_name,
+                task_uri=record.task_uri,
+                author=record.author,
+                run_level=record.run_level,
+                run_as_user=record.run_as_user,
+                triggers=_normalize_windows_scheduled_tasks_triggers(
+                    record.triggers
+                ),
+                actions=_normalize_windows_scheduled_tasks_actions(
+                    record.actions
+                ),
+                source_path=record.source_path,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.source_path,
+                    # Tier-bearing draft per η.B.D classifier — preserve
+                    # the heuristic 3-tier confidence map (HIGH on
+                    # encoded-PS, MEDIUM on HighestAvailable + non-system
+                    # Author, LOW baseline).
+                    confidence=draft.confidence,
                     firmware_id=firmware_id,
                     source=draft.source,
                 )
