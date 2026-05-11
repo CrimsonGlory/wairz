@@ -107,6 +107,70 @@ jobs:
         working-directory: backend
         run: python3 scripts/lint_async_subprocess.py app/
 
+  typecheck-frontend-must-complete:
+    # CLAUDE.md Rule #41 mitigation — frontend mirror of
+    # lint-backend-must-complete.  Discovered 2026-05-12: the
+    # `typecheck-frontend` job above runs under the workflow-level
+    # `cancel-in-progress: true` policy and is structurally vulnerable to
+    # the same boundary-commit masking that Rule #40's emulation.py F823
+    # exhibited.  Observed on commit 517d613 — every step in the
+    # `typecheck-frontend` job succeeded (canary correctly rejected the
+    # bad TS, real tsc ran clean) but the job's conclusion was `cancelled`
+    # because 453703b pushed 49s later under the workflow's
+    # cancel-in-progress.  The X-glyph in the GitHub Actions UI for
+    # `cancelled` is visually identical to `failure`, so the masking is
+    # double-bad: latent typecheck regressions ride along AND human
+    # observers see false failures.
+    #
+    # Mitigation: clone `typecheck-frontend` with a per-commit-sha
+    # `cancel-in-progress: false` concurrency group, identical to the
+    # `lint-backend-must-complete` job below.  Cost: ~1 minute runner
+    # time per push.  Benefit: every commit's typecheck runs to
+    # completion; CLAUDE.md Rule #17/#24 canary's deterministic-gate
+    # guarantee actually holds at the boundary commit.
+    name: TypeScript must-complete (Rule #41)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: typecheck-frontend-must-complete-${{ github.ref }}-${{ github.sha }}
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # Rule #17/#24 canary — identical to the sibling typecheck-frontend
+      # step.  Duplicated rather than refactored because the safety
+      # property (gate must reject known-bad input) must hold under EVERY
+      # invocation path; a shared composite action would centralise it
+      # but the simple-fork keeps the must-complete job standalone-
+      # auditable.
+      - name: Rule #17/#24 canary — typecheck must reject known-bad input
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          echo 'const x: number = "nope"; export default x;' > src/__canary.ts
+          if npx tsc -b --force; then
+            echo "::error::Rule #17/#24 canary failed: tsc -b --force passed on a known-bad .ts file. The typecheck gate is not actually checking."
+            rm src/__canary.ts
+            exit 1
+          fi
+          rm src/__canary.ts
+
+      - name: TypeScript build (Rule #24, tsc -b --force)
+        working-directory: frontend
+        run: npx tsc -b --force
+
   lint-backend-must-complete:
     # CLAUDE.md Rule #41 mitigation.  The `lint-backend` job above runs under
     # the workflow-level `cancel-in-progress: true` policy at the top of this
