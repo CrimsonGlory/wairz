@@ -42,6 +42,17 @@ from app.workers.unpack_linux import _firmware_tar_filter
 logger = logging.getLogger(__name__)
 
 
+def _rmtree_if_isdir_sync(path: str) -> None:
+    """Synchronous helper: isdir + rmtree in one hop.
+
+    Combines two blocking filesystem calls so a single executor hop covers
+    both (Rule #5 minimum-hop discipline). ignore_errors mirrors the
+    pre-existing rmtree call semantics.
+    """
+    if os.path.isdir(path):
+        shutil.rmtree(path, ignore_errors=True)
+
+
 def _sanitize_filename(name: str) -> str:
     """Sanitize a user-supplied filename to prevent path traversal and OS issues.
 
@@ -495,16 +506,15 @@ class FirmwareService:
     async def delete(self, firmware: Firmware) -> None:
         """Delete a firmware record and its files on disk."""
         # Remove files from disk
+        loop = asyncio.get_running_loop()
         if firmware.storage_path:
             # The firmware directory is the parent of the storage_path
-            firmware_dir = os.path.dirname(firmware.storage_path)
-            if os.path.isdir(firmware_dir):
-                shutil.rmtree(firmware_dir, ignore_errors=True)
+            firmware_dir = os.path.dirname(firmware.storage_path)  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
+            await loop.run_in_executor(None, _rmtree_if_isdir_sync, firmware_dir)
         elif firmware.extracted_path:
             # Fallback: remove extracted path's parent
-            parent = os.path.dirname(firmware.extracted_path)
-            if os.path.isdir(parent):
-                shutil.rmtree(parent, ignore_errors=True)
+            parent = os.path.dirname(firmware.extracted_path)  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
+            await loop.run_in_executor(None, _rmtree_if_isdir_sync, parent)
 
         await self.db.delete(firmware)
         await self.db.flush()
@@ -652,8 +662,8 @@ async def _post_process_pipeline(
                         storage_path,
                         firmware_dir,
                     )
-                    zip_root = os.path.join(firmware_dir, "zip_contents")
-                    if os.path.isdir(zip_root):
+                    zip_root = os.path.join(firmware_dir, "zip_contents")  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
+                    if await loop.run_in_executor(None, os.path.isdir, zip_root):
                         await loop.run_in_executor(
                             None,
                             _recursive_extract_nested,
