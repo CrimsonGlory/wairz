@@ -264,6 +264,7 @@ function FindingRow({
               <span className="min-w-0 flex-1 truncate font-mono">{f.file_path}</span>
             )}
             <span className="shrink-0">{formatDate(f.created_at)}</span>
+            <span className="shrink-0 font-mono text-[10px] opacity-70">{f.id.slice(0, 8)}</span>
           </div>
         </div>
       </button>

@@ -7,9 +7,22 @@ import {
   Check,
   X,
   Trash2,
+  Package,
+  Bot,
+  User,
+  Search,
+  Bug,
+  ChevronDown,
+  Copy,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { Finding, FindingUpdate, FindingStatus, FindingSource } from '@/types'
 import { formatDate } from '@/utils/format'
@@ -28,6 +41,13 @@ export default function FindingDetail({ finding, onUpdate, onDelete }: FindingDe
   const [editing, setEditing] = useState(false)
   const [editDesc, setEditDesc] = useState(finding.description ?? '')
   const [editEvidence, setEditEvidence] = useState(finding.evidence ?? '')
+  const [copied, setCopied] = useState(false)
+
+  const handleCopyId = async () => {
+    await navigator.clipboard.writeText(finding.id)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
 
   const sevConfig = SEVERITY_CONFIG[finding.severity]
   const Icon = sevConfig.icon
@@ -40,6 +60,11 @@ export default function FindingDetail({ finding, onUpdate, onDelete }: FindingDe
     } catch {
       // error logged by caller
     }
+  }
+
+  const handleSeverityChange = async (severity: Severity) => {
+    if (severity === finding.severity) return
+    await onUpdate(finding.id, { severity })
   }
 
   const handleSaveEdit = async () => {
@@ -88,12 +113,36 @@ export default function FindingDetail({ finding, onUpdate, onDelete }: FindingDe
         <div className="min-w-0 flex-1">
           <h2 className="text-lg font-semibold leading-tight break-words">{finding.title}</h2>
           <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
-            <Badge className={sevConfig.bg}>{sevConfig.label}</Badge>
-            {finding.confidence && (
-              <Badge variant="outline" className={`text-xs ${CONFIDENCE_CONFIG[finding.confidence].className}`}>
-                {CONFIDENCE_CONFIG[finding.confidence].label}
-              </Badge>
-            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Badge
+                  className={`${sevConfig.className} cursor-pointer hover:opacity-90`}
+                  title="Change severity"
+                >
+                  {sevConfig.label}
+                  <ChevronDown className="ml-1 h-3 w-3 opacity-80" />
+                </Badge>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {(Object.entries(SEVERITY_CONFIG) as [Severity, typeof SEVERITY_CONFIG[Severity]][]).map(
+                  ([value, cfg]) => {
+                    const ItemIcon = cfg.icon
+                    return (
+                      <DropdownMenuItem
+                        key={value}
+                        onClick={() => handleSeverityChange(value)}
+                        className={value === finding.severity ? 'font-semibold' : ''}
+                      >
+                        <span className={`mr-2 inline-flex h-4 w-4 items-center justify-center rounded-sm ${cfg.className}`}>
+                          <ItemIcon className="h-2.5 w-2.5" />
+                        </span>
+                        {cfg.label}
+                      </DropdownMenuItem>
+                    )
+                  },
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
             {finding.source && (() => {
               const srcConfig = FINDING_SOURCE_CONFIG[finding.source as FindingSource] ?? FINDING_SOURCE_CONFIG.manual
               const SrcIcon = srcConfig.icon
@@ -105,6 +154,15 @@ export default function FindingDetail({ finding, onUpdate, onDelete }: FindingDe
               )
             })()}
             <span>{formatDate(finding.created_at)}</span>
+            <button
+              type="button"
+              onClick={handleCopyId}
+              className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 font-mono text-[10px] hover:bg-accent"
+              title={copied ? 'Copied!' : `Click to copy ${finding.id}`}
+            >
+              <span>{finding.id.slice(0, 8)}</span>
+              {copied ? <Check className="h-2.5 w-2.5" /> : <Copy className="h-2.5 w-2.5" />}
+            </button>
           </div>
         </div>
         <div className="flex gap-1">
