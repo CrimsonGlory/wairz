@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import mimetypes
 import os
@@ -71,10 +72,11 @@ class DocumentService:
         os.makedirs(storage_dir, exist_ok=True)
         storage_path = os.path.join(storage_dir, f"{doc_id}_{safe_filename}")
 
-        # Write file to disk
-        with open(storage_path, "wb") as f:
+        # Write file to disk — streamed via aiofiles to keep the event
+        # loop responsive while chunked write completes.
+        async with aiofiles.open(storage_path, "wb") as f:
             for chunk in chunks:
-                f.write(chunk)
+                await f.write(chunk)
 
         document = Document(
             id=doc_id,
@@ -122,9 +124,17 @@ class DocumentService:
         document = await self.get(document_id)
         if document is None:
             return False
-        # Remove file from disk
-        if document.storage_path and os.path.exists(document.storage_path):
-            os.remove(document.storage_path)
+        # Remove file from disk — both the existence check and the unlink
+        # are real filesystem I/O; bundle them into one executor hop.
+        if document.storage_path:
+            storage_path = document.storage_path
+
+            def _unlink_if_exists() -> None:
+                if os.path.exists(storage_path):
+                    os.remove(storage_path)
+
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, _unlink_if_exists)
         await self.db.delete(document)
         await self.db.flush()
         return True
@@ -165,8 +175,8 @@ class DocumentService:
         os.makedirs(storage_dir, exist_ok=True)
         storage_path = os.path.join(storage_dir, f"{doc_id}_{filename}")
 
-        with open(storage_path, "w", encoding="utf-8") as f:
-            f.write(content)
+        async with aiofiles.open(storage_path, "w", encoding="utf-8") as f:
+            await f.write(content)
 
         document = Document(
             id=doc_id,
