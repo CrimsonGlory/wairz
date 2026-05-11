@@ -238,7 +238,36 @@ End conditions:
 
 ## Feature Ledger
 
-(Populated as each commit lands; empty at campaign start.)
+| Phase | Commit | Hits closed | Files | CI Lint | CI Backend Tests |
+|---|---|---|---|---|---|
+| Async.A | `d4001d3` | 0 (planning) | campaign file created | n/a | n/a |
+| Async.B | `94912f2` | 7 ASYNC221 | 5 test_unpack_*.py | success | success |
+| Async.C.1 | `ec97780` | 28 (21+7) | `app/ai/tools/security.py` | success | (superseded) |
+| Async.C.2 | `b347ddc` | 20 (8+12) | `app/workers/unpack_android.py` | success | (superseded) |
+| Async.C.3 | `20a4660` | 18 (11+7) | `app/ai/tools/binary.py` | success | (superseded) |
+| Async.C.4 | `a61d171` | 10 (9+1) | `app/routers/apk_scan.py` | success | (superseded) |
+| Async.D.1 | `b79dbd7` | 9 | `app/workers/arq_worker.py` | success | (superseded) |
+| Async.D.2 | `a8535b1` | 8 | `app/ai/tools/windows_archive.py` | success | (superseded) |
+| Async.D.3 | `9b73713` | 7 | `app/workers/unpack_msu.py` | success | (superseded) |
+| Async.D.4 | `0f462f9` | 7 (5+2) | `app/services/kernel_service.py` | success | (superseded) |
+| Async.D.5 | `a83fa14` | 6 (5+1) | `app/workers/unpack.py` | success | (superseded) |
+| Async.D.6 | `93e9c28` | 6 | `app/services/assessment_service.py` | success | (superseded) |
+| Async.D.7 | `a6c9b54` | 4 | `app/services/hardware_firmware/graph.py` | success | (superseded) |
+| Async.D.8 | `f1eb9ae` | 4 | `app/cli/compare_apk.py` | success | (superseded) |
+| Async.D.9 | `bf578fc` | 4 | `app/ai/tools/windows_pe_signature.py` | success | (superseded) |
+| Async.D.10 | `2521ac4` | 4 (3+1) | `app/ai/tools/windows_dotnet.py` | success | (superseded) |
+| Async.D.11 | `7d463a8` | 4 (2+2) | `app/cli/scan.py` | success | (superseded) |
+| Async.D.12 | `4bda61a` | 3 (1+2) | `app/services/document_service.py` | success | (superseded) |
+| Async.D.13 | `3649732` | 2 | `app/services/import_service.py` | success | in_progress |
+
+Running totals (end of session 2026-05-11):
+- ASYNC240: 226 → 119 (107 closed, 53% closed)
+- ASYNC230: 50 → 14 (36 closed, 72% closed)
+- ASYNC109: 36 → 35 (1 closed, 3% closed)
+- ASYNC221: 7 → 0 (100% closed; suppression already removed from pyproject.toml in commit `94912f2`)
+- Combined: 319 → 168 (151 closed, 47% closed, 53% remains)
+
+**Session commit cadence:** 19 commits ahead of pre-campaign baseline `3fc48b3`. All Lint CI green on each. Backend Tests on intermediate commits cancelled per Pattern P5 concurrency-cancel; final commit `3649732` Backend Tests still in_progress at session end.
 
 ## Review Queue
 
@@ -246,20 +275,106 @@ End conditions:
 
 ## Continuation State
 
-**Current phase:** Async.B (about to start)
-**Phase Async.A status:** complete (inventory + plan written 2026-05-11)
-**Phase Async.B status:** pending start
-**Phase Async.C status:** blocked on B
-**Phase Async.D status:** blocked on C
-**Phase Async.E status:** blocked on D (can interleave with D if context budget allows)
-**Phase Async.F status:** blocked on E (or interleaved with D)
-**Phase Async.G status:** blocked on F
+**Current phase:** Async.D — IN PROGRESS, partial (13 of ~20-25 production files closed; 100 hits remain in app/, 67 in tests/)
+**Phase Async.A status:** complete (commit `d4001d3`)
+**Phase Async.B status:** complete (commit `94912f2`; suppression removed from pyproject.toml)
+**Phase Async.C status:** complete (4 commits: `ec97780`/`b347ddc`/`20a4660`/`a61d171`)
+**Phase Async.D status:** PARTIAL — batch 1 (D.1-D.6, 6 commits, 43 hits) + batch 2 (D.7-D.13, 7 commits, 25 hits) shipped this session. ~10 production files still pending.
+**Phase Async.E status:** blocked on D — but can be done in parallel with D tail (independent file set)
+**Phase Async.F status:** blocked on E (or interleaved with D for ASYNC109-heavy files)
+**Phase Async.G status:** blocked on F (all suppressions stay until all hits hit zero)
 **Phase Async.H status:** blocked on G
 
-**Last commit on main:** `3fc48b3` (campaign start baseline)
-**Branch state:** clean except `M .claude/harness.json` (orthogonal)
-**Files modified this session:** `.planning/campaigns/async-cleanup-2026-05-11.md` (this file)
-**Next action:** read 7 ASYNC221 hit sites; decide per-site between async-conversion vs noqa; ship Phase Async.B as 1-2 commits.
+**Last commit on main:** `3649732` (Phase Async.D.13, 2026-05-11 — import_service.py)
+**Branch state:** `feat/post-merge-eps2c-zeta1-2026-05-09` at parity with origin/main. Working tree: `M .claude/harness.json` (orthogonal), `M .planning/campaigns/async-cleanup-2026-05-11.md` (this file — about to commit), `?? .claude/scheduled_tasks.lock` (Claude Code harness session lock — DO NOT commit, gitignore candidate).
+
+## Remaining work inventory (verified end of session 2026-05-11)
+
+Top 20 files with ASYNC240/230/109 hits, descending:
+
+```
+13  tests/test_analysis_router.py             (E.1)
+10  tests/test_document_service.py            (E.2)
+ 6  app/services/mobsfscan/pipeline.py        (D.14 — mostly ASYNC109)
+ 5  tests/test_import_service.py              (E.3)
+ 4  tests/test_unpack_msix.py                 (E.4)
+ 4  tests/test_dotnet_update_diff_real_firmware.py (E.5)
+ 4  tests/test_assessment_service.py          (E.6)
+ 4  app/services/system_emulation_service.py  (D.15 — mostly ASYNC109)
+ 4  app/services/cwe_checker_service.py       (D.16 — 2 ASYNC109)
+ 4  app/ai/tools/vulhunt.py                   (D.17 — 3 ASYNC109)
+ 3  tests/test_unpack_wim.py                  (E.7)
+ 3  tests/test_unpack_qnx_ifs.py              (E.8)
+ 3  app/workers/unpack_common.py              (D.18)
+ 3  app/services/jadx_service.py              (D.19)
+ 3  app/services/fuzzing_service.py           (D.20)
+ 3  app/services/firmware_service.py          (D.21)
+ 3  app/services/export_service.py            (D.22)
+ 3  app/routers/hardware_firmware.py          (D.23)
+ 3  app/ai/tools/uefi.py                      (D.24)
+ 3  app/ai/tools/strings.py                   (D.25)
+```
+
+Plus ~30 more files with 1-2 hits each (the long tail).
+
+**Split:** 100 hits in `app/`, 67 hits in `tests/`, 1 hit in `scripts/`.
+
+## Continuation prompt for next session (Pattern P7 — copy-paste ready)
+
+```
+Resume wairz/async-cleanup-2026-05-11. main HEAD = 3649732 (Phase Async.D.13).
+CI: Lint green on 3649732; Backend Tests in_progress at session end (check
+`gh run list --limit 4 --workflow "Backend Tests" --json status,conclusion,headSha`
+before starting — if it failed, investigate before continuing).
+
+Read:
+- .planning/campaigns/async-cleanup-2026-05-11.md (source-of-truth campaign file
+  with full Feature Ledger and remaining-work inventory)
+- CLAUDE.md (Rule #5 run_in_executor, Rule #25 per-commit slice, Rule #29
+  timeout alignment, Rule #38 absolute paths, Rule #35a silent-exit before
+  pipes)
+
+Current state:
+- 19 commits ahead of pre-campaign baseline 3fc48b3 (1 plan + 18 fix commits)
+- ASYNC221: 0 hits (suppression already removed)
+- ASYNC230: 14 hits remain (was 50)
+- ASYNC240: 119 hits remain (was 226)
+- ASYNC109: 35 hits remain (was 36)
+- Total: 168 hits remain across ~25 files (was 319, 47% closed)
+- pyproject.toml ignore: 30 → 29 (ASYNC221 removed); 3 suppressions still
+  in place (ASYNC240/230/109) per Phase G plan
+
+Next phase plan:
+1. Phase Async.D tail (~10 more app/ files): pipeline.py, system_emulation_service.py,
+   cwe_checker_service.py, vulhunt.py — these have ASYNC109 hits, so Phase F
+   may interleave. Smaller files (unpack_common.py, fuzzing_service.py,
+   firmware_service.py, export_service.py, hardware_firmware.py router,
+   uefi.py tool, strings.py tool) close quickly.
+2. Phase Async.E (tests, 67 hits): default per-line noqa with rationale per
+   Decision D4. Top: test_analysis_router.py (13), test_document_service.py
+   (10), test_import_service.py (5), test_unpack_msix.py (4),
+   test_dotnet_update_diff_real_firmware.py (4), test_assessment_service.py (4).
+3. Phase Async.F (35 ASYNC109): mostly stylistic; replace timeout= param
+   with asyncio.timeout() context manager where reasonable. Per-line noqa
+   for caller-supplied overrides. Already partially merged with D since some
+   D files had ASYNC109 hits (apk_scan.py + windows_dotnet.py + cli/scan.py).
+4. Phase Async.G: remove ASYNC240/230/109 entries from
+   backend/pyproject.toml [tool.ruff.lint] ignore (after each code hits zero).
+5. Phase Async.H: postmortem + patterns/antipatterns + close.
+
+Trust: trusted. Direct-push to main per-piece. Final PR optional.
+Use citadel:archon. Estimated 1-2 more sessions to close.
+
+Operational rules durable for every session in this campaign:
+- Rule #38 absolute paths: `git -C /home/dustin/code/wairz` + `( cd backend && ... )` subshells.
+- Antipattern A6: every `uv run ruff check` carries `--no-cache`.
+- Rule #35a / A1: capture exit codes BEFORE pipes — `cmd; ec=$?` not `cmd | tail; echo $?`.
+- Rule #25 per-commit slice + Pattern P5 per-piece direct-push to main.
+- DO NOT touch: .claude/harness.json, .claude/scheduled_tasks.lock,
+  any unrelated file. Use `git add backend/<file>` discipline.
+```
+
+**Session ending decision (2026-05-11 archon):** stopping after 19 commits is the right place to break. The pattern is stable (D1 per-file commits, D4 noqa-with-rationale, helper-extraction-and-single-executor-hop for back-to-back I/O). Next session can pick up Phase D tail + Phase E in one focused push.
 
 **Continuation prompt for next session (Pattern P7):**
 
