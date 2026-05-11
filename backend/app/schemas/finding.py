@@ -66,6 +66,22 @@ WindowsFindingSource = Literal[
     # history baselines at LOW).
     "windows_srum_network_activity",
     "windows_srum_application_runtime",
+    # Phase η.E — alignment slice with frontend FindingSource union +
+    # FINDING_SOURCE_CONFIG entries. Emitted by η.E's extension to ε's
+    # ``emit_evtx_findings_from_walk`` per-record loop, branching on
+    # PowerShell EIDs 4103 (Module/Pipeline) and 4104 (ScriptBlock) —
+    # Persona-E LOLBin / fileless-execution detection. Confidence
+    # tier mapping is heuristic-driven:
+    # - LOW (Confidence.low) — EID 4103 module-load events.
+    # - MEDIUM (Confidence.medium) — EID 4104 plain ScriptBlock events.
+    # - HIGH (Confidence.high) — EID 4104 with obfuscation indicators
+    #   (base64 / EncodedCommand / -enc / Invoke-Expression /
+    #   FromBase64String / `[char]` arrays).
+    # Per intake D5, ONE Literal value covers the 4103/4104 EID pair
+    # (the EID-specific metadata goes into the finding's evidence
+    # rather than into separate Literal values per EID). 4105/4106
+    # (Pipeline state-change) are NOISE — not emitted.
+    "windows_powershell_script_block",
 ]
 
 

@@ -105,6 +105,83 @@ _SOURCE_SRUM_APPLICATION_RUNTIME: WindowsFindingSource = (
     "windows_srum_application_runtime"
 )
 
+# Phase η.E — PowerShell event-log finding source. Emitted by η.E's
+# extension to ε's ``emit_evtx_findings_from_walk`` per-record loop,
+# branching on PowerShell EIDs 4103 (Module/Pipeline) and 4104
+# (ScriptBlock). One Literal value covers the EID pair (per intake
+# D5) — sub-EID metadata into the finding's evidence field. Confidence
+# tier mapping is heuristic-driven (low/medium/high) per
+# ``_classify_powershell_event``. 4105/4106 (Pipeline state-change)
+# are NOISE — not emitted.
+_SOURCE_POWERSHELL_SCRIPT_BLOCK: WindowsFindingSource = (
+    "windows_powershell_script_block"
+)
+
+
+# ── Phase η.E — PowerShell EID classifier helper ──
+#
+# Heuristic detection for obfuscated/encoded PowerShell content. The
+# checks are deliberately conservative — only flagging shapes that
+# survived a 2024-2025 Mandiant/CrowdStrike adversary-tradecraft
+# review (cited in `.planning/research/eta-scope-2026-05-11/scout-2-
+# persona-refresh.md` for the broader Persona-E completionist scan).
+# False-positive on a legitimate base64 blob is acceptable; the LOW
+# confidence baseline is the safety floor when heuristics don't
+# trigger.
+_POWERSHELL_OBFUSCATION_INDICATORS: tuple[str, ...] = (
+    "FromBase64String",       # explicit base64 decode
+    "EncodedCommand",          # -EncodedCommand argument
+    "-enc ",                   # short form of -EncodedCommand
+    "-Enc ",
+    "-EC ",
+    "Invoke-Expression ",      # IEX evaluation of dynamic code
+    "Invoke-Expression(",
+    " IEX ",
+    " IEX(",
+    "[char[]](",               # char-array shellcode reassembly
+    "[Convert]::FromBase64",   # explicit conversion
+    "[System.Convert]::FromBase64",
+    "DownloadString(",         # net.webclient downloader pattern
+    "DownloadFile(",
+    "WebClient).DownloadString",
+    "Reflection.Assembly]::Load",  # in-memory assembly load
+)
+
+
+def _classify_powershell_event(eid: int, raw_xml: str) -> tuple[
+    "Confidence", str
+] | None:
+    """Classify a PowerShell event by its EID + raw_xml content.
+
+    Returns (confidence, title) for emission, or None if the event
+    should NOT be emitted (e.g. EID 4105/4106 noise; non-PowerShell
+    EIDs).
+
+    Confidence tier mapping:
+    - 4103 (Module/Pipeline) → Confidence.low (module-load fact only).
+    - 4104 (ScriptBlock) without obfuscation → Confidence.medium
+      (script execution evidence).
+    - 4104 (ScriptBlock) with obfuscation indicators → Confidence.high
+      (encoded/dynamic-evaluated script — strong tradecraft signal).
+    """
+    if eid == 4103:
+        return (Confidence.low, "PowerShell module-load event (EID 4103)")
+    if eid == 4104:
+        if any(
+            indicator in raw_xml
+            for indicator in _POWERSHELL_OBFUSCATION_INDICATORS
+        ):
+            return (
+                Confidence.high,
+                "PowerShell ScriptBlock event with obfuscation (EID 4104)",
+            )
+        return (
+            Confidence.medium,
+            "PowerShell ScriptBlock event (EID 4104)",
+        )
+    # 4105 / 4106 / other — not emitted.
+    return None
+
 
 @dataclass(frozen=True)
 class _PEFindingDraft:
@@ -1314,18 +1391,21 @@ class FindingService:
         - Sysmon EID 1 (process create) → :data:`_SOURCE_SYSMON_PROC_CREATE`
         - Security EID 4624 (logon success) → :data:`_SOURCE_LOGON_SUCCESS`
         - Security EID 4625 (logon failure) → :data:`_SOURCE_LOGON_FAILURE`
+        - PowerShell EID 4103/4104 → :data:`_SOURCE_POWERSHELL_SCRIPT_BLOCK`
+          (Phase η.E extension — heuristic-driven confidence via
+          :func:`_classify_powershell_event`; 4105/4106 not emitted)
 
         Idempotency is the caller's responsibility — this emitter
-        DELETEs prior ε.1.b.4 sources for the firmware before re-
-        emitting, mirroring the β.12c + γ.8 + δ.8 patterns.
+        DELETEs prior ε.1.b.4 + η.E sources for the firmware before
+        re-emitting, mirroring the β.12c + γ.8 + δ.8 patterns.
 
-        ε.1.b.4 ships LOW confidence baseline only (every record gets
-        a low-confidence review-candidate Finding). Higher-tier
-        classification (heuristic-match → MEDIUM, threat-feed
-        correlation → HIGH) is deferred to a future ζ.X phase once
-        per-event row persistence lands and supports full record
-        inspection. The aggregate's per-file sample is sufficient
-        evidence for the LOW baseline.
+        ε.1.b.4 ships LOW confidence baseline for the original 3
+        sources. Phase η.E adds PowerShell EID classification with
+        per-event confidence (4103 → LOW, 4104 plain → MEDIUM, 4104
+        + obfuscation → HIGH). Higher-tier threat-feed correlation
+        for the original 3 ε sources is deferred to a future θ phase
+        once per-event row persistence supports full record
+        inspection.
         """
         from app.models.finding import Finding as FindingModel
         from app.models.firmware import Firmware
@@ -1346,8 +1426,8 @@ class FindingService:
         if not per_file:
             return []
 
-        # Pre-emit cleanup — delete prior ε.1.b.4 sources so re-runs
-        # don't accumulate duplicate review candidates.
+        # Pre-emit cleanup — delete prior ε.1.b.4 + η.E sources so
+        # re-runs don't accumulate duplicate review candidates.
         await self.db.execute(
             FindingModel.__table__.delete().where(
                 FindingModel.firmware_id == firmware_id,
@@ -1356,6 +1436,7 @@ class FindingService:
                         _SOURCE_SYSMON_PROC_CREATE,
                         _SOURCE_LOGON_SUCCESS,
                         _SOURCE_LOGON_FAILURE,
+                        _SOURCE_POWERSHELL_SCRIPT_BLOCK,
                     )
                 ),
             )
@@ -1402,17 +1483,32 @@ class FindingService:
                     continue
                 eid = int(m.group(1))
 
-                # Route by EID — Sysmon-1 / 4624 / 4625 only at ε.
+                # Route by EID — Sysmon-1 / 4624 / 4625 (ε.1.b.4) +
+                # PowerShell 4103/4104 (η.E).
                 source: WindowsFindingSource | None
+                confidence: Confidence
                 if eid == 1 and "Sysmon" in xml:
                     source = _SOURCE_SYSMON_PROC_CREATE
                     title = f"Sysmon process-create event (EID 1) at {path}"
+                    confidence = Confidence.low
                 elif eid == 4624:
                     source = _SOURCE_LOGON_SUCCESS
                     title = f"Logon success (EID 4624) at {path}"
+                    confidence = Confidence.low
                 elif eid == 4625:
                     source = _SOURCE_LOGON_FAILURE
                     title = f"Logon failure (EID 4625) at {path}"
+                    confidence = Confidence.low
+                elif eid in (4103, 4104):
+                    # Phase η.E — PowerShell EID classification (4103
+                    # module-load → LOW; 4104 plain ScriptBlock →
+                    # MEDIUM; 4104 + obfuscation indicator → HIGH).
+                    classified = _classify_powershell_event(eid, xml)
+                    if classified is None:
+                        continue
+                    confidence, ps_title = classified
+                    source = _SOURCE_POWERSHELL_SCRIPT_BLOCK
+                    title = f"{ps_title} at {path}"
                 else:
                     continue
 
@@ -1425,12 +1521,14 @@ class FindingService:
                     description=(
                         f"Forensic-timeline Finding from EVTX walk. EID={eid}; "
                         f"file={path}; record_num={rec.get('record_num')}. "
-                        "ε.1.b.4 baseline (LOW confidence review candidate); "
-                        "higher-tier heuristic classification deferred to ζ.X."
+                        "Confidence: LOW=baseline review candidate; "
+                        "MEDIUM=script execution; HIGH=obfuscation indicator. "
+                        "Higher-tier threat-feed correlation deferred to a "
+                        "future θ phase."
                     ),
                     evidence=evidence,
                     file_path=path,
-                    confidence=Confidence.low,
+                    confidence=confidence,
                     firmware_id=firmware_id,
                     source=source,
                 )
