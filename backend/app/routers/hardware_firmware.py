@@ -95,6 +95,17 @@ router = APIRouter(
 )
 
 
+def _resolve_blob_candidate_sync(blob_path: str) -> tuple[str, bool]:
+    """Synchronous helper: realpath + isfile in one hop (Rule #5)."""
+    candidate = os.path.realpath(blob_path)
+    return candidate, bool(candidate) and os.path.isfile(candidate)
+
+
+def _realpath_all_sync(paths: list[str]) -> list[str]:
+    """Synchronous helper: realpath a batch of paths in one executor hop."""
+    return [os.path.realpath(p) for p in paths]
+
+
 def _blob_to_response(
     blob: HardwareFirmwareBlob,
     cve_count: int = 0,
@@ -371,18 +382,23 @@ async def download_blob(
     if blob is None:
         raise HTTPException(404, "Blob not found")
 
-    candidate = os.path.realpath(blob.blob_path or "")
-    if not candidate or not os.path.isfile(candidate):
+    loop = asyncio.get_running_loop()
+    candidate, candidate_is_file = await loop.run_in_executor(
+        None, _resolve_blob_candidate_sync, blob.blob_path or "",
+    )
+    if not candidate or not candidate_is_file:
         raise HTTPException(404, "Blob file missing on disk")
 
     # Sandbox bounds: prefer extraction_dir, fall back to extracted_path.
     # Both columns come off the Firmware row; realpath both sides so
     # symlinked paths resolve consistently before the prefix check.
-    sandbox_roots: list[str] = []
-    for attr in ("extraction_dir", "extracted_path"):
-        v = getattr(firmware, attr, None)
-        if v:
-            sandbox_roots.append(os.path.realpath(v))
+    sandbox_inputs = [
+        v for attr in ("extraction_dir", "extracted_path")
+        if (v := getattr(firmware, attr, None))
+    ]
+    sandbox_roots: list[str] = await loop.run_in_executor(
+        None, _realpath_all_sync, sandbox_inputs,
+    )
     if not sandbox_roots:
         raise HTTPException(403, "No sandbox root configured for firmware")
 
