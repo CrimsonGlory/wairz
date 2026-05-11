@@ -103,6 +103,15 @@ _CACHE_OP = "mobsfscan_scan"
 _PIPELINE_BUDGET_SECONDS: int = 600
 
 
+def _sources_ready_sync(source_dir: str) -> bool:
+    """Synchronous helper: source_dir exists AND is non-empty.
+
+    Combines two stat-family calls (isdir + listdir) into one executor hop
+    so a single ``loop.run_in_executor`` call is sufficient (Rule #5).
+    """
+    return os.path.isdir(source_dir) and bool(os.listdir(source_dir))
+
+
 class MobsfScanPipeline:
     """Orchestrates the full mobsfscan SAST scanning pipeline.
 
@@ -268,7 +277,7 @@ class MobsfScanPipeline:
         project_id: uuid.UUID,
         db: AsyncSession,
         apk_rel_path: str = "",
-        timeout: int | None = None,
+        timeout: int | None = None,  # noqa: ASYNC109 — caller-supplied per-scan override; falls through to _PIPELINE_BUDGET_SECONDS
         min_severity: str = "info",
         persist: bool = True,
         use_cache: bool = True,
@@ -334,7 +343,8 @@ class MobsfScanPipeline:
         TimeoutError
             If the total pipeline budget is exhausted.
         """
-        if not os.path.isfile(apk_path):
+        loop = asyncio.get_running_loop()
+        if not await loop.run_in_executor(None, os.path.isfile, apk_path):
             raise FileNotFoundError(f"APK not found: {apk_path}")
 
         budget = timeout or _PIPELINE_BUDGET_SECONDS
@@ -511,7 +521,7 @@ class MobsfScanPipeline:
         firmware_id: uuid.UUID | None = None,
         db: AsyncSession,
         apk_rel_path: str = "",
-        timeout: int | None = None,
+        timeout: int | None = None,  # noqa: ASYNC109 — caller-supplied per-scan override; falls through to _PIPELINE_BUDGET_SECONDS
         min_severity: str = "info",
         persist: bool = True,
     ) -> MobsfScanPipelineResult:
@@ -586,7 +596,7 @@ class MobsfScanPipeline:
         apk_sha256: str,
         firmware_id: uuid.UUID,
         db: AsyncSession,
-        timeout: int | None,
+        timeout: int | None,  # noqa: ASYNC109 — caller-supplied timeout threaded through from scan_apk
     ) -> MobsfScanResult:
         """Execute mobsfscan with a per-APK concurrency guard.
 
@@ -631,7 +641,7 @@ class MobsfScanPipeline:
         apk_path: str,
         firmware_id: uuid.UUID,
         db: AsyncSession,
-        timeout: int | None,
+        timeout: int | None,  # noqa: ASYNC109 — caller-supplied timeout threaded through from scan_apk
     ) -> MobsfScanResult:
         """Materialise cached sources to a temp dir and run mobsfscan."""
         with tempfile.TemporaryDirectory(prefix="mobsfscan_") as tmp_dir:
@@ -643,7 +653,11 @@ class MobsfScanPipeline:
             )
 
             # Verify sources were written
-            if not os.path.isdir(source_dir) or not os.listdir(source_dir):
+            loop = asyncio.get_running_loop()
+            sources_ready = await loop.run_in_executor(
+                None, _sources_ready_sync, source_dir,
+            )
+            if not sources_ready:
                 return MobsfScanResult(
                     success=True,  # Not an error — resource-only APKs have no code
                     error=(
