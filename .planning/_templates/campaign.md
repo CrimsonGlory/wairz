@@ -37,6 +37,33 @@ Direction: {The original user direction that created this campaign}
 - src/api/auth/
 - src/middleware/
 
+## Ledger Math Baseline
+<!-- Pre-execution snapshot of any quantitative target the campaign promises to
+     move (ignore-list size, hit count, file count, LOC delta, suite count).
+     Captures literal COUNT plus named ENTRY LIST so close-time drift is
+     detectable.  Origin: postmortem-async-cleanup-2026-05-12 Recommendation
+     #3 — that campaign stated `[tool.ruff.lint] ignore` would shrink 30 → 26
+     (4 ASYNC removals), but actual was 30 → 24 (2 incidental commented-
+     placeholder cleanups also landed).  The +2 drift was only caught at
+     structured-postmortem time.  Capturing the named list at OPEN makes
+     close-time diff trivial.  Run this at open AND close; diff the two
+     snapshots in the postmortem.  Skip this section entirely for campaigns
+     with no quantitative target (pure-feature builds, qualitative refactors). -->
+
+**Quantitative target:** {one-line, e.g. "[tool.ruff.lint] ignore shrinks 30 → 26 entries (4 ASYNC removals)"}
+
+**Baseline at open (paste literal output; adapt commands for the campaign's actual metric source):**
+
+```bash
+# Example for ruff ignore-list — replace with your campaign's metric source.
+( cd backend && awk '/^ignore = \[/,/^\]/' pyproject.toml | grep -E '^\s*"' | wc -l )
+( cd backend && awk '/^ignore = \[/,/^\]/' pyproject.toml | grep -oE '"[A-Z]+[0-9]+[A-Z]?[0-9]?"' | sort -u | tr '\n' ',' )
+```
+
+- Count: {N}
+- Named list: {comma-separated, e.g. "ASYNC109,ASYNC221,ASYNC230,ASYNC240,B007,..."}
+- Captured: {YYYY-MM-DD}
+
 ## Phases
 <!-- 3-8 phases. Mark status as: [pending], [in-progress], [complete], [skipped], [failed] -->
 <!-- "Done When" column: machine-verifiable acceptance criteria. Not "auth is implemented." -->
