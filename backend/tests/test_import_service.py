@@ -412,18 +412,18 @@ class TestImportProjectLiveCanary:
             assert fw_row.storage_path is not None
             assert str(project.id) in fw_row.storage_path
             assert str(fw_row.id) in fw_row.storage_path
-            assert os.path.isfile(fw_row.storage_path)
+            assert os.path.isfile(fw_row.storage_path)  # noqa: ASYNC240 — test assertion: verify import service persisted on-disk artifact; sync stat acceptable
             # Original blob bytes round-trip through extraction.
-            assert open(fw_row.storage_path, "rb").read() == original_blob
+            assert open(fw_row.storage_path, "rb").read() == original_blob  # noqa: ASYNC230 — test assertion: read-back content to verify import service round-trip; sync open acceptable
 
             assert fw_row.extracted_path is not None
             extracted_file = os.path.join(
                 fw_row.extracted_path, "etc", "init.d", "start.sh",
             )
-            assert os.path.isfile(extracted_file), (
+            assert os.path.isfile(extracted_file), (  # noqa: ASYNC240 — test assertion: verify import service persisted on-disk artifact; sync stat acceptable
                 "extracted/etc/init.d/start.sh must be on disk"
             )
-            assert open(extracted_file, "rb").read() == extracted_content
+            assert open(extracted_file, "rb").read() == extracted_content  # noqa: ASYNC230 — test assertion: read-back content to verify import service round-trip; sync open acceptable
 
             # ── Findings: F-A-06 confidence-bypass backstop ───────────
             findings = (await db.execute(
@@ -463,7 +463,7 @@ class TestImportProjectLiveCanary:
             assert doc_row.sha256 == "b" * 64
             # storage_path uses the NEW doc id, not the archive's.
             assert str(doc_row.id) in doc_row.storage_path
-            assert open(doc_row.storage_path, "rb").read() == doc_content
+            assert open(doc_row.storage_path, "rb").read() == doc_content  # noqa: ASYNC230 — test assertion: read-back content to verify import service round-trip; sync open acceptable
 
             # ── Emulation preset persisted with normalised port_forwards
             preset_row = (await db.execute(
