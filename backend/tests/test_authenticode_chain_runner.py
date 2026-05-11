@@ -158,7 +158,7 @@ async def _add_blob(
         firmware_id=fw.id,
         blob_path=blob_path,
         blob_sha256=blob_sha256,
-        file_size=Path(blob_path).stat().st_size if Path(blob_path).exists() else 0,
+        file_size=Path(blob_path).stat().st_size if Path(blob_path).exists() else 0,  # noqa: ASYNC240 — test fixture: file_size via Path.stat() with exists guard; sync stat acceptable
         category="other",
         format=fmt,
         detection_source="test",

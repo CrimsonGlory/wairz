@@ -417,7 +417,7 @@ class TestEnsureDecompilationLiveCanary:
         async def fake_run_jadx(apk_path, output_dir, **kwargs):
             sources_dir = os.path.join(output_dir, "sources")
             os.makedirs(sources_dir, exist_ok=True)
-            with open(os.path.join(sources_dir, "Main.java"), "w") as f:
+            with open(os.path.join(sources_dir, "Main.java"), "w") as f:  # noqa: ASYNC230 — test stub: fake_run_jadx writes Main.java to seed output dir for service round-trip; sync open acceptable
                 f.write("public class Main { public static void main() {} }")
             return ("jadx ok\n", "", 0)
 
@@ -524,7 +524,7 @@ class TestEnsureDecompilationLiveCanary:
             call_count += 1
             sources_dir = os.path.join(output_dir, "sources")
             os.makedirs(sources_dir, exist_ok=True)
-            with open(os.path.join(sources_dir, "App.java"), "w") as f:
+            with open(os.path.join(sources_dir, "App.java"), "w") as f:  # noqa: ASYNC230 — test stub: fake_run_jadx writes App.java to seed output dir for service round-trip; sync open acceptable
                 f.write("public class App {}")
             return ("ok", "", 0)
 

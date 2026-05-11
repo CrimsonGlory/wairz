@@ -157,7 +157,7 @@ async def _add_blob(
         firmware_id=fw.id,
         blob_path=blob_path,
         blob_sha256=blob_sha256,
-        file_size=Path(blob_path).stat().st_size,
+        file_size=Path(blob_path).stat().st_size,  # noqa: ASYNC240 — test fixture: file_size via Path.stat() on real PE blob; sync stat acceptable
         category="other",
         format="raw_bin",
         detection_source="test",
@@ -500,7 +500,7 @@ async def test_real_dbx_revoked_pe_emits_finding():
         "DBX_BUNDLE_PATH",
         "/opt/wairz/dbxupdate.bin",
     )
-    if not Path(bundle_path).is_file():
+    if not Path(bundle_path).is_file():  # noqa: ASYNC240 — test fixture: validate DBX bundle path exists for tier-3 skip-gate; sync stat acceptable
         pytest.skip(
             f"β.14a tier-3 needs the DBX bundle at {bundle_path}; "
             "set DBX_BUNDLE_PATH or copy backend/ms-anchors/dbxupdate.bin "
