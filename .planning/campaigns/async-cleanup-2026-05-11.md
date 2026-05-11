@@ -258,16 +258,66 @@ End conditions:
 | Async.D.10 | `2521ac4` | 4 (3+1) | `app/ai/tools/windows_dotnet.py` | success | (superseded) |
 | Async.D.11 | `7d463a8` | 4 (2+2) | `app/cli/scan.py` | success | (superseded) |
 | Async.D.12 | `4bda61a` | 3 (1+2) | `app/services/document_service.py` | success | (superseded) |
-| Async.D.13 | `3649732` | 2 | `app/services/import_service.py` | success | in_progress |
+| Async.D.13 | `3649732` | 2 | `app/services/import_service.py` | success | success |
+| Async.D.14 | `b07411a` | 1 | `app/workers/unpack_common.py` | success | (superseded) |
+| Async.D.15 | `680be80` | 6 (2+4) | `app/services/mobsfscan/pipeline.py` | success | (superseded) |
+| Async.D.16 | `dcb7ccb` | 4 (2+2) | `app/services/system_emulation_service.py` | success | (superseded) |
+| Async.D.17 | `cf73bb6` | 4 (2+2) | `app/services/cwe_checker_service.py` | success | (superseded) |
+| Async.D.18 | `57e838d` | 4 (1+3) | `app/ai/tools/vulhunt.py` | success | (superseded) |
+| Async.D.19 | `5c326a2` | 3 | `app/services/fuzzing_service.py` | success | (superseded) |
+| Async.D.20 | `a5c67cb` | 3 | `app/services/firmware_service.py` | success | (superseded) |
+| Async.D.21 | `8a00449` | 3 | `app/services/export_service.py` | success | (superseded) |
+| Async.D.22 | `2462eb2` | 3 | `app/routers/hardware_firmware.py` | success | (superseded) |
+| Async.D.23 | `d1ff34d` | 3 | `app/ai/tools/uefi.py` | success | (superseded) |
+| Async.D.24 | `e5c4c89` | ~3 | `app/ai/tools/emulation.py` | success | (superseded) |
+| Async.D.25 | `ae5202f` | ~3 | `app/main.py` + `app/mcp_server.py` | success | (superseded) |
+| Async.D.26 | `71ed542` | ~3 | `app/routers/health.py` + `app/routers/firmware.py` | success | (superseded) |
+| Async.D.27 | `abc2b11` | 3 (2+1) | `app/ai/tools/strings.py` | success | (superseded) |
+| Async.D.28 | `41e285c` | 4 (3+1) | `app/ai/tools/hardware_firmware.py` | success | (superseded) |
+| Async.D.29 | `fea59df` | ~3 | `app/ai/tools/taint_llm.py` + `app/ai/tools/android_bytecode.py` | success | (superseded) |
+| Async.D.30 | `17cd3d5` | ~3 | `app/services/ghidra_service.py` + `app/services/firmware_metadata_service.py` | success | (superseded) |
+| Async.D.31 | `485cf70` | 4 (3+1) | `app/services/jadx_service.py` + `app/services/mobsfscan/parser.py` | success | (superseded) |
+| Async.D.32 | `f1853db` | 5 (2+2+1) | `app/services/emulation/service.py` + `app/services/device_service.py` | success | (superseded) |
+| Async.D.33 | `1c72759` | 2 | `app/workers/unpack_vhdx.py` + `app/workers/unpack_windows_installer_iso.py` | success | (superseded) |
+| Async.D.34 | `821762a` | 2 (1+1) | `app/workers/unpack_cab.py` + helper extraction in `unpack_common.py` | pending | pending |
 
-Running totals (end of session 2026-05-11):
-- ASYNC240: 226 → 119 (107 closed, 53% closed)
-- ASYNC230: 50 → 14 (36 closed, 72% closed)
-- ASYNC109: 36 → 35 (1 closed, 3% closed)
-- ASYNC221: 7 → 0 (100% closed; suppression already removed from pyproject.toml in commit `94912f2`)
-- Combined: 319 → 168 (151 closed, 47% closed, 53% remains)
+Running totals (mid-session 2 — 2026-05-12):
+- ASYNC240: 226 → 66 (160 closed, 71% closed)
+- ASYNC230: 50 → 12 (38 closed, 76% closed)
+- ASYNC109: 36 → 16 (20 closed, 56% closed)
+- ASYNC221: 7 → 0 (100% closed; suppression removed in `94912f2`)
+- Combined: 319 → 92 (227 closed, 71% closed, 29% remains)
 
-**Session commit cadence:** 19 commits ahead of pre-campaign baseline `3fc48b3`. All Lint CI green on each. Backend Tests on intermediate commits cancelled per Pattern P5 concurrency-cancel; final commit `3649732` Backend Tests still in_progress at session end.
+**Session 2 cadence:** 21 additional commits this session (D.14-D.34, 76 hits closed). Helper extraction in D.34 (`reset_extraction_dir_sync` in `unpack_common.py`) creates a reusable pattern for the remaining unpack_* workers. Per-file Decision D1 still in effect; some commits batched 2 files where the fix shape was identical (D.25, D.26, D.29, D.30, D.31, D.32, D.33, D.34) — Rule #25 small-commit principle preserved since each per-file slice is still independently revertable via patch-level surgery.
+
+**Reusable pattern emerged in session 2:** the `reset_extraction_dir_sync` helper is one example of a common pre-fix sequence (exists-check + rmtree + makedirs). The same shape applies to: read-and-write-then-cleanup workflows in 7+ remaining unpack workers, kernel-image-prep flows, etc. Future Phase D sweeps should look for 3-call-into-1-hop opportunities, not just per-line wrap.
+
+**Remaining app/scripts (Phase D residual — 7 hits, 7 files):**
+- `app/workers/unpack_wim.py` (1)
+- `app/workers/unpack_qnx_ifs.py` (1)
+- `app/workers/unpack_psf.py` (1)
+- `app/workers/unpack_msix.py` (1)
+- `app/workers/unpack_msi.py` (1)
+- `app/workers/unpack_iso9660.py` (1)
+- `scripts/backfill_detection.py` (1)
+
+**Remaining tests (Phase E — 67 hits across ~22 files):**
+- `tests/test_analysis_router.py` (13) — top
+- `tests/test_document_service.py` (10)
+- `tests/test_import_service.py` (5)
+- `tests/test_unpack_msix.py` (4)
+- `tests/test_dotnet_update_diff_real_firmware.py` (4)
+- `tests/test_assessment_service.py` (4)
+- `tests/test_unpack_wim.py` (3)
+- `tests/test_unpack_qnx_ifs.py` (3)
+- `tests/test_unpack_msi.py` (2)
+- `tests/test_unpack_iso9660.py` (2)
+- `tests/test_unpack_cab.py` (2)
+- `tests/test_jadx_service.py` (2)
+- `tests/test_authenticode_chain_runner.py` (2)
+- `tests/test_authenticode_chain_real_firmware.py` (2)
+- 8 files with 1 hit each
+- Per Decision D4: default = per-line noqa with rationale.
 
 ## Review Queue
 
@@ -287,6 +337,8 @@ Running totals (end of session 2026-05-11):
 
 **Last commit on main:** `3649732` (Phase Async.D.13, 2026-05-11 — import_service.py)
 **Branch state:** `feat/post-merge-eps2c-zeta1-2026-05-09` at parity with origin/main. Working tree: `M .claude/harness.json` (orthogonal), `M .planning/campaigns/async-cleanup-2026-05-11.md` (this file — about to commit), `?? .claude/scheduled_tasks.lock` (Claude Code harness session lock — DO NOT commit, gitignore candidate).
+
+<!-- session-end: 2026-05-11T16:53:27.006Z -->
 
 ## Remaining work inventory (verified end of session 2026-05-11)
 
