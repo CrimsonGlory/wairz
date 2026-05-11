@@ -1574,7 +1574,8 @@ async def _handle_diagnose_environment(input: dict, context: ToolContext) -> str
         return "Error: firmware has not been unpacked yet."
 
     fs_root = firmware.extracted_path
-    if not os.path.isdir(fs_root):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isdir, fs_root):
         return f"Error: extracted filesystem not found at {fs_root}"
 
     arch = firmware.architecture or "unknown"
@@ -1866,8 +1867,8 @@ async def _handle_troubleshoot_emulation(input: dict, context: ToolContext) -> s
     if firmware:
         arch = firmware.architecture or "unknown"
         fs_root = firmware.extracted_path or ""
-        if fs_root and os.path.isdir(fs_root):
-            loop = asyncio.get_running_loop()
+        loop = asyncio.get_running_loop()
+        if fs_root and await loop.run_in_executor(None, os.path.isdir, fs_root):
             has_etc_ro, has_webroot, has_mtd_deps = await loop.run_in_executor(
                 None, _troubleshoot_detect_characteristics_sync, fs_root,
             )
@@ -2623,7 +2624,8 @@ async def _handle_emulate_with_qiling(input: dict, context: ToolContext) -> str:
         return "Error: binary_path is required."
 
     path = context.resolve_path(binary_path_raw)
-    if not os.path.isfile(path):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, path):
         return f"Error: File not found: {binary_path_raw}"
 
     args_str = input.get("arguments", "").strip()
