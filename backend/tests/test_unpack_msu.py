@@ -113,7 +113,7 @@ async def test_unpack_msu_reports_outer_timeout(tmp_path: Path):
 
     state = {"calls": 0}
 
-    async def _selective_wait_for(coro, timeout=None):
+    async def _selective_wait_for(coro, timeout=None):  # noqa: ASYNC109 — test helper: monkeypatched asyncio.wait_for signature must mirror upstream timeout= param
         state["calls"] += 1
         coro.close()
         raise TimeoutError

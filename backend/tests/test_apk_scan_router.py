@@ -643,7 +643,7 @@ class TestApkScanManifestPersistenceLiveCanary:
             assert allow.source == "apk-manifest-scan"
             assert allow.firmware_id == firmware.id
             assert allow.cwe_ids == ["CWE-200"]
-            assert allow.file_path == os.path.relpath(str(target), str(extracted_path))
+            assert allow.file_path == os.path.relpath(str(target), str(extracted_path))  # noqa: ASYNC240 — test assertion: relpath equality check vs router-computed file_path; pure-string path math
 
             # Cleartext Traffic — high-confidence row covers the other branch.
             ct = by_title["[M14] Cleartext Traffic"]

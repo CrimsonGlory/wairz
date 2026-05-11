@@ -140,7 +140,7 @@ async def test_unpack_vhdx_reports_convert_timeout(tmp_path: Path):
     state = {"calls": 0}
     real_wait_for = asyncio.wait_for
 
-    async def _selective_wait_for(coro, timeout=None):
+    async def _selective_wait_for(coro, timeout=None):  # noqa: ASYNC109 — test helper: monkeypatched asyncio.wait_for signature must mirror upstream timeout= param
         state["calls"] += 1
         if state["calls"] == 1:
             return await real_wait_for(coro, timeout=timeout)

@@ -678,7 +678,7 @@ class TestRunCweCheckerBatch:
             await db.flush()
 
             # Mock run_cwe_checker directly to force the bad path to raise.
-            async def _fake(path, fwid, db, timeout=None):
+            async def _fake(path, fwid, db, timeout=None):  # noqa: ASYNC109 — test stub: signature-mirroring fake for run_cwe_checker; timeout= must match upstream signature
                 if path.endswith("bad"):
                     raise RuntimeError("boom on bad")
                 return CweCheckResult(

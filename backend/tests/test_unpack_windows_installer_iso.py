@@ -190,7 +190,7 @@ async def test_canonical_install_wim_with_windows_subdir_is_preferred_root(
     # Preferred-root contract: install.wim with Windows/ subdir wins.
     assert result.extracted_path is not None
     assert "install.wim_extracted" in result.extracted_path
-    assert os.path.isdir(os.path.join(result.extracted_path, "Windows"))
+    assert os.path.isdir(os.path.join(result.extracted_path, "Windows"))  # noqa: ASYNC240 — test assertion: verify unpack worker produced Windows/ tree; sync stat acceptable
     # The composite layout must be on disk: install.wim_extracted/ sibling
     # to install.wim itself.
     assert (sources / "install.wim_extracted").is_dir()

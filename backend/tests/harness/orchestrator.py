@@ -598,7 +598,7 @@ class SASTScanner:
         self,
         fixture: APKFixture,
         *,
-        timeout: int = 180,
+        timeout: int = 180,  # noqa: ASYNC109 — test harness: timeout= param on async APK scan helper; caller-supplied override per Rule #29
         min_severity: str = "info",
         db: Any = None,
         firmware_id: Any = None,

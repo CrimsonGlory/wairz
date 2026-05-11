@@ -223,4 +223,4 @@ async def test_pure_rootfs_tar_still_shortcuts_with_detection_roots(tmp_path: Pa
     # Every root must be a string path that exists on disk.
     for r in roots:
         assert isinstance(r, str)
-        assert os.path.isdir(r), f"detection_root does not exist: {r}"
+        assert os.path.isdir(r), f"detection_root does not exist: {r}"  # noqa: ASYNC240 — test assertion: verify every detection_root path exists on disk; sync stat acceptable

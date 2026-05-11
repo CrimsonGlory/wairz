@@ -442,7 +442,7 @@ class TestRunBinwalkScan:
             return proc
 
         # Force wait_for to raise TimeoutError immediately by patching it.
-        async def _raise_timeout(coro, timeout):
+        async def _raise_timeout(coro, timeout):  # noqa: ASYNC109 — test stub: signature-mirroring fake for asyncio.wait_for monkeypatch; timeout= must match upstream signature
             # Cancel the coroutine to satisfy the linter / avoid leaks.
             task = MagicMock()
             del task

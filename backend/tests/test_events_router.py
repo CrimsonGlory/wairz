@@ -141,7 +141,7 @@ class _FakePubsub:
     async def aclose(self):
         self.closed = True
 
-    async def get_message(self, ignore_subscribe_messages=True, timeout=None):
+    async def get_message(self, ignore_subscribe_messages=True, timeout=None):  # noqa: ASYNC109 — test stub: signature-mirroring fake for pubsub get_message; timeout= must match upstream signature
         # Yield exactly one real message then signal disconnect via timeout
         # (None) — the router treats None as "send keepalive and continue".
         if self._messages_yielded == 0:
