@@ -38,6 +38,19 @@ _STACK_LAYOUT_END = "===STACK_LAYOUT_END==="
 _GLOBAL_LAYOUT_START = "===GLOBAL_LAYOUT_START==="
 _GLOBAL_LAYOUT_END = "===GLOBAL_LAYOUT_END==="
 
+
+def _read_magic_sync(path: str, n: int = 4) -> bytes | None:
+    """Read the first `n` bytes of a file. Returns None on OSError.
+
+    Used inside async tool handlers via run_in_executor (Rule #5) for cheap
+    one-shot file-magic probes (ELF / PE / etc.).
+    """
+    try:
+        with open(path, "rb") as f:
+            return f.read(n)
+    except OSError:
+        return None
+
 # IPC function pairs for cross-binary dataflow analysis
 _IPC_PAIRS = {
     "nvram": {
@@ -244,14 +257,14 @@ async def _handle_analyze_binary_format(input: dict, context: ToolContext) -> st
     """Analyze binary format, architecture, linking type, and dependencies using LIEF."""
     path = context.resolve_path(input["binary_path"])
 
-    if not os.path.isfile(path):
-        return f"Error: File not found: {input['binary_path']}"
-
     import asyncio
+
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, path):
+        return f"Error: File not found: {input['binary_path']}"
 
     from app.services.binary_analysis_service import analyze_binary
 
-    loop = asyncio.get_running_loop()
     info = await loop.run_in_executor(None, analyze_binary, path)
 
     fmt = info.get("format", "unknown").upper()
@@ -387,19 +400,13 @@ async def _handle_get_binary_info(input: dict, context: ToolContext) -> str:
         return "\n".join(lines)
 
     # Fallback: use LIEF/pefile for PE or non-ELF binaries where radare2 failed
-    is_pe = False
-    try:
-        with open(path, "rb") as f:
-            magic = f.read(4)
-        if magic[:2] == b"MZ":
-            is_pe = True
-    except OSError:
-        pass
+    loop = asyncio.get_running_loop()
+    magic = await loop.run_in_executor(None, _read_magic_sync, path, 4)
+    is_pe = bool(magic and magic[:2] == b"MZ")
 
     if is_pe:
         from app.services.binary_analysis_service import analyze_binary, check_pe_protections
 
-        loop = asyncio.get_running_loop()
         lief_info = await loop.run_in_executor(None, analyze_binary, path)
         pe_info = await loop.run_in_executor(None, check_pe_protections, path)
 
@@ -454,43 +461,52 @@ async def _handle_get_binary_info(input: dict, context: ToolContext) -> str:
         return "\n".join(lines)
 
     # Raw binary fallback — provide basic file metadata
-    try:
-        file_size = os.path.getsize(path)
-        with open(path, "rb") as f:
-            header = f.read(16)
-        magic_hex = " ".join(f"{b:02x}" for b in header[:16])
+    def _read_raw_binary_metadata_sync(p: str) -> tuple[int, bytes, int, int] | None:
+        """Read size + first 16 bytes + (sp, reset) words. Returns None on OSError."""
+        try:
+            size = os.path.getsize(p)
+            with open(p, "rb") as f:
+                hdr = f.read(16)
+            if size > 0x100:
+                with open(p, "rb") as f:
+                    sp_word = int.from_bytes(f.read(4), "little")
+                    reset_word = int.from_bytes(f.read(4), "little")
+            else:
+                sp_word = 0
+                reset_word = 0
+            return size, hdr, sp_word, reset_word
+        except OSError:
+            return None
 
-        # Try to detect architecture from RTOS detection or metadata
-        lines = [
-            "Binary Information (raw binary):",
-            "",
-            f"  File:         {os.path.basename(path)}",
-            "  Format:       Raw binary (no ELF/PE/Mach-O header)",
-            f"  Size:         {file_size:,} bytes ({file_size / 1024:.1f} KB)",
-            f"  Magic bytes:  {magic_hex}",
-        ]
-
-        # Check for ARM thumb instructions (common in Cortex-M firmware)
-        if file_size > 0x100:
-            with open(path, "rb") as f:
-                # Check vector table pattern (ARM Cortex-M: SP at 0x0, reset vector at 0x4)
-                sp = int.from_bytes(f.read(4), "little")
-                reset = int.from_bytes(f.read(4), "little")
-                if 0x20000000 <= sp <= 0x20100000 and 0x08000000 <= reset <= 0x08100000:
-                    lines.append("  Architecture: ARM Cortex-M (vector table detected)")
-                    lines.append(f"  Initial SP:   {hex(sp)}")
-                    lines.append(f"  Reset vector: {hex(reset)}")
-                elif sp == 0 or reset == 0:
-                    pass  # Not a vector table
-                else:
-                    lines.append(f"  Word 0 (SP?): {hex(sp)}")
-                    lines.append(f"  Word 1 (PC?): {hex(reset)}")
-
-        lines.append("")
-        lines.append("  Note: Use extract_strings or detect_rtos for deeper analysis of raw binaries.")
-        return "\n".join(lines)
-    except OSError:
+    meta = await loop.run_in_executor(None, _read_raw_binary_metadata_sync, path)
+    if meta is None:
         return "Could not read binary file."
+    file_size, header, sp, reset = meta
+    magic_hex = " ".join(f"{b:02x}" for b in header[:16])
+
+    lines = [
+        "Binary Information (raw binary):",
+        "",
+        f"  File:         {os.path.basename(path)}",
+        "  Format:       Raw binary (no ELF/PE/Mach-O header)",
+        f"  Size:         {file_size:,} bytes ({file_size / 1024:.1f} KB)",
+        f"  Magic bytes:  {magic_hex}",
+    ]
+
+    if file_size > 0x100:
+        if 0x20000000 <= sp <= 0x20100000 and 0x08000000 <= reset <= 0x08100000:
+            lines.append("  Architecture: ARM Cortex-M (vector table detected)")
+            lines.append(f"  Initial SP:   {hex(sp)}")
+            lines.append(f"  Reset vector: {hex(reset)}")
+        elif sp == 0 or reset == 0:
+            pass  # Not a vector table
+        else:
+            lines.append(f"  Word 0 (SP?): {hex(sp)}")
+            lines.append(f"  Word 1 (PC?): {hex(reset)}")
+
+    lines.append("")
+    lines.append("  Note: Use extract_strings or detect_rtos for deeper analysis of raw binaries.")
+    return "\n".join(lines)
 
 
 async def _handle_check_binary_protections(
@@ -500,20 +516,14 @@ async def _handle_check_binary_protections(
     path = context.resolve_path(input["binary_path"])
 
     # Detect format to choose the right checker
-    is_pe = False
-    try:
-        with open(path, "rb") as f:
-            magic = f.read(4)
-        if magic[:2] == b"MZ":
-            is_pe = True
-    except OSError:
-        pass
+    loop = asyncio.get_running_loop()
+    magic = await loop.run_in_executor(None, _read_magic_sync, path, 4)
+    is_pe = bool(magic and magic[:2] == b"MZ")
 
     if is_pe:
         # PE protection check via pefile
         from app.services.binary_analysis_service import check_pe_protections
 
-        loop = asyncio.get_running_loop()
         pe_info = await loop.run_in_executor(None, check_pe_protections, path)
 
         if "error" in pe_info:
@@ -789,7 +799,7 @@ async def _handle_resolve_import(input: dict, context: ToolContext) -> str:
     found_lib_path = resolution["lib_path"]
 
     # Compute firmware-relative path for display
-    rel_lib_path = "/" + os.path.relpath(found_lib_path, real_root)
+    rel_lib_path = "/" + os.path.relpath(found_lib_path, real_root)  # noqa: ASYNC240 — pure-string path op; no I/O
 
     # Step 3: Decompile the function from the library
     try:
@@ -1183,10 +1193,10 @@ async def _handle_search_binary_content(input: dict, context: ToolContext) -> st
     if not search_bytes:
         return "Empty search pattern."
 
-    file_size = os.path.getsize(path)
+    loop = asyncio.get_running_loop()
+    file_size = await loop.run_in_executor(None, os.path.getsize, path)
     chunk_size = 65536
     overlap = len(search_bytes) - 1
-    matches: list[dict] = []
 
     # Get function address ranges for mapping offsets to functions
     func_ranges: list[tuple[int, int, str]] = []
@@ -1218,38 +1228,44 @@ async def _handle_search_binary_content(input: dict, context: ToolContext) -> st
                 return name
         return ""
 
-    with open(path, "rb") as f:
-        pos = 0
-        prev_tail = b""
-        while pos < file_size and len(matches) < max_results:
-            f.seek(pos)
-            chunk = f.read(chunk_size)
-            if not chunk:
-                break
-            # Prepend overlap from previous chunk to catch cross-boundary matches
-            search_buf = prev_tail + chunk
-            offset_base = pos - len(prev_tail)
-
-            idx = 0
-            while idx < len(search_buf) and len(matches) < max_results:
-                found = search_buf.find(search_bytes, idx)
-                if found == -1:
+    def _scan_binary_chunks_sync() -> list[dict]:
+        """Chunked binary scan with cross-boundary match support."""
+        local_matches: list[dict] = []
+        with open(path, "rb") as f:
+            pos = 0
+            prev_tail = b""
+            while pos < file_size and len(local_matches) < max_results:
+                f.seek(pos)
+                chunk = f.read(chunk_size)
+                if not chunk:
                     break
-                abs_offset = offset_base + found
-                # Get context bytes (16 bytes before and after)
-                ctx_start = max(0, found - 16)
-                ctx_end = min(len(search_buf), found + len(search_bytes) + 16)
-                ctx_hex = search_buf[ctx_start:ctx_end].hex()
-                func_name = _find_function(abs_offset)
-                matches.append({
-                    "offset": abs_offset,
-                    "context": ctx_hex,
-                    "function": func_name,
-                })
-                idx = found + 1
+                # Prepend overlap from previous chunk to catch cross-boundary matches
+                search_buf = prev_tail + chunk
+                offset_base = pos - len(prev_tail)
 
-            prev_tail = chunk[-overlap:] if overlap > 0 else b""
-            pos += len(chunk)
+                idx = 0
+                while idx < len(search_buf) and len(local_matches) < max_results:
+                    found = search_buf.find(search_bytes, idx)
+                    if found == -1:
+                        break
+                    abs_offset = offset_base + found
+                    # Get context bytes (16 bytes before and after)
+                    ctx_start = max(0, found - 16)
+                    ctx_end = min(len(search_buf), found + len(search_bytes) + 16)
+                    ctx_hex = search_buf[ctx_start:ctx_end].hex()
+                    func_name = _find_function(abs_offset)
+                    local_matches.append({
+                        "offset": abs_offset,
+                        "context": ctx_hex,
+                        "function": func_name,
+                    })
+                    idx = found + 1
+
+                prev_tail = chunk[-overlap:] if overlap > 0 else b""
+                pos += len(chunk)
+        return local_matches
+
+    matches: list[dict] = await loop.run_in_executor(None, _scan_binary_chunks_sync)
 
     if not matches:
         mode_desc = "hex bytes" if mode == "hex" else "string"
@@ -1439,36 +1455,45 @@ async def _handle_cross_binary_dataflow(input: dict, context: ToolContext) -> st
 
     ELF_MAGIC = b"\x7fELF"
 
+    def _walk_elf_candidates_sync(root: str, rroot: str) -> list[tuple[str, str]]:
+        """Walk `root` and return list of (abs_path, rel_path) for ELF candidates."""
+        out: list[tuple[str, str]] = []
+        for dirpath, _dirs, files in safe_walk(root):
+            for name in files:
+                abs_path = os.path.join(dirpath, name)
+                if os.path.islink(abs_path):
+                    continue
+                try:
+                    with open(abs_path, "rb") as f:
+                        if f.read(4) != ELF_MAGIC:
+                            continue
+                except (OSError, PermissionError):
+                    continue
+                # Skip kernel modules — not user-space binaries
+                if name.endswith(".ko") or ".ko." in name:
+                    continue
+                rel_path = "/" + os.path.relpath(abs_path, rroot)
+                out.append((abs_path, rel_path))
+        return out
+
     # Step 1: Find all analyzed ELF binaries
+    loop = asyncio.get_running_loop()
+    elf_candidates = await loop.run_in_executor(
+        None, _walk_elf_candidates_sync, search_path, real_root,
+    )
+
     analyzed_binaries: list[tuple[str, str]] = []  # (abs_path, rel_path)
-    for dirpath, _dirs, files in safe_walk(search_path):
-        for name in files:
-            abs_path = os.path.join(dirpath, name)
-            if os.path.islink(abs_path):
-                continue
-            try:
-                with open(abs_path, "rb") as f:
-                    if f.read(4) != ELF_MAGIC:
-                        continue
-            except (OSError, PermissionError):
-                continue
-
-            # Skip kernel modules — not user-space binaries
-            if name.endswith(".ko") or ".ko." in name:
-                continue
-
-            rel_path = "/" + os.path.relpath(abs_path, real_root)
-
-            # Check if this binary has been Ghidra-analyzed
-            try:
-                sha = await ghidra_service.get_binary_sha256(abs_path)
-                is_analyzed = await ghidra_service.get_cached(
-                    context.firmware_id, sha, "ghidra_full_analysis", context.db,
-                )
-                if is_analyzed:
-                    analyzed_binaries.append((abs_path, rel_path))
-            except Exception:
-                continue
+    for abs_path, rel_path in elf_candidates:
+        # Check if this binary has been Ghidra-analyzed
+        try:
+            sha = await ghidra_service.get_binary_sha256(abs_path)
+            is_analyzed = await ghidra_service.get_cached(
+                context.firmware_id, sha, "ghidra_full_analysis", context.db,
+            )
+            if is_analyzed:
+                analyzed_binaries.append((abs_path, rel_path))
+        except Exception:
+            continue
 
     if not analyzed_binaries:
         return (
@@ -1619,13 +1644,23 @@ async def _handle_cross_binary_dataflow(input: dict, context: ToolContext) -> st
     return "\n".join(lines)
 
 
+def _detect_elf_machine_sync(path: str) -> str | None:
+    """Read the ELF e_machine field. Returns None if not an ELF or unreadable."""
+    try:
+        with open(path, "rb") as f:
+            return ELFFile(f).header.e_machine
+    except Exception:
+        return None
+
+
 async def _handle_detect_capabilities(
     input: dict, context: ToolContext
 ) -> str:
     """Detect binary capabilities using FLARE capa."""
     path = context.resolve_path(input.get("binary_path") or input.get("path", "/"))
 
-    if not os.path.isfile(path):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, path):
         return f"Error: file not found: {input['path']}"
 
     # Check capa availability
@@ -1639,20 +1674,14 @@ async def _handle_detect_capabilities(
 
     # Detect architecture to warn about MIPS limitations
     arch_warning = ""
-    try:
-        with open(path, "rb") as f:
-            elf = ELFFile(f)
-            machine = elf.header.e_machine
-            if machine in ("EM_MIPS", "EM_MIPS_RS3_LE"):
-                arch_warning = (
-                    "\n\nWARNING: This binary targets MIPS architecture. "
-                    "Capa has limited MIPS support — results may be incomplete "
-                    "or inaccurate. ARM, AArch64, and x86/x64 binaries yield "
-                    "the best results."
-                )
-    except Exception:
-        # Not a valid ELF or unreadable — let capa handle the error
-        pass
+    machine = await loop.run_in_executor(None, _detect_elf_machine_sync, path)
+    if machine in ("EM_MIPS", "EM_MIPS_RS3_LE"):
+        arch_warning = (
+            "\n\nWARNING: This binary targets MIPS architecture. "
+            "Capa has limited MIPS support — results may be incomplete "
+            "or inaccurate. ARM, AArch64, and x86/x64 binaries yield "
+            "the best results."
+        )
 
     # Run capa with JSON output
     try:
@@ -1784,7 +1813,8 @@ async def _handle_list_binary_capabilities(
     """List capability categories found in a binary (lightweight summary)."""
     path = context.resolve_path(input.get("binary_path") or input.get("path", "/"))
 
-    if not os.path.isfile(path):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, path):
         return f"Error: file not found: {input.get('binary_path', input.get('path', ''))}"
 
     capa_bin = shutil.which("capa")
@@ -1870,17 +1900,16 @@ async def _handle_analyze_raw_binary(input: dict, context: ToolContext) -> str:
     """Detect CPU architecture from a raw binary with no recognized headers."""
     path = context.resolve_path(input["binary_path"])
 
-    if not os.path.isfile(path):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, path):
         return f"Error: File not found: {input['binary_path']}"
 
-    file_size = os.path.getsize(path)
+    file_size = await loop.run_in_executor(None, os.path.getsize, path)
     if file_size < 64:
         return "Error: File too small for meaningful architecture detection (< 64 bytes)."
 
     # First check if it actually has headers (might just be misidentified)
     from app.services.binary_analysis_service import analyze_binary, detect_raw_architecture
-
-    loop = asyncio.get_running_loop()
     info = await loop.run_in_executor(None, analyze_binary, path)
 
     if info.get("format") != "unknown":
@@ -1941,11 +1970,11 @@ async def _handle_detect_rtos(input: dict, context: ToolContext) -> str:
     path_input = input.get("path", "/")
     path = context.resolve_path(path_input)
 
-    if not os.path.isfile(path):
-        return f"Not a file: {path_input}"
-
     import asyncio
     loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, path):
+        return f"Not a file: {path_input}"
+
     rtos = await loop.run_in_executor(None, detect_rtos, path)
     companions = await loop.run_in_executor(None, extract_companion_components, path)
 
