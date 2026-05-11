@@ -9,6 +9,7 @@ Delegates to specialized modules:
 - unpack_android: OTA extraction, sparse images, super.img partitions
 """
 
+import asyncio
 import logging
 import os
 import uuid
@@ -325,25 +326,39 @@ async def _unpack_firmware_inner(
 
     result = UnpackResult()
     extraction_dir = os.path.join(output_base_dir, "extracted")
+    loop = asyncio.get_running_loop()
 
-    # Clean leftover data from previous failed attempts so retries work cleanly
-    if os.path.exists(extraction_dir):
-        shutil.rmtree(extraction_dir, ignore_errors=True)
-    os.makedirs(extraction_dir, exist_ok=True)
+    # Clean leftover data from previous failed attempts so retries work cleanly.
+    # The rmtree+makedirs reset is a single sync helper offloaded via
+    # run_in_executor so the unpack orchestrator doesn't stall the worker
+    # event loop on a large stale tree (Rule #5).
+    def _reset_extraction_dir_sync(target: str) -> None:
+        if os.path.exists(target):
+            shutil.rmtree(target, ignore_errors=True)
+        os.makedirs(target, exist_ok=True)
 
-    # Check disk space: need at least 2x firmware size for extraction headroom
-    try:
-        fw_size = os.path.getsize(firmware_path)
-        free_space = shutil.disk_usage(extraction_dir).free
-        if free_space < fw_size * 2:
+    await loop.run_in_executor(None, _reset_extraction_dir_sync, extraction_dir)
+
+    # Check disk space: need at least 2x firmware size for extraction headroom.
+    # The getsize + disk_usage probe is a single sync helper executor hop.
+    def _disk_headroom_sync(fw_path: str, dest: str) -> tuple[int, int] | None:
+        try:
+            return os.path.getsize(fw_path), shutil.disk_usage(dest).free
+        except OSError:
+            return None
+
+    sizes = await loop.run_in_executor(
+        None, _disk_headroom_sync, firmware_path, extraction_dir,
+    )
+    if sizes is not None:
+        fw_size_check, free_space = sizes
+        if free_space < fw_size_check * 2:
             result.error = (
                 f"Insufficient disk space: {free_space // (1024*1024)}MB free, "
-                f"need ~{fw_size * 2 // (1024*1024)}MB for extraction"
+                f"need ~{fw_size_check * 2 // (1024*1024)}MB for extraction"
             )
             result.unpack_log = result.error
             return result
-    except OSError:
-        pass  # Can't check — proceed anyway
 
     await _report("Classifying firmware", 5)
     fw_type = classify_firmware(firmware_path)
@@ -373,20 +388,32 @@ async def _unpack_firmware_inner(
     if fw_type == "uefi_firmware":
         await _report("Extracting UEFI firmware", 15)
         try:
-            # If it's a ZIP containing UEFI, extract inner file first
+            # If it's a ZIP containing UEFI, extract inner file first. The
+            # zipfile reads + the open() write are all blocking I/O; route
+            # through a single sync helper executor hop (Rule #5).
             import zipfile as _zipfile
-            actual_firmware = firmware_path
-            if _zipfile.is_zipfile(firmware_path):
-                with _zipfile.ZipFile(firmware_path, "r") as zf:
-                    for name in zf.namelist():
-                        ext = os.path.splitext(name)[1].lower()
-                        if ext in (".cap", ".rom", ".fd", ".upd", ".bin"):
-                            inner_path = os.path.join(extraction_dir, os.path.basename(name))
-                            with open(inner_path, "wb") as out:
-                                out.write(zf.read(name))
-                            actual_firmware = inner_path
-                            result.unpack_log += f"Extracted {name} from ZIP container.\n"
-                            break
+
+            def _extract_inner_uefi_sync(zip_path: str, out_dir: str) -> tuple[str, str]:
+                """Returns (actual_firmware_path, log_addendum)."""
+                if not _zipfile.is_zipfile(zip_path):
+                    return zip_path, ""
+                with _zipfile.ZipFile(zip_path, "r") as zf_sync:
+                    for entry_name in zf_sync.namelist():
+                        entry_ext = os.path.splitext(entry_name)[1].lower()
+                        if entry_ext in (".cap", ".rom", ".fd", ".upd", ".bin"):
+                            inner = os.path.join(
+                                out_dir, os.path.basename(entry_name),
+                            )
+                            with open(inner, "wb") as out:
+                                out.write(zf_sync.read(entry_name))
+                            return inner, f"Extracted {entry_name} from ZIP container.\n"
+                return zip_path, ""
+
+            actual_firmware, log_addendum = await loop.run_in_executor(
+                None, _extract_inner_uefi_sync, firmware_path, extraction_dir,
+            )
+            if log_addendum:
+                result.unpack_log += log_addendum
 
             log = await run_uefi_extraction(actual_firmware, extraction_dir)
             result.unpack_log += log
@@ -621,9 +648,16 @@ async def _unpack_firmware_inner(
                 boot_log: list[str] = []
                 await _extract_boot_img(firmware_path, boot_dir, boot_log)
                 result.unpack_log += "\n".join(boot_log)
-                # Use ramdisk as rootfs if it was extracted
+                # Use ramdisk as rootfs if it was extracted. Single sync
+                # helper offloads the isdir + listdir pair (Rule #5).
                 ramdisk_dir = os.path.join(boot_dir, "ramdisk")
-                if os.path.isdir(ramdisk_dir) and os.listdir(ramdisk_dir):
+
+                def _ramdisk_has_content_sync(path: str) -> bool:
+                    return os.path.isdir(path) and bool(os.listdir(path))
+
+                if await loop.run_in_executor(
+                    None, _ramdisk_has_content_sync, ramdisk_dir,
+                ):
                     result.extracted_path = ramdisk_dir
                 else:
                     result.extracted_path = boot_dir
@@ -823,7 +857,7 @@ async def _unpack_firmware_inner(
                         # the decryption from device_metadata alone).
                         result.vendor_decryption = [
                             {
-                                "archive": os.path.relpath(p, extraction_dir),
+                                "archive": os.path.relpath(p, extraction_dir),  # noqa: ASYNC240 — pure-string path op; no I/O
                                 "algorithm": t.algo,
                                 "key_hex": t.key_hex,
                                 "iv_hex": t.iv_hex,
@@ -936,8 +970,14 @@ async def _unpack_firmware_inner(
         from app.services.binary_analysis_service import analyze_binary
 
         dest = os.path.join(extraction_dir, os.path.basename(firmware_path))
-        if not os.path.exists(dest):
-            shutil.copy2(firmware_path, dest)
+
+        def _stage_fallback_copy_sync(src: str, target: str) -> None:
+            if not os.path.exists(target):
+                shutil.copy2(src, target)
+
+        await loop.run_in_executor(
+            None, _stage_fallback_copy_sync, firmware_path, dest,
+        )
         result.extracted_path = extraction_dir
         result.extraction_dir = extraction_dir
 
