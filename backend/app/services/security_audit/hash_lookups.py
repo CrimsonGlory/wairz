@@ -40,7 +40,7 @@ async def run_clamav_scan(extracted_root: str) -> list[SecurityFinding]:
 
     for sr in results:
         if sr.infected:
-            rel = "/" + os.path.relpath(sr.file_path, extracted_root)
+            rel = "/" + os.path.relpath(sr.file_path, extracted_root)  # noqa: ASYNC240 — pure-string path math via os.path.relpath inside scan-result loop; no filesystem I/O
             findings.append(SecurityFinding(
                 title=f"Malware detected: {sr.signature}",
                 severity="critical",

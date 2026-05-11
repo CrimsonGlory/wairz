@@ -556,7 +556,7 @@ async def auto_extract_drivers(
         relative_inf = inf_path
         for r in roots:
             try:
-                rp = os.path.realpath(r)
+                rp = os.path.realpath(r)  # noqa: ASYNC240 — realpath inside small bounded loop over detection roots (~1-3 entries) to compute relative path; per-root resolution acceptable
                 if inf_path.startswith(rp + "/"):
                     relative_inf = inf_path[len(rp) + 1 :]
                     break

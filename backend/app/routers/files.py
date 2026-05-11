@@ -100,7 +100,7 @@ async def download_file(
         raise HTTPException(404, str(e))
     except PermissionError as e:
         raise HTTPException(403, str(e))
-    if not os.path.isfile(real_path):
+    if not os.path.isfile(real_path):  # noqa: ASYNC240 — endpoint pre-flight stat after resolve; sync stat acceptable (single file, no walk)
         raise HTTPException(400, "Path is not a file")
     filename = os.path.basename(real_path)
     return FileResponse(

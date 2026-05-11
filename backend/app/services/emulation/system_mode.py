@@ -91,7 +91,7 @@ async def setup_system_mode_container(
     initrd_arg = ""
     if initrd_backend_path:
         import os
-        if os.path.isfile(initrd_backend_path):
+        if os.path.isfile(initrd_backend_path):  # noqa: ASYNC240 — pre-copy isfile guard for optional initrd file; bounded to one stat
             copy_file_to_container(
                 container, initrd_backend_path, CONTAINER_INITRD_PATH,
             )
@@ -133,7 +133,7 @@ async def setup_system_mode_container(
 
 async def await_system_startup(
     container: "docker.models.containers.Container",
-    timeout: int = 30,
+    timeout: int = 30,  # noqa: ASYNC109 — timeout= param on async helper; caller-supplied override per Rule #29
 ) -> None:
     """Wait briefly after QEMU launch and check for early failures.
 

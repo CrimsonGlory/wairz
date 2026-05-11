@@ -628,7 +628,7 @@ async def download_pcap(
         raise HTTPException(404, "No pcap capture available for this session")
 
     pcap_file = Path(session.pcap_path)
-    if not pcap_file.exists():
+    if not pcap_file.exists():  # noqa: ASYNC240 — endpoint pre-flight stat before FileResponse; sync stat acceptable (single file, no walk)
         raise HTTPException(404, "Pcap file not found on disk")
 
     return FileResponse(

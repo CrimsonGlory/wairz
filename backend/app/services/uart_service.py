@@ -78,7 +78,7 @@ class UARTService:
         self,
         project_id: UUID,
         command: str,
-        timeout: int = 30,
+        timeout: int = 30,  # noqa: ASYNC109 — timeout= param on async UART send_command; caller-supplied override per Rule #29
         prompt: str = "# ",
     ) -> dict:
         """Send a command to the UART console and wait for the prompt."""
@@ -100,7 +100,7 @@ class UARTService:
         })
         return result.get("result", {})
 
-    async def read_buffer(self, project_id: UUID, timeout: int = 2) -> dict:
+    async def read_buffer(self, project_id: UUID, timeout: int = 2) -> dict:  # noqa: ASYNC109 — timeout= param on async UART read_buffer; caller-supplied override per Rule #29
         """Read the current receive buffer contents."""
         session = await self._get_active_session(project_id)
         if not session:

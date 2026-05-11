@@ -555,7 +555,7 @@ async def auto_walk_firmware(firmware_id: uuid.UUID, db: AsyncSession) -> dict[s
         relative_path = hive_path
         for r in roots:
             try:
-                rp = os.path.realpath(r)
+                rp = os.path.realpath(r)  # noqa: ASYNC240 — realpath inside small bounded loop over detection roots (~1-3 entries) to compute relative path; per-root resolution acceptable
                 if hive_path.startswith(rp + "/"):
                     relative_path = hive_path[len(rp) + 1 :]
                     break

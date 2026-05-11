@@ -300,7 +300,7 @@ class MobsfRunner:
         import aiohttp
 
         p = Path(apk_path)
-        if not p.is_file():
+        if not p.is_file():  # noqa: ASYNC240 — single Path.is_file() guard at scan entry; bounded to one stat
             return MobsfScanResult(
                 success=False,
                 error=f"APK file not found: {apk_path}",

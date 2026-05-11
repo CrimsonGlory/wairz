@@ -146,7 +146,7 @@ async def get_firmware_context(
     dm = _normalize_firmware_device_metadata(firmware.device_metadata)
 
     # If device_metadata is empty, try parsing build.prop from FS
-    if not dm and firmware.extracted_path and os.path.isdir(firmware.extracted_path):
+    if not dm and firmware.extracted_path and os.path.isdir(firmware.extracted_path):  # noqa: ASYNC240 — isdir guard before sync build.prop fallback parser; bounded to one stat
         dm = _parse_build_prop_from_fs(firmware.extracted_path)
 
     apk_ctx = _apk_location_context(apk_path, extracted_root or firmware.extracted_path)

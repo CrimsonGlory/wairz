@@ -604,7 +604,7 @@ async def run_clamav_scan_endpoint(
                 all_errors.append(sr.error)
             if sr.infected:
                 import os
-                rel = "/" + os.path.relpath(sr.file_path, firmware.extracted_path)
+                rel = "/" + os.path.relpath(sr.file_path, firmware.extracted_path)  # noqa: ASYNC240 — pure-string path math via os.path.relpath inside post-scan result loop; no filesystem I/O
                 all_infected.append({
                     "path": rel,
                     "signature": sr.signature,

@@ -352,7 +352,7 @@ async def _persist_manifest_findings(
 
     from app.models.finding import Finding
 
-    rel_path = os.path.relpath(apk_path, context.extracted_path)
+    rel_path = os.path.relpath(apk_path, context.extracted_path)  # noqa: ASYNC240 — pure-string path math via os.path.relpath; no filesystem I/O
 
     # Fetch existing finding titles for this APK to avoid duplicates on re-scan
     existing_stmt = (

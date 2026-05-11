@@ -86,7 +86,7 @@ async def _handle_cwe_check_binary(input: dict, context: ToolContext) -> str:
         return "Error: 'path' is required (relative path within firmware filesystem)"
 
     resolved = context.resolve_path(path)
-    if not os.path.isfile(resolved):
+    if not os.path.isfile(resolved):  # noqa: ASYNC240 — single isfile pre-flight before subprocess dispatch; bounded to one stat
         return f"Error: file not found: {path}"
 
     timeout = input.get("timeout", 600)
@@ -140,7 +140,7 @@ async def _handle_cwe_check_firmware(input: dict, context: ToolContext) -> str:
         full_path = os.path.join(
             context.extracted_path or "", entry.binary_path.lstrip("/")
         )
-        if os.path.isfile(full_path):
+        if os.path.isfile(full_path):  # noqa: ASYNC240 — isfile inside a small bounded loop over DB-resolved attack-surface entries; per-entry stat acceptable
             binary_paths.append(full_path)
 
     if not binary_paths:

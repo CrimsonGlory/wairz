@@ -249,7 +249,7 @@ async def run_binary_async(
     binary_path: str,
     rootfs: str | None = None,
     args: list[str] | None = None,
-    timeout: int = 30,
+    timeout: int = 30,  # noqa: ASYNC109 — timeout= param on async helper; caller-supplied override per Rule #29
     trace_syscalls: bool = False,
     binary_format: str | None = None,
     architecture: str | None = None,

@@ -163,7 +163,7 @@ async def download_document(
     document = await svc.get(document_id)
     if not document or document.project_id != project_id:
         raise HTTPException(404, "Document not found")
-    if not os.path.exists(document.storage_path):
+    if not os.path.exists(document.storage_path):  # noqa: ASYNC240 — endpoint pre-flight stat before FileResponse; sync stat acceptable (single file, no walk)
         raise HTTPException(404, "Document file not found on disk")
     return FileResponse(
         path=document.storage_path,

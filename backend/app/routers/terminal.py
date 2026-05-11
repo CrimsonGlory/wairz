@@ -114,7 +114,7 @@ async def websocket_terminal(
 
         extracted_path = firmware.extracted_path
 
-    if not os.path.isdir(extracted_path):
+    if not os.path.isdir(extracted_path):  # noqa: ASYNC240 — WS handshake pre-flight isdir before terminal attach; bounded to one stat
         await websocket.send_json(
             {"type": "error", "data": "Extracted firmware directory not found on disk"}
         )

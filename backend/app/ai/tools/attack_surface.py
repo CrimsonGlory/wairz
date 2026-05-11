@@ -273,7 +273,7 @@ async def _handle_analyze_binary_attack_surface(input: dict, context: ToolContex
         return "Error: 'path' is required"
 
     resolved = context.resolve_path(path)
-    real_root = os.path.realpath(context.extracted_path)
+    real_root = os.path.realpath(context.extracted_path)  # noqa: ASYNC240 — single realpath at handler entry to anchor the sandbox root; bounded to one call
 
     # Rule #5 — ELF parse + filesystem walks (init-scripts) are sync I/O;
     # offload to executor so 10K+ file rootfs scans don't stall the loop.
