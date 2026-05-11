@@ -8,6 +8,7 @@ signing, chipset, and format-specific metadata.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 
@@ -17,6 +18,12 @@ from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.services.hardware_firmware.cve_matcher import CveMatch
 from app.services.jsonb_normalizers import _normalize_hardware_firmware_blobs_metadata
+
+
+def _read_dtb_sync(real_path: str) -> bytes:
+    """Synchronous helper: read up to 16 MiB of a DTB blob."""
+    with open(real_path, "rb") as f:
+        return f.read(16 * 1024 * 1024)
 
 
 async def _handle_list_hardware_firmware(input: dict, context: ToolContext) -> str:
@@ -226,7 +233,8 @@ async def _handle_extract_dtb(input: dict, context: ToolContext) -> str:
     except Exception as exc:
         return f"Error: path resolution failed: {exc}"
 
-    if not os.path.isfile(real_path):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, real_path):
         return f"Error: not a file: {dtb_path}"
 
     try:
@@ -235,8 +243,7 @@ async def _handle_extract_dtb(input: dict, context: ToolContext) -> str:
         return "Error: fdt library not installed (pip install fdt)."
 
     try:
-        with open(real_path, "rb") as f:
-            data = f.read(16 * 1024 * 1024)
+        data = await loop.run_in_executor(None, _read_dtb_sync, real_path)
     except OSError as exc:
         return f"Error reading {dtb_path}: {exc}"
 
