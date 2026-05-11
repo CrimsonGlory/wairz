@@ -242,6 +242,29 @@ recipe and a feedback memory.  Zero rework cycles after the e47ab74→
    test against `kernel_vulns_index.py:253` historically, decide
    whether to extend.
 
+   **CLOSED 2026-05-11 (next session):** Grandfathering by design — no
+   regex extension needed.  Findings:
+   - Rule regex `#\s*noqa:\s*ASYNC\d+\s*$` correctly matches bare
+     ASYNC<N> at end of line.
+   - Timeline: `3f7fcf0` (file created with 2 bare noqas) precedes
+     `b585701` (rule added).  `git log b585701..cc300a8 -- <file>`
+     returned 0 commits — file was untouched between rule activation
+     and the closure audit, so the PreToolUse Edit/Write hook never
+     had an opportunity to fire on those lines.
+   - The Citadel quality-gate mechanism (`hooks_src/quality-gate.js`)
+     is a PreToolUse pattern-matcher on PROPOSED content of new
+     edits.  It cannot retroactively scan untouched tree.  This is
+     the design — repo-wide scans live elsewhere (quarterly audit,
+     CI lints, pre-commit hooks).
+   - Current state verification: 0 bare ASYNC noqa lines in
+     `backend/` (was 2 before `cc300a8`); 152 total ASYNC noqa lines
+     all carry em-dash rationale.  No shape-coverage gap.
+   - Pre-rule violations are caught by the quarterly noqa audit
+     mechanism already documented in parent postmortem
+     `postmortem-async-cleanup-2026-05-12-structured.md` Rec #4
+     (the same mechanism that produced `cc300a8`).  No new
+     infrastructure required.
+
 3. **Codify "git mv after in-place edit" anti-pattern.**  Either add a
    CLAUDE.md rule (after Rule-of-Two — happened once this session,
    check git log for prior precedent) or add to `.mex/patterns/`.
@@ -264,6 +287,72 @@ recipe and a feedback memory.  Zero rework cycles after the e47ab74→
    the hook has a bug (memory dir not in protected patterns by
    default but blocking anyway) or there's a configuration intent
    that should be documented in CLAUDE.md or hook docstring.
+
+   **INVESTIGATED 2026-05-11 (next session) — fix lives upstream in
+   Citadel; not applied here:**
+
+   - **Mechanism (working as designed, not a bug per se):**
+     `hooks_src/protect-files.js:104-114` blocks ANY Read/Edit/Write
+     where `path.resolve(filePath)` does not start with PROJECT_ROOT
+     (`/home/dustin/code/wairz`).  The memory directory at
+     `~/.claude/projects/-home-dustin-code-wairz/memory/` is OUTSIDE
+     PROJECT_ROOT, so the path-traversal-safety check correctly
+     identifies it as out-of-tree and the action is blocked with
+     `outside project root` reason.  The "No stderr output" diagnostic
+     is because the hook writes via `hookOutput()` to stdout (line
+     108-112), and Claude Code's PreToolUse error path may not
+     surface stdout content in all UI modes.
+   - **Why the block is overzealous:** Claude Code's memory system
+     is DOCUMENTED architecture — the system prompt explicitly
+     instructs agents to "write to it directly with the Write tool"
+     at `~/.claude/projects/<slug>/memory/`.  By blocking these
+     legitimate writes, protect-files.js prevents a documented Claude
+     Code feature from working, forcing the Bash-heredoc workaround.
+   - **The fix lives upstream in Citadel (`/home/dustin/code/Citadel/`,
+     `main` branch, remote `github.com/SethGammon/Citadel.git`).
+     NOT applied in this audit — cross-repo / shared-system change
+     requires explicit user authorization.**
+   - **Proposed Citadel patch** (insert after line ~103, before the
+     `if (!normalizedPath.startsWith(normalizedRoot + path.sep) ...)`
+     check):
+
+     ```js
+     // Allow Read/Edit/Write to the Claude Code project memory
+     // directory.  Memory lives outside PROJECT_ROOT by design (per-
+     // project under ~/.claude/projects/<slug>/memory/) and the
+     // system prompt instructs agents to use the Write tool on these
+     // paths directly.  Constrain to THIS project's slug to avoid
+     // permitting reads from other projects' memory.
+     const HOME_DIR = require('os').homedir();
+     const expectedSlug = '-' + path.normalize(PROJECT_ROOT)
+       .replace(/^\//, '').replace(/\//g, '-');
+     const memoryRoot = path.join(HOME_DIR, '.claude', 'projects',
+                                  expectedSlug, 'memory');
+     if (normalizedPath === memoryRoot ||
+         normalizedPath.startsWith(memoryRoot + path.sep)) {
+       process.exit(0);  // Allow Claude Code project memory access
+     }
+     ```
+
+   - **Scope of the bypass:** restricted to
+     `~/.claude/projects/<this-project-slug>/memory/` only.  Other
+     paths under `~/.claude/projects/` (transcripts, internal state)
+     remain blocked.  Other projects' memory remains blocked.  The
+     `.env` Read-protection check above the project-root check still
+     applies (memory files are not under that pattern anyway).
+   - **Verification recipe after patch:** in any wairz session, the
+     Write tool against
+     `~/.claude/projects/-home-dustin-code-wairz/memory/test.md`
+     should succeed without invoking Bash heredoc; Write to
+     `~/.claude/projects/<other-slug>/memory/test.md` should still
+     block with "outside project root."
+   - **Recommended action:** open a PR upstream at
+     `github.com/SethGammon/Citadel`.  Memory-system support is a
+     general Claude Code feature, not wairz-specific, so the fix
+     benefits all Citadel users.  Until then, the Bash-heredoc
+     workaround remains the documented path; see
+     `feedback_do_them_all_pattern.md` for the per-session memory
+     workflow.
 
 ## Numbers
 
