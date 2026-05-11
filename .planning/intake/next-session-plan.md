@@ -10,6 +10,28 @@ priority: low
 > historical planning/context document, not a task-list intake. Current campaign
 > pickup lives in `.planning/campaigns/wairz-intake-sweep-2026-04-19.md`; per-task
 > intakes live as siblings of this file.
+>
+> **DO NOT use the item lists in this file as actionable intake selection.**
+> Verify EACH named item against current code / alembic / closed campaigns
+> BEFORE proposing it as work — see Rule #19 (evidence-first) and Rule #31
+> (broaden the grep when narrow returns 0).  Spot-checks performed
+> 2026-05-12 found roughly half the listed items already shipped without
+> updates to this file:
+>
+> - `data-analysis-cache-operation-varchar-fix` — DONE in alembic
+>   `1f6c72decc84_widen_analysis_cache_operation_to_512.py`; model is
+>   `String(512)` at `backend/app/models/analysis_cache.py:26`.
+> - `alembic-chain-broken` — DONE; intake at
+>   `.planning/intake/alembic-chain-broken-2026-05-07.md` is
+>   status:resolved.
+> - `security-fuzzing-shell-injection` — appears closed (no `shell=True`
+>   matches in `fuzzing_service.py` 2026-05-12); needs deeper grep before
+>   re-queueing as actionable.
+> - `backend-cwe-checker-session-fix` — no commit/flush violations match
+>   the Rule #3 anti-pattern on 2026-05-12; likely closed.
+>
+> For actionable work, scan `.planning/intake/*.md` for `status: pending`
+> entries directly; pick the freshest by `discovered` date.
 
 # Wairz Master Plan
 
