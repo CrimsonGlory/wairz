@@ -115,7 +115,11 @@ class AssessmentService:
             if fw is not None:
                 roots = await get_detection_roots(fw, db=self.db)
                 if roots:
-                    self._detection_roots = [os.path.realpath(r) for r in roots]
+                    loop = asyncio.get_running_loop()
+                    self._detection_roots = await loop.run_in_executor(
+                        None,
+                        lambda: [os.path.realpath(r) for r in roots],
+                    )
                     return self._detection_roots
         except Exception as exc:  # noqa: BLE001
             logger.debug(
@@ -445,13 +449,23 @@ class AssessmentService:
             return 0
 
         # Phase 3b: collect script dirs across every detection root.
+        # The isdir checks across N×5 candidate paths are routed through a
+        # single executor hop (Rule #5).
         roots = await self._resolve_detection_roots()
-        targets: list[str] = []
-        for root in roots:
-            for d in ["etc", "usr/bin", "usr/sbin", "www", "opt"]:
-                path = os.path.join(root, d)
-                if os.path.isdir(path):
-                    targets.append(path)
+
+        def _collect_semgrep_targets_sync(detection_roots: list[str]) -> list[str]:
+            collected: list[str] = []
+            for root_local in detection_roots:
+                for d in ["etc", "usr/bin", "usr/sbin", "www", "opt"]:
+                    path = os.path.join(root_local, d)
+                    if os.path.isdir(path):
+                        collected.append(path)
+            return collected
+
+        loop = asyncio.get_running_loop()
+        targets = await loop.run_in_executor(
+            None, _collect_semgrep_targets_sync, roots,
+        )
 
         if not targets:
             return 0
@@ -492,7 +506,7 @@ class AssessmentService:
                 # too, not just the primary rootfs.
                 for _root in roots:
                     if file_path.startswith(_root):
-                        file_path = "/" + os.path.relpath(file_path, _root)
+                        file_path = "/" + os.path.relpath(file_path, _root)  # noqa: ASYNC240 — pure-string path op; no I/O
                         break
 
                 await self._create_finding(
@@ -594,19 +608,27 @@ class AssessmentService:
         """Run Android-specific checks if firmware appears to be Android."""
         # Phase 3b: check every detection root for Android markers. Works
         # around single-root detection missing Android firmware where the
-        # rootfs is a scatter-zip sibling instead of the primary path.
+        # rootfs is a scatter-zip sibling instead of the primary path. The
+        # marker probe across N roots × 4 markers each runs in a single
+        # executor hop (Rule #5).
         roots = await self._resolve_detection_roots()
-        android_root: str | None = None
-        for root in roots:
-            markers = [
-                os.path.join(root, "system", "app"),
-                os.path.join(root, "system", "build.prop"),
-                os.path.join(root, "system", "system", "build.prop"),
-                os.path.join(root, "build.prop"),
-            ]
-            if any(os.path.exists(m) for m in markers):
-                android_root = root
-                break
+
+        def _find_android_root_sync(detection_roots: list[str]) -> str | None:
+            for r in detection_roots:
+                markers = [
+                    os.path.join(r, "system", "app"),
+                    os.path.join(r, "system", "build.prop"),
+                    os.path.join(r, "system", "system", "build.prop"),
+                    os.path.join(r, "build.prop"),
+                ]
+                if any(os.path.exists(m) for m in markers):
+                    return r
+            return None
+
+        marker_loop = asyncio.get_running_loop()
+        android_root: str | None = await marker_loop.run_in_executor(
+            None, _find_android_root_sync, roots,
+        )
         if android_root is None:
             return 0
 
@@ -677,33 +699,52 @@ class AssessmentService:
             # four-way system/system_ext/vendor/odm split on newer
             # devices, and any scatter-zip sibling rootfs.
             apk_dirs = _enumerate_android_apk_dirs(roots)
-            seen_apks: set[str] = set()
+
+            def _enumerate_unique_apks_sync(
+                dirs: list[str], detection_roots: list[str],
+            ) -> list[tuple[str, str]]:
+                """Walk ``dirs`` once, dedup by realpath, compute rel_path.
+
+                Offloaded so the async caller does N apk-analyses through a
+                single deduplicated input set instead of stalling the loop
+                per file via the per-call ``os.path.realpath`` / ``relpath``
+                pair (Rule #5). Returns ``[(apk_path, rel_path)]``.
+                """
+                seen_local: set[str] = set()
+                out_local: list[tuple[str, str]] = []
+                for apk_dir_local in dirs:
+                    for dirpath, _dirs, files in os.walk(apk_dir_local):
+                        for name in files:
+                            if not name.endswith(".apk"):
+                                continue
+                            apk_path_local = os.path.join(dirpath, name)
+                            real_local = os.path.realpath(apk_path_local)
+                            if real_local in seen_local:
+                                continue
+                            seen_local.add(real_local)
+                            rel_local = apk_path_local
+                            for r_local in detection_roots:
+                                if apk_path_local.startswith(r_local + os.sep):
+                                    rel_local = "/" + os.path.relpath(
+                                        apk_path_local, r_local,
+                                    )
+                                    break
+                            out_local.append((apk_path_local, rel_local))
+                return out_local
+
+            apk_entries = await loop.run_in_executor(
+                None, _enumerate_unique_apks_sync, apk_dirs, roots,
+            )
             dangerous_apks = 0
-            for apk_dir in apk_dirs:
-                for dirpath, _dirs, files in os.walk(apk_dir):
-                    for name in files:
-                        if not name.endswith(".apk"):
-                            continue
-                        apk_path = os.path.join(dirpath, name)
-                        real = os.path.realpath(apk_path)
-                        if real in seen_apks:
-                            continue
-                        seen_apks.add(real)
-                        # Relative path — from whichever detection root
-                        # owns this APK.
-                        rel_path = apk_path
-                        for _root in roots:
-                            if apk_path.startswith(_root + os.sep):
-                                rel_path = "/" + os.path.relpath(apk_path, _root)
-                                break
-                        try:
-                            info = await loop.run_in_executor(
-                                None, apk_svc.analyze_apk, apk_path
-                            )
-                            if info and info.get("dangerous_permissions"):
-                                dangerous_apks += 1
-                        except Exception:
-                            pass
+            for apk_path, _rel_path in apk_entries:
+                try:
+                    info = await loop.run_in_executor(
+                        None, apk_svc.analyze_apk, apk_path
+                    )
+                    if info and info.get("dangerous_permissions"):
+                        dangerous_apks += 1
+                except Exception:
+                    pass
 
             if dangerous_apks:
                 await self._create_finding(
