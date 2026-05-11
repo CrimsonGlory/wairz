@@ -315,6 +315,24 @@
         "pattern": "gh\\s+pr\\s+close\\s+[^|]*--comment\\b",
         "filePattern": "**/*.{sh,md,py,js,ts}",
         "message": "Learned from windows-coverage-godmode final: `gh pr close --comment` is unsupported in some gh versions. Use two-step: `gh pr comment <N> --body \"...\"` then `gh pr close <N>`."
+      },
+      {
+        "name": "auto-async-cleanup-2026-05-11-no-bare-async-noqa",
+        "pattern": "#\\s*noqa:\\s*ASYNC\\d+\\s*$",
+        "filePattern": "backend/**/*.py",
+        "message": "Learned from async-cleanup-2026-05-11 Rule #43: bare `# noqa: ASYNC<code>` without a rationale is prohibited. Add `— <rationale>` matching one of the 4 categories: (1) pre-flight stat before bounded sync subprocess; (2) pure-string path math (no filesystem I/O); (3) bounded loop over ≤3 detection roots (Rule #16 partner); (4) caller-supplied timeout per Rule #29 contract. Future code review can REJECT a noqa whose rationale doesn't fit a category."
+      },
+      {
+        "name": "auto-async-cleanup-2026-05-11-no-f823-noqa",
+        "pattern": "#\\s*noqa:\\s*F823",
+        "filePattern": "backend/**/*.py",
+        "message": "Learned from async-cleanup-2026-05-11 Rule #40: F823 (local variable used before assignment) is mechanical — Python's local-binding rule promotes function-body imports to function-scope locals so any pre-import reference raises UnboundLocalError. Fix AT SOURCE by moving the `import X` to the first statement of the function body. NEVER noqa F823. Worked example: `app/ai/tools/emulation.py:2627` — `import asyncio` moved from mid-function to first statement (commit `6376d8d` Phase D.39)."
+      },
+      {
+        "name": "auto-async-cleanup-2026-05-11-pipe-then-exit-capture",
+        "pattern": "\\|\\s+(tail|head|grep|less|awk|sed|jq)\\b[^;\\n]*;\\s*echo\\s+[^|\\n]*\\$\\?",
+        "filePattern": "**/*.{sh,md,py,js,ts}",
+        "message": "Learned from async-cleanup-2026-05-11 Rule #35a/Antipattern A1 (reinforcement): `cmd | tail|head|grep|jq|awk|sed; echo $?` captures the PIPE's last-command exit, NOT the original cmd's. To capture the real exit: `cmd; ec=$?` BEFORE the pipe, or use `${PIPESTATUS[0]}` after the pipeline, or `set -o pipefail` before the pipe. The Bash tool does NOT enable pipefail by default. Companion to existing rule `auto-audit-intakes-2026-05-05-ci-silent-zero` which covers the `2>/dev/null || echo 0` variant."
       }
     ]
   },
@@ -377,7 +395,7 @@
     "sessions": 0,
     "campaigns": 0,
     "override": null,
-    "sessions_completed": 176
+    "sessions_completed": 181
   },
   "consent": {
     "externalActions": "session-allow"
