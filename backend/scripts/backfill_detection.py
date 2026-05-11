@@ -147,7 +147,8 @@ async def backfill_one(
             note="no extraction",
         )
 
-    if not os.path.isdir(extracted):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isdir, extracted):
         return FirmwareResult(
             firmware_id=firmware_id,
             filename=filename,
