@@ -131,12 +131,14 @@ async def unpack_msu(
 
     result = UnpackResult()
     extraction_dir = os.path.join(output_base_dir, "extracted")
-
-    if os.path.exists(extraction_dir):
-        shutil.rmtree(extraction_dir, ignore_errors=True)
-    os.makedirs(extraction_dir, exist_ok=True)
-
     loop = asyncio.get_running_loop()
+
+    def _reset_extraction_dir_sync(target: str) -> None:
+        if os.path.exists(target):
+            shutil.rmtree(target, ignore_errors=True)
+        os.makedirs(target, exist_ok=True)
+
+    await loop.run_in_executor(None, _reset_extraction_dir_sync, extraction_dir)
     fw_size = 0
     try:
         fw_size = await loop.run_in_executor(None, os.path.getsize, firmware_path)
@@ -206,7 +208,7 @@ async def unpack_msu(
     inner_cabs = await loop.run_in_executor(None, _walk_for_cabs, extraction_dir)
     log_head += f"\nDiscovered {len(inner_cabs)} inner CAB file(s):\n"
     for ic in inner_cabs:
-        log_head += f"  {os.path.relpath(ic, extraction_dir)}\n"
+        log_head += f"  {os.path.relpath(ic, extraction_dir)}\n"  # noqa: ASYNC240 — pure-string path op; no I/O
 
     # ---- Step 3: recurse one level ----
     inner_ok = 0
@@ -231,14 +233,15 @@ async def unpack_msu(
         )
         if inner_rc == 0:
             inner_ok += 1
-            log_head += (
-                f"  ✓ {os.path.relpath(inner_cab, extraction_dir)} → "
-                f"{os.path.relpath(inner_dir, extraction_dir)}/\n"
-            )
+            # noqa rationales on each: pure-string path ops; no I/O.
+            rel_cab = os.path.relpath(inner_cab, extraction_dir)  # noqa: ASYNC240 — pure-string path op; no I/O
+            rel_inner = os.path.relpath(inner_dir, extraction_dir)  # noqa: ASYNC240 — pure-string path op; no I/O
+            log_head += f"  ✓ {rel_cab} → {rel_inner}/\n"
         else:
             inner_failed.append((inner_cab, inner_rc, inner_stderr[-200:]))
+            rel_cab = os.path.relpath(inner_cab, extraction_dir)  # noqa: ASYNC240 — pure-string path op; no I/O
             log_head += (
-                f"  ! {os.path.relpath(inner_cab, extraction_dir)} "
+                f"  ! {rel_cab} "
                 f"extraction failed (rc={inner_rc}): {inner_stderr[-200:]}\n"
             )
 
@@ -267,7 +270,7 @@ async def unpack_msu(
             f"{len(psf_files)} file(s):\n"
         )
         for pf in psf_files:
-            log_head += f"  {os.path.relpath(pf, extraction_dir)}\n"
+            log_head += f"  {os.path.relpath(pf, extraction_dir)}\n"  # noqa: ASYNC240 — pure-string path op; no I/O
         log_head += (
             "PSF deltas reconstruct full files via forward/reverse "
             "differentials. Phase α ships PSF support gated behind "
@@ -291,7 +294,7 @@ async def unpack_msu(
     if metadata_files:
         log_head += f"\nUpdate metadata files ({len(metadata_files)}):\n"
         for mf in metadata_files[:20]:  # cap log noise
-            log_head += f"  {os.path.relpath(mf, extraction_dir)}\n"
+            log_head += f"  {os.path.relpath(mf, extraction_dir)}\n"  # noqa: ASYNC240 — pure-string path op; no I/O
         if len(metadata_files) > 20:
             log_head += f"  ... and {len(metadata_files) - 20} more.\n"
 
