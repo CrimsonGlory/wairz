@@ -175,7 +175,7 @@ async def test_unpack_iso9660_finds_unix_filesystem_root(tmp_path: Path):
     assert result.success is True, f"expected success, got error={result.error!r}"
     assert result.extracted_path is not None
     # extracted_path resolves to a directory that contains etc/.
-    assert os.path.isdir(os.path.join(result.extracted_path, "etc"))
+    assert os.path.isdir(os.path.join(result.extracted_path, "etc"))  # noqa: ASYNC240 — test assertion: verify unpack worker produced /etc tree; sync stat acceptable
     assert "ISO 9660 extraction complete via 7z" in result.unpack_log
 
 
@@ -391,7 +391,7 @@ async def test_unpack_iso9660_live_canary_real_iso(tmp_path: Path):
     found_files: set[str] = set()
     for root, _dirs, files in os.walk(extract_root):
         for name in files:
-            rel = os.path.relpath(os.path.join(root, name), extract_root)
+            rel = os.path.relpath(os.path.join(root, name), extract_root)  # noqa: ASYNC240 — test assertion: os.walk + relpath to enumerate extracted files; sync path math acceptable
             found_files.add(rel.lower())  # ISO 9660 may lowercase names
 
     # Rock Ridge preserves case; older ISOs would uppercase. Accept either.

@@ -150,7 +150,7 @@ async def test_unpack_qnx_ifs_reports_list_timeout(tmp_path: Path):
 
     real_wait_for = asyncio.wait_for
 
-    async def _selective_wait_for(coro, timeout=None):
+    async def _selective_wait_for(coro, timeout=None):  # noqa: ASYNC109 — test helper: monkeypatched asyncio.wait_for signature must mirror upstream timeout= param
         # First wait_for is on list — raise to simulate a stuck listing.
         coro.close()
         raise TimeoutError
@@ -196,7 +196,7 @@ async def test_unpack_qnx_ifs_reports_extract_timeout(tmp_path: Path):
     state = {"calls": 0}
     real_wait_for = asyncio.wait_for
 
-    async def _selective_wait_for(coro, timeout=None):
+    async def _selective_wait_for(coro, timeout=None):  # noqa: ASYNC109 — test helper: monkeypatched asyncio.wait_for signature must mirror upstream timeout= param
         state["calls"] += 1
         if state["calls"] == 1:
             # List — let it succeed.
@@ -317,7 +317,7 @@ async def test_unpack_qnx_ifs_success_path(tmp_path: Path):
 
     assert result.success is True, f"expected success, got error={result.error!r}"
     assert result.extracted_path is not None
-    assert os.path.isdir(os.path.join(result.extracted_path, "etc"))
+    assert os.path.isdir(os.path.join(result.extracted_path, "etc"))  # noqa: ASYNC240 — test assertion: verify unpack worker produced /etc tree; sync stat acceptable
     assert "QNX IFS extraction complete via ifsdump" in result.unpack_log
     # The list output from ifsdump --list must land in the log so the
     # operator sees the file inventory.

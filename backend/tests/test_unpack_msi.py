@@ -132,7 +132,7 @@ async def test_unpack_msi_reports_extract_timeout(tmp_path: Path):
     state = {"calls": 0}
     real_wait_for = asyncio.wait_for
 
-    async def _selective_wait_for(coro, timeout=None):
+    async def _selective_wait_for(coro, timeout=None):  # noqa: ASYNC109 — test helper: monkeypatched asyncio.wait_for signature must mirror upstream timeout= param
         state["calls"] += 1
         if state["calls"] == 1:
             return await real_wait_for(coro, timeout=timeout)
@@ -403,7 +403,7 @@ async def test_unpack_msi_live_canary_real_msi(tmp_path: Path):
     extract_root = result.extraction_dir or result.extracted_path
     # The fixture is a synthesised tiny MSI containing at least 1 file.
     found = any(
-        os.path.isfile(os.path.join(root, name))
+        os.path.isfile(os.path.join(root, name))  # noqa: ASYNC240 — test assertion: walk-based isfile check that fixture produced ≥1 file; sync stat acceptable
         for root, _dirs, files in os.walk(extract_root)
         for name in files
     )

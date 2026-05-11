@@ -144,7 +144,7 @@ async def test_unpack_cab_reports_extract_timeout(tmp_path: Path):
     state = {"calls": 0}
     real_wait_for = asyncio.wait_for
 
-    async def _selective_wait_for(coro, timeout=None):
+    async def _selective_wait_for(coro, timeout=None):  # noqa: ASYNC109 — test helper: monkeypatched asyncio.wait_for signature must mirror upstream timeout= param
         state["calls"] += 1
         if state["calls"] == 1:
             # List — let it succeed.
@@ -352,7 +352,7 @@ async def test_unpack_cab_live_canary_real_cab(tmp_path: Path):
     found_files: set[str] = set()
     for root, _dirs, files in os.walk(extract_root):
         for name in files:
-            rel = os.path.relpath(os.path.join(root, name), extract_root)
+            rel = os.path.relpath(os.path.join(root, name), extract_root)  # noqa: ASYNC240 — test assertion: os.walk + relpath to enumerate extracted files; sync path math acceptable
             found_files.add(rel.replace(os.sep, "/"))
 
     expected = ("vendor.inf", "vendor.sys", "vendor.cat")

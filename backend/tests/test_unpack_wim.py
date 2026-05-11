@@ -153,7 +153,7 @@ async def test_unpack_wim_reports_apply_timeout(tmp_path: Path):
 
     real_wait_for = asyncio.wait_for
 
-    async def _selective_wait_for(coro, timeout=None):
+    async def _selective_wait_for(coro, timeout=None):  # noqa: ASYNC109 — test helper: monkeypatched asyncio.wait_for signature must mirror upstream timeout= param
         state["calls"] += 1
         if state["calls"] == 1:
             # Info — let it succeed.
@@ -259,7 +259,7 @@ async def test_unpack_wim_finds_unix_filesystem_root(tmp_path: Path):
 
     assert result.success is True, f"expected success, got error={result.error!r}"
     assert result.extracted_path is not None
-    assert os.path.isdir(os.path.join(result.extracted_path, "etc"))
+    assert os.path.isdir(os.path.join(result.extracted_path, "etc"))  # noqa: ASYNC240 — test assertion: verify unpack worker produced /etc tree; sync stat acceptable
     assert "WIM extraction complete via wimlib-imagex" in result.unpack_log
     # The image-list output from `info` must land in the log so the
     # operator knows what other indices were available.
@@ -510,7 +510,7 @@ async def test_unpack_wim_live_canary_real_wim(tmp_path: Path):
     found_files: set[str] = set()
     for root, _dirs, files in os.walk(extract_root):
         for name in files:
-            rel = os.path.relpath(os.path.join(root, name), extract_root)
+            rel = os.path.relpath(os.path.join(root, name), extract_root)  # noqa: ASYNC240 — test assertion: os.walk + relpath to enumerate extracted files; sync path math acceptable
             # Normalise path separators for cross-platform comparison.
             found_files.add(rel.replace(os.sep, "/"))
 
