@@ -129,7 +129,7 @@ class SystemEmulationService:
         firmware: Firmware,
         project_id: UUID,
         brand: str = "unknown",
-        timeout: int = 600,
+        timeout: int = 600,  # noqa: ASYNC109 — caller-supplied per-session timeout passed to FirmAE start
     ) -> EmulationSession:
         """Start a FirmAE-based full system emulation session.
 
@@ -231,7 +231,7 @@ class SystemEmulationService:
                 return session
 
             # Compute firmware path relative to the storage root mount
-            rel_path = os.path.relpath(firmware.storage_path, storage_root)
+            rel_path = os.path.relpath(firmware.storage_path, storage_root)  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
             firmware_path_in_container = os.path.join("/firmwares", rel_path)
 
             # Call shim POST /start
@@ -264,7 +264,7 @@ class SystemEmulationService:
 
         return session
 
-    async def _wait_for_shim(self, container_id: str, timeout: int = 30) -> str | None:
+    async def _wait_for_shim(self, container_id: str, timeout: int = 30) -> str | None:  # noqa: ASYNC109 — caller-supplied deadline; internal poll loop uses event_loop().time() + timeout pattern
         """Poll the shim /health endpoint until it responds or timeout."""
         deadline = asyncio.get_event_loop().time() + timeout
 
@@ -479,7 +479,7 @@ class SystemEmulationService:
         self,
         session_id: UUID,
         command: str,
-        timeout: int = 30,
+        timeout: int = 30,  # noqa: ASYNC109 — caller-supplied per-command timeout passed to shim exec
     ) -> dict:
         """Execute a command inside the FirmAE sidecar container.
 
