@@ -130,8 +130,10 @@ export default function ProjectDetailPage() {
 
   const firmware = project.firmware ?? []
   const status = project.status
-  const hasUnpacked = firmwareList.some((fw) => fw.extracted_path)
-  const unpackedCount = firmwareList.filter((fw) => fw.extracted_path).length
+  const isReady = (fw: FirmwareDetail) =>
+    !!fw.extracted_path || (fw.firmware_kind === 'rtos' && !!fw.storage_path)
+  const hasUnpacked = firmwareList.some(isReady)
+  const unpackedCount = firmwareList.filter(isReady).length
 
   const handleDelete = async () => {
     if (window.confirm('Delete this project and all its data? This cannot be undone.')) {
@@ -309,7 +311,7 @@ export default function ProjectDetailPage() {
 
           {firmware.map((fw) => {
             const fwDetail = firmwareList.find((f) => f.id === fw.id)
-            const isUnpacked = fwDetail?.extracted_path
+            const isUnpacked = !!fwDetail && isReady(fwDetail)
             const hasError = fwDetail?.unpack_log && !isUnpacked && status === 'error'
 
             return (
@@ -517,7 +519,7 @@ export default function ProjectDetailPage() {
 
       {/* Firmware metadata cards for unpacked firmware */}
       {firmwareList
-        .filter((fw) => fw.extracted_path)
+        .filter(isReady)
         .map((fw) => (
           <FirmwareMetadataCard key={fw.id} projectId={project.id} firmwareId={fw.id} />
         ))}
