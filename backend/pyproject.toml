@@ -152,6 +152,27 @@ dependencies = [
     # as fields); nothing in wairz invokes the resolved target path
     # or the LNK itself via cscript / wscript / cmd /c / Start-Process.
     "LnkParse3>=1.5",
+    # ── Phase η.A: NTFS $MFT walking ───────────────────────────
+    # dissect.ntfs — pure-Python read-only NTFS filesystem parser by
+    # Fox-IT / NCC Group. Phase η.A walker uses fs.mft.segments() to
+    # iterate every MFT record (allocated + unallocated) and surface
+    # per-record metadata: $STD_INFO + $FILE_NAME timestamps (the
+    # 4-tuple of creation / last_modification / last_change /
+    # last_access — used for timestomp detection: $SI older than $FN
+    # is the classic anti-forensics indicator), $DATA AttributeCollection
+    # (primary file content + named Alternate Data Streams — the
+    # ADS-hidden-content vector covers ProcessHollower, Pegasus, and
+    # generic AV-evasion drops), file_size, type flags, full_path,
+    # allocated/deleted state via FILE_RECORD_SEGMENT_IN_USE. Sources
+    # raw NTFS images produced by α.2.7 (VHDX → raw via qemu-img) and
+    # β.7 (raw partitions). Pure-Python — no native build deps; pulls
+    # dissect.cstruct + dissect.util as transitive AGPL dependencies.
+    # License: AGPL-3.0-or-later (wairz is AGPL too — compatible).
+    # Rule #36 no-execute discipline: dissect.ntfs reads the raw NTFS
+    # image AS DATA; nothing in wairz mounts the volume, invokes any
+    # extracted binary, or spawns ntfs-3g / mount / qemu-system on
+    # the parsed filesystem.
+    "dissect.ntfs>=3.10",
 ]
 
 [project.scripts]

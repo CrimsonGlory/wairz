@@ -701,6 +701,63 @@ wheels = [
 ]
 
 [[package]]
+name = "dissect-cstruct"
+version = "4.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/57/fe/17aa5abfc62017918e11c8f40d1f936cd9d84a4b72b0a5e99c1c75b26c64/dissect_cstruct-4.7.tar.gz", hash = "sha256:4bf821a381312b9b2fdefea307f7e33548158d39d7d154f1b3007472c51a1fc4", size = 85324, upload-time = "2025-11-20T12:44:41.209Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/37/1c/dc626b1b0e477546c8e80d8cb028442ef4602af276c405f7a5ccc85b0b5a/dissect_cstruct-4.7-py3-none-any.whl", hash = "sha256:0427621ce67baa3106df2dc63a320d0a7f5c2da88ba3faf2ef5886a1a6b458fd", size = 54225, upload-time = "2025-11-20T12:44:39.748Z" },
+]
+
+[[package]]
+name = "dissect-ntfs"
+version = "3.16"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "dissect-cstruct" },
+    { name = "dissect-util" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a0/a7/d11da0ec4167cb3dbdfd1bb61dd82cd0246d532370ef38e6a5217761490d/dissect_ntfs-3.16.tar.gz", hash = "sha256:ce93136796aa9471f3aa28855b4b3c3e8132f9f97bc17a2f5494e0a660c190dd", size = 1126351, upload-time = "2026-02-24T16:52:26.877Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6f/ef/d02ac7d6d0763ef48e655e10af921b9e29887cb0fb5da31eb5f244708f22/dissect_ntfs-3.16-py3-none-any.whl", hash = "sha256:35625b3adae0ce6b0db16bbbd04179b92537816fa7e7135bb7d4ddd2fc530243", size = 47876, upload-time = "2026-02-24T16:52:25.106Z" },
+]
+
+[[package]]
+name = "dissect-util"
+version = "3.24"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/fb/bc/40b3c60455517a26cb31d4c3a25ea78f0c50e05e9ea25e47d9981dbafa4f/dissect_util-3.24.tar.gz", hash = "sha256:56ae08decaf4112d7fa9b9a575e5203b6dc85d9efe9a56d74ba34e0c2878c575", size = 84123, upload-time = "2026-02-24T17:33:48.936Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4a/9a/0341d3f839e03758563dd791bb2ec3bf6da2d1587b799545d402466caa09/dissect_util-3.24-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:8ee31bc01fad8eca110de7866b467f6d3429f2296f57356a216beb45c4486891", size = 241433, upload-time = "2026-02-24T17:32:53.756Z" },
+    { url = "https://files.pythonhosted.org/packages/36/93/8ca0afd7b1ea118b78c70547b9434e5a107fd759156ced223215f8e97c2d/dissect_util-3.24-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:ef4830cfbcaccc23c71247c91ced4d1919ae32649d5a3a7a2f86fdf374979edc", size = 234341, upload-time = "2026-02-24T17:32:55.158Z" },
+    { url = "https://files.pythonhosted.org/packages/70/3e/4dc195d3038f147596ad91bd4c9c0bd406ebe6c2dc237fcaf333254baafa/dissect_util-3.24-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:42da8fa2569f961a313870e3fa74e33cc48116df20fd33e362db9a9de1ea43cb", size = 249359, upload-time = "2026-02-24T17:32:56.925Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/3d/2e1b62500d5ed5fedcfc8a5a02531a42e8a0a8c7550ab21ad01ae749d914/dissect_util-3.24-cp310-abi3-manylinux_2_28_i686.whl", hash = "sha256:dab4b300e740e9f012f20f9ac2dee4923a18b2b1f57a34eb0669d1a670683e9b", size = 282076, upload-time = "2026-02-24T17:32:58.405Z" },
+    { url = "https://files.pythonhosted.org/packages/a3/94/136d91c9d303521a834309f3b9d5aed866c1ee7ae0d53d8dd110c8a414ae/dissect_util-3.24-cp310-abi3-manylinux_2_28_ppc64le.whl", hash = "sha256:057fa13c667c15ba86395b3987a444affcd46d7ae90ad2e5fe7cbffed9de65e0", size = 379527, upload-time = "2026-02-24T17:33:00.012Z" },
+    { url = "https://files.pythonhosted.org/packages/fa/8f/a1645ef73e1524ba01edf146ee7addb1030e569909ed9d62566ea6e6d83c/dissect_util-3.24-cp310-abi3-manylinux_2_28_s390x.whl", hash = "sha256:04eb91a3173e402ed52a35be27ef66b9764087c063e318108a79ae17bc139226", size = 283152, upload-time = "2026-02-24T17:33:01.298Z" },
+    { url = "https://files.pythonhosted.org/packages/e0/44/bd89fea3f72f729137430954fc8a9337d7b55c0a00d4d72bb9506f5ad855/dissect_util-3.24-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:edca81239873a3bd6b5f0a702fc0fde453e9b3c2cce37f2c166cdd5e235ccd20", size = 261629, upload-time = "2026-02-24T17:33:02.864Z" },
+    { url = "https://files.pythonhosted.org/packages/02/93/3119dbe0083f43fed45d18527fbd55a2e25731c6b0f4961c7f84c3f475b4/dissect_util-3.24-cp310-abi3-manylinux_2_31_armv7l.whl", hash = "sha256:c480e02a07c6c51a8fb29d24fbf4a155b4eb874c803741cd8b28321cc6415a2a", size = 257778, upload-time = "2026-02-24T17:33:04.433Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/09/926cbb3fed29f762e676fb6a8d62b68c6bf536f817892cd35e89145e30e7/dissect_util-3.24-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:df4130e896201c44e6b3d8ec1c022b586915abaedd1552f9c1b878bd343ae696", size = 314747, upload-time = "2026-02-24T17:33:06.206Z" },
+    { url = "https://files.pythonhosted.org/packages/e1/8e/2f5b0474a33735c39f47116460f0f8de02cede74f60d611f285937a3b9e4/dissect_util-3.24-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:63157c377866bad0079d8e3eeb3de1de56b02df3538929ea383509335b970f84", size = 337815, upload-time = "2026-02-24T17:33:07.754Z" },
+    { url = "https://files.pythonhosted.org/packages/f7/56/cc5719acbdfb5d77402753569038e32ceb39c3df74a5893a2ed60b0cb9d9/dissect_util-3.24-cp310-abi3-win32.whl", hash = "sha256:740946195032f446ff216423cb870f78704a4579399c8d8d6558f046faae92f6", size = 156105, upload-time = "2026-02-24T17:33:09.177Z" },
+    { url = "https://files.pythonhosted.org/packages/66/a8/81f69a3e0ec60b7f229d395e4068df355fb770f5e952d83162836a5f9aea/dissect_util-3.24-cp310-abi3-win_amd64.whl", hash = "sha256:5bc368d495afeb867b8bf5711f752bd023ae22334b474b375f5ac9a326fea89c", size = 160500, upload-time = "2026-02-24T17:33:10.703Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/33/3e4d53de8aa62469ee484479a2b954727c8a5b6274c78702f81a73bc993b/dissect_util-3.24-cp310-abi3-win_arm64.whl", hash = "sha256:2813265732db4c98585b8d0882147c464af4da7208b97ec99654b99a7ed84a2d", size = 157210, upload-time = "2026-02-24T17:33:11.813Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/bf/35b4dce42b7df97fe34747838b85caa7a0ceb9b033b45fe93199e186ab96/dissect_util-3.24-cp314-cp314t-macosx_10_15_x86_64.whl", hash = "sha256:76ac6f83caf2b0dbd195024dafbd6c361e147d3d750047fa7f10835cbb8e9ff8", size = 238031, upload-time = "2026-02-24T17:33:12.942Z" },
+    { url = "https://files.pythonhosted.org/packages/23/78/7b3ab01e7f592772b7bbcfd91a16ae3f776b2513108e291ae9edf1341ad6/dissect_util-3.24-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:c78cce7b44fd154070aa4536c00e3350be010f022fe18fb07a795f161830b67b", size = 230868, upload-time = "2026-02-24T17:33:14.476Z" },
+    { url = "https://files.pythonhosted.org/packages/a7/18/cc05b9fe3fd2df583e61a9c2248df09ff1fec9fc8ad3cbd806ec5eabfe77/dissect_util-3.24-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:487204fa7a0a3672130322acbab0322a5d78eb0d2336f8801ebee8c208b5d4ae", size = 248151, upload-time = "2026-02-24T17:33:15.704Z" },
+    { url = "https://files.pythonhosted.org/packages/67/af/b7f7008def92e83bdf3635dbd1efa5816409a46806afaf76de01273c8476/dissect_util-3.24-cp314-cp314t-manylinux_2_28_i686.whl", hash = "sha256:7f58e83f31bb44e285857afb59325dd266b96f84fcc5d2c7ac4031bbb8eb0dc0", size = 279675, upload-time = "2026-02-24T17:33:17.255Z" },
+    { url = "https://files.pythonhosted.org/packages/0f/60/0ae156e86b0a254ad72319178e26d48adbfc1c77e66ccbda24d2777b4942/dissect_util-3.24-cp314-cp314t-manylinux_2_28_ppc64le.whl", hash = "sha256:f6f337e1e03cc69b5155393c8006059745a91498f5b6dc6df62ad4e183b01f9d", size = 377580, upload-time = "2026-02-24T17:33:18.376Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/ed/5fe250f828346be6b9c92acea3043994b4aaf0d158a1f1a74517a3a1bbbc/dissect_util-3.24-cp314-cp314t-manylinux_2_28_s390x.whl", hash = "sha256:9d255ef29ea6149e4fd727075f6173ccf61a06cff5b66c4db3f7c584e6099285", size = 282313, upload-time = "2026-02-24T17:33:19.914Z" },
+    { url = "https://files.pythonhosted.org/packages/c2/f9/adddfb2661ff5ba74ba5ad1a0f57dd849273af5396d4549ea2ce4b6eff92/dissect_util-3.24-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:ef500fe562e300cef257ccfa96637c564720233bfae801eea13b491042099b9e", size = 259860, upload-time = "2026-02-24T17:33:21.133Z" },
+    { url = "https://files.pythonhosted.org/packages/1d/84/94885e9a3c8ec8c61f88cede7c4dea0e074d65a4577d38fe880667b9dac6/dissect_util-3.24-cp314-cp314t-manylinux_2_31_armv7l.whl", hash = "sha256:e947b32304ba162736152d420d817031937dee832aed4a8f3ab1b2dba297321c", size = 256678, upload-time = "2026-02-24T17:33:22.37Z" },
+    { url = "https://files.pythonhosted.org/packages/67/fe/2370369948836c31fb48e6a76c72b4d21a3231b1de264f28891311340269/dissect_util-3.24-cp314-cp314t-musllinux_1_2_aarch64.whl", hash = "sha256:daecadb43ca037463ddde3e3fea886db801522bbcf66f46ad908858eee78a3d7", size = 313442, upload-time = "2026-02-24T17:33:23.824Z" },
+    { url = "https://files.pythonhosted.org/packages/54/32/5ff26dc84fbc0850552f9aafce64ff8c598bdc34a967f7b221b509493447/dissect_util-3.24-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:c500732aece64a35d785ecd80d976ffb51ef5823ffa943ff6f682133c7263839", size = 336397, upload-time = "2026-02-24T17:33:25.447Z" },
+    { url = "https://files.pythonhosted.org/packages/3c/53/3df0c51b1b1fdafb1e9829ce81f2f863725c896bb1f7331828c1360a5223/dissect_util-3.24-cp314-cp314t-win32.whl", hash = "sha256:59db009f6ea3766b7f818c8f82dc2b2b612dba08377798a28ee5363dad301bd1", size = 157304, upload-time = "2026-02-24T17:33:26.95Z" },
+    { url = "https://files.pythonhosted.org/packages/b8/9a/b3ee7edd3ab5d712986065e74dcca41f29411b7cddc2c4f4310bb49ea762/dissect_util-3.24-cp314-cp314t-win_amd64.whl", hash = "sha256:1ed95d7ed548d3adea245c66b8d3e1de11e41870f87e39a2001f479a4ec4cc2c", size = 162015, upload-time = "2026-02-24T17:33:28.389Z" },
+    { url = "https://files.pythonhosted.org/packages/93/3b/ed6b7ba9e12be6ef7ea09b5641efa010c5e97e7c5746c6d00230362762ad/dissect_util-3.24-cp314-cp314t-win_arm64.whl", hash = "sha256:bb6eb9defaee3beef51f4aee282e70c3d8a5b175d639811754a71ad89eb8ff47", size = 158659, upload-time = "2026-02-24T17:33:29.81Z" },
+    { url = "https://files.pythonhosted.org/packages/f6/b0/497528520d16c9c3040a6d275a8605812d9166002b3361bbe365831c03ec/dissect_util-3.24-py3-none-any.whl", hash = "sha256:031f91d7523818a3aced4d17594996bcc39bc4d93ffacc0b15a7b718c9b437cb", size = 52436, upload-time = "2026-02-24T17:33:47.206Z" },
+]
+
+[[package]]
 name = "dncil"
 version = "1.0.2"
 source = { registry = "https://pypi.org/simple" }
@@ -3636,6 +3693,7 @@ dependencies = [
     { name = "clamd" },
     { name = "cryptography" },
     { name = "defusedxml" },
+    { name = "dissect-ntfs" },
     { name = "dncil" },
     { name = "dnfile" },
     { name = "docker" },
@@ -3696,6 +3754,7 @@ requires-dist = [
     { name = "clamd", specifier = ">=1.0.2" },
     { name = "cryptography", specifier = ">=43.0.0" },
     { name = "defusedxml", specifier = ">=0.7.1" },
+    { name = "dissect-ntfs", specifier = ">=3.10" },
     { name = "dncil", specifier = ">=1.0" },
     { name = "dnfile", specifier = ">=0.18" },
     { name = "docker", specifier = ">=7.0.0" },
