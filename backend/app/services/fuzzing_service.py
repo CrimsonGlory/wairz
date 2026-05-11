@@ -238,13 +238,13 @@ class FuzzingService:
 
         full_path = validate_path(firmware.extracted_path, binary_path)
 
-        if not os.path.isfile(full_path):
+        loop = asyncio.get_running_loop()
+        if not await loop.run_in_executor(None, os.path.isfile, full_path):
             raise ValueError(f"Binary not found: {binary_path}")
 
         # Parse ELF imports using pyelftools — sync work moved to a thread
         # pool worker so this async handler does not block the uvicorn event
         # loop on multi-MB binaries with thousands of symbols (Rule #5).
-        loop = asyncio.get_running_loop()
         try:
             imports, function_count = await loop.run_in_executor(
                 None, self._parse_elf_sync, full_path,
@@ -293,7 +293,7 @@ class FuzzingService:
             score += min(10, len(found_network) * 3)
 
         # Binary size / complexity (10 pts)
-        file_size = os.path.getsize(full_path)
+        file_size = await loop.run_in_executor(None, os.path.getsize, full_path)
         if file_size > 100_000:
             score += 5
         if function_count > 50:
@@ -464,7 +464,10 @@ class FuzzingService:
         client = self._get_docker_client()
 
         # Resolve host path for firmware volume mount
-        real_path = os.path.realpath(firmware.extracted_path)
+        loop = asyncio.get_running_loop()
+        real_path = await loop.run_in_executor(
+            None, os.path.realpath, firmware.extracted_path,
+        )
         host_path = self._resolve_host_path(real_path)
 
         volumes = {}
