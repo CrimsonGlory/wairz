@@ -1,5 +1,6 @@
 """Project export service — builds a self-contained .wairz ZIP archive."""
 
+import asyncio
 import base64
 import io
 import json
@@ -97,6 +98,41 @@ class ExportService:
                 campaign["_crashes"] = await self._load_fuzzing_crashes(campaign["id"])
 
         # ── Build ZIP ──────────────────────────────────────────────
+        # The zip-build is wholly synchronous (zipfile writes + filesystem
+        # reads via _write_file_to_zip and _add_extracted_fs); push it to a
+        # worker thread so the uvicorn event loop is not blocked on multi-MB
+        # archives (Rule #5). Each per-firmware extracted_fs walk can read
+        # thousands of files; sync execution inline would freeze the loop.
+        loop = asyncio.get_running_loop()
+        buf = await loop.run_in_executor(
+            None,
+            self._build_archive_sync,
+            project_id,
+            project,
+            firmware_list,
+            findings,
+            documents,
+            presets,
+            firmware_data,
+        )
+        return buf
+
+    def _build_archive_sync(
+        self,
+        project_id: uuid.UUID,
+        project: dict,
+        firmware_list: list,
+        findings: list[dict],
+        documents: list[dict],
+        presets: list[dict],
+        firmware_data: dict,
+    ) -> io.BytesIO:
+        """Synchronous helper: build the .wairz ZIP archive in memory.
+
+        Runs in a thread pool worker via loop.run_in_executor (Rule #5);
+        synchronous os.path / zipfile / _add_extracted_fs calls inside this
+        helper are correct since the helper is not async.
+        """
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
             # Manifest
