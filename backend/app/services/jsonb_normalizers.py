@@ -1681,3 +1681,128 @@ def _stamp_firmware_scheduled_task_walk_result(payload: dict) -> dict:
         FIRMWARE_SCHEDULED_TASK_WALK_RESULT_SCHEMA_VERSION
     )
     return payload
+
+
+# ── windows_lnk_records JSONB column (Phase η.C.A) ───────────────────────────
+#
+# One JSONB column on ``windows_lnk_records``:
+#   - ``target_metadata``: dict-shaped (full LnkParse3 .get_json() output)
+#
+# Per Rule #35c, dict-shaped JSONB columns stamp inline as
+# ``{"schema_version": N, ...}``.
+#
+# 3+ consumer files projected at full η.C shipping (writer η.C.C +
+# search MCP tool η.C.E + classifier η.C.D + future windows-hub
+# frontend renderer) → schema_version discriminator strategy per
+# Rule #35c.
+#
+# Canonical shape mirrors LnkParse3.lnk_file.LnkFile.get_json() output:
+#   {
+#     "schema_version": 1,
+#     "size": int,                # total LNK file size in bytes
+#     "header": {                 # ShellLinkHeader fields
+#       "guid": str,              # CLSID (canonical: 00021401-...)
+#       "creation_time": str,     # FILETIME → ISO-8601 datetime string
+#       "accessed_time": str,
+#       "modified_time": str,
+#       "file_size": int,
+#       "icon_index": int,
+#       "windowstyle": str,       # SW_SHOWNORMAL / SW_SHOWMAXIMIZED / etc.
+#       "hotkey": str,            # free-form parser string
+#       "r_hotkey": int,          # raw 16-bit hotkey value
+#       "r_link_flags": int,      # raw LinkFlags
+#       "r_file_flags": int,      # raw FileAttributes
+#       "link_flags": list[str],  # decoded flag names
+#       "file_flags": list[str]
+#     },
+#     "link_info": {              # LinkInfo block (often empty)
+#       "local_base_path": str,   # resolved drive-letter target
+#       "common_path_suffix": str,
+#       "volume_id": dict,
+#       "common_network_relative_link": dict
+#     },
+#     "data": {                   # StringData section
+#       "description": str,       # NAME_STRING
+#       "relative_path": str,
+#       "working_directory": str,
+#       "command_line_arguments": str,
+#       "icon_location": str
+#     },
+#     "extra": {                  # ExtraData blocks (TrackerDataBlock etc.)
+#       "TRACKER_DATA_BLOCK": dict,
+#       "ENVIRONMENT_VARIABLE_DATA_BLOCK": dict,
+#       ...
+#     }
+#   }
+
+WINDOWS_LNK_RECORDS_TARGET_METADATA_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_lnk_records_target_metadata(value: Any) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``WindowsLnkRecord.target_metadata``.
+
+    Inline-stamped (no envelope wrapper — single LnkParse3 .get_json()
+    output is naturally dict-shaped). Returns empty dict for None /
+    wrong-typed inputs (defensive boundary). Empty-dict semantics
+    means "no metadata available" (e.g. parse failed but we kept
+    the row for the source_path / lnk_filename evidence trail).
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_windows_lnk_records_target_metadata(payload: dict) -> dict:
+    """Stamp the schema_version inline onto a ``target_metadata``
+    payload for ``WindowsLnkRecord.target_metadata``. Idempotent."""
+    payload["schema_version"] = (
+        WINDOWS_LNK_RECORDS_TARGET_METADATA_SCHEMA_VERSION
+    )
+    return payload
+
+
+# ── firmware.lnk_walk_result (Phase η.C.B) ──────────────────────────────────
+#
+# Per-firmware aggregate from a single LNK file walk. Mirrors the
+# scheduled_task_walk_result / evtx_walk_result / prefetch_walk_result /
+# srum_walk_result shape — a flat dict with top-level summary fields.
+# The runner stamps this once at completion.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,
+#     "lnk_count": int,                      # total .lnk files walked
+#     "by_status": {"ok": int, "error": int, "unavailable": int, "skipped": int},
+#     "unique_targets": int,                 # distinct target_path values
+#     "non_microsoft_target_count": int,     # tier-MEDIUM candidates
+#     "encoded_powershell_count": int,       # tier-HIGH candidates
+#     "errors": list[str],                   # session-level errors
+#     "per_file": list[dict],                # [{"path": str, "status":
+#                                               str, "target_path": str|None,
+#                                               "lnk_filename": str,
+#                                               "error": str|None}]
+#   }
+
+FIRMWARE_LNK_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_lnk_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.lnk_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_lnk_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.lnk_walk_result``. Idempotent."""
+    payload["schema_version"] = FIRMWARE_LNK_WALK_RESULT_SCHEMA_VERSION
+    return payload

@@ -16,6 +16,7 @@ from app.models.security_review import ReviewAgent, SecurityReview  # kept for D
 from app.models.uart_session import UARTSession
 from app.models.windows_driver import WindowsDriver
 from app.models.windows_event_record import WindowsEventRecord
+from app.models.windows_lnk_record import WindowsLnkRecord
 from app.models.windows_pe_signature import WindowsPESignature
 from app.models.windows_prefetch_record import WindowsPrefetchRecord
 from app.models.windows_registry_extract import WindowsRegistryExtract
@@ -33,6 +34,6 @@ __all__ = [
     "CraAssessment", "CraRequirementResult", "HardwareFirmwareBlob",
     "DeviceDumpSession", "WindowsPESignature", "WindowsRegistryExtract",
     "WindowsDriver", "WindowsUpdatePackage", "WindowsUpdateDllDiff",
-    "WindowsEventRecord", "WindowsPrefetchRecord", "WindowsScheduledTask",
-    "WindowsSrumRecord",
+    "WindowsEventRecord", "WindowsLnkRecord", "WindowsPrefetchRecord",
+    "WindowsScheduledTask", "WindowsSrumRecord",
 ]
