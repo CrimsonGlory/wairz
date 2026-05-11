@@ -321,12 +321,12 @@ async def test_tier3_real_kb_diff_persists_modified_dlls():
     runner. Asserts ≥1 modified DLL detected — real KBs reliably modify
     some DLLs across versions."""
     fixture_dir = _HOST_KB_DIFF_FIXTURE
-    assert os.path.isdir(fixture_dir), (
+    assert os.path.isdir(fixture_dir), (  # noqa: ASYNC240 — test assertion: validate operator-supplied fixture dir; sync stat acceptable
         f"WAIRZ_TEST_KB_DIFF_FIXTURE={fixture_dir!r} is not a directory"
     )
     subdirs = [
         d for d in sorted(os.listdir(fixture_dir))
-        if os.path.isdir(os.path.join(fixture_dir, d))
+        if os.path.isdir(os.path.join(fixture_dir, d))  # noqa: ASYNC240 — test fixture: enumerate KB subdirs; sync stat acceptable
     ]
     assert len(subdirs) >= 2, "fixture must contain ≥2 KB subdirs"
     older_dir = os.path.join(fixture_dir, subdirs[0])
@@ -347,7 +347,7 @@ async def test_tier3_real_kb_diff_persists_modified_dlls():
             firmware_id=fw.id,
             blob_path=fixture_dir,
             blob_sha256="real_kb",
-            file_size=os.path.getsize(fixture_dir) if os.path.isfile(fixture_dir) else 0,
+            file_size=os.path.getsize(fixture_dir) if os.path.isfile(fixture_dir) else 0,  # noqa: ASYNC240 — test fixture: compute file_size on real KB fixture path; sync stat acceptable
             category="windows_update",
             format="cab_cumulative",
             detection_source="real-kb-fixture",
