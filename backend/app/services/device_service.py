@@ -53,6 +53,27 @@ DUMP_PARTITIONS_SCHEMA_VERSION = 1
 DUMP_RESULT_SCHEMA_VERSION = 1
 
 
+def _glob_img_files_sync(dump_dir: str) -> list[Path]:
+    """Synchronous helper: sorted Path(dump_dir).glob('*.img')."""
+    return sorted(Path(dump_dir).glob("*.img"))
+
+
+def _sha256_and_total_size_sync(
+    first_img: Path, all_imgs: list[Path],
+) -> tuple[str, int]:
+    """Synchronous helper: SHA256 of first image + sum of stat sizes.
+
+    Combines the open+read loop and the stat batch into one executor hop
+    (Rule #5 minimum-hop discipline).
+    """
+    sha256 = hashlib.sha256()
+    with open(first_img, "rb") as f:
+        for chunk in iter(lambda: f.read(8 * 1024 * 1024), b""):
+            sha256.update(chunk)
+    total = sum(f.stat().st_size for f in all_imgs)
+    return sha256.hexdigest(), total
+
+
 def _new_partition_state(partition: str) -> dict:
     return {"partition": partition, "status": "pending", "bytes_written": 0}
 
@@ -257,7 +278,10 @@ class DeviceService:
         completed_partitions = [p["partition"] for p in items if p.get("status") == "complete"]
 
         # Find all completed partition images on disk.
-        img_files = sorted(Path(dump.dump_dir).glob("*.img"))
+        loop = asyncio.get_running_loop()
+        img_files = await loop.run_in_executor(
+            None, _glob_img_files_sync, dump.dump_dir,
+        )
         if not img_files:
             raise ValueError("No partition images found in dump directory")
 
@@ -278,17 +302,14 @@ class DeviceService:
 
         # Compute SHA256 of first (or only) image for firmware record.
         first_img = img_files[0]
-        sha256 = hashlib.sha256()
-        with open(first_img, "rb") as f:
-            for chunk in iter(lambda: f.read(8 * 1024 * 1024), b""):
-                sha256.update(chunk)
-
-        total_size = sum(f.stat().st_size for f in img_files)
+        sha256_hex, total_size = await loop.run_in_executor(
+            None, _sha256_and_total_size_sync, first_img, img_files,
+        )
 
         firmware = Firmware(
             project_id=project_id,
             original_filename=f"device-dump-{device_id}",
-            sha256=sha256.hexdigest(),
+            sha256=sha256_hex,
             file_size=total_size,
             storage_path=str(first_img),
             extraction_dir=dump.dump_dir,

@@ -22,6 +22,7 @@ The heavy lifting moves to topic modules:
   QEMU launch, startup health probe.
 """
 
+import asyncio
 import logging
 import os
 import shlex
@@ -518,7 +519,10 @@ class EmulationService:
         # mounts. If None, the data is baked into the backend image
         # (not on a volume), so we'll use docker cp instead of a bind
         # mount.
-        real_path = os.path.realpath(extracted_path)
+        loop = asyncio.get_running_loop()
+        real_path = await loop.run_in_executor(
+            None, os.path.realpath, extracted_path,
+        )
         host_path = resolve_host_path(real_path)
         use_docker_cp = host_path is None
 
@@ -727,7 +731,7 @@ class EmulationService:
         self,
         session_id: UUID,
         command: str,
-        timeout: int = 30,
+        timeout: int = 30,  # noqa: ASYNC109 — caller-supplied per-command timeout passed to docker exec
         environment: dict[str, str] | None = None,
     ) -> dict:
         """Execute a command inside a running emulation session."""
