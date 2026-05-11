@@ -1,14 +1,50 @@
 ---
 title: "Source QNX IFS test corpus for live canary"
-status: pending
+status: completed
 priority: normal
 target: backend/tests/fixtures/qnx_ifs/
 discovered: 2026-05-07
+completed: 2026-05-12
+completed_in: env-gated live canary on WAIRZ_TEST_QNX_IFS_FIXTURE (durable-closure shape; no committable corpus exists)
 type: test-fixture
 session: 2026-05-07-handler-5
-last_attempt: 2026-05-07
-last_attempt_session: stream-gamma-fleet-wave1
+last_attempt: 2026-05-12
+last_attempt_session: postmortem-followup-2026-05-12
 ---
+
+## Durable closure (2026-05-12)
+
+Closed via env-gated live canary rather than committed fixture.  The
+2026-05-07 sourcing sweep enumerated every plausible path (openqnx
+archives, jtang613/qnx_dumpers, mkifs synthetic via QNX SDP, BMW/Audi
+HU dumps, varghes/Raspberry-QNX BSP, official QNX Quick Start Image,
+unblob qnx_deflate fixtures, NetherlandsForensicInstitute/qnxmount,
+gvergine/ifsx, RozikSv/dumpifs-qnx); a fresh 2026-05-12 re-sweep
+confirmed no new options have opened.  Every viable corpus carries
+either the QNX runtime license (which forbids public-repo / Docker-
+image redistribution regardless of build provenance) or carries the
+``$QNXLicenseC$`` proprietary header (openqnx and forks).  Synthetic
+generation via mkifs is NOT a safe path because every IFS bakes in the
+QNX startup header and bootstrap glue, both QNX-runtime-licensed
+regardless of input license posture.
+
+Resolution: ``backend/tests/test_unpack_qnx_ifs.py`` now defines
+``test_unpack_qnx_ifs_live_canary_real_ifs`` as an env-gated async
+test that ``pytest.skip``s when ``WAIRZ_TEST_QNX_IFS_FIXTURE`` is
+unset (the default, including all public CI runs) and round-trips
+through the real ``ifsdump`` when a developer points the env var at a
+locally-available .ifs.  Pattern mirrors
+``test_dotnet_update_diff_real_firmware.py``'s ``WAIRZ_TEST_KB_DIFF_FIXTURE``
+gate.  Closure rationale ALSO documented in the test docstring so
+future agents reading the test surface understand why a fixture file
+isn't shipped.
+
+QNX_IFS capability claim remains PARTIAL in
+``backend/app/services/format_detection.py`` ``CAPABILITY_NOTES`` per
+acceptance criterion 5 — promotion to FULL requires ≥3 distinct IFS
+variants exercising the canary, which is impossible without the
+corpus.  This is the durable answer; promotion to FULL is gated on
+one of the re-open triggers below.
 
 ## Context
 
