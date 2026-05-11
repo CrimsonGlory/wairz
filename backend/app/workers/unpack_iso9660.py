@@ -31,6 +31,7 @@ from app.workers.unpack_common import (
     UnpackResult,
     check_extraction_limits,
     find_filesystem_root,
+    reset_extraction_dir_sync,
     widen_read_perms,
 )
 from app.workers.unpack_linux import (
@@ -92,14 +93,11 @@ async def unpack_iso9660(
                 pass
 
     result = UnpackResult()
-    extraction_dir = os.path.join(output_base_dir, "extracted")
-
-    if os.path.exists(extraction_dir):
-        shutil.rmtree(extraction_dir, ignore_errors=True)
-    os.makedirs(extraction_dir, exist_ok=True)
+    extraction_dir = os.path.join(output_base_dir, "extracted")  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
 
     # Disk-space check — Rule #5 wraps blocking shutil/os calls in executor.
     loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, reset_extraction_dir_sync, extraction_dir)
     fw_size = 0
     try:
         fw_size = await loop.run_in_executor(None, os.path.getsize, firmware_path)

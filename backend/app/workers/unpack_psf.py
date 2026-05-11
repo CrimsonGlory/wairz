@@ -36,10 +36,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import shutil
 import uuid
 
-from app.workers.unpack_common import UnpackResult
+from app.workers.unpack_common import UnpackResult, reset_extraction_dir_sync
 
 logger = logging.getLogger(__name__)
 
@@ -77,16 +76,14 @@ async def unpack_psf(
                 pass
 
     result = UnpackResult()
-    extraction_dir = os.path.join(output_base_dir, "extracted")
+    extraction_dir = os.path.join(output_base_dir, "extracted")  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
 
-    if os.path.exists(extraction_dir):
-        shutil.rmtree(extraction_dir, ignore_errors=True)
-    os.makedirs(extraction_dir, exist_ok=True)
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, reset_extraction_dir_sync, extraction_dir)
 
     # ---- Step 1: validate PSF magic ----
     await _report("Validating PSF magic", 5)
 
-    loop = asyncio.get_running_loop()
 
     def _read_head() -> bytes:
         with open(firmware_path, "rb") as fh:
