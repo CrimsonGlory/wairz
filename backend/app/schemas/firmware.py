@@ -38,6 +38,16 @@ LnkWalkStatus = Literal[
     "idle", "queued", "running", "completed", "failed"
 ]
 
+# Phase η.A.B NTFS $MFT walker — Rule #33 .c Pydantic Literal typo-gate
+# at the trigger MCP tool / status reader boundary. The DB CHECK
+# constraint ``ck_firmware_mft_walk_status`` (alembic revision
+# 2a4b3c5d6e7f) is the durable safety floor; this Literal adds
+# compile-time typo detection for new callers. Mirrors the
+# ScheduledTaskWalkStatus / LnkWalkStatus shapes.
+MftWalkStatus = Literal[
+    "idle", "queued", "running", "completed", "failed"
+]
+
 
 class FirmwareUploadResponse(BaseModel):
     model_config = {"from_attributes": True}
