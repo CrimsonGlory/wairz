@@ -333,6 +333,15 @@ def _find_uefi_module_sync(dump_dir: str, guid: str) -> list[str]:
     return found_info
 
 
+def _resolve_sandbox_pair_sync(full_path: str, dump_dir: str) -> tuple[str, str]:
+    """Synchronous helper: realpath the candidate + sandbox root in one hop.
+
+    Sandbox prefix check (CLAUDE.md "Security #1") requires realpath BOTH
+    sides; combining them keeps the executor hop count to one per Rule #5.
+    """
+    return os.path.realpath(full_path), os.path.realpath(dump_dir)
+
+
 def _read_uefi_module_sync(full_path: str, show_hex: bool) -> list[str]:
     """Read the module info.txt + listing + optional hex dump synchronously."""
     lines: list[str] = []
@@ -493,18 +502,19 @@ async def _handle_read_uefi_module(
     if not dump_dir:
         return "No UEFIExtract output found."
 
-    full_path = os.path.join(dump_dir, path.lstrip("/"))
-    if not os.path.isdir(full_path):
+    full_path = os.path.join(dump_dir, path.lstrip("/"))  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isdir, full_path):
         return f"Module directory not found: {path}"
 
     # Verify path is within dump_dir (sandbox check)
-    real_full = os.path.realpath(full_path)
-    real_dump = os.path.realpath(dump_dir)
+    real_full, real_dump = await loop.run_in_executor(
+        None, _resolve_sandbox_pair_sync, full_path, dump_dir,
+    )
     if not real_full.startswith(real_dump):
         return "Path traversal detected."
 
     # Rule #5 — info.txt read + os.listdir + body.bin read are sync I/O; offload.
-    loop = asyncio.get_running_loop()
     lines = await loop.run_in_executor(
         None, _read_uefi_module_sync, full_path, show_hex
     )
