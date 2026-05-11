@@ -198,19 +198,30 @@ _CONFIG_CHECKS: list[tuple[str, str, re.Pattern, str, str]] = [
 ]
 
 
+def _read_config_text_sync(full_path: str) -> tuple[str | None, str | None]:
+    """Read a config file (256KB limit) for analysis. Returns (content, error)."""
+    try:
+        with open(full_path, errors="replace") as f:
+            return f.read(256_000), None
+    except PermissionError:
+        return None, "permission_denied"
+
+
 async def _handle_analyze_config_security(input: dict, context: ToolContext) -> str:
     """Analyze a specific config file for common insecure settings."""
     path = input["path"]
     full_path = context.resolve_path(path)
+    loop = asyncio.get_running_loop()
 
-    if not os.path.isfile(full_path):
+    if not await loop.run_in_executor(None, os.path.isfile, full_path):
         return f"Error: '{path}' is not a file."
 
-    try:
-        with open(full_path, errors="replace") as f:
-            content = f.read(256_000)  # 256KB limit
-    except PermissionError:
+    content, err = await loop.run_in_executor(
+        None, _read_config_text_sync, full_path,
+    )
+    if err == "permission_denied":
         return f"Error: Cannot read '{path}' — permission denied."
+    assert content is not None  # err handled above
 
     basename = os.path.basename(full_path).lower()
     findings: list[str] = []
@@ -366,12 +377,12 @@ _KNOWN_SERVICES = {
 }
 
 
-async def _handle_analyze_init_scripts(input: dict, context: ToolContext) -> str:
-    """Parse init scripts and inittab to identify services started at boot."""
-    input_path = input.get("path") or "/"
-    real_root = context.real_root_for(input_path)
-    search_root = context.resolve_path(input_path)
+def _scan_init_scripts_sync(real_root: str) -> tuple[list[str], list[str]]:
+    """Walk init/initd/rc.d/systemd dirs synchronously.
 
+    Returns (services, raw_entries). Async caller wraps via run_in_executor
+    (Rule #5).
+    """
     services: list[str] = []
     raw_entries: list[str] = []
 
@@ -440,6 +451,21 @@ async def _handle_analyze_init_scripts(input: dict, context: ToolContext) -> str
                 if svc_name in content:
                     services.append(f"  [{severity.upper()}] {svc_name}: {desc}")
                     services.append(f"    Source: {systemd_dir}/{unit_name}")
+
+    return services, raw_entries
+
+
+async def _handle_analyze_init_scripts(input: dict, context: ToolContext) -> str:
+    """Parse init scripts and inittab to identify services started at boot."""
+    input_path = input.get("path") or "/"
+    real_root = context.real_root_for(input_path)
+    # Validate path traversal (side effect — raises if escapes sandbox).
+    context.resolve_path(input_path)
+
+    loop = asyncio.get_running_loop()
+    services, raw_entries = await loop.run_in_executor(
+        None, _scan_init_scripts_sync, real_root,
+    )
 
     lines: list[str] = []
 
@@ -926,21 +952,28 @@ def _parse_single_sysctl(path: str, params: dict[str, str]) -> None:
         pass
 
 
+def _is_router_firmware_sync(real_root: str) -> bool:
+    """Detect router firmware by presence of common routing daemons."""
+    for daemon in ["zebra", "quagga", "bird", "dnsmasq", "hostapd"]:
+        for check_dir in ["usr/sbin", "usr/bin", "sbin"]:
+            if os.path.exists(os.path.join(real_root, check_dir, daemon)):
+                return True
+    return False
+
+
 async def _handle_check_kernel_hardening(
     input: dict, context: ToolContext
 ) -> str:
     """Check kernel sysctl hardening parameters in the firmware."""
     real_root = context.real_root_for(input.get("path", "/"))
 
-    params = _parse_sysctl_files(real_root)
+    loop = asyncio.get_running_loop()
+    params = await loop.run_in_executor(None, _parse_sysctl_files, real_root)
 
     # Check if firmware is a router (ip_forward=1 is expected)
-    is_router = False
-    for daemon in ["zebra", "quagga", "bird", "dnsmasq", "hostapd"]:
-        for check_dir in ["usr/sbin", "usr/bin", "sbin"]:
-            if os.path.exists(os.path.join(real_root, check_dir, daemon)):
-                is_router = True
-                break
+    is_router = await loop.run_in_executor(
+        None, _is_router_firmware_sync, real_root,
+    )
 
     findings: list[dict] = []
     secure_count = 0
@@ -1278,14 +1311,16 @@ async def _handle_extract_kernel_config(
 ) -> str:
     """Extract kernel .config from firmware — either from a kernel binary
     (IKCONFIG) or from pre-extracted config files."""
-    extracted_root = os.path.realpath(context.extracted_path)
-    path = input.get("path")
     loop = asyncio.get_running_loop()
+    extracted_root = await loop.run_in_executor(
+        None, os.path.realpath, context.extracted_path,
+    )
+    path = input.get("path")
 
     # If a specific path is provided, try to extract from that binary
     if path:
         full_path = context.resolve_path(path)
-        if not os.path.isfile(full_path):
+        if not await loop.run_in_executor(None, os.path.isfile, full_path):
             return f"Error: '{path}' is not a file."
 
         return await loop.run_in_executor(
@@ -1303,6 +1338,18 @@ async def _handle_extract_kernel_config(
 # ---------------------------------------------------------------------------
 
 
+def _load_kernel_config_text_sync(full_path: str, is_gz: bool) -> tuple[str | None, str | None]:
+    """Load kernel config text (decompressing .gz if needed). Returns (text, error)."""
+    try:
+        if is_gz:
+            with open(full_path, "rb") as f:
+                return gzip.decompress(f.read()).decode("utf-8", errors="replace"), None
+        with open(full_path, errors="replace") as f:
+            return f.read(512_000), None
+    except Exception as e:
+        return None, str(e)
+
+
 async def _handle_check_kernel_config(
     input: dict, context: ToolContext
 ) -> str:
@@ -1310,6 +1357,7 @@ async def _handle_check_kernel_config(
     security hardening gaps."""
     config_text = input.get("config_text")
     path = input.get("path")
+    loop = asyncio.get_running_loop()
 
     # Resolve the config content
     if config_text:
@@ -1317,23 +1365,15 @@ async def _handle_check_kernel_config(
         pass
     elif path:
         full_path = context.resolve_path(path)
-        if not os.path.isfile(full_path):
+        if not await loop.run_in_executor(None, os.path.isfile, full_path):
             return f"Error: '{path}' is not a file."
-        # If .gz, decompress first
-        if path.endswith(".gz"):
-            try:
-                with open(full_path, "rb") as f:
-                    config_text = gzip.decompress(f.read()).decode(
-                        "utf-8", errors="replace"
-                    )
-            except Exception as e:
-                return f"Error decompressing '{path}': {e}"
-        else:
-            try:
-                with open(full_path, errors="replace") as f:
-                    config_text = f.read(512_000)
-            except Exception as e:
-                return f"Error reading '{path}': {e}"
+        is_gz = path.endswith(".gz")
+        config_text, err = await loop.run_in_executor(
+            None, _load_kernel_config_text_sync, full_path, is_gz,
+        )
+        if err is not None:
+            verb = "decompressing" if is_gz else "reading"
+            return f"Error {verb} '{path}': {err}"
     else:
         # Try auto-extraction
         auto_result = await _handle_extract_kernel_config(
@@ -1804,8 +1844,9 @@ async def _handle_scan_scripts(input: dict, context: ToolContext) -> str:
     # Resolve target path
     target_rel = input.get("path") or "/"
     target_path = context.resolve_path(target_rel)
+    loop = asyncio.get_running_loop()
 
-    if not os.path.isdir(target_path):
+    if not await loop.run_in_executor(None, os.path.isdir, target_path):
         return (
             f"Error: path '{target_rel}' is not a directory "
             "in the firmware filesystem."
@@ -2013,8 +2054,9 @@ async def _handle_shellcheck_scan(input: dict, context: ToolContext) -> str:
     # Resolve target path
     target_rel = input.get("path") or "/"
     target_path = context.resolve_path(target_rel)
+    loop = asyncio.get_running_loop()
 
-    if not os.path.isdir(target_path):
+    if not await loop.run_in_executor(None, os.path.isdir, target_path):
         return (
             f"Error: path '{target_rel}' is not a directory "
             "in the firmware filesystem."
@@ -2025,7 +2067,6 @@ async def _handle_shellcheck_scan(input: dict, context: ToolContext) -> str:
     max_files = input.get("max_files", 100)
 
     # Discover shell scripts (sync — wrap via executor per Rule #5)
-    loop = asyncio.get_running_loop()
     scripts = await loop.run_in_executor(
         None, _discover_shell_scripts, target_path, max_files,
     )
@@ -2204,8 +2245,9 @@ async def _handle_bandit_scan(input: dict, context: ToolContext) -> str:
     # Resolve target path
     target_rel = input.get("path") or "/"
     target_path = context.resolve_path(target_rel)
+    loop = asyncio.get_running_loop()
 
-    if not os.path.isdir(target_path):
+    if not await loop.run_in_executor(None, os.path.isdir, target_path):
         return (
             f"Error: path '{target_rel}' is not a directory "
             "in the firmware filesystem."
@@ -2216,7 +2258,6 @@ async def _handle_bandit_scan(input: dict, context: ToolContext) -> str:
     max_files = input.get("max_files", 100)
 
     # Discover Python scripts (sync — wrap via executor per Rule #5)
-    loop = asyncio.get_running_loop()
     scripts = await loop.run_in_executor(
         None, _discover_python_scripts, target_path, max_files,
     )
@@ -2269,6 +2310,10 @@ async def _handle_bandit_scan(input: dict, context: ToolContext) -> str:
     results = data.get("results", [])
     metrics = data.get("metrics", {})
     extracted_root = context.extracted_path
+    # Compute realpath once outside the per-finding loop (Rule #5 — single I/O hop).
+    extracted_realpath = await loop.run_in_executor(
+        None, os.path.realpath, extracted_root,
+    )
 
     # Format output
     lines: list[str] = []
@@ -2311,7 +2356,7 @@ async def _handle_bandit_scan(input: dict, context: ToolContext) -> str:
                 cwe_id = _BANDIT_HIGHLIGHT[test_id][0]
 
             # Make path relative to firmware root
-            if file_path.startswith(os.path.realpath(extracted_root)):
+            if file_path.startswith(extracted_realpath):
                 file_path = _rel(file_path, extracted_root)
 
             cwe_label = f" [{cwe_id}]" if cwe_id else ""
@@ -2698,10 +2743,12 @@ async def _handle_check_secure_boot(input: dict, context: ToolContext) -> str:
     Checks for U-Boot verified boot, dm-verity (Android), and UEFI Secure Boot.
     Analyzes certificate chains and flags weak/test keys.
     """
-    extracted_root = os.path.realpath(context.extracted_path)
+    loop = asyncio.get_running_loop()
+    extracted_root = await loop.run_in_executor(
+        None, os.path.realpath, context.extracted_path,
+    )
     real_root = context.real_root_for(input.get("path", "/"))
 
-    loop = asyncio.get_running_loop()
     mechanisms, weak_key_warnings = await loop.run_in_executor(
         None, _check_secure_boot_sync, extracted_root, real_root,
     )
@@ -3130,11 +3177,18 @@ async def _handle_update_yara_rules(input: dict, context: ToolContext) -> str:
         return f"Error: YARA Forge download failed: {err}"
 
     # Count rules
-    try:
-        with open(dest) as f:
-            content = f.read()
+    def _read_rules_sync(rules_path: str) -> str | None:
+        try:
+            with open(rules_path) as f:
+                return f.read()
+        except Exception:
+            return None
+
+    loop = asyncio.get_running_loop()
+    content = await loop.run_in_executor(None, _read_rules_sync, dest)
+    if content is not None:
         rule_count = content.count("\nrule ")
-    except Exception:
+    else:
         rule_count = "unknown"
 
     return (
@@ -3157,14 +3211,21 @@ async def _handle_detect_update_mechanisms(input: dict, context: ToolContext) ->
 
     extracted_root = context.extracted_path
     input_path = input.get("path")
+    loop = asyncio.get_running_loop()
     if input_path:
         search_root = context.resolve_path(input_path)
-        mechanisms = detect_update_mechanisms(search_root)
+        mechanisms = await loop.run_in_executor(
+            None, detect_update_mechanisms, search_root,
+        )
     else:
         roots = context.get_detection_roots() or [extracted_root]
-        search_root = os.path.realpath(roots[0])
+        search_root = await loop.run_in_executor(
+            None, os.path.realpath, roots[0],
+        )
         extras = [r for r in roots[1:] if r] or None
-        mechanisms = detect_update_mechanisms(search_root, extra_roots=extras)
+        mechanisms = await loop.run_in_executor(
+            None, lambda: detect_update_mechanisms(search_root, extra_roots=extras),
+        )
     report = format_mechanisms_report(mechanisms)
     return truncate_output(report)
 
@@ -3338,8 +3399,11 @@ async def _handle_scan_with_clamav(input: dict, context: ToolContext) -> str:
         return "ClamAV is not available. The clamd service may not be running or is unreachable."
 
     path = context.resolve_path(input.get("path", "/"))
+    loop = asyncio.get_running_loop()
+    is_file = await loop.run_in_executor(None, os.path.isfile, path)
+    is_dir = await loop.run_in_executor(None, os.path.isdir, path) if not is_file else False
 
-    if os.path.isfile(path):
+    if is_file:
         result = await clamav_service.scan_file(path)
         if result.error:
             return f"Error scanning {_rel(path, context.extracted_path)}: {result.error}"
@@ -3350,7 +3414,7 @@ async def _handle_scan_with_clamav(input: dict, context: ToolContext) -> str:
             )
         return f"Clean: {_rel(path, context.extracted_path)} — no threats detected."
 
-    elif os.path.isdir(path):
+    elif is_dir:
         max_files = input.get("max_files", 500)
         results = await clamav_service.scan_directory(path, max_files=max_files)
         infected = [r for r in results if r.infected]
@@ -3439,10 +3503,10 @@ async def _handle_check_virustotal(input: dict, context: ToolContext) -> str:
     from app.services import virustotal_service
 
     path = context.resolve_path(input.get("path", "/"))
-    if not os.path.isfile(path):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, path):
         return f"Not a file: {input.get('path', '/')}"
 
-    loop = asyncio.get_running_loop()
     sha256 = await loop.run_in_executor(
         None, virustotal_service._compute_sha256, path
     )
@@ -3554,10 +3618,10 @@ async def _handle_check_malwarebazaar_hash(input: dict, context: ToolContext) ->
     from app.services import abusech_service, virustotal_service
 
     path = context.resolve_path(input.get("path", "/"))
-    if not os.path.isfile(path):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, path):
         return f"Not a file: {input.get('path', '/')}"
 
-    loop = asyncio.get_running_loop()
     sha256 = await loop.run_in_executor(
         None, virustotal_service._compute_sha256, path
     )
@@ -3744,10 +3808,10 @@ async def _handle_check_known_good_hash(input: dict, context: ToolContext) -> st
     from app.services import hashlookup_service, virustotal_service
 
     path = context.resolve_path(input.get("path", "/"))
-    if not os.path.isfile(path):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, path):
         return f"Not a file: {input.get('path', '/')}"
 
-    loop = asyncio.get_running_loop()
     sha256 = await loop.run_in_executor(
         None, virustotal_service._compute_sha256, path
     )
