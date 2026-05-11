@@ -125,7 +125,7 @@ async def test_unpack_msix_reports_extract_timeout(tmp_path: Path):
     state = {"calls": 0}
     real_wait_for = asyncio.wait_for
 
-    async def _selective_wait_for(coro, timeout=None):
+    async def _selective_wait_for(coro, timeout=None):  # noqa: ASYNC109 — test helper: monkeypatched asyncio.wait_for signature must mirror upstream timeout= param
         state["calls"] += 1
         if state["calls"] == 1:
             return await real_wait_for(coro, timeout=timeout)
@@ -377,8 +377,8 @@ async def test_unpack_msix_live_canary_real_msix(tmp_path: Path):
 
     assert result.success is True, f"expected success, got error={result.error!r}"
     extract_root = result.extraction_dir or result.extracted_path
-    assert os.path.isfile(os.path.join(extract_root, "AppxManifest.xml"))
-    assert os.path.isfile(os.path.join(extract_root, "AppxBlockMap.xml"))
-    assert os.path.isfile(os.path.join(extract_root, "canary.exe"))
+    assert os.path.isfile(os.path.join(extract_root, "AppxManifest.xml"))  # noqa: ASYNC240 — test assertion: verify unpack worker emitted expected on-disk artifacts; sync stat acceptable
+    assert os.path.isfile(os.path.join(extract_root, "AppxBlockMap.xml"))  # noqa: ASYNC240 — test assertion: verify unpack worker emitted expected on-disk artifacts; sync stat acceptable
+    assert os.path.isfile(os.path.join(extract_root, "canary.exe"))  # noqa: ASYNC240 — test assertion: verify unpack worker emitted expected on-disk artifacts; sync stat acceptable
     assert "7z l exit=0" in result.unpack_log
     assert "7z x exit=0" in result.unpack_log
