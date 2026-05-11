@@ -20,6 +20,7 @@ All three are auth-exempt via ``app.middleware.asgi_auth._EXEMPT_HTTP_PATHS``.
 
 from __future__ import annotations
 
+import asyncio
 import os
 
 from fastapi import APIRouter
@@ -38,10 +39,14 @@ router = APIRouter(tags=["health"])
 async def health() -> dict:
     """Shallow liveness probe — process is up, no dependency checks."""
     settings = get_settings()
+    loop = asyncio.get_running_loop()
+    storage_root_exists = await loop.run_in_executor(
+        None, os.path.isdir, settings.storage_root,
+    )
     return {
         "status": "ok",
         "version": "0.1.0",
-        "storage_root_exists": os.path.isdir(settings.storage_root),
+        "storage_root_exists": storage_root_exists,
     }
 
 
@@ -85,8 +90,12 @@ async def _run_deep_checks() -> tuple[int, dict]:
         checks["docker"] = {"ok": False, "error": str(exc)[:200]}
 
     # Storage root
+    loop = asyncio.get_running_loop()
+    storage_ok = await loop.run_in_executor(
+        None, os.path.isdir, settings.storage_root,
+    )
     checks["storage"] = {
-        "ok": os.path.isdir(settings.storage_root),
+        "ok": storage_ok,
         "path": settings.storage_root,
     }
 

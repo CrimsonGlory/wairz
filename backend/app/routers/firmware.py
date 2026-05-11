@@ -80,6 +80,11 @@ async def _check_upload_size(file: UploadFile, label: str = "file") -> None:
             f"Maximum is {get_settings().max_upload_size_mb} MB.",
         )
 
+def _realpath_set_sync(paths: list[str]) -> set[str]:
+    """Synchronous helper: realpath every path into a set, one executor hop."""
+    return {os.path.realpath(p) for p in paths}
+
+
 router = APIRouter(prefix="/api/v1/projects/{project_id}/firmware", tags=["firmware"])
 
 
@@ -268,7 +273,8 @@ async def unpack(
     if project.status == "unpacking":
         raise HTTPException(409, "Firmware is already being unpacked")
 
-    if not os.path.exists(firmware.storage_path):
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.exists, firmware.storage_path):
         raise HTTPException(410, "Firmware file not found on disk — please re-upload")
 
     # Update status to unpacking (row is locked, so no race)
@@ -599,11 +605,11 @@ async def get_firmware_detection_audit(
                 HardwareFirmwareBlob.firmware_id == firmware_id
             )
         )
-        detected_paths = {
-            os.path.realpath(p)
-            for (p,) in blob_rows.all()
-            if isinstance(p, str) and p
-        }
+        blob_paths = [p for (p,) in blob_rows.all() if isinstance(p, str) and p]
+        loop = asyncio.get_running_loop()
+        detected_paths = await loop.run_in_executor(
+            None, _realpath_set_sync, blob_paths,
+        )
 
         def _collect_orphans(walk_roots: list[str]) -> list[str]:
             found: list[str] = []
