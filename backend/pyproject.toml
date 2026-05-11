@@ -133,6 +133,25 @@ dependencies = [
     # adjacent: parse-as-data still requires defending against XXE).
     # Pure-Python; no C-extension build deps.
     "defusedxml>=0.7.1",
+    # ── Phase η.C: Windows Shell Link (.lnk) parsing ───────────
+    # LnkParse3 — pure-Python parser for Microsoft Shell Link
+    # (MS-SHLLINK) binary format. Used by the η.C walker to surface
+    # LNK metadata (target path / working dir / arguments / hotkey
+    # / show-window / icon ref / MAC times) from extracted Windows
+    # installations (typically under \Users\<profile>\AppData\Roaming\
+    # Microsoft\Windows\Recent\, \Users\<profile>\AppData\Roaming\
+    # Microsoft\Windows\Start Menu\Programs\, \Users\<profile>\
+    # Desktop\, \ProgramData\Microsoft\Windows\Start Menu\Programs\).
+    # Persistence-finding emit (T1547.009 — `cmd.exe /c` patterns,
+    # encoded args, non-Microsoft target binary). Closes the
+    # 2026-05-07 intake's TODO that listed LnkParse3 in the tooling
+    # stack but never landed the dep. Pure-Python; no C-extension
+    # build deps; matches the regipy / python-evtx / windowsprefetch
+    # / defusedxml precedent. Rule #36 no-execute discipline: the
+    # walker PARSES the LNK binary AS DATA (extracts target/args/etc
+    # as fields); nothing in wairz invokes the resolved target path
+    # or the LNK itself via cscript / wscript / cmd /c / Start-Process.
+    "LnkParse3>=1.5",
 ]
 
 [project.scripts]

@@ -1498,6 +1498,18 @@ wheels = [
 ]
 
 [[package]]
+name = "lnkparse3"
+version = "1.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/47/08/0ab4666bcc6ce5aa43642cc6c75e1718417911952c0667d6c19eec0fbcd5/lnkparse3-1.6.0.tar.gz", hash = "sha256:519e6af6193b3d1802e1ec118a531ee3ca5a39d31137b507c0f19a0d437bd8ba", size = 35605, upload-time = "2026-02-27T09:54:17.269Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/47/7f/3998a1902e88b556679118cdc052fd87ee180b8782c925585e77a176371a/lnkparse3-1.6.0-py3-none-any.whl", hash = "sha256:7b3b1289e99992a4d3901d80ac9ab87fa8de854b2bffe5c4011453b093038b50", size = 52640, upload-time = "2026-02-27T09:54:15.81Z" },
+]
+
+[[package]]
 name = "loguru"
 version = "0.7.3"
 source = { registry = "https://pypi.org/simple" }
@@ -3633,6 +3645,7 @@ dependencies = [
     { name = "httpx" },
     { name = "libesedb-python" },
     { name = "lief" },
+    { name = "lnkparse3" },
     { name = "mcp", extra = ["cli"] },
     { name = "mobsfscan" },
     { name = "nvdlib" },
@@ -3692,6 +3705,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "libesedb-python", specifier = ">=20240420" },
     { name = "lief", specifier = ">=0.15.0" },
+    { name = "lnkparse3", specifier = ">=1.5" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.2.0" },
     { name = "mobsfscan", specifier = ">=0.3.0" },
     { name = "nvdlib", specifier = ">=0.7.6" },
