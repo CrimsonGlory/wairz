@@ -10,6 +10,12 @@ on:
       - 'docker-compose.yml'
       - '.github/workflows/backend-tests.yml'
   workflow_dispatch:
+  # CLAUDE.md Rule #41 mitigation — nightly must-complete run.  See the
+  # `pytest-must-complete` job below for the cost-profile rationale (per-
+  # commit must-complete would cost ~$15/day commercial vs ~$0.07/day for
+  # nightly; tests latency tolerance is hours, not commits).
+  schedule:
+    - cron: '0 6 * * *'    # 06:00 UTC daily
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -18,6 +24,14 @@ concurrency:
 jobs:
   pytest:
     name: Pytest (Backend)
+    # CLAUDE.md Rule #41: this job runs under workflow-level
+    # cancel-in-progress: true.  A fast-following push may cancel an
+    # in-flight run; the cancellation pattern is acceptable for fast
+    # feedback on push/PR but does NOT provide latent-defect-detection
+    # guarantees — that role is served by `pytest-must-complete` below
+    # on the nightly + dispatch path.  Restricting the trigger surface
+    # here keeps push/PR runs lean.
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -87,3 +101,88 @@ jobs:
             worker.log
             postgres.log
           retention-days: 7
+
+  pytest-must-complete:
+    # CLAUDE.md Rule #41 mitigation — nightly cron + dispatch path.
+    # Runs the full pytest suite to completion under a per-run-id
+    # concurrency group (`cancel-in-progress: false`) so latent
+    # regressions surface within 24 hours regardless of push cadence on
+    # `main`.
+    #
+    # Why nightly (mechanism b) and not per-commit (mechanism a):
+    #   The `pytest` job above costs ~8-10 minutes per run (docker
+    #   compose build + DB up + full pytest).  Empirically the push-side
+    #   cancellation rate runs ~68% during sustained per-piece cadence
+    #   (Pattern P5, trusted contributor).  Per-commit must-complete at
+    #   ~25 commits/day = ~$15-20/day commercial runner time; nightly
+    #   must-complete = ~$0.07/day.  Test-defect latency is bounded by
+    #   <24h, which is acceptable for backend regressions (vs ~1
+    #   commit for the lint surface, which costs ~$0.001/run and has
+    #   a tighter latency budget per the F823 Rule #40 incident).
+    #
+    # `pytest-must-complete` is INTENTIONALLY exempt from the
+    # `pull_request.paths` filter — schedule + dispatch always run it
+    # in full, regardless of which subpath changed since last run.
+    name: Pytest must-complete (Rule #41, nightly)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      group: pytest-must-complete-${{ github.run_id }}
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write CI .env
+        run: |
+          cat > .env <<'EOF'
+          POSTGRES_PASSWORD=ci-only-pg-password
+          FIRMAE_DB_PASSWORD=ci-only-firmae-password
+          API_KEY=ci-only-api-key
+          EOF
+
+      - name: Build backend image
+        run: docker compose build backend
+        timeout-minutes: 15
+
+      - name: Create external emulation network
+        run: docker network create wairz_emulation_net || true
+
+      - name: Start backend + datastores
+        run: docker compose up -d postgres redis backend --wait
+        timeout-minutes: 10
+
+      - name: Copy tests into container
+        run: docker cp backend/tests wairz-backend-1:/app/tests
+
+      - name: Install test runner
+        run: |
+          docker compose exec -T backend /app/.venv/bin/pip install --quiet \
+            pytest pytest-asyncio
+
+      - name: Run pytest (nightly must-complete; no maxfail to surface every regression)
+        run: |
+          docker compose exec -T -w /app \
+            -e PYTHONPATH=/app \
+            backend /app/.venv/bin/python -m pytest tests/ \
+              -v --tb=short
+        timeout-minutes: 30
+
+      - name: Upload backend logs on failure
+        if: failure()
+        run: |
+          docker compose logs backend --tail 500 > backend.log || true
+          docker compose logs worker --tail 500 > worker.log || true
+          docker compose logs postgres --tail 200 > postgres.log || true
+
+      - name: Archive logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-logs-must-complete
+          path: |
+            backend.log
+            worker.log
+            postgres.log
+          retention-days: 14

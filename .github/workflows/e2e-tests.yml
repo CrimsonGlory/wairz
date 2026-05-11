@@ -8,6 +8,15 @@ on:
       - 'docker-compose*.yml'
   workflow_dispatch:
 
+# CLAUDE.md Rule #41 note: this workflow is PR-only (no `push` trigger),
+# so the workflow-level `cancel-in-progress: true` does NOT expose the
+# Rule #41 main-branch masking risk that the F823 / 517d613 incidents
+# exhibited.  PR runs may be cancelled by a force-push within the SAME
+# PR, but the worst case is operator re-runs the PR check — no main-
+# branch latency surface to mitigate.  If a future change converts this
+# workflow to `push` trigger, add a nightly cron `e2e-must-complete`
+# duplicate per the `backend-tests.yml` precedent (see commits 20f1cc0
+# typecheck-frontend-must-complete + the pytest-must-complete pattern).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
