@@ -194,7 +194,7 @@ class TestResolveDetectionRoots:
                 db=db,
             )
             roots = await svc._resolve_detection_roots()
-            assert roots == [os.path.realpath(str(tmp_path))]
+            assert roots == [os.path.realpath(str(tmp_path))]  # noqa: ASYNC240 — test assertion: realpath of tmp_path for equality check; pure-string path math, no I/O via realpath here is filesystem-bound but bounded to tmp_path symlink resolution
 
     @pytest.mark.asyncio
     async def test_uses_get_detection_roots_when_helper_returns_roots(
@@ -224,8 +224,8 @@ class TestResolveDetectionRoots:
                 roots = await svc._resolve_detection_roots()
 
             assert roots == [
-                os.path.realpath(str(tmp_path)),
-                os.path.realpath(str(extra)),
+                os.path.realpath(str(tmp_path)),  # noqa: ASYNC240 — test assertion: realpath of tmp_path for equality check; bounded to tmp_path symlink resolution
+                os.path.realpath(str(extra)),  # noqa: ASYNC240 — test assertion: realpath of extra path for equality check; bounded to tmp_path symlink resolution
             ]
             # Memoised — second call returns same list without re-querying.
             assert svc._detection_roots is not None
@@ -247,7 +247,7 @@ class TestResolveDetectionRoots:
                     db=db,
                 )
                 roots = await svc._resolve_detection_roots()
-            assert roots == [os.path.realpath(str(tmp_path))]
+            assert roots == [os.path.realpath(str(tmp_path))]  # noqa: ASYNC240 — test assertion: realpath of tmp_path for equality check; bounded to tmp_path symlink resolution
 
 
 # ===========================================================================
