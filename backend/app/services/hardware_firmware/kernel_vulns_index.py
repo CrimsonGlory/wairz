@@ -250,7 +250,7 @@ async def _git_available() -> bool:
     return shutil.which("git") is not None
 
 
-async def _run_git(args: list[str], *, cwd: str | None = None, timeout: int) -> tuple[int, str, str]:  # noqa: ASYNC109
+async def _run_git(args: list[str], *, cwd: str | None = None, timeout: int) -> tuple[int, str, str]:  # noqa: ASYNC109 — caller-supplied timeout per Rule #29 contract (forwarded to asyncio.wait_for)
     """Run ``git`` with ``asyncio.create_subprocess_exec`` — never ``shell=True``.
 
     The ``timeout`` kwarg is a cap on the subprocess call, not an async
@@ -272,7 +272,7 @@ async def _run_git(args: list[str], *, cwd: str | None = None, timeout: int) -> 
     return proc.returncode or 0, stdout_b.decode("utf-8", "replace"), stderr_b.decode("utf-8", "replace")
 
 
-async def _clone_or_pull(cache_dir: str, git_url: str, timeout: int) -> tuple[bool, str]:  # noqa: ASYNC109
+async def _clone_or_pull(cache_dir: str, git_url: str, timeout: int) -> tuple[bool, str]:  # noqa: ASYNC109 — caller-supplied timeout per Rule #29 contract (threaded to _run_git)
     """Clone into ``cache_dir`` or ``git pull`` if the repo already exists."""
     os.makedirs(os.path.dirname(cache_dir) or ".", exist_ok=True)
     git_dir = Path(cache_dir) / ".git"

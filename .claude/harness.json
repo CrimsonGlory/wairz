@@ -395,7 +395,7 @@
     "sessions": 0,
     "campaigns": 0,
     "override": null,
-    "sessions_completed": 181
+    "sessions_completed": 182
   },
   "consent": {
     "externalActions": "session-allow"
