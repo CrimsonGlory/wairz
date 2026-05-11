@@ -228,6 +228,16 @@ Output format:
 - Always explain WHY something is a security concern, not just THAT it is
 - Rate findings: critical, high, medium, low, info"""
 
+    report_writer = """\
+Structured report authoring:
+- When the user asks for a "report", "write-up", "deliverable", or "executive summary", use the report_writer tools — do NOT dump prose into a finding or scratchpad.
+- Workflow:
+  1. report_start — returns the active draft and the template schema (section slugs, titles, guidance, max_words). Read the guidance carefully; each section has a defined audience.
+  2. For each section: write the markdown content per the section's guidance, then call report_write_section(slug, content_md). Sections can be rewritten freely.
+  3. Call report_render to produce the PDF. The user can edit any section and re-render at any time.
+- Finding cards are rendered automatically from the structured findings table. Reference findings in the risk_summary and conclusion sections, but do NOT write finding cards yourself in markdown.
+- Markdown only — no inline HTML or scripts. Headings, lists, tables, code blocks, and emphasis all render correctly."""
+
     scratchpad = """\
 Agent scratchpad:
 - The scratchpad (SCRATCHPAD.md) persists your analysis notes across sessions
@@ -253,6 +263,6 @@ to investigate as needed for the user's request."""
     ]
     if emulation_block:
         sections.append(emulation_block)
-    sections.extend([uart, fuzzing, output_format, scratchpad])
+    sections.extend([uart, fuzzing, output_format, report_writer, scratchpad])
 
     return "\n\n".join(sections)

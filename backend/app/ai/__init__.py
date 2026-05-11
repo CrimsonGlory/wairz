@@ -30,6 +30,7 @@ from app.ai.tools.module_reachability import register_module_reachability_tools
 from app.ai.tools.network import register_network_tools
 from app.ai.tools.network_exposure import register_network_exposure_tools
 from app.ai.tools.python_ast import register_python_ast_tools
+from app.ai.tools.report_writer import register_report_writer_tools
 from app.ai.tools.reporting import register_reporting_tools
 from app.ai.tools.rtos import register_rtos_tools
 from app.ai.tools.sbom import register_sbom_tools
@@ -76,6 +77,7 @@ def create_tool_registry() -> ToolRegistry:
     register_binary_tools(registry)
     register_security_tools(registry)
     register_reporting_tools(registry)
+    register_report_writer_tools(registry)
     register_document_tools(registry)
     register_sbom_tools(registry)
     register_android_tools(registry)

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="{{ language|default('en') }}">
+<head>
+<meta charset="utf-8">
+<title>{{ report.title }}</title>
+<style>{{ css|safe }}</style>
+</head>
+<body>
+
+<section class="cover">
+  <div>
+    <div class="brand">Wairz Security Assessment</div>
+    <h1>{{ report.title }}</h1>
+    <div class="subtitle">{{ template.name }}</div>
+  </div>
+  <div class="meta">
+    <dl>
+      <dt>Project</dt><dd>{{ project.name }}</dd>
+      {% if firmware %}
+        {% if firmware.original_filename %}
+          <dt>Firmware</dt><dd>{{ firmware.original_filename }}</dd>
+        {% endif %}
+        {% if firmware.architecture %}
+          <dt>Architecture</dt><dd>{{ firmware.architecture }}{% if firmware.endianness %} ({{ firmware.endianness }}){% endif %}</dd>
+        {% endif %}
+        {% if firmware.firmware_kind %}
+          <dt>Kind</dt><dd>{{ firmware.firmware_kind }}{% if firmware.rtos_flavor %} — {{ firmware.rtos_flavor }}{% endif %}</dd>
+        {% endif %}
+      {% endif %}
+      <dt>Generated</dt><dd>{{ generated_at }}</dd>
+    </dl>
+  </div>
+</section>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    {% for slot in slots %}
+      <li><a href="#slot-{{ slot.slug if slot.kind == 'section' else 'findings' }}">{{ slot.title }}</a></li>
+    {% endfor %}
+  </ol>
+</nav>
+
+{% for slot in slots %}
+  {% if slot.kind == 'section' %}
+    {% include '_section.html' %}
+  {% elif slot.kind == 'findings' %}
+    {% include '_findings.html' %}
+  {% endif %}
+{% endfor %}
+
+</body>
+</html>

@@ -17,6 +17,7 @@ import {
   Smartphone,
   Wrench,
   Cpu,
+  FileText,
 } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 import wairzLogo from '@/assets/wairz_full_logo.png'
@@ -54,6 +55,7 @@ const projectSubPages: ReadonlyArray<SubPage> = [
   { suffix: '/rtos', label: 'RTOS Analysis', icon: Cpu, kinds: ['rtos'] },
   { suffix: '/security', label: 'Security Scan', icon: Shield, kinds: ['linux'] },
   { suffix: '/findings', label: 'Findings', icon: ShieldAlert, kinds: ALL_KINDS },
+  { suffix: '/report', label: 'Report', icon: FileText, kinds: ALL_KINDS },
   { suffix: '/map', label: 'Component Map', icon: Network, kinds: ['linux'] },
   { suffix: '/sbom', label: 'SBOM', icon: Package, kinds: ['linux'] },
   { suffix: '/hardware-firmware', label: 'Hardware Firmware', icon: Cpu, kinds: ['linux'] },

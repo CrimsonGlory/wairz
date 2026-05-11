@@ -862,3 +862,83 @@ export type {
   ApkScanSeverity,
   ApkScanConfidence,
 } from './apkScan'
+
+// ── Report types ──
+
+export type ReportStatus = 'draft' | 'final'
+
+export interface TemplateSection {
+  slug: string
+  title: string
+  required: boolean
+  order: number
+  max_words: number | null
+  guidance: string
+}
+
+export interface ReportTemplate {
+  id: string
+  name: string
+  version: number
+  language: string
+  findings_order: number
+  sections: TemplateSection[]
+}
+
+export interface ReportSection {
+  id: string
+  report_id: string
+  slug: string
+  title: string
+  content_md: string
+  order_index: number
+  updated_by: string
+  updated_at: string
+}
+
+export interface ReportFinding {
+  finding: Finding
+  included: boolean
+}
+
+export interface ReportRender {
+  id: string
+  report_id: string
+  content_hash: string
+  format: string
+  byte_size: number
+  created_at: string
+}
+
+export interface ReportSummary {
+  id: string
+  project_id: string
+  template_id: string
+  status: ReportStatus
+  title: string
+  created_at: string
+  finalized_at: string | null
+  last_modified_at: string
+  filled_section_count: number
+  total_section_count: number
+}
+
+export interface Report extends ReportSummary {
+  sections: ReportSection[]
+  findings: ReportFinding[]
+  renders: ReportRender[]
+}
+
+export interface RenderResult {
+  content_hash: string
+  format: string
+  byte_size: number
+  download_url: string
+  cached: boolean
+}
+
+export interface FinalizeBlockedReason {
+  slug: string
+  title: string
+  reason: string
+}

@@ -1,0 +1,15 @@
+<section class="section" id="slot-findings">
+  <h2>{{ slot.title }}</h2>
+  {% if not slot.findings %}
+    <p><em>No findings included in this report.</em></p>
+  {% else %}
+    {% for group in slot.groups %}
+      <div class="severity-section severity-{{ group.severity }}">
+        <h2>{{ group.severity|capitalize }} Severity</h2>
+        {% for f in group.findings %}
+          {% include '_finding_card.html' %}
+        {% endfor %}
+      </div>
+    {% endfor %}
+  {% endif %}
+</section>

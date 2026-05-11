@@ -15,6 +15,7 @@ from app.models.linux_container_artifacts import LinuxContainerArtifact
 from app.models.linux_journald_entry import LinuxJournaldEntry
 from app.models.linux_systemd_units import LinuxSystemdUnit
 from app.models.project import Project
+from app.models.report import Report, ReportSection, ReportFinding, ReportRender
 from app.models.sbom import SbomComponent, SbomVulnerability
 from app.models.security_review import ReviewAgent, SecurityReview  # kept for DB/relationship integrity
 from app.models.uart_session import UARTSession
@@ -50,4 +51,5 @@ __all__ = [
     "WindowsBcdEntry", "WindowsEfsEncryptedFile", "WindowsEspEntry", "WindowsEtlEvent", "WindowsEventRecord", "WindowsLnkRecord", "WindowsMbrVbrSector", "WindowsMftRecord",
     "WindowsPrefetchRecord", "WindowsScheduledTask", "WindowsSdbEntry",
     "WindowsSrumRecord", "WindowsWmiEvent",
+    "Report", "ReportSection", "ReportFinding", "ReportRender",
 ]

@@ -1,0 +1,10 @@
+<section class="section" id="slot-{{ slot.slug }}">
+  <h2>{{ slot.title }}</h2>
+  <div class="body markdown">
+    {% if slot.content_html %}
+      {{ slot.content_html|safe }}
+    {% else %}
+      <p><em>No content provided for this section.</em></p>
+    {% endif %}
+  </div>
+</section>

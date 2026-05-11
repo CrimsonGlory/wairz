@@ -34,6 +34,7 @@ const UpdateDiffPage = lazy(() => import('@/pages/UpdateDiffPage'))
 const DotNetBrowserPage = lazy(() => import('@/pages/DotNetBrowserPage'))
 const EvtxWalkPage = lazy(() => import('@/pages/EvtxWalkPage'))
 const RTOSAnalysisPage = lazy(() => import('@/pages/RTOSAnalysisPage'))
+const ReportPage = lazy(() => import('@/pages/ReportPage'))
 const HelpPage = lazy(() => import('@/pages/HelpPage'))
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'))
 
@@ -78,6 +79,7 @@ export default function App() {
             <Route path="/projects/:projectId/windows/update-diff" element={<ProjectRouteGuard><UpdateDiffPage /></ProjectRouteGuard>} />
             <Route path="/projects/:projectId/windows/dotnet" element={<ProjectRouteGuard><DotNetBrowserPage /></ProjectRouteGuard>} />
             <Route path="/projects/:projectId/windows/evtx" element={<ProjectRouteGuard><EvtxWalkPage /></ProjectRouteGuard>} />
+            <Route path="/projects/:projectId/report" element={<ProjectRouteGuard><ReportPage /></ProjectRouteGuard>} />
             <Route path="/help" element={<HelpPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>

@@ -1,0 +1,27 @@
+<article class="finding-card severity-{{ f.severity }}">
+  <h3>
+    <span class="severity-badge severity-{{ f.severity }}">{{ f.severity|capitalize }}</span>
+    {{ f.title }}
+  </h3>
+  <p class="meta">
+    <strong>Status:</strong> {{ f.status }}
+    {% if f.file_path %}
+      &nbsp;|&nbsp; <strong>File:</strong> <code>{{ f.file_path }}{% if f.line_number %}:{{ f.line_number }}{% endif %}</code>
+    {% endif %}
+    {% if f.cve_ids %}
+      &nbsp;|&nbsp; <strong>CVEs:</strong> {{ f.cve_ids|join(', ') }}
+    {% endif %}
+    {% if f.cwe_ids %}
+      &nbsp;|&nbsp; <strong>CWEs:</strong> {{ f.cwe_ids|join(', ') }}
+    {% endif %}
+  </p>
+  {% if f.description %}
+    <div class="description markdown">{{ f.description|markdown_safe|safe }}</div>
+  {% endif %}
+  {% if f.evidence %}
+    <div class="evidence">
+      <strong>Evidence:</strong>
+      <pre><code>{{ f.evidence }}</code></pre>
+    </div>
+  {% endif %}
+</article>

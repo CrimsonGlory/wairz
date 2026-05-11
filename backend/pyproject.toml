@@ -220,6 +220,10 @@ dependencies = [
     #
     # Reference: https://github.com/a13xp0p0v/kernel-hardening-checker
     "kernel-hardening-checker @ git+https://github.com/a13xp0p0v/kernel-hardening-checker@b9b83a01ef2f959de1643104de15f696812f8ad9",
+    "jinja2>=3.1.0",
+    "pyyaml>=6.0.0",
+    "markdown>=3.6",
+    "bleach>=6.1.0",
 ]
 
 [project.scripts]

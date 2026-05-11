@@ -43,6 +43,7 @@ from app.routers import (
     health,
     kernels,
     projects,
+    reports,
     sbom,
     security_audit,
     terminal,
@@ -447,6 +448,7 @@ app.include_router(analysis.router)
 app.include_router(component_map.router)
 app.include_router(hardware_firmware.router)
 app.include_router(findings.router)
+app.include_router(reports.router)
 app.include_router(documents.router)
 app.include_router(sbom.router)
 app.include_router(terminal.router)

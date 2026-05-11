@@ -129,3 +129,94 @@
     color: var(--foreground);
   }
 }
+
+/* Markdown preview pane in the report editor.
+ * Renders against a white background like the eventual PDF, so styles must
+ * be explicit (no @tailwindcss/typography plugin is loaded) and not inherit
+ * dark-mode foreground colors. */
+.report-preview {
+  color: #1a1a1a;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.report-preview h1,
+.report-preview h2,
+.report-preview h3,
+.report-preview h4 {
+  color: #111827;
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 1.25em 0 0.5em;
+}
+.report-preview h1 { font-size: 1.5rem; }
+.report-preview h2 { font-size: 1.25rem; }
+.report-preview h3 { font-size: 1.05rem; }
+.report-preview h4 { font-size: 1rem; }
+.report-preview p { margin: 0 0 0.75em; }
+.report-preview ul,
+.report-preview ol {
+  margin: 0.25em 0 0.75em;
+  padding-left: 1.5em;
+}
+.report-preview ul { list-style: disc; }
+.report-preview ol { list-style: decimal; }
+.report-preview li { margin-bottom: 0.25em; }
+.report-preview li > ul,
+.report-preview li > ol { margin: 0.25em 0; }
+.report-preview strong { color: #111827; font-weight: 600; }
+.report-preview em { font-style: italic; }
+.report-preview a { color: #2563eb; text-decoration: underline; }
+.report-preview code {
+  background: #f3f4f6;
+  color: #111827;
+  padding: 0 0.25em;
+  border-radius: 3px;
+  font-size: 0.85em;
+  font-family: ui-monospace, "Menlo", "Monaco", "Consolas", monospace;
+}
+.report-preview pre {
+  background: #1e293b;
+  color: #e2e8f0;
+  padding: 0.75em 1em;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.8em;
+  margin: 0.75em 0;
+}
+.report-preview pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font-size: inherit;
+}
+.report-preview blockquote {
+  border-left: 3px solid #cbd5e1;
+  padding-left: 0.75em;
+  margin: 0.75em 0;
+  color: #475569;
+}
+.report-preview hr {
+  border: 0;
+  border-top: 1px solid #e5e7eb;
+  margin: 1.25em 0;
+}
+.report-preview table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75em 0;
+}
+.report-preview th,
+.report-preview td {
+  border: 1px solid #d1d5db;
+  padding: 0.4em 0.6em;
+  text-align: left;
+}
+.report-preview th {
+  background: #f3f4f6;
+  font-weight: 600;
+}
+.report-preview img { max-width: 100%; }
+.report-preview .placeholder {
+  color: #6b7280;
+  font-style: italic;
+}
