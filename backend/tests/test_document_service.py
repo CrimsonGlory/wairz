@@ -125,8 +125,8 @@ class TestUpload:
             assert row.file_size == len(body)
             assert row.sha256 == hashlib.sha256(body).hexdigest()
             assert row.description == "Test"
-            assert os.path.exists(row.storage_path)
-            with open(row.storage_path, "rb") as fh:
+            assert os.path.exists(row.storage_path)  # noqa: ASYNC240 — test assertion: verify document service persisted to disk; sync stat acceptable
+            with open(row.storage_path, "rb") as fh:  # noqa: ASYNC230 — test assertion: read-back content to verify document service write; sync open acceptable
                 assert fh.read() == body
 
     @pytest.mark.asyncio
@@ -291,12 +291,12 @@ class TestListGetUpdateDelete:
             doc = await service.create_note(pid, "doomed", "content")
             await db.commit()
             storage_path = doc.storage_path
-            assert os.path.exists(storage_path)
+            assert os.path.exists(storage_path)  # noqa: ASYNC240 — test assertion: verify document service persisted to disk; sync stat acceptable
 
             ok = await service.delete(doc.id)
             await db.commit()
             assert ok is True
-            assert not os.path.exists(storage_path), (
+            assert not os.path.exists(storage_path), (  # noqa: ASYNC240 — test assertion: verify document service persisted to disk; sync stat acceptable
                 "delete must remove the on-disk file atomically with the row"
             )
             # Row gone too.
@@ -355,7 +355,7 @@ class TestCreateNote:
             assert doc.content_type == "text/markdown"
             assert doc.file_size == len(b"# Hello\nworld")
             assert doc.sha256 == hashlib.sha256(b"# Hello\nworld").hexdigest()
-            with open(doc.storage_path) as fh:
+            with open(doc.storage_path) as fh:  # noqa: ASYNC230 — test assertion: read-back content to verify document service write; sync open acceptable
                 assert fh.read() == "# Hello\nworld"
 
     @pytest.mark.asyncio
@@ -435,7 +435,7 @@ class TestCreateDocument:
                 "application/x-yaml", "text/plain",
             }
             assert doc.description == "a yaml"
-            with open(doc.storage_path) as fh:
+            with open(doc.storage_path) as fh:  # noqa: ASYNC230 — test assertion: read-back content to verify document service write; sync open acceptable
                 assert fh.read() == "key: value"
 
     @pytest.mark.asyncio
@@ -474,7 +474,7 @@ class TestCreateDocument:
             # Storage path unchanged.
             assert second.storage_path == first_path
             # Content updated.
-            with open(second.storage_path) as fh:
+            with open(second.storage_path) as fh:  # noqa: ASYNC230 — test assertion: read-back content to verify document service write; sync open acceptable
                 assert fh.read() == "v2 longer"
             assert second.sha256 == hashlib.sha256(b"v2 longer").hexdigest()
             assert second.file_size == len(b"v2 longer")
@@ -539,7 +539,7 @@ class TestUpdateContent:
             await db.commit()
             assert new.sha256 != old_sha
             assert new.file_size == len(b"v2 longer text")
-            with open(new.storage_path) as fh:
+            with open(new.storage_path) as fh:  # noqa: ASYNC230 — test assertion: read-back content to verify document service write; sync open acceptable
                 assert fh.read() == "v2 longer text"
 
     @pytest.mark.asyncio
@@ -774,8 +774,8 @@ class TestUploadLiveCanary:
             assert row.created_at is not None
 
             # On-disk file actually contains the uploaded bytes.
-            assert os.path.exists(row.storage_path)
-            with open(row.storage_path, "rb") as fh:
+            assert os.path.exists(row.storage_path)  # noqa: ASYNC240 — test assertion: verify document service persisted to disk; sync stat acceptable
+            with open(row.storage_path, "rb") as fh:  # noqa: ASYNC230 — test assertion: read-back content to verify document service write; sync open acceptable
                 assert fh.read() == body
 
             # Storage path is contained under the project documents dir
