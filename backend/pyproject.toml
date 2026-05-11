@@ -179,10 +179,9 @@ ignore = [
     "S607",  # partial executable path (too noisy for CLI tool invocations)
     # Pre-existing tech debt suppressed 2026-05-09 to unblock CI. File a follow-up
     # campaign to actually fix; until then we don't end on failure.
-    "ASYNC240",  # async call to blocking I/O — 226 hits; pre-existing
-    "ASYNC230",  # async-with on blocking open() — 50 hits; pre-existing
-    "ASYNC109",  # async function with timeout param — 36 hits; pre-existing
-    "ASYNC221",  # async function with blocking subprocess — 8 hits; pre-existing
+    "ASYNC240",  # async call to blocking I/O — 226 hits; closure tracked in async-cleanup-2026-05-11 campaign
+    "ASYNC230",  # async-with on blocking open() — 50 hits; closure tracked in async-cleanup-2026-05-11 campaign
+    "ASYNC109",  # async function with timeout param — 36 hits; closure tracked in async-cleanup-2026-05-11 campaign
     "B008",      # function call in default arg — 206 hits; FastAPI Depends() pattern
     "B007",      # unused loop variable — 30 hits; pre-existing
     "B017",      # broad pytest.raises — 4 hits; test-only pre-existing

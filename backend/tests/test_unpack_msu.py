@@ -365,7 +365,7 @@ async def test_unpack_msu_live_canary_real_cab_recursion(tmp_path: Path):
     (inner_src / "kernel32.dll").write_bytes(b"\x4d\x5a" + b"\x00" * 100)
     (inner_src / "tcpip.sys").write_bytes(b"\x4d\x5a" + b"\x00" * 100)
     inner_cab = tmp_path / "inner.cab"
-    proc = subprocess.run(
+    proc = subprocess.run(  # noqa: ASYNC221 — synthetic test-fixture build; sync CLI shell-out is intentional in test setup
         ["gcab", "--create", str(inner_cab), "kernel32.dll", "tcpip.sys"],
         cwd=str(inner_src),
         capture_output=True,
@@ -380,7 +380,7 @@ async def test_unpack_msu_live_canary_real_cab_recursion(tmp_path: Path):
     _shutil.copy(inner_cab, outer_src / "inner.cab")
     (outer_src / "Windows10.0-KB.xml").write_text("<assembly />\n")
     msu = tmp_path / "canary.msu"
-    proc = subprocess.run(
+    proc = subprocess.run(  # noqa: ASYNC221 — synthetic test-fixture build; sync CLI shell-out is intentional in test setup
         ["gcab", "--create", str(msu), "inner.cab", "Windows10.0-KB.xml"],
         cwd=str(outer_src),
         capture_output=True,

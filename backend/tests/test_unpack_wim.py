@@ -476,7 +476,7 @@ async def test_unpack_wim_live_canary_real_wim(tmp_path: Path):
     (src_tree / "Users" / "default.txt").write_text("default user profile\n")
 
     wim_path = tmp_path / "canary.wim"
-    proc = subprocess.run(
+    proc = subprocess.run(  # noqa: ASYNC221 — synthetic test-fixture build; sync CLI shell-out is intentional in test setup
         [
             "wimlib-imagex", "capture",
             str(src_tree),

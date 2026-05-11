@@ -360,7 +360,7 @@ async def test_unpack_iso9660_live_canary_real_iso(tmp_path: Path):
 
     iso_path = tmp_path / "canary.iso"
     # -R = Rock Ridge (preserves long names + Unix metadata); -o = output.
-    proc = subprocess.run(
+    proc = subprocess.run(  # noqa: ASYNC221 — synthetic test-fixture build; sync CLI shell-out is intentional in test setup
         [iso_creator, "-quiet", "-R", "-o", str(iso_path), str(src_tree)],
         capture_output=True,
         timeout=30,

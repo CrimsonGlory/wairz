@@ -323,7 +323,7 @@ async def test_unpack_cab_live_canary_real_cab(tmp_path: Path):
     (src_tree / "vendor.cat").write_bytes(b"\x30\x82" + b"\x00" * 100)
 
     cab_path = tmp_path / "canary.cab"
-    proc = subprocess.run(
+    proc = subprocess.run(  # noqa: ASYNC221 — synthetic test-fixture build; sync CLI shell-out is intentional in test setup
         ["gcab", "--create", str(cab_path),
          "vendor.inf", "vendor.sys", "vendor.cat"],
         cwd=str(src_tree),

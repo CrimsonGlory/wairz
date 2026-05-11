@@ -606,7 +606,7 @@ async def test_unpack_windows_installer_iso_live_canary(tmp_path: Path):
     )
 
     boot_wim = tmp_path / "boot.wim"
-    cap = subprocess.run(
+    cap = subprocess.run(  # noqa: ASYNC221 — synthetic test-fixture build; sync CLI shell-out is intentional in test setup
         [
             "wimlib-imagex", "capture",
             str(wim_src), str(boot_wim), "winpe-canary",
@@ -632,7 +632,7 @@ async def test_unpack_windows_installer_iso_live_canary(tmp_path: Path):
     (iso_src / "bootmgr").write_bytes(b"BOOTMGR-STUB" + b"\x00" * 100)
 
     iso_path = tmp_path / "canary_installer.iso"
-    iso_proc = subprocess.run(
+    iso_proc = subprocess.run(  # noqa: ASYNC221 — synthetic test-fixture build; sync CLI shell-out is intentional in test setup
         [iso_creator, "-quiet", "-R", "-o", str(iso_path), str(iso_src)],
         capture_output=True,
         timeout=30,
