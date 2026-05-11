@@ -634,14 +634,22 @@ async def _run(args: argparse.Namespace) -> int:
 
         # Compute a basic sha256 for the firmware record
         fw_path = args.firmware_path
-        if os.path.isfile(fw_path):
-            h = hashlib.sha256()
-            with open(fw_path, "rb") as fh:
-                for chunk in iter(lambda: fh.read(1 << 20), b""):
-                    h.update(chunk)
-            sha256 = h.hexdigest()
-        else:
-            sha256 = hashlib.sha256(fw_path.encode()).hexdigest()
+
+        def _compute_fw_record_sync() -> tuple[str, bool]:
+            """Sync: return ``(sha256, is_file_on_disk)`` for the firmware
+            row seed. The hash falls back to a hash of the path string when
+            ``fw_path`` is not a regular file (e.g. an extracted dir).
+            """
+            if os.path.isfile(fw_path):
+                hh = hashlib.sha256()
+                with open(fw_path, "rb") as fh:
+                    for chunk in iter(lambda: fh.read(1 << 20), b""):
+                        hh.update(chunk)
+                return hh.hexdigest(), True
+            return hashlib.sha256(fw_path.encode()).hexdigest(), False
+
+        loop = asyncio.get_running_loop()
+        sha256, fw_is_file = await loop.run_in_executor(None, _compute_fw_record_sync)
 
         async with session_factory() as session:
             session.add(Project(
@@ -653,9 +661,9 @@ async def _run(args: argparse.Namespace) -> int:
                 id=firmware_id,
                 project_id=project_id,
                 sha256=sha256,
-                original_filename=os.path.basename(fw_path),
+                original_filename=os.path.basename(fw_path),  # noqa: ASYNC240 — pure-string path op; no I/O
                 extracted_path=extracted_path,
-                storage_path=fw_path if os.path.isfile(fw_path) else None,
+                storage_path=fw_path if fw_is_file else None,
             ))
             await session.commit()
 
@@ -681,7 +689,7 @@ async def _run(args: argparse.Namespace) -> int:
         findings = await _collect_findings(session_factory, project_id)
 
         # Format output
-        firmware_name = os.path.basename(fw_path)
+        firmware_name = os.path.basename(fw_path)  # noqa: ASYNC240 — pure-string path op; no I/O
         if args.output_format == "markdown":
             report = _format_markdown(summary, findings)
         elif args.output_format == "sarif":
@@ -693,8 +701,11 @@ async def _run(args: argparse.Namespace) -> int:
 
         # Write output
         if args.output:
-            with open(args.output, "w") as f:
-                f.write(report)
+            def _write_report_sync() -> None:
+                with open(args.output, "w") as f:
+                    f.write(report)
+
+            await loop.run_in_executor(None, _write_report_sync)
             logger.info("Report written to %s", args.output)
         else:
             print(report)
