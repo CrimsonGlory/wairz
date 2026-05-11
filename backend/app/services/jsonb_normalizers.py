@@ -1806,3 +1806,155 @@ def _stamp_firmware_lnk_walk_result(payload: dict) -> dict:
     ``Firmware.lnk_walk_result``. Idempotent."""
     payload["schema_version"] = FIRMWARE_LNK_WALK_RESULT_SCHEMA_VERSION
     return payload
+
+
+# ── windows_mft_records JSONB columns (Phase η.A.A) ──────────────────────────
+#
+# Two JSONB columns on ``windows_mft_records``:
+#   - ``ads_streams``: list-shaped per-record named ADS roster.
+#   - ``target_metadata``: dict-shaped catchall for per-record extras.
+#
+# Per Rule #35c:
+#   - list-shaped columns get an envelope-style normalizer (list[dict])
+#     with a SCHEMA_VERSION constant + stamp helper.
+#   - dict-shaped columns stamp inline as ``{"schema_version": N, ...}``.
+#
+# 3+ consumer files projected at full η.A shipping (writer η.A.C +
+# search MCP tool η.A.F + classifier η.A.D + future windows-hub frontend
+# renderer) → schema_version discriminator strategy per Rule #35c.
+#
+# Canonical shape for ads_streams (list[dict]):
+#   [
+#     {"name": str, "size": int, "data_size": int | None},
+#     ...
+#   ]
+# Empty list when the record has no named ADS streams (the common case).
+# data_size carries the on-disk allocated size when distinct from the
+# stream's logical size; None when only one size is known.
+#
+# Canonical shape for target_metadata (dict):
+#   {
+#     "schema_version": 1,
+#     "parent_segment_ref": int | None,
+#     "reparse_point": bool,
+#     "attribute_flags": int,
+#     "hard_link_count": int | None,
+#     "sequence_number": int | None,
+#   }
+
+WINDOWS_MFT_RECORDS_ADS_STREAMS_SCHEMA_VERSION = 1
+WINDOWS_MFT_RECORDS_TARGET_METADATA_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_mft_records_ads_streams(value: Any) -> list[dict]:
+    """Return the canonical ``list[dict]`` shape for
+    ``WindowsMftRecord.ads_streams``.
+
+    Defensive boundary:
+    - canonical list[dict] passes through unchanged
+    - bare list with non-dict items: coerce each item to ``{"name": str(item)}``
+    - None / wrong-typed inputs collapse to empty list
+    - dict input (legacy single-stream shape) coerces to a single-element list
+
+    Idempotent. Empty list means "no named ADS streams on this record"
+    (the common case for the median file).
+    """
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        # Legacy single-stream shape — coerce to a single-element list.
+        return [{
+            "name": str(value.get("name", "")),
+            "size": int(value.get("size") or 0),
+            "data_size": value.get("data_size"),
+        }]
+    if isinstance(value, list):
+        out: list[dict] = []
+        for item in value:
+            if isinstance(item, dict):
+                out.append(item)
+            elif item is not None:
+                out.append({"name": str(item), "size": 0, "data_size": None})
+        return out
+    return []
+
+
+def _stamp_windows_mft_records_ads_streams(payload: list[dict]) -> list[dict]:
+    """Stamp each list entry with the schema_version onto a writer
+    payload for ``WindowsMftRecord.ads_streams``. Idempotent.
+
+    List-shaped column: each dict carries its own schema_version key,
+    not a single top-level envelope (so a downstream consumer reading
+    one entry doesn't need the parent list context to discriminate).
+    """
+    for entry in payload:
+        entry["schema_version"] = WINDOWS_MFT_RECORDS_ADS_STREAMS_SCHEMA_VERSION
+    return payload
+
+
+def _normalize_windows_mft_records_target_metadata(value: Any) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``WindowsMftRecord.target_metadata``.
+
+    Inline-stamped (no envelope wrapper — single per-record dict).
+    Returns empty dict for None / wrong-typed inputs (defensive
+    boundary). Empty-dict semantics means "no extras surfaced" (e.g.
+    record with no reparse point and no parent segment).
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_windows_mft_records_target_metadata(payload: dict) -> dict:
+    """Stamp the schema_version inline onto a ``target_metadata``
+    payload for ``WindowsMftRecord.target_metadata``. Idempotent."""
+    payload["schema_version"] = (
+        WINDOWS_MFT_RECORDS_TARGET_METADATA_SCHEMA_VERSION
+    )
+    return payload
+
+
+# ── firmware.mft_walk_result (Phase η.A.B) ───────────────────────────────────
+#
+# Per-firmware aggregate from a single MFT walk. Mirrors the
+# lnk_walk_result / scheduled_task_walk_result / evtx_walk_result /
+# prefetch_walk_result / srum_walk_result shape — a flat dict with
+# top-level summary fields. The runner stamps this once at completion.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,
+#     "images_scanned": int,                    # NTFS images opened
+#     "records_walked": int,                    # MFT segments iterated
+#     "records_persisted": int,                 # rows written
+#     "ads_streams_seen": int,                  # named ADS streams across all records
+#     "timestomp_candidates": int,              # $SI mtime < $FN mtime hits
+#     "ads_hidden_candidates": int,             # named ADS with non-trivial size
+#     "errors": list[str],                      # session-level errors
+#     "per_image": list[dict],                  # [{"path": str, "records": int,
+#                                                  "status": str, "error": str|None}]
+#   }
+
+FIRMWARE_MFT_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_mft_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.mft_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_mft_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.mft_walk_result``. Idempotent."""
+    payload["schema_version"] = FIRMWARE_MFT_WALK_RESULT_SCHEMA_VERSION
+    return payload

@@ -49,6 +49,9 @@ from app.services.jsonb_normalizers import (
     WINDOWS_PREFETCH_RECORDS_FILENAMES_REFERENCED_SCHEMA_VERSION,
     WINDOWS_PREFETCH_RECORDS_VOLUMES_SCHEMA_VERSION,
     WINDOWS_REGISTRY_EXTRACTS_PARSED_TREE_SCHEMA_VERSION,
+    FIRMWARE_MFT_WALK_RESULT_SCHEMA_VERSION,
+    WINDOWS_MFT_RECORDS_ADS_STREAMS_SCHEMA_VERSION,
+    WINDOWS_MFT_RECORDS_TARGET_METADATA_SCHEMA_VERSION,
     WINDOWS_SRUM_RECORDS_EXTRA_METADATA_SCHEMA_VERSION,
     WINDOWS_UPDATE_PACKAGES_UPDATE_METADATA_SCHEMA_VERSION,
     _normalize_analysis_cache_result,
@@ -86,6 +89,9 @@ from app.services.jsonb_normalizers import (
     _normalize_windows_prefetch_records_filenames_referenced,
     _normalize_windows_prefetch_records_volumes,
     _normalize_windows_registry_extracts_parsed_tree,
+    _normalize_firmware_mft_walk_result,
+    _normalize_windows_mft_records_ads_streams,
+    _normalize_windows_mft_records_target_metadata,
     _normalize_windows_srum_records_extra_metadata,
     _normalize_windows_update_packages_update_metadata,
     _stamp_analysis_cache_result,
@@ -110,6 +116,9 @@ from app.services.jsonb_normalizers import (
     _stamp_windows_prefetch_records_filenames_referenced,
     _stamp_windows_prefetch_records_volumes,
     _stamp_windows_registry_extracts_parsed_tree,
+    _stamp_firmware_mft_walk_result,
+    _stamp_windows_mft_records_ads_streams,
+    _stamp_windows_mft_records_target_metadata,
     _stamp_windows_srum_records_extra_metadata,
     _stamp_windows_update_packages_update_metadata,
 )
@@ -2226,3 +2235,188 @@ def test_stamp_firmware_srum_walk_result_idempotent():
 
 def test_firmware_srum_walk_result_schema_version_constant():
     assert FIRMWARE_SRUM_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp_windows_mft_records_ads_streams (Phase η.A.A) ─────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical pass-through (list of dicts).
+        (
+            [
+                {"name": "Zone.Identifier", "size": 100, "data_size": None},
+                {"name": "hidden", "size": 4096, "data_size": 4096},
+            ],
+            [
+                {"name": "Zone.Identifier", "size": 100, "data_size": None},
+                {"name": "hidden", "size": 4096, "data_size": 4096},
+            ],
+        ),
+        # Empty list pass-through.
+        ([], []),
+        # None collapses to empty list.
+        (None, []),
+        # Wrong type — int — collapses to empty list.
+        (42, []),
+        # Wrong type — string — collapses to empty list.
+        ("not a list", []),
+        # Legacy single-stream dict shape coerces to single-element list.
+        (
+            {"name": "Zone.Identifier", "size": 100, "data_size": None},
+            [{"name": "Zone.Identifier", "size": 100, "data_size": None}],
+        ),
+        # List with non-dict items coerces each item to a defensive dict.
+        (
+            ["legacy_stream_name"],
+            [{"name": "legacy_stream_name", "size": 0, "data_size": None}],
+        ),
+    ],
+)
+def test_normalize_windows_mft_records_ads_streams(value, expected):
+    assert _normalize_windows_mft_records_ads_streams(value) == expected
+
+
+def test_normalize_windows_mft_records_ads_streams_idempotent():
+    canonical = [
+        {"name": "Zone.Identifier", "size": 100, "data_size": None},
+    ]
+    once = _normalize_windows_mft_records_ads_streams(canonical)
+    twice = _normalize_windows_mft_records_ads_streams(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_mft_records_ads_streams_adds_version_per_entry():
+    payload = [
+        {"name": "Zone.Identifier", "size": 100, "data_size": None},
+        {"name": "hidden", "size": 4096, "data_size": 4096},
+    ]
+    out = _stamp_windows_mft_records_ads_streams(payload)
+    for entry in out:
+        assert (
+            entry["schema_version"]
+            == WINDOWS_MFT_RECORDS_ADS_STREAMS_SCHEMA_VERSION
+        )
+
+
+def test_stamp_windows_mft_records_ads_streams_idempotent():
+    payload = [{"name": "Zone.Identifier", "size": 100, "data_size": None}]
+    once = _stamp_windows_mft_records_ads_streams(payload)
+    twice = _stamp_windows_mft_records_ads_streams(once)
+    assert once == twice
+
+
+def test_windows_mft_records_ads_streams_schema_version_constant():
+    assert WINDOWS_MFT_RECORDS_ADS_STREAMS_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp_windows_mft_records_target_metadata (Phase η.A.A) ──────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical pass-through.
+        (
+            {
+                "schema_version": 1,
+                "parent_segment_ref": 5,
+                "reparse_point": False,
+                "attribute_flags": 1,
+            },
+            {
+                "schema_version": 1,
+                "parent_segment_ref": 5,
+                "reparse_point": False,
+                "attribute_flags": 1,
+            },
+        ),
+        # Empty dict pass-through.
+        ({}, {}),
+        # None collapses to empty dict.
+        (None, {}),
+        # Wrong type — list — collapses to empty dict.
+        ([{"a": 1}], {}),
+        # Wrong type — string — collapses to empty dict.
+        ("not a dict", {}),
+        # Wrong type — int — collapses to empty dict.
+        (42, {}),
+    ],
+)
+def test_normalize_windows_mft_records_target_metadata(value, expected):
+    assert _normalize_windows_mft_records_target_metadata(value) == expected
+
+
+def test_normalize_windows_mft_records_target_metadata_idempotent():
+    canonical = {
+        "schema_version": 1,
+        "parent_segment_ref": 5,
+        "reparse_point": False,
+    }
+    once = _normalize_windows_mft_records_target_metadata(canonical)
+    twice = _normalize_windows_mft_records_target_metadata(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_mft_records_target_metadata_adds_version():
+    out = _stamp_windows_mft_records_target_metadata(
+        {"parent_segment_ref": 5}
+    )
+    assert (
+        out["schema_version"]
+        == WINDOWS_MFT_RECORDS_TARGET_METADATA_SCHEMA_VERSION
+    )
+
+
+def test_stamp_windows_mft_records_target_metadata_idempotent():
+    once = _stamp_windows_mft_records_target_metadata({"a": 1})
+    twice = _stamp_windows_mft_records_target_metadata(once)
+    assert once == twice
+
+
+def test_windows_mft_records_target_metadata_schema_version_constant():
+    assert WINDOWS_MFT_RECORDS_TARGET_METADATA_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp_firmware_mft_walk_result (Phase η.A.B) ────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {
+                "schema_version": 1,
+                "images_scanned": 1,
+                "records_walked": 5000,
+            },
+            {
+                "schema_version": 1,
+                "images_scanned": 1,
+                "records_walked": 5000,
+            },
+        ),
+        ({}, {}),
+        (None, None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_mft_walk_result(value, expected):
+    assert _normalize_firmware_mft_walk_result(value) == expected
+
+
+def test_stamp_firmware_mft_walk_result_adds_version():
+    out = _stamp_firmware_mft_walk_result({"images_scanned": 0})
+    assert out["schema_version"] == FIRMWARE_MFT_WALK_RESULT_SCHEMA_VERSION
+
+
+def test_stamp_firmware_mft_walk_result_idempotent():
+    once = _stamp_firmware_mft_walk_result({"images_scanned": 0})
+    twice = _stamp_firmware_mft_walk_result(once)
+    assert once == twice
+
+
+def test_firmware_mft_walk_result_schema_version_constant():
+    assert FIRMWARE_MFT_WALK_RESULT_SCHEMA_VERSION == 1
