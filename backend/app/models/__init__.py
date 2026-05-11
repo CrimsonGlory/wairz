@@ -19,6 +19,7 @@ from app.models.windows_event_record import WindowsEventRecord
 from app.models.windows_pe_signature import WindowsPESignature
 from app.models.windows_prefetch_record import WindowsPrefetchRecord
 from app.models.windows_registry_extract import WindowsRegistryExtract
+from app.models.windows_scheduled_task import WindowsScheduledTask
 from app.models.windows_srum_record import WindowsSrumRecord
 from app.models.windows_update_dll_diff import WindowsUpdateDllDiff
 from app.models.windows_update_package import WindowsUpdatePackage
@@ -32,5 +33,6 @@ __all__ = [
     "CraAssessment", "CraRequirementResult", "HardwareFirmwareBlob",
     "DeviceDumpSession", "WindowsPESignature", "WindowsRegistryExtract",
     "WindowsDriver", "WindowsUpdatePackage", "WindowsUpdateDllDiff",
-    "WindowsEventRecord", "WindowsPrefetchRecord", "WindowsSrumRecord",
+    "WindowsEventRecord", "WindowsPrefetchRecord", "WindowsScheduledTask",
+    "WindowsSrumRecord",
 ]

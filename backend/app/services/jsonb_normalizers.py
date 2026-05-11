@@ -1509,3 +1509,127 @@ def _stamp_firmware_srum_walk_result(payload: dict) -> dict:
     ``Firmware.srum_walk_result``. Idempotent."""
     payload["schema_version"] = FIRMWARE_SRUM_WALK_RESULT_SCHEMA_VERSION
     return payload
+
+
+# ── windows_scheduled_tasks JSONB columns (Phase η.B.A) ──────────────────────
+#
+# Four JSONB columns on ``windows_scheduled_tasks``:
+#   - ``triggers``: list-shaped (list of trigger dicts)
+#   - ``actions``: list-shaped (list of action dicts)
+#   - ``principal``: dict-shaped (single Principal block)
+#   - ``settings``: dict-shaped (single Settings block)
+#
+# Per Rule #35c, list-shaped JSONB columns wrap as
+# ``{"schema_version": N, "items": [...]}`` so the discriminator AND the
+# list can coexist; dict-shaped columns stamp inline as
+# ``{"schema_version": N, ...}``.
+#
+# 3+ consumer files projected at full η.B shipping (writer η.B.C +
+# search MCP tool η.B.E + classifier η.B.D + future windows-hub
+# frontend renderer) → schema_version discriminator strategy per
+# Rule #35c.
+
+WINDOWS_SCHEDULED_TASKS_TRIGGERS_SCHEMA_VERSION = 1
+WINDOWS_SCHEDULED_TASKS_ACTIONS_SCHEMA_VERSION = 1
+WINDOWS_SCHEDULED_TASKS_PRINCIPAL_SCHEMA_VERSION = 1
+WINDOWS_SCHEDULED_TASKS_SETTINGS_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_scheduled_tasks_triggers(value: Any) -> list[dict]:
+    """Return the canonical ``list[dict]`` shape for
+    ``WindowsScheduledTask.triggers``.
+
+    Accepts the canonical envelope ``{"schema_version": 1, "items": [...]}``,
+    bare list (legacy / pre-stamp), and ``None``. Returns ``list[dict]``
+    unconditionally — empty list semantically means "no triggers parsed"
+    (e.g. malformed XML or task with only manual-start activation).
+
+    Defensive: skips non-dict entries silently (treat as "unparseable
+    trigger row in legacy data").
+    """
+    if isinstance(value, dict) and isinstance(value.get("items"), list):
+        return [v for v in value["items"] if isinstance(v, dict)]
+    if isinstance(value, list):
+        return [v for v in value if isinstance(v, dict)]
+    return []
+
+
+def _stamp_windows_scheduled_tasks_triggers(items: list[dict]) -> dict:
+    """Stamp the schema_version envelope onto a ``triggers`` payload.
+
+    Idempotent — calling twice with the result of a prior stamp is safe
+    (the envelope's items field is what we're wrapping; double-wrapping
+    is detected via the dict shape).
+    """
+    if isinstance(items, dict) and "items" in items:
+        items = items["items"]
+    return {
+        "schema_version": WINDOWS_SCHEDULED_TASKS_TRIGGERS_SCHEMA_VERSION,
+        "items": list(items),
+    }
+
+
+def _normalize_windows_scheduled_tasks_actions(value: Any) -> list[dict]:
+    """Return the canonical ``list[dict]`` shape for
+    ``WindowsScheduledTask.actions``.
+
+    Same envelope as ``triggers``. Each entry is a dict with shape:
+        {"type": str, "command": str | None, "arguments": str | None,
+         "working_directory": str | None, "class_id": str | None,
+         "details": dict}
+    """
+    if isinstance(value, dict) and isinstance(value.get("items"), list):
+        return [v for v in value["items"] if isinstance(v, dict)]
+    if isinstance(value, list):
+        return [v for v in value if isinstance(v, dict)]
+    return []
+
+
+def _stamp_windows_scheduled_tasks_actions(items: list[dict]) -> dict:
+    """Stamp the schema_version envelope onto an ``actions`` payload.
+    Idempotent."""
+    if isinstance(items, dict) and "items" in items:
+        items = items["items"]
+    return {
+        "schema_version": WINDOWS_SCHEDULED_TASKS_ACTIONS_SCHEMA_VERSION,
+        "items": list(items),
+    }
+
+
+def _normalize_windows_scheduled_tasks_principal(value: Any) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``WindowsScheduledTask.principal``.
+
+    Inline-stamped (no envelope wrapper — single-Principal block is
+    naturally dict-shaped). Returns empty dict for None / wrong-typed
+    inputs (defensive boundary).
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_windows_scheduled_tasks_principal(payload: dict) -> dict:
+    """Stamp the schema_version inline onto a ``principal`` payload for
+    ``WindowsScheduledTask.principal``. Idempotent."""
+    payload["schema_version"] = WINDOWS_SCHEDULED_TASKS_PRINCIPAL_SCHEMA_VERSION
+    return payload
+
+
+def _normalize_windows_scheduled_tasks_settings(value: Any) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``WindowsScheduledTask.settings``.
+
+    Inline-stamped (no envelope wrapper — Settings block is naturally
+    dict-shaped). Returns empty dict for None / wrong-typed inputs.
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_windows_scheduled_tasks_settings(payload: dict) -> dict:
+    """Stamp the schema_version inline onto a ``settings`` payload for
+    ``WindowsScheduledTask.settings``. Idempotent."""
+    payload["schema_version"] = WINDOWS_SCHEDULED_TASKS_SETTINGS_SCHEMA_VERSION
+    return payload
