@@ -189,8 +189,8 @@ async def lifespan(app: FastAPI):
         )
         bundle_path = Path(bundle_path_str)
         log = logging.getLogger(__name__)
-        if bundle_path.is_file():
-            stat = bundle_path.stat()
+        if bundle_path.is_file():  # noqa: ASYNC240 — one-shot lifespan startup probe; not on a request hot path
+            stat = bundle_path.stat()  # noqa: ASYNC240 — one-shot lifespan startup probe; not on a request hot path
             mtime = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
             log.info(
                 "DBX bundle ready: path=%s size=%d mtime=%s",

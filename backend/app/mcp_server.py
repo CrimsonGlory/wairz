@@ -332,7 +332,11 @@ async def run_server(project_id: uuid.UUID) -> None:
         logger.error(str(exc))
         sys.exit(1)
 
-    if state.extracted_path and not os.path.isdir(state.extracted_path):
+    loop = asyncio.get_running_loop()
+    extracted_dir_exists = state.extracted_path and await loop.run_in_executor(
+        None, os.path.isdir, state.extracted_path,
+    )
+    if state.extracted_path and not extracted_dir_exists:
         logger.error(
             "Extracted firmware path does not exist: %s",
             state.extracted_path,
@@ -422,7 +426,11 @@ async def run_server(project_id: uuid.UUID) -> None:
         except ValueError as exc:
             return f"Error: {exc}"
 
-        if state.extracted_path and not os.path.isdir(state.extracted_path):
+        loop = asyncio.get_running_loop()
+        extracted_dir_exists = state.extracted_path and await loop.run_in_executor(
+            None, os.path.isdir, state.extracted_path,
+        )
+        if state.extracted_path and not extracted_dir_exists:
             # Revert to old project
             try:
                 await _load_project_state(
