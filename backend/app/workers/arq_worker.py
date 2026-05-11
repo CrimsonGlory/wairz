@@ -586,39 +586,51 @@ async def reconcile_firmware_storage_job(ctx: dict) -> dict:
 
     db_paths = {r.extracted_path for r in firmware_rows if r.extracted_path}
 
-    missing_dirs = [
-        str(r.id) for r in firmware_rows
-        if r.extracted_path and not os.path.isdir(r.extracted_path)
-    ]
+    def _scan_storage_drift_sync(
+        rows: list[Firmware],
+        known_paths: set[str],
+        storage_root: str,
+    ) -> tuple[list[str], list[str]]:
+        """Synchronous FS walk: returns (missing_dirs, orphan_dirs).
 
-    # Scan the projects tree for orphan extraction directories. Guard
-    # against the root volume missing (fresh install with nothing uploaded
-    # yet) and against individual per-project permission glitches — log
-    # and move on.
-    orphan_dirs: list[str] = []
-    projects_root = os.path.join(root, "projects")
-    if os.path.isdir(projects_root):
-        try:
-            project_ids = os.listdir(projects_root)
-        except OSError as exc:
-            logger.warning(
-                "reconcile_firmware_storage: cannot list %s: %s",
-                projects_root, exc,
-            )
-            project_ids = []
-
-        for pid in project_ids:
-            proj_fw_dir = os.path.join(projects_root, pid, "firmware")
-            if not os.path.isdir(proj_fw_dir):
-                continue
+        Extracted into a sync helper so the async caller can offload the
+        blocking ``os.path.isdir`` / ``os.listdir`` chain via
+        ``run_in_executor`` (Rule #5).
+        """
+        missing = [
+            str(r.id) for r in rows
+            if r.extracted_path and not os.path.isdir(r.extracted_path)
+        ]
+        orphans: list[str] = []
+        projects_root_local = os.path.join(storage_root, "projects")
+        if os.path.isdir(projects_root_local):
             try:
-                fw_entries = os.listdir(proj_fw_dir)
-            except OSError:
-                continue
-            for fw_id in fw_entries:
-                extracted = os.path.join(proj_fw_dir, fw_id, "extracted")
-                if os.path.isdir(extracted) and extracted not in db_paths:
-                    orphan_dirs.append(extracted)
+                project_ids_local = os.listdir(projects_root_local)
+            except OSError as exc:
+                logger.warning(
+                    "reconcile_firmware_storage: cannot list %s: %s",
+                    projects_root_local, exc,
+                )
+                project_ids_local = []
+
+            for pid in project_ids_local:
+                proj_fw_dir = os.path.join(projects_root_local, pid, "firmware")
+                if not os.path.isdir(proj_fw_dir):
+                    continue
+                try:
+                    fw_entries = os.listdir(proj_fw_dir)
+                except OSError:
+                    continue
+                for fw_id in fw_entries:
+                    extracted = os.path.join(proj_fw_dir, fw_id, "extracted")
+                    if os.path.isdir(extracted) and extracted not in known_paths:
+                        orphans.append(extracted)
+        return missing, orphans
+
+    loop = asyncio.get_running_loop()
+    missing_dirs, orphan_dirs = await loop.run_in_executor(
+        None, _scan_storage_drift_sync, list(firmware_rows), db_paths, root,
+    )
 
     # Retention-days signal. We intentionally do NOT auto-delete; log the
     # count so operators can run a retention sweep at their own cadence.
@@ -686,34 +698,56 @@ async def cleanup_tmp_dumps_job(ctx: dict) -> dict:
     from datetime import timedelta
 
     tmpdir = "/tmp/wairz-dumps"
-    if not os.path.isdir(tmpdir):
-        return {"status": "ok", "deleted": 0, "reason": "tmpdir-missing"}
+
+    def _reap_old_dumps_sync(directory: str, age_cutoff: float) -> dict:
+        """Walk ``directory`` and unlink entries older than ``age_cutoff``.
+
+        Returns a dict matching the outer function's response shape. Extracted
+        as a sync helper so the async caller can offload the FS reaper via
+        ``run_in_executor`` (Rule #5).
+        """
+        if not os.path.isdir(directory):
+            return {"status": "ok", "deleted": 0, "reason": "tmpdir-missing"}
+        deleted_local = 0
+        errors_local = 0
+        for name in os.listdir(directory):
+            path = os.path.join(directory, name)
+            try:
+                if os.path.getmtime(path) >= age_cutoff:
+                    continue
+                if os.path.isfile(path) or os.path.islink(path):
+                    os.unlink(path)
+                elif os.path.isdir(path):
+                    shutil.rmtree(path, ignore_errors=False)
+                else:
+                    continue
+                deleted_local += 1
+            except OSError as exc:
+                logger.warning(
+                    "cleanup_tmp_dumps: failed to delete %s: %s", path, exc,
+                )
+                errors_local += 1
+        return {
+            "status": "ok",
+            "deleted": deleted_local,
+            "errors": errors_local,
+            "tmpdir": directory,
+        }
 
     cutoff = time.time() - timedelta(days=7).total_seconds()
-    deleted = 0
-    errors = 0
-    for name in os.listdir(tmpdir):
-        path = os.path.join(tmpdir, name)
-        try:
-            if os.path.getmtime(path) >= cutoff:
-                continue
-            if os.path.isfile(path) or os.path.islink(path):
-                os.unlink(path)
-            elif os.path.isdir(path):
-                shutil.rmtree(path, ignore_errors=False)
-            else:
-                continue
-            deleted += 1
-        except OSError as exc:
-            logger.warning("cleanup_tmp_dumps: failed to delete %s: %s", path, exc)
-            errors += 1
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(
+        None, _reap_old_dumps_sync, tmpdir, cutoff,
+    )
 
+    deleted = result.get("deleted", 0)
+    errors = result.get("errors", 0)
     if deleted or errors:
         logger.info(
             "cleanup_tmp_dumps: tmpdir=%s deleted=%d errors=%d",
             tmpdir, deleted, errors,
         )
-    return {"status": "ok", "deleted": deleted, "errors": errors, "tmpdir": tmpdir}
+    return result
 
 
 # ---------------------------------------------------------------------------
