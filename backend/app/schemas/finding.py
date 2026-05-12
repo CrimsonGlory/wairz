@@ -155,6 +155,31 @@ WindowsFindingSource = Literal[
     #   over-triaging legitimate-but-stale embedded firmware.
     # Per intake style: ONE Literal value covers all tiers.
     "windows_byovd_driver",
+    # Phase θ.A.D — alignment slice with frontend FindingSource union +
+    # FINDING_SOURCE_CONFIG entries. Emitted by
+    # ``emit_bcd_findings_from_walk`` for every ``WindowsBcdEntry`` row
+    # produced by the θ.A.C walker whose anomaly_flags shape matches
+    # T1542.003 Pre-OS Boot: Bootkit indicators (BlackLotus, Bootkitty,
+    # CosmicStrand, MoonBounce).
+    #
+    # windows_bcd_suspicious_path — image_path NOT under any Microsoft-
+    # vetted prefix (Windows\\, Boot\\, EFI\\Microsoft\\). Confidence
+    # tier mapping is heuristic-driven:
+    # - HIGH (Confidence.high) — suspicious_path AND
+    #   (non_microsoft_description OR testsigning_enabled). Strong
+    #   bootkit signal.
+    # - MEDIUM (Confidence.medium) — suspicious_path alone. Could be a
+    #   legitimate non-Microsoft OS; operator triages by description.
+    #
+    # windows_bcd_testsigning_enabled — BCD element 0x16000010 set
+    # (TestSigning=True). Confidence tier mapping:
+    # - HIGH (Confidence.high) — testsigning_enabled AND
+    #   (no_integrity_checks OR nx_disabled). Multiple policy bits
+    #   flipped is the canonical BYOVD-precursor shape.
+    # - MEDIUM (Confidence.medium) — testsigning_enabled alone. Could
+    #   be developer / driver-debug context.
+    "windows_bcd_suspicious_path",
+    "windows_bcd_testsigning_enabled",
 ]
 
 

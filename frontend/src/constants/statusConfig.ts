@@ -25,6 +25,8 @@ import {
   FilePlus,
   Clock,
   Skull,
+  HardDrive,
+  KeyRound,
 } from 'lucide-react'
 import type { Severity, FindingStatus, FindingSource, Confidence } from '@/types'
 
@@ -115,6 +117,8 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   windows_mft_ads_hidden_content: { icon: FilePlus, label: 'MFT ADS Hidden', className: 'border-purple-500/50 text-purple-600 dark:text-purple-400' },
   windows_mft_timestomping: { icon: Clock, label: 'MFT Timestomp', className: 'border-red-500/50 text-red-600 dark:text-red-400' },
   windows_byovd_driver: { icon: Skull, label: 'BYOVD Driver', className: 'border-red-700/60 text-red-700 dark:text-red-300' },
+  windows_bcd_suspicious_path: { icon: HardDrive, label: 'BCD Path', className: 'border-orange-500/50 text-orange-600 dark:text-orange-400' },
+  windows_bcd_testsigning_enabled: { icon: KeyRound, label: 'BCD TestSigning', className: 'border-red-500/50 text-red-600 dark:text-red-400' },
 }
 
 // ── Finding confidence ──

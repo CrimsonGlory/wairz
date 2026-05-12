@@ -201,6 +201,30 @@ _MFT_ADS_MEDIUM_CONFIDENCE_BYTES = 1024  # excludes Zone.Identifier tag
 _SOURCE_BYOVD_DRIVER: WindowsFindingSource = "windows_byovd_driver"
 
 
+# Phase θ.A.D — BCD walker emit sources. Emitted by
+# ``emit_bcd_findings_from_walk`` for every ``WindowsBcdEntry`` row
+# produced by the θ.A.C walker whose anomaly_flags shape matches
+# T1542.003 Pre-OS Boot: Bootkit indicators.
+#
+# windows_bcd_suspicious_path — image_path NOT under any Microsoft-
+# vetted prefix. Confidence tier:
+# - HIGH (Confidence.high) — suspicious_path AND
+#   (non_microsoft_description OR testsigning_enabled).
+# - MEDIUM (Confidence.medium) — suspicious_path alone.
+#
+# windows_bcd_testsigning_enabled — BCD element 0x16000010 set.
+# Confidence tier:
+# - HIGH (Confidence.high) — testsigning_enabled AND
+#   (no_integrity_checks OR nx_disabled).
+# - MEDIUM (Confidence.medium) — testsigning_enabled alone.
+_SOURCE_BCD_SUSPICIOUS_PATH: WindowsFindingSource = (
+    "windows_bcd_suspicious_path"
+)
+_SOURCE_BCD_TESTSIGNING_ENABLED: WindowsFindingSource = (
+    "windows_bcd_testsigning_enabled"
+)
+
+
 # ── Phase η.E — PowerShell EID classifier helper ──
 #
 # Heuristic detection for obfuscated/encoded PowerShell content. The
@@ -1402,6 +1426,226 @@ def classify_mft_findings(
     return drafts
 
 
+# ── Phase θ.A.D — BCD walker classifier ────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class _BCDFindingDraft:
+    """One BCD Finding row to emit. Carries an explicit confidence
+    tier alongside the standard fields so the emit hook can preserve
+    the tier-mapping derived from the BCD entry's anomaly_flags shape.
+
+    Distinct from _PEFindingDraft (fixes confidence at emit site) and
+    _LnkFindingDraft / _MFTFindingDraft (different tier semantics)
+    because BCD rows have TWO independent detection patterns
+    (suspicious_path + testsigning_enabled) that can BOTH fire on
+    the same entry — the classifier may emit 0, 1, or 2 drafts per
+    row.
+    """
+    source: WindowsFindingSource
+    severity: Severity
+    title: str
+    description: str
+    evidence: str
+    confidence: Confidence
+
+
+def _classify_bcd_suspicious_path(
+    *,
+    object_guid: str,
+    source_path: str,
+    description: str | None,
+    image_path: str | None,
+    anomaly_flags: dict,
+) -> list[_BCDFindingDraft]:
+    """Emit one Finding when anomaly_flags.suspicious_path is True.
+
+    Confidence tier mapping:
+    - HIGH — suspicious_path AND (non_microsoft_description OR
+      testsigning_enabled). Strong bootkit signal — BlackLotus /
+      Bootkitty / CosmicStrand / MoonBounce shape.
+    - MEDIUM — suspicious_path alone. Could be a legitimate
+      non-Microsoft OS (Ubuntu, FreeBSD); operator triages by
+      description.
+
+    Pure function — no DB access. Returns empty list when
+    anomaly_flags.suspicious_path is False (no signal).
+    """
+    if not anomaly_flags.get("suspicious_path"):
+        return []
+
+    high_tier = (
+        anomaly_flags.get("non_microsoft_description")
+        or anomaly_flags.get("testsigning_enabled")
+    )
+
+    if high_tier:
+        confidence = Confidence.high
+        severity = Severity.high
+        tier_label = (
+            "HIGH (suspicious_path AND (non_microsoft_description OR "
+            "testsigning_enabled) — strong T1542.003 bootkit signal)"
+        )
+    else:
+        confidence = Confidence.medium
+        severity = Severity.medium
+        tier_label = (
+            "MEDIUM (suspicious_path alone — could be legitimate "
+            "non-Microsoft OS; triage by description)"
+        )
+
+    evidence_lines = [
+        f"Tier: {tier_label}",
+        f"Source store: {source_path}",
+        f"BCD object GUID: {object_guid}",
+        f"Description: {description or '(unset)'}",
+        f"Image path: {image_path or '(unset)'}",
+        f"Anomaly flags: {dict(anomaly_flags)}",
+    ]
+
+    return [
+        _BCDFindingDraft(
+            source=_SOURCE_BCD_SUSPICIOUS_PATH,
+            severity=severity,
+            title=f"BCD suspicious bootloader path: {description or object_guid}",
+            description=(
+                f"Windows BCD entry {object_guid} references a "
+                "bootloader binary at a non-Microsoft path. Healthy "
+                "Windows BCD entries reference paths under \\Windows\\, "
+                "\\Boot\\, or \\EFI\\Microsoft\\. A suspicious image_path "
+                "is the classic T1542.003 Pre-OS Boot: Bootkit "
+                "persistence indicator (BlackLotus, Bootkitty, "
+                "CosmicStrand, MoonBounce). Cross-reference the path "
+                "against the Authenticode chain (β.4) and DBX "
+                "revocation list (β.10)."
+            ),
+            evidence="\n".join(evidence_lines),
+            confidence=confidence,
+        )
+    ]
+
+
+def _classify_bcd_testsigning(
+    *,
+    object_guid: str,
+    source_path: str,
+    description: str | None,
+    image_path: str | None,
+    anomaly_flags: dict,
+) -> list[_BCDFindingDraft]:
+    """Emit one Finding when anomaly_flags.testsigning_enabled is True.
+
+    Confidence tier mapping:
+    - HIGH — testsigning_enabled AND (no_integrity_checks OR
+      nx_disabled). Multiple security-relevant policy bits flipped at
+      once is the canonical BYOVD-precursor shape.
+    - MEDIUM — testsigning_enabled alone. Could be a developer /
+      driver-debug context; operator triages by host shape.
+
+    Pure function — no DB access. Returns empty list when
+    anomaly_flags.testsigning_enabled is False.
+    """
+    if not anomaly_flags.get("testsigning_enabled"):
+        return []
+
+    high_tier = (
+        anomaly_flags.get("no_integrity_checks")
+        or anomaly_flags.get("nx_disabled")
+    )
+
+    if high_tier:
+        confidence = Confidence.high
+        severity = Severity.high
+        tier_label = (
+            "HIGH (testsigning_enabled AND (no_integrity_checks OR "
+            "nx_disabled) — multiple security-policy bits flipped; "
+            "canonical BYOVD-precursor shape)"
+        )
+    else:
+        confidence = Confidence.medium
+        severity = Severity.medium
+        tier_label = (
+            "MEDIUM (testsigning_enabled alone — could be developer "
+            "/ driver-debug; triage by host shape)"
+        )
+
+    evidence_lines = [
+        f"Tier: {tier_label}",
+        f"Source store: {source_path}",
+        f"BCD object GUID: {object_guid}",
+        f"Description: {description or '(unset)'}",
+        f"Image path: {image_path or '(unset)'}",
+        f"Anomaly flags: {dict(anomaly_flags)}",
+    ]
+
+    return [
+        _BCDFindingDraft(
+            source=_SOURCE_BCD_TESTSIGNING_ENABLED,
+            severity=severity,
+            title=(
+                f"BCD TestSigning enabled: {description or object_guid}"
+            ),
+            description=(
+                f"Windows BCD entry {object_guid} carries the "
+                "TestSigning=True policy flag (BCD element "
+                "0x16000010). Production Windows installations have "
+                "TestSigning=False; an enabled flag indicates either "
+                "a developer/driver-debug system OR a bootkit "
+                "precursor (test-signed drivers bypass Authenticode "
+                "validation — the BYOVD attack pattern). "
+                "Cross-reference against installed drivers + the "
+                "η.D LOLDrivers BYOVD fingerprint scan."
+            ),
+            evidence="\n".join(evidence_lines),
+            confidence=confidence,
+        )
+    ]
+
+
+def classify_bcd_findings(
+    *,
+    object_guid: str,
+    source_path: str,
+    description: str | None,
+    image_path: str | None,
+    anomaly_flags: dict,
+) -> list[_BCDFindingDraft]:
+    """Phase θ.A.D — map one WindowsBcdEntry row to 0+ Finding drafts.
+
+    Pure function — no DB access. Each row may yield 0 (no signal),
+    1 (single detection pattern), or 2 (both suspicious_path +
+    testsigning_enabled) drafts. The two detection patterns are
+    independent — a record can carry both a suspicious image_path
+    AND a TestSigning=True policy.
+
+    Mirrors classify_lnk_abnormal_target_findings / classify_mft_findings
+    shape with a tier-bearing draft type to preserve the tier-mapping
+    at the emit site.
+    """
+    drafts: list[_BCDFindingDraft] = []
+
+    drafts.extend(
+        _classify_bcd_suspicious_path(
+            object_guid=object_guid,
+            source_path=source_path,
+            description=description,
+            image_path=image_path,
+            anomaly_flags=anomaly_flags,
+        )
+    )
+    drafts.extend(
+        _classify_bcd_testsigning(
+            object_guid=object_guid,
+            source_path=source_path,
+            description=description,
+            image_path=image_path,
+            anomaly_flags=anomaly_flags,
+        )
+    )
+
+    return drafts
+
+
 # ── Phase η.D.D — LOLDrivers BYOVD fingerprint classifier ──────────────────
 
 
@@ -2289,6 +2533,80 @@ class FindingService:
                     # the heuristic tier confidence map (HIGH on >16 KB
                     # ADS or full $SI/$FN inversion; MEDIUM on smaller
                     # ADS or single-pair inversion).
+                    confidence=draft.confidence,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_bcd_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Phase θ.A.D — emit windows_bcd_suspicious_path +
+        windows_bcd_testsigning_enabled Finding rows for one firmware.
+
+        Reads every persisted ``WindowsBcdEntry`` row for the firmware
+        (rows are produced by the θ.A.C walker) and projects each row
+        through :func:`classify_bcd_findings` which may emit 0, 1, or 2
+        drafts (suspicious_path and testsigning_enabled are independent
+        detection patterns; a single entry can fire on both).
+
+        Confidence tier is heuristic-driven by the classifier:
+
+        - HIGH — suspicious_path AND (non_microsoft_description OR
+          testsigning_enabled); OR testsigning_enabled AND
+          (no_integrity_checks OR nx_disabled).
+        - MEDIUM — single-flag baseline (suspicious_path alone OR
+          testsigning_enabled alone).
+
+        Unlike emit_srum_findings_from_walk / emit_prefetch_findings_from_walk
+        (which fix Confidence.low at the emit site), this emit method
+        passes the classifier-derived ``draft.confidence`` through to
+        the FindingCreate so the heuristic tier mapping is preserved.
+        Mirrors emit_lnk_findings_from_walk / emit_mft_findings_from_walk
+        shape.
+
+        Idempotency is the caller's responsibility — same shape as
+        emit_mft_findings_from_walk; callers DELETE prior
+        windows_bcd_* findings for the firmware before re-emitting.
+        """
+        from app.models.windows_bcd_entry import WindowsBcdEntry
+        from app.services.jsonb_normalizers import (
+            _normalize_windows_bcd_entries_anomaly_flags,
+        )
+
+        stmt = select(WindowsBcdEntry).where(
+            WindowsBcdEntry.firmware_id == firmware_id
+        )
+        rows = (await self.db.execute(stmt)).scalars().all()
+
+        emitted: list[Finding] = []
+        for record in rows:
+            anomaly_flags = _normalize_windows_bcd_entries_anomaly_flags(
+                record.anomaly_flags
+            )
+            drafts = classify_bcd_findings(
+                object_guid=record.object_guid,
+                source_path=record.source_path,
+                description=record.description,
+                image_path=record.image_path,
+                anomaly_flags=anomaly_flags,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.source_path,
+                    # Tier-bearing draft per θ.A.D classifier — preserve
+                    # the heuristic tier confidence map (HIGH on
+                    # combined suspicious_path + non_ms OR testsigning,
+                    # OR testsigning + integrity_off; MEDIUM on single-
+                    # flag baseline).
                     confidence=draft.confidence,
                     firmware_id=firmware_id,
                     source=draft.source,
