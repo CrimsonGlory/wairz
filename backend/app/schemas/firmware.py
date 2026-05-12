@@ -151,6 +151,17 @@ SystemdWalkStatus = Literal[
     "idle", "queued", "running", "completed", "failed"
 ]
 
+# Phase ι.C.B Windows ETW .etl walker — Rule #33 .c Pydantic Literal
+# typo-gate at the trigger MCP tool / status reader boundary. FIRST ι
+# Windows-side walker (ι.A + ι.B shipped Linux walkers — journald +
+# systemd). The DB CHECK constraint ``ck_firmware_etl_walk_status``
+# (alembic revision aabbccddee05) is the durable safety floor; this
+# Literal adds compile-time typo detection for new callers. Mirrors
+# the SystemdWalkStatus / JournaldWalkStatus / SdbWalkStatus shapes.
+EtlWalkStatus = Literal[
+    "idle", "queued", "running", "completed", "failed"
+]
+
 # Phase θ.D.B WindowsSdbEntry.sdb_kind — Rule #33 .c Pydantic
 # Literal typo-gate. The DB CHECK constraint
 # ``ck_windows_sdb_entries_sdb_kind`` (alembic revision

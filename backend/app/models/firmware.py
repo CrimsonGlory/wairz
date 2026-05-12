@@ -416,6 +416,46 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # Phase ι.C.B Windows ETW .etl trace-log walker columns (CLAUDE.md Rule #33
+    # contract). FIRST ι Windows-side walker (ι.A + ι.B were Linux). Background
+    # runner ``run_etl_walk_background`` walks each detection root (typically
+    # ``Windows/System32/WDI/LogFiles/`` / ``Windows/System32/winevt/Logs/`` /
+    # ``Windows/Logs/CBS/`` / ``Windows/Logs/NetSetup/`` / ``Windows/Logs/
+    # WindowsBackup/`` / ``Windows/Logs/WindowsUpdate/`` / ``Windows/System32/
+    # LogFiles/WMI/`` per Rule #16 — NOT ``firmware.extracted_path`` alone),
+    # parses every ``.etl`` file via Fox-IT ``dissect.etl`` (AGPL-3.0, v3.14)
+    # iterating EventRecord instances, persists per-event rows into
+    # ``windows_etl_events`` (table from ι.C.A), and stamps an aggregate JSONB
+    # result onto ``etl_walk_result``.
+    #
+    # Persona-E relevance: kernel ETL often survives EVTX clear (FortiGuard
+    # 2024 IR case — AutoLogger-Diagtrack-Listener.etl retained the post-clear
+    # process tree after Security.evtx was cleared). Anomaly classifier flags
+    # kernel_proc_after_evtx_clear, provider_disable_evidence, unusual_provider,
+    # non_microsoft_in_diagtrack.
+    #
+    # Rule #36 no-execute: dissect.etl reads .etl bytes AS DATA. Nothing in
+    # wairz starts a kernel trace session, registers an ETW logger, invokes
+    # any process referenced in event payloads, or loads any embedded provider
+    # manifest as code. Rule #33 .c CHECK enforces the 5-state machine;
+    # Rule #33 .d — asyncio.create_task dispatch (in-process pure-Python
+    # parser; no Docker spawn).
+    etl_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    etl_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    etl_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    etl_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    etl_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     # Phase θ.B.C WMI persistence walker columns (CLAUDE.md Rule #33 contract).
     # Background runner ``run_wmi_walk_background`` opens each WMI
     # OBJECTS.DATA file (typically under ``Windows/System32/wbem/Repository/``
