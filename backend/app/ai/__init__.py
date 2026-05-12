@@ -23,6 +23,7 @@ from app.ai.tools.taint_llm import register_taint_llm_tools
 from app.ai.tools.uart import register_uart_tools
 from app.ai.tools.uefi import register_uefi_tools
 from app.ai.tools.vulhunt import register_vulhunt_tools
+from app.ai.tools.windows_appcompat import register_windows_appcompat_tools
 from app.ai.tools.windows_archive import register_windows_archive_tools
 from app.ai.tools.windows_bcd import register_windows_bcd_tools
 from app.ai.tools.windows_dotnet import register_windows_dotnet_tools
@@ -94,4 +95,5 @@ def create_tool_registry() -> ToolRegistry:
     register_windows_etl_tools(registry)
     register_windows_efs_tools(registry)
     register_linux_container_tools(registry)
+    register_windows_appcompat_tools(registry)
     return registry
