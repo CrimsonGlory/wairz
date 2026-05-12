@@ -116,6 +116,26 @@ WindowsFindingSource = Literal[
     # - LOW (Confidence.low) — baseline review-candidate row.
     # Per intake style: ONE Literal value covers all 3 tiers.
     "windows_lnk_abnormal_target",
+    # Phase η.A.D — alignment slice with frontend FindingSource union +
+    # FINDING_SOURCE_CONFIG entries. Emitted by
+    # ``emit_mft_findings_from_walk`` for every ``WindowsMftRecord`` row
+    # produced by the η.A.C walker whose ads_streams + timestamp shape
+    # matches MITRE ATT&CK persistence + anti-forensics indicators.
+    #
+    # windows_mft_ads_hidden_content — named ADS stream with size > 1 KB
+    # (excludes benign Zone.Identifier MOTW tag at ~100 B). Confidence
+    # tier mapping is heuristic-driven:
+    # - HIGH (Confidence.high) — ADS size > 16 KB. ProcessHollower /
+    #   Pegasus / generic AV-evasion drop pattern.
+    # - MEDIUM (Confidence.medium) — ADS size 1 KB – 16 KB.
+    #
+    # windows_mft_timestomping — $SI mtime < $FN mtime. T1070.006
+    # Indicator Removal: Timestomp. Confidence tier mapping:
+    # - MEDIUM (Confidence.medium) — single timestomp pair detected.
+    # - HIGH (Confidence.high) — ALL FOUR $SI timestamps older than
+    #   ALL FOUR $FN timestamps. timestomp.exe rewrites the full tuple.
+    "windows_mft_ads_hidden_content",
+    "windows_mft_timestomping",
 ]
 
 

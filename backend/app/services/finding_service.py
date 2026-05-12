@@ -152,6 +152,33 @@ _SOURCE_LNK_ABNORMAL_TARGET: WindowsFindingSource = (
 )
 
 
+# Phase η.A.D — MFT $DATA ADS hidden-content + $SI/$FN timestomp emit
+# sources. Emitted by ``emit_mft_findings_from_walk`` for every
+# ``WindowsMftRecord`` row produced by the η.A.C walker.
+#
+# windows_mft_ads_hidden_content — named ADS stream with size > 1 KB
+# (excludes benign Zone.Identifier MOTW tag at ~100 B). Confidence tier:
+# - HIGH (Confidence.high) — ADS size > 16 KB. ProcessHollower /
+#   Pegasus / generic AV-evasion drop pattern.
+# - MEDIUM (Confidence.medium) — ADS size 1 KB – 16 KB.
+#
+# windows_mft_timestomping — $SI mtime < $FN mtime. T1070.006 Indicator
+# Removal: Timestomp. Confidence tier:
+# - HIGH (Confidence.high) — ALL FOUR $SI timestamps older than ALL
+#   FOUR $FN timestamps. timestomp.exe rewrites the full tuple.
+# - MEDIUM (Confidence.medium) — single $SI mtime < $FN mtime pair.
+_SOURCE_MFT_ADS_HIDDEN_CONTENT: WindowsFindingSource = (
+    "windows_mft_ads_hidden_content"
+)
+_SOURCE_MFT_TIMESTOMPING: WindowsFindingSource = (
+    "windows_mft_timestomping"
+)
+
+# Tier thresholds — ADS payload size for HIGH-vs-MEDIUM split.
+_MFT_ADS_HIGH_CONFIDENCE_BYTES = 16 * 1024
+_MFT_ADS_MEDIUM_CONFIDENCE_BYTES = 1024  # excludes Zone.Identifier tag
+
+
 # ── Phase η.E — PowerShell EID classifier helper ──
 #
 # Heuristic detection for obfuscated/encoded PowerShell content. The
@@ -1084,6 +1111,275 @@ def classify_lnk_abnormal_target_findings(
     ]
 
 
+# ── Phase η.A.D — MFT hidden-content + timestomp classifier ────────────────
+
+
+@dataclass(frozen=True)
+class _MFTFindingDraft:
+    """One MFT Finding row to emit. Carries an explicit confidence
+    tier alongside the standard fields so the emit hook can preserve
+    the tier-mapping derived from the MFT record's ADS roster +
+    $SI/$FN comparison.
+
+    Distinct from _PEFindingDraft (fixes confidence at emit site)
+    and _LnkFindingDraft (different tier semantics) because MFT rows
+    have TWO independent detection patterns (ADS-hidden + timestomp)
+    that can BOTH fire on the same record — the classifier may emit
+    0, 1, or 2 drafts per row.
+    """
+    source: WindowsFindingSource
+    severity: Severity
+    title: str
+    description: str
+    evidence: str
+    confidence: Confidence
+
+
+def _classify_mft_ads_hidden(
+    *,
+    filename: str | None,
+    source_path: str,
+    full_path: str | None,
+    ads_streams: list[dict],
+) -> list[_MFTFindingDraft]:
+    """Emit one Finding per non-trivial named ADS stream on the record.
+
+    Skips Zone.Identifier MOTW tag (size ≤ _MFT_ADS_MEDIUM_CONFIDENCE_BYTES).
+    Confidence tier mapping:
+    - HIGH — ADS size > _MFT_ADS_HIGH_CONFIDENCE_BYTES (16 KB).
+    - MEDIUM — ADS size between MEDIUM and HIGH thresholds.
+
+    Pure function — no DB access. Returns empty list when ads_streams
+    is empty / contains only benign tags.
+    """
+    drafts: list[_MFTFindingDraft] = []
+    if not ads_streams:
+        return drafts
+
+    display_name = filename or full_path or source_path
+    for stream in ads_streams:
+        if not isinstance(stream, dict):
+            continue
+        stream_name = str(stream.get("name") or "").strip()
+        try:
+            stream_size = int(stream.get("size") or 0)
+        except (TypeError, ValueError):
+            continue
+        if not stream_name:
+            continue
+        if stream_size < _MFT_ADS_MEDIUM_CONFIDENCE_BYTES:
+            # Zone.Identifier MOTW tag + similar metadata-only streams.
+            continue
+
+        if stream_size > _MFT_ADS_HIGH_CONFIDENCE_BYTES:
+            confidence = Confidence.high
+            severity = Severity.high
+            tier_label = (
+                f"HIGH (named ADS '{stream_name}' size {stream_size} B > "
+                f"{_MFT_ADS_HIGH_CONFIDENCE_BYTES} B — ProcessHollower / "
+                f"Pegasus / generic AV-evasion drop pattern)"
+            )
+        else:
+            confidence = Confidence.medium
+            severity = Severity.medium
+            tier_label = (
+                f"MEDIUM (named ADS '{stream_name}' size {stream_size} B "
+                f"— small payload or metadata)"
+            )
+
+        evidence_lines = [
+            f"Tier: {tier_label}",
+            f"Source image: {source_path}",
+            f"MFT path: {full_path or '(orphan)'}",
+            f"Filename: {filename or '(unnamed)'}",
+            f"ADS name: {stream_name}",
+            f"ADS size: {stream_size} B",
+        ]
+
+        drafts.append(
+            _MFTFindingDraft(
+                source=_SOURCE_MFT_ADS_HIDDEN_CONTENT,
+                severity=severity,
+                title=f"MFT hidden ADS: {display_name}:{stream_name}",
+                description=(
+                    f"Windows NTFS MFT record for {display_name} carries "
+                    f"a non-trivial named Alternate Data Stream "
+                    f"'{stream_name}'. ADS payloads of this size are "
+                    "atypical for legitimate Zone.Identifier MOTW tags "
+                    "(~100 B) and are a known persistence + AV-evasion "
+                    "channel. Investigate the ADS content (T1564.004 "
+                    "Hide Artifacts: NTFS File Attributes)."
+                ),
+                evidence="\n".join(evidence_lines),
+                confidence=confidence,
+            )
+        )
+
+    return drafts
+
+
+def _classify_mft_timestomp(
+    *,
+    filename: str | None,
+    source_path: str,
+    full_path: str | None,
+    si_creation_ns: int | None,
+    si_last_modification_ns: int | None,
+    si_last_change_ns: int | None,
+    si_last_access_ns: int | None,
+    fn_creation_ns: int | None,
+    fn_last_modification_ns: int | None,
+    fn_last_change_ns: int | None,
+    fn_last_access_ns: int | None,
+) -> list[_MFTFindingDraft]:
+    """Emit one Finding when $SI mtime < $FN mtime on the record.
+
+    Confidence tier mapping:
+    - HIGH — ALL FOUR $SI timestamps strictly older than ALL FOUR $FN
+      timestamps. timestomp.exe rewrites the full $SI tuple; matching
+      every pair is the strongest signal.
+    - MEDIUM — $SI mtime alone is older than $FN mtime (the canonical
+      single-pair check).
+
+    Pure function — no DB access. Returns empty list when either
+    timestamp tuple is missing (we don't fire on partial data).
+    """
+    # Require at minimum SI mtime + FN mtime; the single-pair check
+    # is the canonical timestomp signal.
+    if (
+        si_last_modification_ns is None
+        or fn_last_modification_ns is None
+    ):
+        return []
+
+    if si_last_modification_ns >= fn_last_modification_ns:
+        # Not a timestomp candidate — SI should be ≥ FN in healthy data
+        # because the kernel updates SI on every metadata change but
+        # only updates FN on create/rename.
+        return []
+
+    # Check whether ALL FOUR pairs match the inversion shape (HIGH).
+    full_si = (
+        si_creation_ns,
+        si_last_modification_ns,
+        si_last_change_ns,
+        si_last_access_ns,
+    )
+    full_fn = (
+        fn_creation_ns,
+        fn_last_modification_ns,
+        fn_last_change_ns,
+        fn_last_access_ns,
+    )
+    all_four_inverted = all(
+        si is not None and fn is not None and si < fn
+        for si, fn in zip(full_si, full_fn, strict=False)
+    )
+
+    if all_four_inverted:
+        confidence = Confidence.high
+        severity = Severity.high
+        tier_label = (
+            "HIGH (ALL FOUR $SI timestamps strictly older than $FN — "
+            "timestomp.exe-style full-tuple rewrite signal)"
+        )
+    else:
+        confidence = Confidence.medium
+        severity = Severity.medium
+        tier_label = (
+            "MEDIUM ($SI mtime older than $FN mtime — single-pair "
+            "timestomp signal)"
+        )
+
+    display_name = filename or full_path or source_path
+    evidence_lines = [
+        f"Tier: {tier_label}",
+        f"Source image: {source_path}",
+        f"MFT path: {full_path or '(orphan)'}",
+        f"Filename: {filename or '(unnamed)'}",
+        f"$SI mtime (ns): {si_last_modification_ns}",
+        f"$FN mtime (ns): {fn_last_modification_ns}",
+        f"$SI - $FN delta (ns): "
+        f"{si_last_modification_ns - fn_last_modification_ns}",
+    ]
+    if all_four_inverted:
+        evidence_lines.append("All four $SI/$FN pairs inverted.")
+
+    return [
+        _MFTFindingDraft(
+            source=_SOURCE_MFT_TIMESTOMPING,
+            severity=severity,
+            title=f"MFT timestomp: {display_name}",
+            description=(
+                f"Windows NTFS MFT record for {display_name} shows "
+                "$STANDARD_INFORMATION mtime older than $FILE_NAME "
+                "mtime. The kernel writes $SI on every metadata "
+                "change but $FN only on create/rename — a healthy "
+                "record has $SI ≥ $FN. Inversion indicates an "
+                "anti-forensics rewrite (timestomp.exe / SetMACE / "
+                "PowerShell SetCreation — T1070.006 Indicator Removal: "
+                "Timestomp)."
+            ),
+            evidence="\n".join(evidence_lines),
+            confidence=confidence,
+        )
+    ]
+
+
+def classify_mft_findings(
+    *,
+    filename: str | None,
+    source_path: str,
+    full_path: str | None,
+    ads_streams: list[dict] | None,
+    si_creation_ns: int | None,
+    si_last_modification_ns: int | None,
+    si_last_change_ns: int | None,
+    si_last_access_ns: int | None,
+    fn_creation_ns: int | None,
+    fn_last_modification_ns: int | None,
+    fn_last_change_ns: int | None,
+    fn_last_access_ns: int | None,
+) -> list[_MFTFindingDraft]:
+    """Phase η.A.D — map one WindowsMftRecord row to 0+ Finding drafts.
+
+    Pure function — no DB access. Each row may yield 0 (no signal),
+    1 (single detection pattern), or 2 (both ADS + timestomp) drafts.
+    The two detection patterns are independent — a record can carry
+    both a hidden ADS stream AND a timestomp-style $SI/$FN inversion.
+
+    Mirrors classify_lnk_abnormal_target_findings shape with a tier-
+    bearing draft type to preserve the tier-mapping at the emit site.
+    """
+    drafts: list[_MFTFindingDraft] = []
+
+    drafts.extend(
+        _classify_mft_ads_hidden(
+            filename=filename,
+            source_path=source_path,
+            full_path=full_path,
+            ads_streams=ads_streams or [],
+        )
+    )
+    drafts.extend(
+        _classify_mft_timestomp(
+            filename=filename,
+            source_path=source_path,
+            full_path=full_path,
+            si_creation_ns=si_creation_ns,
+            si_last_modification_ns=si_last_modification_ns,
+            si_last_change_ns=si_last_change_ns,
+            si_last_access_ns=si_last_access_ns,
+            fn_creation_ns=fn_creation_ns,
+            fn_last_modification_ns=fn_last_modification_ns,
+            fn_last_change_ns=fn_last_change_ns,
+            fn_last_access_ns=fn_last_access_ns,
+        )
+    )
+
+    return drafts
+
+
 def classify_registry_persistence_findings(
     *,
     hive_path: str,
@@ -1766,6 +2062,85 @@ class FindingService:
                     # the heuristic 3-tier confidence map (HIGH on
                     # script-host + encoded-PS, MEDIUM on non-Microsoft
                     # target, LOW baseline).
+                    confidence=draft.confidence,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_mft_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Phase η.A.D — emit windows_mft_ads_hidden_content +
+        windows_mft_timestomping Finding rows for one firmware.
+
+        Reads every persisted ``WindowsMftRecord`` row for the firmware
+        (rows are produced by the η.A.C walker) and projects each row
+        through :func:`classify_mft_findings` which may emit 0, 1, or 2
+        drafts (ADS-hidden and timestomp are independent detection
+        patterns; a single record can fire on both).
+
+        Confidence tier is heuristic-driven by the classifier:
+
+        - HIGH — large ADS payload (>16 KB) OR all four $SI/$FN pairs
+          inverted (timestomp.exe-style full rewrite).
+        - MEDIUM — smaller ADS payload (1 KB – 16 KB) OR single-pair
+          $SI/$FN inversion.
+
+        Unlike emit_srum_findings_from_walk / emit_prefetch_findings_from_walk
+        (which fix Confidence.low at the emit site), this emit method
+        passes the classifier-derived ``draft.confidence`` through to
+        the FindingCreate so the heuristic tier mapping is preserved.
+        Mirrors emit_lnk_findings_from_walk + emit_scheduled_task_findings_from_walk
+        shape.
+
+        Idempotency is the caller's responsibility — same shape as
+        emit_prefetch_findings_from_walk; callers DELETE prior
+        windows_mft_* findings for the firmware before re-emitting.
+        """
+        from app.models.windows_mft_record import WindowsMftRecord
+        from app.services.jsonb_normalizers import (
+            _normalize_windows_mft_records_ads_streams,
+        )
+
+        stmt = select(WindowsMftRecord).where(
+            WindowsMftRecord.firmware_id == firmware_id
+        )
+        rows = (await self.db.execute(stmt)).scalars().all()
+
+        emitted: list[Finding] = []
+        for record in rows:
+            ads_streams = _normalize_windows_mft_records_ads_streams(
+                record.ads_streams
+            )
+            drafts = classify_mft_findings(
+                filename=record.filename,
+                source_path=record.source_path,
+                full_path=record.full_path,
+                ads_streams=ads_streams,
+                si_creation_ns=record.si_creation_ns,
+                si_last_modification_ns=record.si_last_modification_ns,
+                si_last_change_ns=record.si_last_change_ns,
+                si_last_access_ns=record.si_last_access_ns,
+                fn_creation_ns=record.fn_creation_ns,
+                fn_last_modification_ns=record.fn_last_modification_ns,
+                fn_last_change_ns=record.fn_last_change_ns,
+                fn_last_access_ns=record.fn_last_access_ns,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.source_path,
+                    # Tier-bearing draft per η.A.D classifier — preserve
+                    # the heuristic tier confidence map (HIGH on >16 KB
+                    # ADS or full $SI/$FN inversion; MEDIUM on smaller
+                    # ADS or single-pair inversion).
                     confidence=draft.confidence,
                     firmware_id=firmware_id,
                     source=draft.source,
