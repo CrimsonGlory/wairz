@@ -2549,3 +2549,93 @@ def _stamp_firmware_mbr_vbr_walk_result(payload: dict) -> dict:
         FIRMWARE_MBR_VBR_WALK_RESULT_SCHEMA_VERSION
     )
     return payload
+
+
+# ── windows_sdb_entries.shim_payload (Phase θ.D.B) ──────────────────────────
+#
+# Per-entry payload for the θ.D Application Compatibility Shim
+# Database walker. For TAG_SHIM rows the payload carries the shim
+# name + module / DLL filename + command-line + description. For
+# TAG_PATCH rows the payload carries the PATCH name + raw
+# TAG_PATCH_BITS hex blob + patch_bits size. The flat shim_class
+# column discriminates which fields are populated.
+#
+# Canonical shape (TAG_SHIM):
+#   {
+#     "schema_version": 1,
+#     "kind": "shim",
+#     "shim_name": str,
+#     "module": str,
+#     "command_line": str,
+#     "description": str,
+#   }
+#
+# Canonical shape (TAG_PATCH):
+#   {
+#     "schema_version": 1,
+#     "kind": "patch",
+#     "patch_name": str,
+#     "patch_bits_hex": str,
+#     "patch_bits_size": int,
+#   }
+
+WINDOWS_SDB_ENTRIES_SHIM_PAYLOAD_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_sdb_entries_shim_payload(value: Any) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``WindowsSdbEntry.shim_payload``.
+
+    Returns empty dict for None / wrong-typed inputs (defensive
+    boundary)."""
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_windows_sdb_entries_shim_payload(payload: dict) -> dict:
+    """Stamp the schema_version inline onto a ``shim_payload``
+    payload for ``WindowsSdbEntry.shim_payload``. Idempotent."""
+    payload["schema_version"] = (
+        WINDOWS_SDB_ENTRIES_SHIM_PAYLOAD_SCHEMA_VERSION
+    )
+    return payload
+
+
+# ── windows_sdb_entries.anomaly_flags (Phase θ.D.B) ─────────────────────────
+#
+# Per-entry heuristic detection aggregate for the θ.D.E classifier.
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "is_custom_path": bool,
+#     "has_inject_dll": bool,
+#     "has_redirect_exe": bool,
+#     "has_get_command_line": bool,
+#     "has_redirect_shortcut": bool,
+#     "has_dll_outside_appdir": bool,
+#     "has_command_line": bool,
+#   }
+
+WINDOWS_SDB_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_sdb_entries_anomaly_flags(value: Any) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``WindowsSdbEntry.anomaly_flags``.
+
+    Returns empty dict for None / wrong-typed inputs (defensive
+    boundary)."""
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_windows_sdb_entries_anomaly_flags(payload: dict) -> dict:
+    """Stamp the schema_version inline onto an ``anomaly_flags``
+    payload for ``WindowsSdbEntry.anomaly_flags``. Idempotent."""
+    payload["schema_version"] = (
+        WINDOWS_SDB_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+    return payload
