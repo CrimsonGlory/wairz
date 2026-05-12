@@ -47,6 +47,7 @@ from app.ai.tools.windows_sdb import register_windows_sdb_tools
 from app.ai.tools.windows_srum import register_windows_srum_tools
 from app.ai.tools.windows_storage import register_windows_storage_tools
 from app.ai.tools.windows_update import register_windows_update_tools
+from app.ai.tools.windows_usnjrnl import register_windows_usnjrnl_tools
 from app.ai.tools.windows_wmi import register_windows_wmi_tools
 
 
@@ -100,4 +101,5 @@ def create_tool_registry() -> ToolRegistry:
     register_windows_appcompat_tools(registry)
     register_linux_persistence_tools(registry)
     register_windows_dpapi_tools(registry)
+    register_windows_usnjrnl_tools(registry)
     return registry
