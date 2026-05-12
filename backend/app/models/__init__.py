@@ -19,6 +19,7 @@ from app.models.windows_driver import WindowsDriver
 from app.models.windows_esp_entry import WindowsEspEntry
 from app.models.windows_event_record import WindowsEventRecord
 from app.models.windows_lnk_record import WindowsLnkRecord
+from app.models.windows_mbr_vbr_sector import WindowsMbrVbrSector
 from app.models.windows_mft_record import WindowsMftRecord
 from app.models.windows_pe_signature import WindowsPESignature
 from app.models.windows_prefetch_record import WindowsPrefetchRecord
@@ -38,7 +39,7 @@ __all__ = [
     "CraAssessment", "CraRequirementResult", "HardwareFirmwareBlob",
     "DeviceDumpSession", "WindowsPESignature", "WindowsRegistryExtract",
     "WindowsDriver", "WindowsUpdatePackage", "WindowsUpdateDllDiff",
-    "WindowsBcdEntry", "WindowsEspEntry", "WindowsEventRecord", "WindowsLnkRecord", "WindowsMftRecord",
+    "WindowsBcdEntry", "WindowsEspEntry", "WindowsEventRecord", "WindowsLnkRecord", "WindowsMbrVbrSector", "WindowsMftRecord",
     "WindowsPrefetchRecord", "WindowsScheduledTask", "WindowsSrumRecord",
     "WindowsWmiEvent",
 ]

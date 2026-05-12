@@ -2466,3 +2466,86 @@ def _stamp_firmware_esp_walk_result(payload: dict) -> dict:
     ``Firmware.esp_walk_result``. Idempotent."""
     payload["schema_version"] = FIRMWARE_ESP_WALK_RESULT_SCHEMA_VERSION
     return payload
+
+
+# ── windows_mbr_vbr_sectors.anomaly_flags (Phase θ.E.A) ─────────────────────
+#
+# Per-sector heuristic detection aggregate for the θ.E.D classifier.
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "non_zero_padding": bool,
+#     "unexpected_partition_table": bool,
+#     "non_standard_jmp": bool,
+#     "non_zero_disk_signature": bool,
+#     "is_mbr": bool,
+#     "is_vbr": bool,
+#   }
+
+WINDOWS_MBR_VBR_SECTORS_ANOMALY_FLAGS_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_mbr_vbr_sectors_anomaly_flags(value: Any) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``WindowsMbrVbrSector.anomaly_flags``.
+
+    Inline-stamped. Returns empty dict for None / wrong-typed inputs
+    (defensive boundary)."""
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_windows_mbr_vbr_sectors_anomaly_flags(payload: dict) -> dict:
+    """Stamp the schema_version inline onto an ``anomaly_flags``
+    payload for ``WindowsMbrVbrSector.anomaly_flags``. Idempotent."""
+    payload["schema_version"] = (
+        WINDOWS_MBR_VBR_SECTORS_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+    return payload
+
+
+# ── firmware.mbr_vbr_walk_result (Phase θ.E.B) ──────────────────────────────
+#
+# Per-firmware aggregate from a single MBR/VBR boot-sector walk.
+# Mirrors the esp_walk_result / wmi_walk_result / bcd_walk_result shape.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,
+#     "images_scanned": int,
+#     "sectors_persisted": int,
+#     "mbr_count": int,
+#     "vbr_count": int,
+#     "known_good_match_count": int,
+#     "known_bootkit_match_count": int,
+#     "anomaly_count": int,
+#     "errors": list[str],
+#     "per_root": list[dict],
+#   }
+
+FIRMWARE_MBR_VBR_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_mbr_vbr_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.mbr_vbr_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_mbr_vbr_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.mbr_vbr_walk_result``. Idempotent."""
+    payload["schema_version"] = (
+        FIRMWARE_MBR_VBR_WALK_RESULT_SCHEMA_VERSION
+    )
+    return payload

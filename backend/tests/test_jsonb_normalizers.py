@@ -35,6 +35,7 @@ from app.services.jsonb_normalizers import (
     FIRMWARE_DOTNET_DECOMPILE_RESULT_SCHEMA_VERSION,
     FIRMWARE_ESP_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_EVTX_WALK_RESULT_SCHEMA_VERSION,
+    FIRMWARE_MBR_VBR_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_MFT_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_REGISTRY_HIVE_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_SRUM_WALK_RESULT_SCHEMA_VERSION,
@@ -52,6 +53,7 @@ from app.services.jsonb_normalizers import (
     WINDOWS_ESP_ENTRIES_AUTHENTICODE_CHAIN_SCHEMA_VERSION,
     WINDOWS_ESP_ENTRIES_DBX_REVOCATION_MATCH_SCHEMA_VERSION,
     WINDOWS_EVENT_RECORDS_MESSAGE_XML_SCHEMA_VERSION,
+    WINDOWS_MBR_VBR_SECTORS_ANOMALY_FLAGS_SCHEMA_VERSION,
     WINDOWS_MFT_RECORDS_ADS_STREAMS_SCHEMA_VERSION,
     WINDOWS_MFT_RECORDS_TARGET_METADATA_SCHEMA_VERSION,
     WINDOWS_PE_SIGNATURES_ARCH_VIEW_SCHEMA_VERSION,
@@ -85,6 +87,7 @@ from app.services.jsonb_normalizers import (
     _normalize_firmware_dotnet_decompile_result,
     _normalize_firmware_esp_walk_result,
     _normalize_firmware_evtx_walk_result,
+    _normalize_firmware_mbr_vbr_walk_result,
     _normalize_firmware_mft_walk_result,
     _normalize_firmware_registry_hive_walk_result,
     _normalize_firmware_srum_walk_result,
@@ -102,6 +105,7 @@ from app.services.jsonb_normalizers import (
     _normalize_windows_esp_entries_authenticode_chain,
     _normalize_windows_esp_entries_dbx_revocation_match,
     _normalize_windows_event_records_message_xml,
+    _normalize_windows_mbr_vbr_sectors_anomaly_flags,
     _normalize_windows_mft_records_ads_streams,
     _normalize_windows_mft_records_target_metadata,
     _normalize_windows_pe_signatures_arch_view,
@@ -123,6 +127,7 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_dotnet_decompile_result,
     _stamp_firmware_esp_walk_result,
     _stamp_firmware_evtx_walk_result,
+    _stamp_firmware_mbr_vbr_walk_result,
     _stamp_firmware_mft_walk_result,
     _stamp_firmware_registry_hive_walk_result,
     _stamp_firmware_srum_walk_result,
@@ -139,6 +144,7 @@ from app.services.jsonb_normalizers import (
     _stamp_windows_esp_entries_authenticode_chain,
     _stamp_windows_esp_entries_dbx_revocation_match,
     _stamp_windows_event_records_message_xml,
+    _stamp_windows_mbr_vbr_sectors_anomaly_flags,
     _stamp_windows_mft_records_ads_streams,
     _stamp_windows_mft_records_target_metadata,
     _stamp_windows_pe_signatures_arch_view,
@@ -3041,3 +3047,114 @@ def test_stamp_firmware_esp_walk_result_idempotent():
 
 def test_firmware_esp_walk_result_schema_version_constant():
     assert FIRMWARE_ESP_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp_windows_mbr_vbr_sectors_anomaly_flags (θ.E.A) ─────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical dict passes through.
+        (
+            {"is_mbr": True, "non_standard_jmp": True},
+            {"is_mbr": True, "non_standard_jmp": True},
+        ),
+        # Empty dict — preserved.
+        ({}, {}),
+        # None — coerced to empty dict.
+        (None, {}),
+        # Wrong-type — list — coerced to empty dict.
+        ([1, 2, 3], {}),
+        # Wrong-type — string — coerced to empty dict.
+        ("not a dict", {}),
+        # Wrong-type — int — coerced to empty dict.
+        (42, {}),
+    ],
+)
+def test_normalize_windows_mbr_vbr_sectors_anomaly_flags(value, expected):
+    assert (
+        _normalize_windows_mbr_vbr_sectors_anomaly_flags(value) == expected
+    )
+
+
+def test_normalize_windows_mbr_vbr_sectors_anomaly_flags_idempotent():
+    canonical = {
+        "schema_version": 1,
+        "non_zero_padding": True,
+        "unexpected_partition_table": False,
+        "non_standard_jmp": True,
+        "is_mbr": True,
+        "is_vbr": False,
+    }
+    once = _normalize_windows_mbr_vbr_sectors_anomaly_flags(canonical)
+    twice = _normalize_windows_mbr_vbr_sectors_anomaly_flags(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_mbr_vbr_sectors_anomaly_flags_adds_version():
+    payload = {"is_mbr": True}
+    out = _stamp_windows_mbr_vbr_sectors_anomaly_flags(payload)
+    assert out["schema_version"] == (
+        WINDOWS_MBR_VBR_SECTORS_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+
+
+def test_stamp_windows_mbr_vbr_sectors_anomaly_flags_idempotent():
+    payload = {"is_mbr": True}
+    once = _stamp_windows_mbr_vbr_sectors_anomaly_flags(payload)
+    twice = _stamp_windows_mbr_vbr_sectors_anomaly_flags(once)
+    assert once == twice
+
+
+def test_windows_mbr_vbr_sectors_anomaly_flags_schema_version_constant():
+    assert WINDOWS_MBR_VBR_SECTORS_ANOMALY_FLAGS_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp_firmware_mbr_vbr_walk_result (Phase θ.E.B) ────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {
+                "schema_version": 1,
+                "images_scanned": 2,
+                "sectors_persisted": 5,
+                "mbr_count": 2,
+                "vbr_count": 3,
+            },
+            {
+                "schema_version": 1,
+                "images_scanned": 2,
+                "sectors_persisted": 5,
+                "mbr_count": 2,
+                "vbr_count": 3,
+            },
+        ),
+        ({}, {}),
+        (None, None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_mbr_vbr_walk_result(value, expected):
+    assert _normalize_firmware_mbr_vbr_walk_result(value) == expected
+
+
+def test_stamp_firmware_mbr_vbr_walk_result_adds_version():
+    out = _stamp_firmware_mbr_vbr_walk_result({"images_scanned": 0})
+    assert out["schema_version"] == (
+        FIRMWARE_MBR_VBR_WALK_RESULT_SCHEMA_VERSION
+    )
+
+
+def test_stamp_firmware_mbr_vbr_walk_result_idempotent():
+    once = _stamp_firmware_mbr_vbr_walk_result({"images_scanned": 0})
+    twice = _stamp_firmware_mbr_vbr_walk_result(once)
+    assert once == twice
+
+
+def test_firmware_mbr_vbr_walk_result_schema_version_constant():
+    assert FIRMWARE_MBR_VBR_WALK_RESULT_SCHEMA_VERSION == 1
