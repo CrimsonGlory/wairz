@@ -18,6 +18,7 @@ from app.models.security_review import ReviewAgent, SecurityReview  # kept for D
 from app.models.uart_session import UARTSession
 from app.models.windows_bcd_entry import WindowsBcdEntry
 from app.models.windows_driver import WindowsDriver
+from app.models.windows_efs_encrypted_files import WindowsEfsEncryptedFile
 from app.models.windows_esp_entry import WindowsEspEntry
 from app.models.windows_etl_events import WindowsEtlEvent
 from app.models.windows_event_record import WindowsEventRecord
@@ -44,7 +45,7 @@ __all__ = [
     "DeviceDumpSession", "LinuxJournaldEntry", "LinuxSystemdUnit",
     "WindowsPESignature", "WindowsRegistryExtract",
     "WindowsDriver", "WindowsUpdatePackage", "WindowsUpdateDllDiff",
-    "WindowsBcdEntry", "WindowsEspEntry", "WindowsEtlEvent", "WindowsEventRecord", "WindowsLnkRecord", "WindowsMbrVbrSector", "WindowsMftRecord",
+    "WindowsBcdEntry", "WindowsEfsEncryptedFile", "WindowsEspEntry", "WindowsEtlEvent", "WindowsEventRecord", "WindowsLnkRecord", "WindowsMbrVbrSector", "WindowsMftRecord",
     "WindowsPrefetchRecord", "WindowsScheduledTask", "WindowsSdbEntry",
     "WindowsSrumRecord", "WindowsWmiEvent",
 ]

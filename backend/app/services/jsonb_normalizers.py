@@ -3110,3 +3110,181 @@ def _stamp_firmware_etl_walk_result(payload: dict) -> dict:
     ``Firmware.etl_walk_result``. Idempotent."""
     payload["schema_version"] = FIRMWARE_ETL_WALK_RESULT_SCHEMA_VERSION
     return payload
+
+
+# ── windows_efs_encrypted_files.ddf_users (Phase ι.D.A) ──────────────────────
+#
+# Per-file DDF (Data Decryption Field) user list. Each entry is a dict
+# with the SID + cert thumbprint + optional friendly name. Canonical
+# shape:
+#
+#   [
+#     {
+#       "sid": "S-1-5-21-...-1001",
+#       "cert_thumbprint": "0123456789abcdef..." (40-char SHA-1 hex),
+#       "friendly_name": str | null,
+#     },
+#     ...
+#   ]
+#
+# Defensive: None / wrong-type → empty list. Empty list semantics: "no
+# DDF entries parsed for this file" — equivalent to a parse error or a
+# file with no DDF (malformed $EFS).
+#
+# Consumers (≥3):
+# - app/services/efs_walker.py (writer — populates from $EFS parser)
+# - app/services/finding_service.py (emit_efs_findings_from_walk —
+#   ι.D.D classifier)
+# - app/ai/tools/windows_efs.py (MCP tools — surface field + search-by-sid)
+
+
+WINDOWS_EFS_ENCRYPTED_FILES_DDF_USERS_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_efs_encrypted_files_ddf_users(value: object) -> list[dict]:
+    """Return the canonical ``list[dict]`` shape for
+    ``WindowsEfsEncryptedFile.ddf_users``.
+
+    Canonical: list of dicts, each with at minimum ``sid`` (str) +
+    ``cert_thumbprint`` (str) + ``friendly_name`` (str | None).
+    Defensive: None / wrong-typed / non-list → empty list. Non-dict
+    elements are silently dropped.
+    """
+    if not isinstance(value, list):
+        return []
+    return [entry for entry in value if isinstance(entry, dict)]
+
+
+def _stamp_windows_efs_encrypted_files_ddf_users(payload: list[dict]) -> list[dict]:
+    """Stamp the schema_version sentinel onto the writer payload for
+    ``WindowsEfsEncryptedFile.ddf_users``.
+
+    Unusually for Rule #35c, this is a list-typed field (not a dict) —
+    we add a sentinel dict at the start of the list (``{"schema_version": 1}``)
+    rather than mutating a top-level dict. Idempotent — calling twice
+    doesn't double-stamp.
+    """
+    if not payload:
+        return [{"schema_version": WINDOWS_EFS_ENCRYPTED_FILES_DDF_USERS_SCHEMA_VERSION}]
+    first = payload[0]
+    if isinstance(first, dict) and first.get("schema_version") == WINDOWS_EFS_ENCRYPTED_FILES_DDF_USERS_SCHEMA_VERSION:
+        return payload
+    return [
+        {"schema_version": WINDOWS_EFS_ENCRYPTED_FILES_DDF_USERS_SCHEMA_VERSION},
+        *payload,
+    ]
+
+
+# ── windows_efs_encrypted_files.drf_recovery_agents (Phase ι.D.A) ────────────
+#
+# Per-file DRF (Data Recovery Field) recovery-agent list. Same per-entry
+# shape as ddf_users (SID + cert thumbprint + optional friendly name).
+# Recovery agents are typically the DRA (Designated Recovery Agent)
+# certificates pushed via Group Policy from the domain or the local
+# EFS Recovery Agent configuration.
+#
+# Defensive: None / wrong-type → empty list. Empty list semantics: "no
+# recovery agents configured for this file" — common on standalone
+# Windows installs without corporate policy.
+#
+# Consumers (≥3):
+# - app/services/efs_walker.py (writer — populates from $EFS parser)
+# - app/services/finding_service.py (emit_efs_findings_from_walk —
+#   ι.D.D classifier)
+# - app/ai/tools/windows_efs.py (MCP tools — surface field +
+#   cross-firmware aggregation)
+
+
+WINDOWS_EFS_ENCRYPTED_FILES_DRF_RECOVERY_AGENTS_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_efs_encrypted_files_drf_recovery_agents(
+    value: object,
+) -> list[dict]:
+    """Return the canonical ``list[dict]`` shape for
+    ``WindowsEfsEncryptedFile.drf_recovery_agents``.
+
+    Canonical: list of dicts, each with at minimum ``sid`` (str) +
+    ``cert_thumbprint`` (str) + ``friendly_name`` (str | None).
+    Defensive: None / wrong-typed / non-list → empty list.
+    """
+    if not isinstance(value, list):
+        return []
+    return [entry for entry in value if isinstance(entry, dict)]
+
+
+def _stamp_windows_efs_encrypted_files_drf_recovery_agents(
+    payload: list[dict],
+) -> list[dict]:
+    """Stamp the schema_version sentinel onto the writer payload for
+    ``WindowsEfsEncryptedFile.drf_recovery_agents``. Idempotent."""
+    if not payload:
+        return [
+            {
+                "schema_version": (
+                    WINDOWS_EFS_ENCRYPTED_FILES_DRF_RECOVERY_AGENTS_SCHEMA_VERSION
+                )
+            }
+        ]
+    first = payload[0]
+    if (
+        isinstance(first, dict)
+        and first.get("schema_version")
+        == WINDOWS_EFS_ENCRYPTED_FILES_DRF_RECOVERY_AGENTS_SCHEMA_VERSION
+    ):
+        return payload
+    return [
+        {
+            "schema_version": (
+                WINDOWS_EFS_ENCRYPTED_FILES_DRF_RECOVERY_AGENTS_SCHEMA_VERSION
+            )
+        },
+        *payload,
+    ]
+
+
+# ── windows_efs_encrypted_files.anomaly_flags (Phase ι.D.A) ──────────────────
+#
+# Anomaly aggregate computed by the ι.D.C classifier per file. Canonical
+# shape:
+#
+#   {
+#     "schema_version": 1,
+#     "orphaned_drf": bool,            # DRF without matching DDF (insider-stealth)
+#     "unusual_recovery_agent": bool,  # DRF SID not in standard Windows EFS family
+#     "multiple_ddf_users": bool,      # >1 user in DDF
+#     "large_drf": bool,               # >2 recovery agents
+#     "cert_thumbprint_anomaly": bool, # cert thumbprint flagged (informational)
+#     "domain_admin_in_ddf": bool,     # domain admin SID in DDF
+#     "parse_error": bool,             # $EFS attribute couldn't be parsed
+#   }
+#
+# Consumers (≥3):
+# - app/services/efs_walker.py (writer — populates from classifier)
+# - app/services/finding_service.py (emit_efs_findings_from_walk —
+#   ι.D.D classifier)
+# - app/ai/tools/windows_efs.py (MCP tools — exposes anomaly_only filter)
+
+
+WINDOWS_EFS_ENCRYPTED_FILES_ANOMALY_FLAGS_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_efs_encrypted_files_anomaly_flags(value: object) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``WindowsEfsEncryptedFile.anomaly_flags``.
+
+    Defensive: None / wrong-typed → empty dict. Empty dict means "no
+    anomaly evaluation was performed" (e.g. early-init path).
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_windows_efs_encrypted_files_anomaly_flags(payload: dict) -> dict:
+    """Stamp the schema_version inline onto an ``anomaly_flags`` payload
+    for ``WindowsEfsEncryptedFile.anomaly_flags``. Idempotent."""
+    payload["schema_version"] = (
+        WINDOWS_EFS_ENCRYPTED_FILES_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+    return payload

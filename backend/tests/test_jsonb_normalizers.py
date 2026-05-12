@@ -54,6 +54,9 @@ from app.services.jsonb_normalizers import (
     WINDOWS_BCD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION,
     WINDOWS_BCD_ENTRIES_CUSTOM_ELEMENTS_SCHEMA_VERSION,
     WINDOWS_DRIVERS_INF_METADATA_SCHEMA_VERSION,
+    WINDOWS_EFS_ENCRYPTED_FILES_ANOMALY_FLAGS_SCHEMA_VERSION,
+    WINDOWS_EFS_ENCRYPTED_FILES_DDF_USERS_SCHEMA_VERSION,
+    WINDOWS_EFS_ENCRYPTED_FILES_DRF_RECOVERY_AGENTS_SCHEMA_VERSION,
     WINDOWS_ETL_EVENTS_ANOMALY_FLAGS_SCHEMA_VERSION,
     WINDOWS_ETL_EVENTS_PAYLOAD_SCHEMA_VERSION,
     WINDOWS_ESP_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION,
@@ -121,6 +124,9 @@ from app.services.jsonb_normalizers import (
     _normalize_windows_bcd_entries_custom_elements,
     _normalize_windows_drivers_inf_metadata,
     _normalize_windows_esp_entries_anomaly_flags,
+    _normalize_windows_efs_encrypted_files_anomaly_flags,
+    _normalize_windows_efs_encrypted_files_ddf_users,
+    _normalize_windows_efs_encrypted_files_drf_recovery_agents,
     _normalize_windows_etl_events_anomaly_flags,
     _normalize_windows_etl_events_payload,
     _normalize_windows_esp_entries_authenticode_chain,
@@ -167,6 +173,9 @@ from app.services.jsonb_normalizers import (
     _stamp_windows_bcd_entries_custom_elements,
     _stamp_windows_drivers_inf_metadata,
     _stamp_windows_esp_entries_anomaly_flags,
+    _stamp_windows_efs_encrypted_files_anomaly_flags,
+    _stamp_windows_efs_encrypted_files_ddf_users,
+    _stamp_windows_efs_encrypted_files_drf_recovery_agents,
     _stamp_windows_etl_events_anomaly_flags,
     _stamp_windows_etl_events_payload,
     _stamp_windows_esp_entries_authenticode_chain,
@@ -3716,3 +3725,232 @@ def test_stamp_firmware_etl_walk_result_idempotent():
 
 def test_firmware_etl_walk_result_schema_version_constant():
     assert FIRMWARE_ETL_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp windows_efs_encrypted_files.ddf_users (Phase ι.D.A) ────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical list of user entries — pass-through.
+        (
+            [
+                {
+                    "sid": "S-1-5-21-1-2-3-1001",
+                    "cert_thumbprint": "0123456789abcdef" * 2 + "01234567",
+                    "friendly_name": "alice@example.com",
+                },
+            ],
+            [
+                {
+                    "sid": "S-1-5-21-1-2-3-1001",
+                    "cert_thumbprint": "0123456789abcdef" * 2 + "01234567",
+                    "friendly_name": "alice@example.com",
+                },
+            ],
+        ),
+        # Empty list pass-through.
+        ([], []),
+        # None / wrong-types collapse to empty list.
+        (None, []),
+        ({}, []),
+        ("not a list", []),
+        (42, []),
+        # Non-dict elements silently dropped.
+        ([{"sid": "S-1"}, "garbage", 42, {"sid": "S-2"}], [{"sid": "S-1"}, {"sid": "S-2"}]),
+    ],
+)
+def test_normalize_windows_efs_encrypted_files_ddf_users(value, expected):
+    assert _normalize_windows_efs_encrypted_files_ddf_users(value) == expected
+
+
+def test_normalize_windows_efs_encrypted_files_ddf_users_idempotent():
+    canonical = [{"sid": "S-1-5-21-1-2-3-1001", "cert_thumbprint": "abc"}]
+    once = _normalize_windows_efs_encrypted_files_ddf_users(canonical)
+    twice = _normalize_windows_efs_encrypted_files_ddf_users(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_efs_encrypted_files_ddf_users_adds_sentinel():
+    out = _stamp_windows_efs_encrypted_files_ddf_users(
+        [{"sid": "S-1-5-21-1-2-3-1001"}]
+    )
+    # First element is the schema_version sentinel; user entries follow.
+    assert isinstance(out, list)
+    assert (
+        out[0]["schema_version"]
+        == WINDOWS_EFS_ENCRYPTED_FILES_DDF_USERS_SCHEMA_VERSION
+    )
+    assert out[1]["sid"] == "S-1-5-21-1-2-3-1001"
+
+
+def test_stamp_windows_efs_encrypted_files_ddf_users_empty_input():
+    out = _stamp_windows_efs_encrypted_files_ddf_users([])
+    assert out == [
+        {"schema_version": WINDOWS_EFS_ENCRYPTED_FILES_DDF_USERS_SCHEMA_VERSION},
+    ]
+
+
+def test_stamp_windows_efs_encrypted_files_ddf_users_idempotent():
+    once = _stamp_windows_efs_encrypted_files_ddf_users([{"sid": "S-1"}])
+    twice = _stamp_windows_efs_encrypted_files_ddf_users(once)
+    assert once == twice
+
+
+def test_windows_efs_encrypted_files_ddf_users_schema_version_constant():
+    assert WINDOWS_EFS_ENCRYPTED_FILES_DDF_USERS_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp windows_efs_encrypted_files.drf_recovery_agents (Phase ι.D.A) ──
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical list of recovery-agent entries — pass-through.
+        (
+            [
+                {
+                    "sid": "S-1-5-32-544",
+                    "cert_thumbprint": "abcdef0123456789" * 2 + "abcdef01",
+                    "friendly_name": "BUILTIN\\Administrators",
+                },
+            ],
+            [
+                {
+                    "sid": "S-1-5-32-544",
+                    "cert_thumbprint": "abcdef0123456789" * 2 + "abcdef01",
+                    "friendly_name": "BUILTIN\\Administrators",
+                },
+            ],
+        ),
+        # Empty list pass-through.
+        ([], []),
+        # None / wrong-types collapse to empty list.
+        (None, []),
+        ({}, []),
+        ("not a list", []),
+        (42, []),
+    ],
+)
+def test_normalize_windows_efs_encrypted_files_drf_recovery_agents(value, expected):
+    assert (
+        _normalize_windows_efs_encrypted_files_drf_recovery_agents(value)
+        == expected
+    )
+
+
+def test_normalize_windows_efs_encrypted_files_drf_recovery_agents_idempotent():
+    canonical = [{"sid": "S-1-5-32-544", "cert_thumbprint": "abc"}]
+    once = _normalize_windows_efs_encrypted_files_drf_recovery_agents(canonical)
+    twice = _normalize_windows_efs_encrypted_files_drf_recovery_agents(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_efs_encrypted_files_drf_recovery_agents_adds_sentinel():
+    out = _stamp_windows_efs_encrypted_files_drf_recovery_agents(
+        [{"sid": "S-1-5-32-544"}]
+    )
+    assert isinstance(out, list)
+    assert (
+        out[0]["schema_version"]
+        == WINDOWS_EFS_ENCRYPTED_FILES_DRF_RECOVERY_AGENTS_SCHEMA_VERSION
+    )
+    assert out[1]["sid"] == "S-1-5-32-544"
+
+
+def test_stamp_windows_efs_encrypted_files_drf_recovery_agents_empty_input():
+    out = _stamp_windows_efs_encrypted_files_drf_recovery_agents([])
+    assert out == [
+        {
+            "schema_version": (
+                WINDOWS_EFS_ENCRYPTED_FILES_DRF_RECOVERY_AGENTS_SCHEMA_VERSION
+            )
+        }
+    ]
+
+
+def test_stamp_windows_efs_encrypted_files_drf_recovery_agents_idempotent():
+    once = _stamp_windows_efs_encrypted_files_drf_recovery_agents(
+        [{"sid": "S-1-5-32-544"}]
+    )
+    twice = _stamp_windows_efs_encrypted_files_drf_recovery_agents(once)
+    assert once == twice
+
+
+def test_windows_efs_encrypted_files_drf_recovery_agents_schema_version_constant():
+    assert WINDOWS_EFS_ENCRYPTED_FILES_DRF_RECOVERY_AGENTS_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp windows_efs_encrypted_files.anomaly_flags (Phase ι.D.A) ─
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical pass-through.
+        (
+            {
+                "schema_version": 1,
+                "orphaned_drf": True,
+                "unusual_recovery_agent": False,
+                "multiple_ddf_users": False,
+                "large_drf": False,
+                "cert_thumbprint_anomaly": False,
+                "domain_admin_in_ddf": False,
+                "parse_error": False,
+            },
+            {
+                "schema_version": 1,
+                "orphaned_drf": True,
+                "unusual_recovery_agent": False,
+                "multiple_ddf_users": False,
+                "large_drf": False,
+                "cert_thumbprint_anomaly": False,
+                "domain_admin_in_ddf": False,
+                "parse_error": False,
+            },
+        ),
+        # Empty dict pass-through.
+        ({}, {}),
+        # None / wrong-types collapse to empty dict.
+        (None, {}),
+        ([{"a": 1}], {}),
+        ("not a dict", {}),
+        (42, {}),
+    ],
+)
+def test_normalize_windows_efs_encrypted_files_anomaly_flags(value, expected):
+    assert (
+        _normalize_windows_efs_encrypted_files_anomaly_flags(value) == expected
+    )
+
+
+def test_normalize_windows_efs_encrypted_files_anomaly_flags_idempotent():
+    canonical = {"schema_version": 1, "orphaned_drf": True}
+    once = _normalize_windows_efs_encrypted_files_anomaly_flags(canonical)
+    twice = _normalize_windows_efs_encrypted_files_anomaly_flags(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_efs_encrypted_files_anomaly_flags_adds_version():
+    out = _stamp_windows_efs_encrypted_files_anomaly_flags(
+        {"orphaned_drf": True}
+    )
+    assert (
+        out["schema_version"]
+        == WINDOWS_EFS_ENCRYPTED_FILES_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+
+
+def test_stamp_windows_efs_encrypted_files_anomaly_flags_idempotent():
+    once = _stamp_windows_efs_encrypted_files_anomaly_flags(
+        {"orphaned_drf": True}
+    )
+    twice = _stamp_windows_efs_encrypted_files_anomaly_flags(once)
+    assert once == twice
+
+
+def test_windows_efs_encrypted_files_anomaly_flags_schema_version_constant():
+    assert WINDOWS_EFS_ENCRYPTED_FILES_ANOMALY_FLAGS_SCHEMA_VERSION == 1
