@@ -27,6 +27,7 @@ import {
   Skull,
   HardDrive,
   KeyRound,
+  Workflow,
 } from 'lucide-react'
 import type { Severity, FindingStatus, FindingSource, Confidence } from '@/types'
 
@@ -119,6 +120,7 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   windows_byovd_driver: { icon: Skull, label: 'BYOVD Driver', className: 'border-red-700/60 text-red-700 dark:text-red-300' },
   windows_bcd_suspicious_path: { icon: HardDrive, label: 'BCD Path', className: 'border-orange-500/50 text-orange-600 dark:text-orange-400' },
   windows_bcd_testsigning_enabled: { icon: KeyRound, label: 'BCD TestSigning', className: 'border-red-500/50 text-red-600 dark:text-red-400' },
+  windows_wmi_persistence: { icon: Workflow, label: 'WMI Persistence', className: 'border-red-600/50 text-red-700 dark:text-red-300' },
 }
 
 // ── Finding confidence ──

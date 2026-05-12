@@ -180,6 +180,32 @@ WindowsFindingSource = Literal[
     #   be developer / driver-debug context.
     "windows_bcd_suspicious_path",
     "windows_bcd_testsigning_enabled",
+    # Phase θ.B.E — alignment slice with frontend FindingSource union +
+    # FINDING_SOURCE_CONFIG entries. Emitted by
+    # ``emit_wmi_findings_from_walk`` for every non-benign
+    # ``WindowsWmiEvent`` row produced by the θ.B.D walker whose
+    # anomaly_flags shape matches T1546.003 Event-Triggered
+    # Execution: WMI Event Subscription persistence indicators.
+    #
+    # windows_wmi_persistence — WMI FilterToConsumerBinding (the
+    # T1546.003 canonical persistence shape). Confidence tier mapping
+    # is heuristic-driven:
+    # - HIGH (Confidence.high) — consumer_type=ActiveScriptEvent
+    #   Consumer (in-process VBScript/JScript — highest-impact),
+    #   OR consumer_payload carries encoded-PowerShell signature
+    #   (Qakbot tradecraft: -EncodedCommand / -enc / FromBase64String
+    #   / Invoke-Expression / [char[]] / DownloadString / IEX).
+    # - MEDIUM (Confidence.medium) — consumer_type=CommandLineEvent
+    #   Consumer AND consumer_payload references a known script-host
+    #   binary (wscript / cscript / powershell / pwsh / mshta /
+    #   rundll32 / regsvr32). LOLBin-via-WMI shape.
+    # - LOW (Confidence.low) — baseline review-candidate row (any
+    #   non-benign FilterToConsumerBinding deserves operator
+    #   attention).
+    # Per intake style: ONE Literal value covers all 3 tiers (tier
+    # metadata into the finding's confidence + evidence rather than
+    # separate Literal values per tier).
+    "windows_wmi_persistence",
 ]
 
 

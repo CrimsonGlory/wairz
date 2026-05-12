@@ -225,6 +225,29 @@ _SOURCE_BCD_TESTSIGNING_ENABLED: WindowsFindingSource = (
 )
 
 
+# Phase θ.B.E — WMI persistence walker emit source. Emitted by
+# ``emit_wmi_findings_from_walk`` for every non-benign
+# ``WindowsWmiEvent`` row produced by the θ.B.D walker whose
+# anomaly_flags shape matches T1546.003 Event-Triggered Execution:
+# WMI Event Subscription indicators.
+#
+# windows_wmi_persistence — single Literal value covers all 3 tiers
+# (HIGH/MEDIUM/LOW). Confidence tier mapping is heuristic-driven by
+# the classifier:
+# - HIGH (Confidence.high) — consumer_type=ActiveScriptEventConsumer
+#   (in-process VBScript/JScript — highest-impact WMI consumer
+#   type), OR consumer_payload carries encoded-PowerShell signature
+#   (Qakbot tradecraft: -EncodedCommand / -enc / FromBase64String /
+#   Invoke-Expression / [char[]] / DownloadString / IEX).
+# - MEDIUM (Confidence.medium) — consumer_type=CommandLineEvent
+#   Consumer AND consumer_payload references a known script-host
+#   binary (wscript / cscript / powershell / pwsh / mshta /
+#   rundll32 / regsvr32). LOLBin-via-WMI shape.
+# - LOW (Confidence.low) — baseline review-candidate row (any
+#   non-benign FilterToConsumerBinding deserves operator attention).
+_SOURCE_WMI_PERSISTENCE: WindowsFindingSource = "windows_wmi_persistence"
+
+
 # ── Phase η.E — PowerShell EID classifier helper ──
 #
 # Heuristic detection for obfuscated/encoded PowerShell content. The
@@ -1646,6 +1669,204 @@ def classify_bcd_findings(
     return drafts
 
 
+# ── Phase θ.B.E — WMI persistence classifier ────────────────────────────────
+
+
+# Encoded-PowerShell tokens (case-insensitive). Same set as
+# wmi_walker.contains_encoded_powershell — kept duplicated for the
+# classifier's pure-function shape (no cross-module dependency on
+# the walker module at import time per Rule #30).
+_WMI_ENCODED_PS_PATTERNS: tuple[str, ...] = (
+    "-encodedcommand",
+    "-enc ",
+    "frombase64string",
+    "invoke-expression",
+    "downloadstring",
+    "iex ",
+    "[char[]]",
+    "[convert]::frombase64",
+)
+
+_WMI_SCRIPT_HOST_TOKENS: tuple[str, ...] = (
+    "wscript.exe",
+    "cscript.exe",
+    "powershell.exe",
+    "pwsh.exe",
+    "mshta.exe",
+    "rundll32.exe",
+    "regsvr32.exe",
+    "cmd.exe",
+)
+
+
+@dataclass(frozen=True)
+class _WMIFindingDraft:
+    """One WMI Finding row to emit. Carries an explicit confidence
+    tier alongside the standard fields so the emit hook can preserve
+    the tier-mapping derived from the WMI binding's anomaly_flags
+    shape + consumer_type.
+
+    Mirrors _BCDFindingDraft / _LnkFindingDraft / _MFTFindingDraft —
+    tier-bearing draft preserved through the emit boundary so the
+    FindingCreate.confidence is heuristic-driven, not fixed at low.
+    """
+    source: WindowsFindingSource
+    severity: Severity
+    title: str
+    description: str
+    evidence: str
+    confidence: Confidence
+
+
+def _wmi_consumer_payload_aggregate_str(
+    consumer_payload: list | None,
+) -> str:
+    """Build a single concatenated string from the consumer_payload
+    JSONB list for keyword matching."""
+    if not consumer_payload:
+        return ""
+    parts: list[str] = []
+    for entry in consumer_payload:
+        if not isinstance(entry, dict):
+            continue
+        parts.append(str(entry.get("consumer_type", "")))
+        parts.append(str(entry.get("arguments", "")))
+        parts.append(str(entry.get("other", "")))
+    return " ".join(parts)
+
+
+def _wmi_contains_encoded_powershell(payload: str) -> bool:
+    if not payload:
+        return False
+    lower = payload.lower()
+    return any(p in lower for p in _WMI_ENCODED_PS_PATTERNS)
+
+
+def _wmi_references_script_host(payload: str) -> bool:
+    if not payload:
+        return False
+    lower = payload.lower()
+    return any(t in lower for t in _WMI_SCRIPT_HOST_TOKENS)
+
+
+def classify_wmi_findings(
+    *,
+    binding_id: str,
+    filter_name: str,
+    filter_query: str | None,
+    consumer_name: str,
+    consumer_type: str,
+    consumer_payload: list | None,
+    source_path: str,
+    probably_benign: bool,
+) -> list[_WMIFindingDraft]:
+    """Phase θ.B.E — map one WindowsWmiEvent row to 0 or 1 Finding
+    drafts.
+
+    Pure function — no DB access. Returns empty list on benign
+    bindings (BVTConsumer-BVTFilter, SCM Event Log) — those are
+    skipped entirely from Finding emission since they ship with
+    Windows.
+
+    Returns 1 draft on non-benign bindings with confidence tier
+    derived from the binding shape:
+
+    - HIGH — ActiveScriptEventConsumer (in-process script execution
+      is the highest-impact WMI consumer type), OR consumer_payload
+      carries encoded-PowerShell pattern. Severity: high.
+    - MEDIUM — CommandLineEventConsumer + script-host invocation.
+      LOLBin-via-WMI shape. Severity: medium.
+    - LOW — baseline review-candidate row. Severity: low.
+
+    Mirrors classify_lnk_abnormal_target_findings shape (one draft
+    per row, tier-bearing).
+    """
+    if probably_benign:
+        return []
+
+    payload_str = _wmi_consumer_payload_aggregate_str(consumer_payload)
+    has_encoded_ps = _wmi_contains_encoded_powershell(payload_str)
+    has_script_host = _wmi_references_script_host(payload_str)
+    is_active_script = consumer_type == "ActiveScriptEventConsumer"
+    is_command_line = consumer_type == "CommandLineEventConsumer"
+
+    if is_active_script or has_encoded_ps:
+        confidence = Confidence.high
+        severity = Severity.high
+        if is_active_script and has_encoded_ps:
+            tier_label = (
+                "HIGH (ActiveScriptEventConsumer + encoded-PowerShell "
+                "— maximum-impact bootkit/persistence indicator)"
+            )
+        elif is_active_script:
+            tier_label = (
+                "HIGH (ActiveScriptEventConsumer — in-process "
+                "VBScript/JScript execution; T1546.003 strong signal)"
+            )
+        else:
+            tier_label = (
+                "HIGH (encoded-PowerShell pattern — Qakbot tradecraft "
+                "signature in WMI consumer payload)"
+            )
+    elif is_command_line and has_script_host:
+        confidence = Confidence.medium
+        severity = Severity.medium
+        tier_label = (
+            "MEDIUM (CommandLineEventConsumer + script-host "
+            "invocation — LOLBin-via-WMI shape)"
+        )
+    else:
+        confidence = Confidence.low
+        severity = Severity.low
+        tier_label = (
+            "LOW (non-benign FilterToConsumerBinding — baseline "
+            "review candidate; operator triage by consumer payload)"
+        )
+
+    # Truncate payload preview to keep evidence under 2000 chars.
+    payload_preview = payload_str[:1500] if payload_str else "(empty)"
+
+    evidence_lines = [
+        f"Tier: {tier_label}",
+        f"Source repository: {source_path}",
+        f"Binding ID: {binding_id}",
+        f"Filter name: {filter_name}",
+        f"Filter query: {filter_query or '(unset)'}",
+        f"Consumer name: {consumer_name}",
+        f"Consumer type: {consumer_type}",
+        f"Consumer payload (DATA — never executed): {payload_preview}",
+    ]
+
+    return [
+        _WMIFindingDraft(
+            source=_SOURCE_WMI_PERSISTENCE,
+            severity=severity,
+            title=(
+                f"WMI persistence binding: {binding_id}"
+            ),
+            description=(
+                "Windows WMI FilterToConsumerBinding detected — "
+                "the canonical T1546.003 Event-Triggered Execution: "
+                "WMI Event Subscription persistence mechanism. The "
+                "WMI service runs from boot, the binding survives "
+                "reboot via the repository's MAPPING*.MAP "
+                "allocation, and the binding fires WITHOUT spawning "
+                "a visible process (the WmiPrvSE.exe host runs the "
+                "consumer payload in-process). Notable adversary "
+                "tradecraft: APT29 (PowerShell consumer), APT32 "
+                "(JScript consumer), Turla (timer-based bindings), "
+                "FIN7 (Carbanak), ransomware affiliates (Conti, "
+                "BlackCat — pre-encryption staging). The consumer "
+                "payload is surfaced as DATA in the WindowsWmiEvent "
+                "row + this evidence field; wairz NEVER invokes the "
+                "payload (Rule #36 no-execute discipline)."
+            ),
+            evidence="\n".join(evidence_lines),
+            confidence=confidence,
+        )
+    ]
+
+
 # ── Phase η.D.D — LOLDrivers BYOVD fingerprint classifier ──────────────────
 
 
@@ -2607,6 +2828,91 @@ class FindingService:
                     # combined suspicious_path + non_ms OR testsigning,
                     # OR testsigning + integrity_off; MEDIUM on single-
                     # flag baseline).
+                    confidence=draft.confidence,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_wmi_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Phase θ.B.E — emit windows_wmi_persistence Finding rows
+        for one firmware.
+
+        Reads every persisted ``WindowsWmiEvent`` row for the firmware
+        (rows are produced by the θ.B.D walker) and projects each non-
+        benign row through :func:`classify_wmi_findings` which emits
+        0 (benign BVT/SCM bindings — skipped) or 1 draft (every non-
+        benign FilterToConsumerBinding earns at least a LOW finding).
+
+        Confidence tier is heuristic-driven by the classifier:
+
+        - HIGH — ActiveScriptEventConsumer (in-process VBScript/
+          JScript — highest impact), OR consumer_payload carries
+          encoded-PowerShell pattern (Qakbot signature). Severity:
+          high.
+        - MEDIUM — CommandLineEventConsumer + script-host invocation.
+          LOLBin-via-WMI shape. Severity: medium.
+        - LOW — baseline review-candidate row. Severity: low.
+
+        Unlike emit_srum_findings_from_walk / emit_prefetch_findings_from_walk
+        (which fix Confidence.low at the emit site), this emit method
+        passes the classifier-derived ``draft.confidence`` through to
+        the FindingCreate so the heuristic 3-tier mapping is preserved.
+        Mirrors emit_lnk_findings_from_walk + emit_bcd_findings_from_walk
+        shape.
+
+        Idempotency is the caller's responsibility — same shape as
+        emit_bcd_findings_from_walk; callers DELETE prior
+        windows_wmi_persistence findings for the firmware before
+        re-emitting.
+
+        Per Rule #36 — the classifier never invokes consumer payloads;
+        the payload is surfaced as DATA in the Finding's evidence
+        field for operator review only.
+        """
+        from app.models.windows_wmi_event import WindowsWmiEvent
+        from app.services.jsonb_normalizers import (
+            _normalize_windows_wmi_events_consumer_payload,
+        )
+
+        stmt = select(WindowsWmiEvent).where(
+            WindowsWmiEvent.firmware_id == firmware_id
+        )
+        rows = (await self.db.execute(stmt)).scalars().all()
+
+        emitted: list[Finding] = []
+        for record in rows:
+            consumer_payload = (
+                _normalize_windows_wmi_events_consumer_payload(
+                    record.consumer_payload
+                )
+            )
+            drafts = classify_wmi_findings(
+                binding_id=record.binding_id,
+                filter_name=record.filter_name,
+                filter_query=record.filter_query,
+                consumer_name=record.consumer_name,
+                consumer_type=record.consumer_type,
+                consumer_payload=consumer_payload,
+                source_path=record.source_path,
+                probably_benign=record.probably_benign,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.source_path,
+                    # Tier-bearing draft per θ.B.E classifier — preserve
+                    # the heuristic 3-tier confidence map (HIGH on
+                    # ActiveScript OR encoded-PS, MEDIUM on
+                    # CommandLine + script-host, LOW baseline).
                     confidence=draft.confidence,
                     firmware_id=firmware_id,
                     source=draft.source,
