@@ -3112,6 +3112,56 @@ def _stamp_firmware_etl_walk_result(payload: dict) -> dict:
     return payload
 
 
+# ── firmware.efs_walk_result (Phase ι.D.B) ───────────────────────────────────
+#
+# Per-firmware aggregate from a single EFS walk. Mirrors the
+# etl_walk_result + systemd_walk_result shape — a flat dict with
+# top-level summary fields. The runner stamps this once at completion.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,
+#     "images_scanned": int,             # raw NTFS image candidates parsed
+#     "files_walked": int,               # MFT records iterated
+#     "encrypted_files_found": int,      # files with FILE_ATTRIBUTE_ENCRYPTED
+#     "encrypted_files_persisted": int,  # rows written
+#     "files_capped": int,               # rows dropped (per-firmware cap)
+#     "parse_errors": int,               # $EFS attribute parse failures
+#     "orphaned_drf_count": int,         # files with DRF but no DDF
+#     "unusual_recovery_agent_count": int,
+#     "multiple_ddf_users_count": int,
+#     "large_drf_count": int,            # files with >2 recovery agents
+#     "domain_admin_in_ddf_count": int,
+#     "anomaly_total": int,              # files flagged by ≥1 anomaly bit
+#     "errors": list[str],
+#     "per_image": list[dict],
+#   }
+
+
+FIRMWARE_EFS_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_efs_walk_result(value: object) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.efs_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_efs_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.efs_walk_result``. Idempotent."""
+    payload["schema_version"] = FIRMWARE_EFS_WALK_RESULT_SCHEMA_VERSION
+    return payload
+
+
 # ── windows_efs_encrypted_files.ddf_users (Phase ι.D.A) ──────────────────────
 #
 # Per-file DDF (Data Decryption Field) user list. Each entry is a dict

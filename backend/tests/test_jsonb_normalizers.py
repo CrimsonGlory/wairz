@@ -33,6 +33,7 @@ from app.services.jsonb_normalizers import (
     FIRMWARE_BINARY_INFO_SCHEMA_VERSION,
     FIRMWARE_DEVICE_METADATA_SCHEMA_VERSION,
     FIRMWARE_DOTNET_DECOMPILE_RESULT_SCHEMA_VERSION,
+    FIRMWARE_EFS_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_ESP_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_ETL_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_EVTX_WALK_RESULT_SCHEMA_VERSION,
@@ -96,6 +97,7 @@ from app.services.jsonb_normalizers import (
     _normalize_firmware_device_metadata,
     _normalize_firmware_dotnet_decompile_result,
     _normalize_firmware_esp_walk_result,
+    _normalize_firmware_efs_walk_result,
     _normalize_firmware_etl_walk_result,
     _normalize_firmware_evtx_walk_result,
     _normalize_firmware_journald_walk_result,
@@ -153,6 +155,7 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_device_metadata,
     _stamp_firmware_dotnet_decompile_result,
     _stamp_firmware_esp_walk_result,
+    _stamp_firmware_efs_walk_result,
     _stamp_firmware_etl_walk_result,
     _stamp_firmware_evtx_walk_result,
     _stamp_firmware_journald_walk_result,
@@ -3954,3 +3957,54 @@ def test_stamp_windows_efs_encrypted_files_anomaly_flags_idempotent():
 
 def test_windows_efs_encrypted_files_anomaly_flags_schema_version_constant():
     assert WINDOWS_EFS_ENCRYPTED_FILES_ANOMALY_FLAGS_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp firmware.efs_walk_result (Phase ι.D.B) ─────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {
+                "schema_version": 1,
+                "images_scanned": 3,
+                "files_walked": 150000,
+                "encrypted_files_found": 12,
+                "encrypted_files_persisted": 12,
+                "anomaly_total": 2,
+            },
+            {
+                "schema_version": 1,
+                "images_scanned": 3,
+                "files_walked": 150000,
+                "encrypted_files_found": 12,
+                "encrypted_files_persisted": 12,
+                "anomaly_total": 2,
+            },
+        ),
+        # None preserved as the "no completed run yet" sentinel.
+        (None, None),
+        # Wrong-types collapse to None.
+        ([], None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_efs_walk_result(value, expected):
+    assert _normalize_firmware_efs_walk_result(value) == expected
+
+
+def test_stamp_firmware_efs_walk_result_adds_version():
+    out = _stamp_firmware_efs_walk_result({"images_scanned": 0})
+    assert out["schema_version"] == FIRMWARE_EFS_WALK_RESULT_SCHEMA_VERSION
+
+
+def test_stamp_firmware_efs_walk_result_idempotent():
+    once = _stamp_firmware_efs_walk_result({"images_scanned": 0})
+    twice = _stamp_firmware_efs_walk_result(once)
+    assert once == twice
+
+
+def test_firmware_efs_walk_result_schema_version_constant():
+    assert FIRMWARE_EFS_WALK_RESULT_SCHEMA_VERSION == 1

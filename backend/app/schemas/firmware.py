@@ -162,6 +162,19 @@ EtlWalkStatus = Literal[
     "idle", "queued", "running", "completed", "failed"
 ]
 
+# Phase ι.D.B Windows EFS DDF/DRF metadata walker — Rule #33 .c Pydantic
+# Literal typo-gate at the trigger MCP tool / status reader boundary.
+# SECOND ι Windows-side walker (ι.A + ι.B Linux; ι.C ETW). PARSE-ONLY
+# discipline per Rule #36 extension — surfaces DDF user list + DRF
+# recovery-agent list metadata only; never decrypts the FEK or invokes
+# DPAPI. The DB CHECK constraint ``ck_firmware_efs_walk_status``
+# (alembic revision aabbccddee08) is the durable safety floor; this
+# Literal adds compile-time typo detection for new callers. Mirrors
+# the EtlWalkStatus / SystemdWalkStatus shapes.
+EfsWalkStatus = Literal[
+    "idle", "queued", "running", "completed", "failed"
+]
+
 # Phase θ.D.B WindowsSdbEntry.sdb_kind — Rule #33 .c Pydantic
 # Literal typo-gate. The DB CHECK constraint
 # ``ck_windows_sdb_entries_sdb_kind`` (alembic revision
