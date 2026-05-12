@@ -500,6 +500,49 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # Phase ι.E.B Linux container-runtime artefact walker columns
+    # (CLAUDE.md Rule #33 contract). THIRD LINUX walker (ι.A journald +
+    # ι.B systemd were Linux; ι.C ETW + ι.D EFS were Windows). FIFTH ι
+    # walker overall. Background runner ``run_container_walk_background``
+    # walks each detection root per Rule #16, scans canonical container
+    # runtime locations (Docker / containerd / podman / OCI image-spec /
+    # daemon + runtime configs), parses each JSON via stdlib ``json``,
+    # extracts container forensic METADATA (image_id / mounts /
+    # capabilities / seccomp profile / network mode / env keys / command
+    # / entrypoint), persists per-artifact rows into
+    # ``linux_container_artifacts`` (table from ι.E.A), and stamps an
+    # aggregate JSONB result onto ``container_walk_result``.
+    #
+    # **Container forensics persona — T1610 / T1611 / T1612.** Adversary
+    # uses: privileged container deploy (T1610); container-to-host escape
+    # via host-namespace shares + dangerous capabilities + unsafe bind
+    # mounts (T1611); image build on compromised host (T1612). 2025 CVE
+    # cluster: 3 runc CVEs (CVE-2025-31133 / -52565 / -52881) + Docker
+    # CVE-2025-9074 — all exploit inspectable container-state artefacts.
+    #
+    # Rule #33 .c CHECK enforces the 5-state machine; Rule #33 .d —
+    # asyncio.create_task dispatch (in-process stdlib json parsing; no
+    # Docker spawn; zero new deps).
+    #
+    # Rule #36 no-execute: walker parses JSON state files only — NEVER
+    # invokes any extracted container, NEVER exec's into one, NEVER
+    # pulls images. Test gate `test_container_walker_no_execute`.
+    container_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    container_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    container_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    container_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    container_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     # Phase θ.B.C WMI persistence walker columns (CLAUDE.md Rule #33 contract).
     # Background runner ``run_wmi_walk_background`` opens each WMI
     # OBJECTS.DATA file (typically under ``Windows/System32/wbem/Repository/``

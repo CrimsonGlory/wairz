@@ -175,6 +175,19 @@ EfsWalkStatus = Literal[
     "idle", "queued", "running", "completed", "failed"
 ]
 
+# Phase ι.E.B Linux container-runtime artefact walker — Rule #33 .c
+# Pydantic Literal typo-gate at the trigger MCP tool / status reader
+# boundary. THIRD LINUX walker (ι.A journald + ι.B systemd were Linux;
+# ι.C ETW + ι.D EFS were Windows). FIFTH ι walker overall. Container
+# forensics persona — T1610 / T1611 / T1612. The DB CHECK constraint
+# ``ck_firmware_container_walk_status`` (alembic revision aabbccddee0b)
+# is the durable safety floor; this Literal adds compile-time typo
+# detection for new callers. Mirrors the EfsWalkStatus / EtlWalkStatus
+# / SystemdWalkStatus shapes.
+ContainerWalkStatus = Literal[
+    "idle", "queued", "running", "completed", "failed"
+]
+
 # Phase θ.D.B WindowsSdbEntry.sdb_kind — Rule #33 .c Pydantic
 # Literal typo-gate. The DB CHECK constraint
 # ``ck_windows_sdb_entries_sdb_kind`` (alembic revision
