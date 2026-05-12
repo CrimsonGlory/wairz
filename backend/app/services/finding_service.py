@@ -322,6 +322,32 @@ _SOURCE_JOURNALD_SELINUX_DENIED: LinuxFindingSource = (
     "linux_journald_selinux_denied"
 )
 
+# ── Phase ι.B.D — Linux systemd unit-file source constants (SECOND LINUX) ────
+#
+# Sibling family to _SOURCE_JOURNALD_* above. Same Rule #33 .c
+# discipline — narrow Literal at the helper boundary catches typos at
+# code-load time without disturbing the legacy FindingCreate.source:
+# str contract. The DB CHECK (ck_findings_source from ι.B.D alembic
+# aabbccddee03) is the durable safety floor enforcing the full
+# allowlist (57 sources total at ι.B.D shipping time = 52 prior + 5
+# new Linux systemd sources). SECOND non-Windows cross-stack alignment
+# commit (Rule #25 single-slice exception #2, Rule-of-Twenty).
+_SOURCE_SYSTEMD_SUSPICIOUS_PATH: LinuxFindingSource = (
+    "linux_systemd_suspicious_path"
+)
+_SOURCE_SYSTEMD_OBFUSCATED_EXEC: LinuxFindingSource = (
+    "linux_systemd_obfuscated_exec"
+)
+_SOURCE_SYSTEMD_SOCKET_UNUSUAL_PORT: LinuxFindingSource = (
+    "linux_systemd_socket_unusual_port"
+)
+_SOURCE_SYSTEMD_ROOT_MINIMAL_DEPS: LinuxFindingSource = (
+    "linux_systemd_root_minimal_deps"
+)
+_SOURCE_SYSTEMD_ENABLED_OUTSIDE_STANDARD: LinuxFindingSource = (
+    "linux_systemd_enabled_outside_standard"
+)
+
 
 # ── Phase η.E — PowerShell EID classifier helper ──
 #
@@ -2884,6 +2910,325 @@ def classify_journald_findings(
     return drafts
 
 
+# ── Phase ι.B.D — Linux systemd unit-file classifier (SECOND LINUX) ─────────
+
+
+@dataclass(frozen=True)
+class _SystemdUnitFindingDraft:
+    """One Linux systemd unit-file Finding row to emit. Sibling of
+    _JournaldFindingDraft (ι.A.D). source typed as LinuxFindingSource;
+    confidence tier carried at the draft so emit_systemd_findings_from_walk
+    preserves the heuristic-driven map (HIGH for suspicious_path /
+    obfuscated_exec / enabled_outside_standard; MEDIUM for
+    socket_unusual_port / root_minimal_deps).
+    """
+    source: LinuxFindingSource
+    severity: Severity
+    title: str
+    description: str
+    evidence: str
+    confidence: Confidence
+
+
+def _systemd_evidence_lines(
+    *,
+    unit_path: str,
+    unit_type: str,
+    unit_name: str,
+    description: str | None,
+    exec_start: str | None,
+    user: str | None,
+    working_directory: str | None,
+    wanted_by: list[str] | None,
+    required_by: list[str] | None,
+    requires: list[str] | None,
+    enabled: bool,
+    socket_listen: dict | None,
+    anomaly_flags: dict,
+    tier_label: str,
+) -> list[str]:
+    """Build evidence body shared by all 5 systemd-unit classifiers."""
+    return [
+        f"Tier: {tier_label}",
+        f"Unit path: {unit_path}",
+        f"Unit: {unit_name}.{unit_type}",
+        f"Description: {description or '(none)'}",
+        f"ExecStart: {(exec_start or '(none)')[:512]}",
+        f"User: {user or '(default/root)'}",
+        f"WorkingDirectory: {working_directory or '(none)'}",
+        f"WantedBy: {list(wanted_by or [])}",
+        f"RequiredBy: {list(required_by or [])}",
+        f"Requires: {list(requires or [])}",
+        f"Enabled (symlink found): {enabled}",
+        f"Socket listen: {dict(socket_listen or {})}",
+        f"Anomaly flags: {dict(anomaly_flags)}",
+    ]
+
+
+def classify_systemd_findings(
+    *,
+    unit_path: str,
+    unit_type: str,
+    unit_name: str,
+    description: str | None,
+    exec_start: str | None,
+    user: str | None,
+    working_directory: str | None,
+    wanted_by: list[str] | None,
+    required_by: list[str] | None,
+    requires: list[str] | None,
+    enabled: bool,
+    socket_listen: dict | None,
+    anomaly_flags: dict,
+) -> list[_SystemdUnitFindingDraft]:
+    """Phase ι.B.D — map one LinuxSystemdUnit row to 0+ Finding drafts.
+
+    Pure function — no DB access. Each row may yield 0 (no anomaly
+    fires) or up to 5 drafts (each anomaly bit is independent — a
+    rootkit dropper service can simultaneously fire suspicious_path,
+    obfuscated_exec, root_minimal_deps, and enabled_outside_standard).
+
+    Tier mapping (Persona-E driven):
+
+    - linux_systemd_suspicious_path — HIGH (T1543.002 systemd-from-
+      writable persistence — APT36 / FIRESTARTER / Quasar canonical
+      TTP). Severity: high.
+    - linux_systemd_obfuscated_exec — HIGH (T1027 Obfuscated Files —
+      base64/eval/curl|sh patterns indicate adversary droppers).
+      Severity: high.
+    - linux_systemd_enabled_outside_standard — HIGH supporting
+      indicator (custom WantedBy target). Severity: medium.
+    - linux_systemd_socket_unusual_port — MEDIUM (T1571 Non-Standard
+      Port). Severity: medium.
+    - linux_systemd_root_minimal_deps — MEDIUM (rootkit pattern;
+      ambiguous between legitimate baseline services and adversary
+      droppers). Severity: medium.
+
+    Mirrors classify_journald_findings (ι.A.D precedent) shape.
+    """
+    drafts: list[_SystemdUnitFindingDraft] = []
+
+    # ── linux_systemd_suspicious_path ────────────────────────────────────────
+    if anomaly_flags.get("suspicious_path"):
+        tier_label = (
+            "HIGH (T1543.002 Create or Modify System Process: Systemd "
+            "Service from writable directory — APT36 / FIRESTARTER / "
+            "Quasar Linux QLNX canonical TTP)"
+        )
+        drafts.append(_SystemdUnitFindingDraft(
+            source=_SOURCE_SYSTEMD_SUSPICIOUS_PATH,
+            severity=Severity.high,
+            title=(
+                f"Systemd unit references writable-dir payload: "
+                f"{unit_name}.{unit_type}"
+            ),
+            description=(
+                "Linux systemd unit ExecStart= or WorkingDirectory= "
+                "points at a writable directory (/tmp, /var/tmp, "
+                "/dev/shm, /run/shm, /home). Production systemd "
+                "services execute from /usr/bin/, /usr/sbin/, "
+                "/usr/lib/, /usr/local/. A unit that references a "
+                "writable-dir payload is the canonical T1543.002 "
+                "Create or Modify System Process: Systemd Service "
+                "persistence indicator — APT36 Transparent Tribe (Aug "
+                "2025), FIRESTARTER (CISA 2026), Quasar Linux QLNX "
+                "(May 2026) all use this exact tradecraft."
+            ),
+            evidence="\n".join(_systemd_evidence_lines(
+                unit_path=unit_path,
+                unit_type=unit_type,
+                unit_name=unit_name,
+                description=description,
+                exec_start=exec_start,
+                user=user,
+                working_directory=working_directory,
+                wanted_by=wanted_by,
+                required_by=required_by,
+                requires=requires,
+                enabled=enabled,
+                socket_listen=socket_listen,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.high,
+        ))
+
+    # ── linux_systemd_obfuscated_exec ────────────────────────────────────────
+    if anomaly_flags.get("obfuscated_exec"):
+        tier_label = (
+            "HIGH (T1027 Obfuscated Files or Information — base64 / "
+            "eval / curl|sh patterns in ExecStart=)"
+        )
+        drafts.append(_SystemdUnitFindingDraft(
+            source=_SOURCE_SYSTEMD_OBFUSCATED_EXEC,
+            severity=Severity.high,
+            title=(
+                f"Systemd unit ExecStart contains obfuscation: "
+                f"{unit_name}.{unit_type}"
+            ),
+            description=(
+                "Linux systemd unit ExecStart= matches at least one "
+                "obfuscation indicator: a long /bin/sh -c invocation "
+                "(>120 chars), an eval-like pattern, a curl|sh / "
+                "wget|sh pipeline, or an embedded base64-decoded "
+                "blob. Production systemd services launch a single "
+                "binary with simple arguments; obfuscation patterns "
+                "signal a dropper / stager / loader. T1027 Obfuscated "
+                "Files or Information."
+            ),
+            evidence="\n".join(_systemd_evidence_lines(
+                unit_path=unit_path,
+                unit_type=unit_type,
+                unit_name=unit_name,
+                description=description,
+                exec_start=exec_start,
+                user=user,
+                working_directory=working_directory,
+                wanted_by=wanted_by,
+                required_by=required_by,
+                requires=requires,
+                enabled=enabled,
+                socket_listen=socket_listen,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.high,
+        ))
+
+    # ── linux_systemd_socket_unusual_port ────────────────────────────────────
+    if anomaly_flags.get("socket_unusual_port"):
+        tier_label = (
+            "MEDIUM (T1571 Non-Standard Port — socket activation on "
+            "port outside the well-known set)"
+        )
+        drafts.append(_SystemdUnitFindingDraft(
+            source=_SOURCE_SYSTEMD_SOCKET_UNUSUAL_PORT,
+            severity=Severity.medium,
+            title=(
+                f"Systemd socket on unusual port: "
+                f"{unit_name}.{unit_type}"
+            ),
+            description=(
+                "Linux systemd [Socket] section binds to a numeric "
+                "port outside the well-known set (22 SSH, 53 DNS, 80/"
+                "443 HTTP, 25/587 SMTP, etc). Adversary C2 listeners "
+                "frequently bind to high-numbered or randomized ports "
+                "to avoid scanning detection. T1571 Non-Standard Port. "
+                "Cross-reference against the unit's ExecStart= and "
+                "User= fields plus any matching listening process in "
+                "the system's netstat / ss / lsof output."
+            ),
+            evidence="\n".join(_systemd_evidence_lines(
+                unit_path=unit_path,
+                unit_type=unit_type,
+                unit_name=unit_name,
+                description=description,
+                exec_start=exec_start,
+                user=user,
+                working_directory=working_directory,
+                wanted_by=wanted_by,
+                required_by=required_by,
+                requires=requires,
+                enabled=enabled,
+                socket_listen=socket_listen,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.medium,
+        ))
+
+    # ── linux_systemd_root_minimal_deps ──────────────────────────────────────
+    if anomaly_flags.get("root_minimal_deps"):
+        tier_label = (
+            "MEDIUM (rootkit pattern — User=root + Requires= empty "
+            "produces unpredictable start order, common dropper shape)"
+        )
+        drafts.append(_SystemdUnitFindingDraft(
+            source=_SOURCE_SYSTEMD_ROOT_MINIMAL_DEPS,
+            severity=Severity.medium,
+            title=(
+                f"Systemd unit root-running with minimal deps: "
+                f"{unit_name}.{unit_type}"
+            ),
+            description=(
+                "Linux systemd unit runs as User=root (or unset, "
+                "defaulting to root) AND declares an empty Requires= "
+                "field. The pattern is ambiguous — many legitimate "
+                "baseline services match it (sysstat, irqbalance, "
+                "etc) — but adversary droppers also commonly use "
+                "this shape because it survives target reordering "
+                "and runs at full privilege from boot. Cross-"
+                "reference against the unit's ExecStart= path "
+                "(suspicious_path bit) and obfuscation (obfuscated_"
+                "exec bit) for higher-confidence triage."
+            ),
+            evidence="\n".join(_systemd_evidence_lines(
+                unit_path=unit_path,
+                unit_type=unit_type,
+                unit_name=unit_name,
+                description=description,
+                exec_start=exec_start,
+                user=user,
+                working_directory=working_directory,
+                wanted_by=wanted_by,
+                required_by=required_by,
+                requires=requires,
+                enabled=enabled,
+                socket_listen=socket_listen,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.medium,
+        ))
+
+    # ── linux_systemd_enabled_outside_standard ───────────────────────────────
+    if anomaly_flags.get("enabled_outside_standard"):
+        tier_label = (
+            "MEDIUM (custom WantedBy/RequiredBy target — adversary "
+            "often defines custom target for staging)"
+        )
+        drafts.append(_SystemdUnitFindingDraft(
+            source=_SOURCE_SYSTEMD_ENABLED_OUTSIDE_STANDARD,
+            severity=Severity.medium,
+            title=(
+                f"Systemd unit enabled on non-standard target: "
+                f"{unit_name}.{unit_type}"
+            ),
+            description=(
+                "Linux systemd unit's [Install] WantedBy= or "
+                "RequiredBy= references a target OUTSIDE the standard "
+                "17-target set (multi-user.target, graphical.target, "
+                "sysinit.target, sockets.target, basic.target, "
+                "default.target, etc). Production services attach to "
+                "the well-known targets. A custom target is a frequent "
+                "adversary technique — they define their own target "
+                "(e.g. ``maintenance.target``) and stage payloads under "
+                "it. T1543.002 supporting indicator. Cross-reference "
+                "against the WantedBy= target list in the evidence "
+                "section + the firmware's other custom targets."
+            ),
+            evidence="\n".join(_systemd_evidence_lines(
+                unit_path=unit_path,
+                unit_type=unit_type,
+                unit_name=unit_name,
+                description=description,
+                exec_start=exec_start,
+                user=user,
+                working_directory=working_directory,
+                wanted_by=wanted_by,
+                required_by=required_by,
+                requires=requires,
+                enabled=enabled,
+                socket_listen=socket_listen,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.medium,
+        ))
+
+    return drafts
+
+
 # ── Phase η.D.D — LOLDrivers BYOVD fingerprint classifier ──────────────────
 
 
@@ -4259,6 +4604,114 @@ class FindingService:
                     evidence=draft.evidence,
                     file_path=record.journal_file_path,
                     # Tier-bearing draft per ι.A.D classifier —
+                    # preserve heuristic tier confidence map.
+                    confidence=draft.confidence,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_systemd_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Phase ι.B.D — emit linux_systemd_* Finding rows for one
+        firmware (SECOND LINUX emit hook; ι.A.D shipped journald).
+
+        Reads every persisted ``LinuxSystemdUnit`` row for the firmware
+        (rows produced by the ι.B.C walker) and projects each row
+        through :func:`classify_systemd_findings` which may emit 0-5
+        drafts (each anomaly bit is independent — a single unit with
+        ExecStart under /tmp/, root user, and base64 obfuscation can
+        fire suspicious_path + obfuscated_exec + root_minimal_deps
+        simultaneously).
+
+        Confidence tier is heuristic-driven by the classifier:
+
+        - HIGH — linux_systemd_suspicious_path (T1543.002 always HIGH
+          — APT36 / FIRESTARTER / Quasar tradecraft).
+        - HIGH — linux_systemd_obfuscated_exec (T1027 — base64/eval/
+          curl|sh pattern).
+        - MEDIUM — linux_systemd_socket_unusual_port (T1571 Non-
+          Standard Port).
+        - MEDIUM — linux_systemd_root_minimal_deps (rootkit pattern;
+          ambiguous between legitimate baselines and adversary
+          droppers).
+        - MEDIUM — linux_systemd_enabled_outside_standard (custom
+          WantedBy target).
+
+        Mirrors emit_journald_findings_from_walk shape — tier-bearing
+        drafts preserved through the boundary so FindingCreate.confidence
+        reflects the heuristic map.
+
+        Idempotency is the caller's responsibility — same shape as
+        emit_journald_findings_from_walk; callers DELETE prior
+        linux_systemd_* findings for the firmware before re-emitting.
+
+        Per Rule #36 — the classifier never invokes ``systemctl`` /
+        ``systemd-run`` / ``runuser`` against the parsed units; the
+        ExecStart= / WorkingDirectory= / Socket listen fields are
+        surfaced as DATA in the Finding's evidence field for operator
+        review only.
+        """
+        from app.models.linux_systemd_units import LinuxSystemdUnit
+        from app.services.jsonb_normalizers import (
+            _normalize_linux_systemd_units_after,
+            _normalize_linux_systemd_units_anomaly_flags,
+            _normalize_linux_systemd_units_required_by,
+            _normalize_linux_systemd_units_requires,
+            _normalize_linux_systemd_units_socket_listen,
+            _normalize_linux_systemd_units_wanted_by,
+        )
+
+        stmt = select(LinuxSystemdUnit).where(
+            LinuxSystemdUnit.firmware_id == firmware_id
+        )
+        rows = (await self.db.execute(stmt)).scalars().all()
+
+        emitted: list[Finding] = []
+        for record in rows:
+            anomaly_flags = (
+                _normalize_linux_systemd_units_anomaly_flags(
+                    record.anomaly_flags
+                )
+            )
+            drafts = classify_systemd_findings(
+                unit_path=record.unit_path,
+                unit_type=record.unit_type,
+                unit_name=record.unit_name,
+                description=record.description,
+                exec_start=record.exec_start,
+                user=record.user,
+                working_directory=record.working_directory,
+                wanted_by=_normalize_linux_systemd_units_wanted_by(
+                    record.wanted_by
+                ),
+                required_by=_normalize_linux_systemd_units_required_by(
+                    record.required_by
+                ),
+                requires=_normalize_linux_systemd_units_requires(
+                    record.requires
+                ),
+                enabled=record.enabled,
+                socket_listen=_normalize_linux_systemd_units_socket_listen(
+                    record.socket_listen
+                ),
+                anomaly_flags=anomaly_flags,
+            )
+            # Suppress unused import warning if the parser drops the
+            # after-normalizer reference.
+            _ = _normalize_linux_systemd_units_after
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.unit_path,
+                    # Tier-bearing draft per ι.B.D classifier —
                     # preserve heuristic tier confidence map.
                     confidence=draft.confidence,
                     firmware_id=firmware_id,

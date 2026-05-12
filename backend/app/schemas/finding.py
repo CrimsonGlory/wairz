@@ -326,6 +326,40 @@ LinuxFindingSource = Literal[
     "linux_journald_suspicious_unit",
     "linux_journald_log_clear",
     "linux_journald_selinux_denied",
+    # Phase ι.B.D — Linux systemd unit-file walker emit sources
+    # (SECOND LINUX source family extension; the LinuxFindingSource
+    # umbrella was established by ι.A.D for journald).
+    #
+    # linux_systemd_suspicious_path — ExecStart= or WorkingDirectory=
+    #   under a writable directory (/tmp, /var/tmp, /dev/shm, /run/shm,
+    #   /home). T1543.002 (Create or Modify System Process: Systemd
+    #   Service from writable). Persona-E HIGH — APT36 / FIRESTARTER /
+    #   Quasar QLNX canonical TTP.
+    #
+    # linux_systemd_obfuscated_exec — ExecStart contains long sh -c
+    #   shell command, eval/curl|sh pattern, or base64-encoded blob.
+    #   T1027 (Obfuscated Files or Information). Persona-E HIGH.
+    #
+    # linux_systemd_socket_unusual_port — [Socket] ListenStream= or
+    #   ListenDatagram= on a numeric port outside the well-known set.
+    #   T1571 (Non-Standard Port). Persona-E MEDIUM.
+    #
+    # linux_systemd_root_minimal_deps — service runs as User=root (or
+    #   unset, default root) AND Requires= is empty. Common rootkit
+    #   pattern — no dependency chain means the unit's start order is
+    #   unpredictable / it survives target reordering. Persona-E
+    #   MEDIUM.
+    #
+    # linux_systemd_enabled_outside_standard — WantedBy= or RequiredBy=
+    #   contains a target outside the standard 17-target set (multi-
+    #   user.target, graphical.target, sysinit.target, sockets.target,
+    #   etc). Adversary often defines a custom target for staging.
+    #   T1543.002 supporting indicator. Persona-E MEDIUM.
+    "linux_systemd_suspicious_path",
+    "linux_systemd_obfuscated_exec",
+    "linux_systemd_socket_unusual_port",
+    "linux_systemd_root_minimal_deps",
+    "linux_systemd_enabled_outside_standard",
 ]
 
 

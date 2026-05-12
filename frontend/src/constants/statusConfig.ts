@@ -133,6 +133,11 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   linux_journald_suspicious_unit: { icon: Workflow, label: 'Journald Suspicious Unit', className: 'border-red-700/70 text-red-700 dark:text-red-200' },
   linux_journald_log_clear: { icon: Clock, label: 'Journald Log Clear', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
   linux_journald_selinux_denied: { icon: ShieldX, label: 'Journald SELinux Denied', className: 'border-rose-500/50 text-rose-600 dark:text-rose-400' },
+  linux_systemd_suspicious_path: { icon: Skull, label: 'Systemd Writable Path', className: 'border-red-700/70 text-red-700 dark:text-red-200' },
+  linux_systemd_obfuscated_exec: { icon: ShieldAlert, label: 'Systemd Obfuscated Exec', className: 'border-red-700/70 text-red-700 dark:text-red-200' },
+  linux_systemd_socket_unusual_port: { icon: Network, label: 'Systemd Unusual Port', className: 'border-orange-500/50 text-orange-600 dark:text-orange-400' },
+  linux_systemd_root_minimal_deps: { icon: KeyRound, label: 'Systemd Root No-Deps', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
+  linux_systemd_enabled_outside_standard: { icon: Workflow, label: 'Systemd Non-Standard Target', className: 'border-orange-600/50 text-orange-700 dark:text-orange-300' },
 }
 
 // ── Finding confidence ──
