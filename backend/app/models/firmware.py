@@ -586,6 +586,49 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # Phase κ.C Linux persistence-triplet walker columns (CLAUDE.md Rule
+    # #33 contract). EIGHTH κ-era walker. Single status set covers the
+    # walker overall (one walker emits to 3 sibling ORM tables —
+    # linux_bash_history_entries, linux_cron_jobs, linux_ld_preload_entries).
+    # Background runner ``run_linux_persistence_walk_background`` walks
+    # each detection root per Rule #16, locates each artefact family
+    # (bash_history candidates + crontab candidates + ld.so.preload
+    # candidates), decodes each file with ``errors='replace'`` for
+    # robustness against non-UTF8 bytes, tokenizes into lines, runs the
+    # κ.C.D classifier per line, persists per-line rows into the three
+    # κ.C.A tables, and stamps an aggregate JSONB result onto
+    # ``persistence_walk_result``.
+    #
+    # **The triplet matters together** — bash_history shows manual recon,
+    # crontab shows scheduled re-execution, ld.so.preload shows shared-
+    # library hijack. Real-world APT campaigns (APT36 Transparent Tribe,
+    # FIRESTARTER, Quasar Linux QLNX) leave traces across all three.
+    #
+    # **PARSE-ONLY DISCIPLINE — Rule #36.** The walker reads each
+    # artefact file AS TEXT via pure-Python ``open()`` + line splitting
+    # + regex matching. NO ``bash`` invocation, NO ``crontab`` CLI, NO
+    # ``ldconfig``, NO subprocess of any kind. Test gate
+    # ``test_linux_persistence_walker.py::test_walker_no_execute``.
+    #
+    # Rule #33 .c CHECK enforces the 5-state machine; Rule #33 .d —
+    # asyncio.create_task dispatch (in-process pure-Python text parsing;
+    # no Docker spawn).
+    persistence_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    persistence_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    persistence_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    persistence_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    persistence_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     # Phase θ.B.C WMI persistence walker columns (CLAUDE.md Rule #33 contract).
     # Background runner ``run_wmi_walk_background`` opens each WMI
     # OBJECTS.DATA file (typically under ``Windows/System32/wbem/Repository/``

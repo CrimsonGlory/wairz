@@ -3696,3 +3696,63 @@ def _stamp_linux_ld_preload_suspicious_flags(payload: dict) -> dict:
         LINUX_LD_PRELOAD_ENTRIES_SUSPICIOUS_FLAGS_SCHEMA_VERSION
     )
     return payload
+
+
+# ── firmware.persistence_walk_result (Phase κ.C.B) ────────────────────────────
+#
+# Per-firmware aggregate from a single Linux persistence-triplet walk.
+# Mirrors appcompat_walk_result / efs_walk_result / container_walk_result.
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,
+#     # Per-artefact counts
+#     "bash_history_files_scanned": int,
+#     "bash_history_lines_persisted": int,
+#     "cron_files_scanned": int,
+#     "cron_lines_persisted": int,
+#     "ld_preload_files_scanned": int,
+#     "ld_preload_lines_persisted": int,
+#     # Per-anomaly-bit aggregates
+#     "bash_clear_marker_count": int,
+#     "bash_download_pattern_count": int,
+#     "bash_priv_esc_pattern_count": int,
+#     "cron_temp_path_command_count": int,
+#     "cron_reboot_persistence_count": int,
+#     "cron_network_egress_pattern_count": int,
+#     "ld_preload_temp_path_library_count": int,
+#     "ld_preload_unusual_extension_count": int,
+#     "ld_preload_world_writable_dir_count": int,
+#     "anomaly_total": int,
+#     "errors": list[str],
+#     "per_artefact": list[dict],
+#   }
+#
+# Consumers (≥3 — Rule #35c stamp helper required):
+# - app/services/linux_persistence_walker.py (writer)
+# - app/services/finding_service.py (reader for re-emit gating)
+# - app/ai/tools/linux_persistence.py (MCP tools — status reader)
+
+FIRMWARE_PERSISTENCE_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_persistence_walk_result(value: object) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.persistence_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_persistence_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.persistence_walk_result``. Idempotent."""
+    payload["schema_version"] = (
+        FIRMWARE_PERSISTENCE_WALK_RESULT_SCHEMA_VERSION
+    )
+    return payload

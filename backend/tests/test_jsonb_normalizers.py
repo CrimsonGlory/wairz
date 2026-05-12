@@ -42,6 +42,7 @@ from app.services.jsonb_normalizers import (
     FIRMWARE_JOURNALD_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_MBR_VBR_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_MFT_WALK_RESULT_SCHEMA_VERSION,
+    FIRMWARE_PERSISTENCE_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_REGISTRY_HIVE_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_SRUM_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_SYSTEMD_WALK_RESULT_SCHEMA_VERSION,
@@ -112,6 +113,7 @@ from app.services.jsonb_normalizers import (
     _normalize_firmware_journald_walk_result,
     _normalize_firmware_mbr_vbr_walk_result,
     _normalize_firmware_mft_walk_result,
+    _normalize_firmware_persistence_walk_result,
     _normalize_firmware_registry_hive_walk_result,
     _normalize_firmware_srum_walk_result,
     _normalize_firmware_systemd_walk_result,
@@ -181,6 +183,7 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_journald_walk_result,
     _stamp_firmware_mbr_vbr_walk_result,
     _stamp_firmware_mft_walk_result,
+    _stamp_firmware_persistence_walk_result,
     _stamp_firmware_registry_hive_walk_result,
     _stamp_firmware_srum_walk_result,
     _stamp_firmware_systemd_walk_result,
@@ -4566,3 +4569,60 @@ def test_stamp_linux_ld_preload_suspicious_flags_idempotent():
 
 def test_linux_ld_preload_entries_suspicious_flags_schema_version_constant():
     assert LINUX_LD_PRELOAD_ENTRIES_SUSPICIOUS_FLAGS_SCHEMA_VERSION == 1
+
+
+# ── firmware.persistence_walk_result (Phase κ.C.B) ────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical shape — dict with arbitrary sub-keys.
+        (
+            {
+                "schema_version": 1,
+                "bash_history_files_scanned": 2,
+                "cron_lines_persisted": 5,
+                "anomaly_total": 3,
+            },
+            {
+                "schema_version": 1,
+                "bash_history_files_scanned": 2,
+                "cron_lines_persisted": 5,
+                "anomaly_total": 3,
+            },
+        ),
+        # Empty dict — preserved (no run yet but field exists).
+        ({}, {}),
+        # None preserved (semantic "no completed run").
+        (None, None),
+        # Wrong-types collapse to None.
+        ([{"a": 1}], None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_persistence_walk_result(value, expected):
+    assert _normalize_firmware_persistence_walk_result(value) == expected
+
+
+def test_stamp_firmware_persistence_walk_result_adds_version():
+    out = _stamp_firmware_persistence_walk_result(
+        {"bash_history_files_scanned": 0}
+    )
+    assert (
+        out["schema_version"]
+        == FIRMWARE_PERSISTENCE_WALK_RESULT_SCHEMA_VERSION
+    )
+
+
+def test_stamp_firmware_persistence_walk_result_idempotent():
+    once = _stamp_firmware_persistence_walk_result(
+        {"bash_history_files_scanned": 0}
+    )
+    twice = _stamp_firmware_persistence_walk_result(once)
+    assert once == twice
+
+
+def test_firmware_persistence_walk_result_schema_version_constant():
+    assert FIRMWARE_PERSISTENCE_WALK_RESULT_SCHEMA_VERSION == 1
