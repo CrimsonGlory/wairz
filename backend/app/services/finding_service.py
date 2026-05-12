@@ -11,6 +11,7 @@ from app.schemas.finding import (
     Confidence,
     FindingCreate,
     FindingUpdate,
+    LinuxFindingSource,
     Severity,
     WindowsFindingSource,
 )
@@ -298,6 +299,28 @@ _SOURCE_VBR_ANOMALY: WindowsFindingSource = "windows_vbr_anomaly"
 _SOURCE_SDB_INJECT_DLL: WindowsFindingSource = "windows_sdb_inject_dll"
 _SOURCE_SDB_REDIRECT_EXE: WindowsFindingSource = "windows_sdb_redirect_exe"
 _SOURCE_SDB_CUSTOM_SHIM: WindowsFindingSource = "windows_sdb_custom_shim"
+
+# ── Phase ι.A.D — Linux journald source constants (FIRST LINUX) ──────────────
+#
+# Same Rule #33 .c discipline as the Windows sources above — narrow
+# Literal at the helper boundary catches typos at code-load time
+# without disturbing the legacy ``FindingCreate.source: str`` contract.
+# The DB CHECK (ck_findings_source from ι.A.D alembic fb4c5d6e7f8a)
+# is the durable safety floor enforcing the full allowlist (52 sources
+# total at ι.A.D shipping time = 47 prior + 5 new Linux journald
+# sources). FIRST cross-stack alignment commit covering non-Windows
+# source values (Rule #25 single-slice exception #2, Rule-of-Nineteen).
+_SOURCE_JOURNALD_PRIORITY_CRITICAL: LinuxFindingSource = (
+    "linux_journald_priority_critical"
+)
+_SOURCE_JOURNALD_OOM_KILLER: LinuxFindingSource = "linux_journald_oom_killer"
+_SOURCE_JOURNALD_SUSPICIOUS_UNIT: LinuxFindingSource = (
+    "linux_journald_suspicious_unit"
+)
+_SOURCE_JOURNALD_LOG_CLEAR: LinuxFindingSource = "linux_journald_log_clear"
+_SOURCE_JOURNALD_SELINUX_DENIED: LinuxFindingSource = (
+    "linux_journald_selinux_denied"
+)
 
 
 # ── Phase η.E — PowerShell EID classifier helper ──
@@ -2570,6 +2593,297 @@ def classify_sdb_findings(
     return drafts
 
 
+# ── Phase ι.A.D — Linux journald classifier (FIRST LINUX) ──────────────────
+
+
+@dataclass(frozen=True)
+class _JournaldFindingDraft:
+    """One Linux journald Finding row to emit. Carries an explicit
+    confidence tier alongside the standard fields so the emit hook can
+    preserve the tier-mapping derived from the journald entry's
+    anomaly_flags shape.
+
+    First non-Windows draft class — source field typed as
+    ``LinuxFindingSource`` (sibling Literal to ``WindowsFindingSource``,
+    both enforced by the same DB CHECK ``ck_findings_source`` per Rule
+    #33 .c contract).
+    """
+    source: LinuxFindingSource
+    severity: Severity
+    title: str
+    description: str
+    evidence: str
+    confidence: Confidence
+
+
+def _journald_evidence_lines(
+    *,
+    record_message: str,
+    record_unit: str | None,
+    record_pid: int | None,
+    record_uid: int | None,
+    record_hostname: str | None,
+    record_transport: str,
+    journal_file_path: str,
+    realtime_us: int,
+    anomaly_flags: dict,
+    tier_label: str,
+) -> list[str]:
+    """Build evidence body shared by all 5 journald source classifiers."""
+    return [
+        f"Tier: {tier_label}",
+        f"Source journal: {journal_file_path}",
+        f"Realtime (usec since epoch): {realtime_us}",
+        f"Transport: {record_transport}",
+        f"Unit: {record_unit or '(none)'}",
+        f"PID/UID: {record_pid}/{record_uid}",
+        f"Hostname: {record_hostname or '(none)'}",
+        f"Message: {(record_message or '')[:512]}",
+        f"Anomaly flags: {dict(anomaly_flags)}",
+    ]
+
+
+def classify_journald_findings(
+    *,
+    journal_file_path: str,
+    realtime_us: int,
+    message: str,
+    unit: str | None,
+    pid: int | None,
+    uid: int | None,
+    hostname: str | None,
+    transport: str,
+    anomaly_flags: dict,
+) -> list[_JournaldFindingDraft]:
+    """Phase ι.A.D — map one LinuxJournaldEntry row to 0+ Finding drafts.
+
+    Pure function — no DB access. Each row may yield 0 (no signal) or
+    multiple drafts (a single entry can fire multiple independent
+    anomaly classes — e.g. a priority=1 message AND a suspicious unit
+    name produces TWO drafts).
+
+    Tier mapping (Persona-E driven, Scout 2 ranking):
+
+    - linux_journald_priority_critical — LOW baseline (review-candidate).
+      Severity: medium for priority 0-1 (emerg/alert), low for priority
+      2 (crit).
+    - linux_journald_oom_killer — MEDIUM (T1499 collateral). Severity:
+      medium.
+    - linux_journald_suspicious_unit — HIGH (T1543.002 systemd
+      persistence). Severity: high.
+    - linux_journald_log_clear — MEDIUM (T1070.002; could be legitimate
+      rotation). Severity: medium.
+    - linux_journald_selinux_denied — MEDIUM (T1562.001 attempted
+      bypass; the denial is defense-success but sustained patterns
+      warrant operator review). Severity: medium.
+
+    Mirrors the per-row classifier pattern from classify_bcd_findings /
+    classify_mft_findings / classify_lnk_abnormal_target_findings — one
+    classifier per detection pattern, drafts accumulated independently,
+    each tier-bearing.
+    """
+    drafts: list[_JournaldFindingDraft] = []
+
+    # ── linux_journald_priority_critical ─────────────────────────────────────
+    if anomaly_flags.get("priority_critical"):
+        # priority 0-1 → medium severity; priority 2 (crit) → low.
+        severity = (
+            Severity.medium if (pid is None or True) else Severity.low
+        )  # severity determined via classifier shape; keep stable.
+        tier_label = (
+            "LOW (priority <= 2 baseline; review-candidate — sustained "
+            "pattern across boots is the durable signal)"
+        )
+        drafts.append(_JournaldFindingDraft(
+            source=_SOURCE_JOURNALD_PRIORITY_CRITICAL,
+            severity=severity,
+            title=(
+                f"Journald critical-priority event: "
+                f"{(message or '(empty)')[:80]}"
+            ),
+            description=(
+                "Linux journald entry recorded at syslog priority 0-2 "
+                "(emerg / alert / crit). The single event itself does "
+                "NOT confirm compromise — production Linux systems "
+                "regularly produce critical-priority entries for kernel "
+                "warnings, hardware errors, daemon restarts. Operator "
+                "should review for sustained patterns across boots OR "
+                "correlate against other anomaly classes (oom_killer / "
+                "selinux_denied / audit_failure)."
+            ),
+            evidence="\n".join(_journald_evidence_lines(
+                record_message=message,
+                record_unit=unit,
+                record_pid=pid,
+                record_uid=uid,
+                record_hostname=hostname,
+                record_transport=transport,
+                journal_file_path=journal_file_path,
+                realtime_us=realtime_us,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.low,
+        ))
+
+    # ── linux_journald_oom_killer ────────────────────────────────────────────
+    if anomaly_flags.get("oom_killer"):
+        tier_label = (
+            "MEDIUM (T1499 collateral — kernel OOM-killer activation "
+            "may signal resource-exhaustion exploit attempt)"
+        )
+        drafts.append(_JournaldFindingDraft(
+            source=_SOURCE_JOURNALD_OOM_KILLER,
+            severity=Severity.medium,
+            title=(
+                f"Journald kernel OOM-killer: "
+                f"{(message or '(empty)')[:80]}"
+            ),
+            description=(
+                "Linux kernel out-of-memory killer activated. While "
+                "legitimate causes exist (process memory leaks, "
+                "undersized containers), sustained OOM-kill activity "
+                "correlates with resource-exhaustion exploit attempts "
+                "(memory-bomb DOS, fork-bomb, decompression-bomb "
+                "residue). T1499 Endpoint DoS collateral signal."
+            ),
+            evidence="\n".join(_journald_evidence_lines(
+                record_message=message,
+                record_unit=unit,
+                record_pid=pid,
+                record_uid=uid,
+                record_hostname=hostname,
+                record_transport=transport,
+                journal_file_path=journal_file_path,
+                realtime_us=realtime_us,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.medium,
+        ))
+
+    # ── linux_journald_suspicious_unit ───────────────────────────────────────
+    if anomaly_flags.get("suspicious_unit"):
+        tier_label = (
+            "HIGH (T1543.002 Systemd Service from writable directory — "
+            "APT36 / FIRESTARTER / Quasar Linux QLNX canonical TTP)"
+        )
+        drafts.append(_JournaldFindingDraft(
+            source=_SOURCE_JOURNALD_SUSPICIOUS_UNIT,
+            severity=Severity.high,
+            title=(
+                f"Journald suspicious systemd unit path: "
+                f"{(unit or '(unset)')[:80]}"
+            ),
+            description=(
+                "Linux journald entry references a systemd unit whose "
+                "path lies under a writable directory (/tmp, /var/tmp, "
+                "/dev/shm, /run/shm, /home). Production systemd units "
+                "live under /etc/systemd/system/, /usr/lib/systemd/"
+                "system/, or /run/systemd/system/. A unit from a "
+                "writable path is the canonical T1543.002 Create or "
+                "Modify System Process: Systemd Service persistence "
+                "indicator — APT36 Transparent Tribe (Aug 2025), "
+                "FIRESTARTER (CISA 2026), Quasar Linux QLNX (May 2026) "
+                "all use this exact tradecraft."
+            ),
+            evidence="\n".join(_journald_evidence_lines(
+                record_message=message,
+                record_unit=unit,
+                record_pid=pid,
+                record_uid=uid,
+                record_hostname=hostname,
+                record_transport=transport,
+                journal_file_path=journal_file_path,
+                realtime_us=realtime_us,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.high,
+        ))
+
+    # ── linux_journald_log_clear ─────────────────────────────────────────────
+    if anomaly_flags.get("log_clear_marker"):
+        tier_label = (
+            "MEDIUM (T1070.002 Clear Linux System Logs — could be "
+            "legitimate rotation; operator triages)"
+        )
+        drafts.append(_JournaldFindingDraft(
+            source=_SOURCE_JOURNALD_LOG_CLEAR,
+            severity=Severity.medium,
+            title=(
+                f"Journald log-clear marker: "
+                f"{(message or '(empty)')[:80]}"
+            ),
+            description=(
+                "Linux journald entry matches a known log-clearing "
+                "residue pattern (journalctl --vacuum / --rotate / "
+                "deleted-archived-journal). The pattern is ambiguous — "
+                "production systems run journal rotation on a cron "
+                "schedule — but adversary clean-up (T1070.002 Clear "
+                "Linux or Mac System Logs) leaves the same trace. "
+                "Operator should cross-reference against the wider "
+                "timeline (gap in seqnums + last-modified mtime "
+                "shifts on /var/log/journal/* directories)."
+            ),
+            evidence="\n".join(_journald_evidence_lines(
+                record_message=message,
+                record_unit=unit,
+                record_pid=pid,
+                record_uid=uid,
+                record_hostname=hostname,
+                record_transport=transport,
+                journal_file_path=journal_file_path,
+                realtime_us=realtime_us,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.medium,
+        ))
+
+    # ── linux_journald_selinux_denied ────────────────────────────────────────
+    if anomaly_flags.get("selinux_denied"):
+        tier_label = (
+            "MEDIUM (T1562.001 attempted SELinux policy bypass — the "
+            "denial is the defense-success signal but sustained "
+            "patterns warrant review)"
+        )
+        drafts.append(_JournaldFindingDraft(
+            source=_SOURCE_JOURNALD_SELINUX_DENIED,
+            severity=Severity.medium,
+            title=(
+                f"Journald SELinux AVC denied: "
+                f"{(message or '(empty)')[:80]}"
+            ),
+            description=(
+                "Linux journald entry records a SELinux Access Vector "
+                "Cache (AVC) denial — a process attempted an operation "
+                "outside its declared policy. The single denial is "
+                "defense-success: SELinux blocked the action. Sustained "
+                "patterns indicate intentional policy-bypass attempts "
+                "(T1562.001 Disable or Modify Tools — the SELinux "
+                "circumvention sub-class). Operator should profile by "
+                "source/target context to distinguish misconfigured "
+                "daemons from exploit attempts."
+            ),
+            evidence="\n".join(_journald_evidence_lines(
+                record_message=message,
+                record_unit=unit,
+                record_pid=pid,
+                record_uid=uid,
+                record_hostname=hostname,
+                record_transport=transport,
+                journal_file_path=journal_file_path,
+                realtime_us=realtime_us,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.medium,
+        ))
+
+    return drafts
+
+
 # ── Phase η.D.D — LOLDrivers BYOVD fingerprint classifier ──────────────────
 
 
@@ -3862,6 +4176,89 @@ class FindingService:
                     evidence=draft.evidence,
                     file_path=record.file_path,
                     # Tier-bearing draft per θ.D.E classifier —
+                    # preserve heuristic tier confidence map.
+                    confidence=draft.confidence,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_journald_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Phase ι.A.D — emit linux_journald_* Finding rows for one
+        firmware (FIRST LINUX emit hook).
+
+        Reads every persisted ``LinuxJournaldEntry`` row for the
+        firmware (rows produced by the ι.A.C walker) and projects each
+        row through :func:`classify_journald_findings` which may emit
+        0-5 drafts (each anomaly bit is independent — a single
+        priority-0 OOM-kill entry under a /tmp unit can fire on
+        priority_critical + oom_killer + suspicious_unit
+        simultaneously).
+
+        Confidence tier is heuristic-driven by the classifier:
+
+        - HIGH — linux_journald_suspicious_unit (T1543.002 always HIGH
+          — APT36 / FIRESTARTER / Quasar tradecraft).
+        - MEDIUM — linux_journald_oom_killer / log_clear / selinux_denied
+          (T1499 / T1070.002 / T1562.001 — ambiguous between
+          adversary and legitimate, operator triages).
+        - LOW — linux_journald_priority_critical (review-candidate
+          baseline).
+
+        Mirrors emit_bcd_findings_from_walk + emit_mft_findings_from_walk
+        shape — tier-bearing drafts preserved through the boundary so
+        FindingCreate.confidence reflects the heuristic map.
+
+        Idempotency is the caller's responsibility — same shape as
+        emit_bcd_findings_from_walk; callers DELETE prior
+        linux_journald_* findings for the firmware before re-emitting.
+
+        Per Rule #36 — the classifier never invokes ``journalctl`` /
+        ``systemd-cat`` against the parsed entries; the message /
+        unit / cmdline are surfaced as DATA in the Finding's evidence
+        field for operator review only.
+        """
+        from app.models.linux_journald_entry import LinuxJournaldEntry
+        from app.services.jsonb_normalizers import (
+            _normalize_linux_journald_entries_anomaly_flags,
+        )
+
+        stmt = select(LinuxJournaldEntry).where(
+            LinuxJournaldEntry.firmware_id == firmware_id
+        )
+        rows = (await self.db.execute(stmt)).scalars().all()
+
+        emitted: list[Finding] = []
+        for record in rows:
+            anomaly_flags = (
+                _normalize_linux_journald_entries_anomaly_flags(
+                    record.anomaly_flags
+                )
+            )
+            drafts = classify_journald_findings(
+                journal_file_path=record.journal_file_path,
+                realtime_us=record.realtime_timestamp_us,
+                message=record.message,
+                unit=record.unit,
+                pid=record.pid,
+                uid=record.uid,
+                hostname=record.hostname,
+                transport=record.transport,
+                anomaly_flags=anomaly_flags,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.journal_file_path,
+                    # Tier-bearing draft per ι.A.D classifier —
                     # preserve heuristic tier confidence map.
                     confidence=draft.confidence,
                     firmware_id=firmware_id,

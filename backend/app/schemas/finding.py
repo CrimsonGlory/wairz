@@ -292,6 +292,43 @@ WindowsFindingSource = Literal[
 ]
 
 
+# Phase ι.A.D — FIRST cross-stack-aligned non-Windows source family.
+# Linux journald walker emit sources. Sibling of WindowsFindingSource;
+# the DB CHECK ck_findings_source (extended via alembic revision
+# fb4c5d6e7f8a in ι.A.D) carries values from both families as the
+# safety floor. Used at the call boundary inside
+# ``FindingService.emit_journald_findings_from_walk`` (ι.A.D emit hook)
+# so the source-string constants are typo-checked at construction time.
+#
+# Mapping to anomaly_flags + adversary technique:
+#
+# linux_journald_priority_critical — priority <= 2 (emerg/alert/crit).
+#   Persona-E LOW baseline; review-candidate row.
+#
+# linux_journald_oom_killer — message matches kernel OOM-killer.
+#   T1499 (Endpoint DoS) collateral signal. Persona-E MEDIUM.
+#
+# linux_journald_suspicious_unit — _SYSTEMD_UNIT path under writable
+#   directory (/tmp, /var/tmp, /dev/shm, /run/shm, /home). T1543.002
+#   (Systemd Service from writable). Persona-E HIGH.
+#
+# linux_journald_log_clear — message matches journalctl --vacuum /
+#   --rotate / cleared residue. T1070.002 (Clear Linux System Logs).
+#   Persona-E MEDIUM (operator review — could be legitimate
+#   rotation).
+#
+# linux_journald_selinux_denied — message matches SELinux AVC denial.
+#   T1562.001 (Disable or Modify Tools — SELinux policy circumvention
+#   attempt). Persona-E MEDIUM.
+LinuxFindingSource = Literal[
+    "linux_journald_priority_critical",
+    "linux_journald_oom_killer",
+    "linux_journald_suspicious_unit",
+    "linux_journald_log_clear",
+    "linux_journald_selinux_denied",
+]
+
+
 class Severity(str, Enum):
     critical = "critical"
     high = "high"

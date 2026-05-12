@@ -128,6 +128,11 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   windows_sdb_inject_dll: { icon: Skull, label: 'SDB InjectDll', className: 'border-red-700/70 text-red-700 dark:text-red-200' },
   windows_sdb_redirect_exe: { icon: ShieldAlert, label: 'SDB RedirectEXE', className: 'border-red-700/70 text-red-700 dark:text-red-200' },
   windows_sdb_custom_shim: { icon: Workflow, label: 'SDB Custom Shim', className: 'border-orange-600/50 text-orange-700 dark:text-orange-300' },
+  linux_journald_priority_critical: { icon: AlertTriangle, label: 'Journald Critical', className: 'border-yellow-500/50 text-yellow-600 dark:text-yellow-400' },
+  linux_journald_oom_killer: { icon: Skull, label: 'Journald OOM-Killer', className: 'border-orange-600/50 text-orange-700 dark:text-orange-300' },
+  linux_journald_suspicious_unit: { icon: Workflow, label: 'Journald Suspicious Unit', className: 'border-red-700/70 text-red-700 dark:text-red-200' },
+  linux_journald_log_clear: { icon: Clock, label: 'Journald Log Clear', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
+  linux_journald_selinux_denied: { icon: ShieldX, label: 'Journald SELinux Denied', className: 'border-rose-500/50 text-rose-600 dark:text-rose-400' },
 }
 
 // ── Finding confidence ──
