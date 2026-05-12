@@ -81,6 +81,13 @@ WAIRZ supports **embedded Linux**, **RTOS/bare-metal** (FreeRTOS, VxWorks, Zephy
 git clone https://github.com/digitalandrew/wairz.git
 cd wairz
 cp .env.example .env
+# REQUIRED before the next step: edit .env and uncomment either
+#   WAIRZ_ALLOW_NO_AUTH=true   (recommended for local-only single-user)
+# or set
+#   API_KEY=<a-strong-random-key>   (production / multi-user)
+# If neither is set, the backend container will exit-loop with:
+#   "ERROR: api_key is required. Set API_KEY in .env or
+#    WAIRZ_ALLOW_NO_AUTH=true for local-only deployments."
 docker compose up --build
 ```
 

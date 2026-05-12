@@ -13,6 +13,33 @@ The simplest way to run Wairz is with Docker Compose:
 git clone https://github.com/digitalandrew/wairz.git
 cd wairz
 cp .env.example .env
+```
+
+### Required `.env` edits before first boot
+
+The backend container refuses to start unless **exactly one** of the
+following is set in `.env`:
+
+| Variable | When to use |
+|---|---|
+| `WAIRZ_ALLOW_NO_AUTH=true` | Local single-user development — disables REST/MCP auth for `localhost`. Recommended starting point. |
+| `API_KEY=<strong-random-key>` | Production / multi-user / LAN-exposed deployments. Issue a key with `openssl rand -hex 32`. |
+
+If neither is set, `docker compose ps` will show
+`wairz-backend-1 Restarting (78)` and `docker compose logs backend`
+will print:
+
+```
+ERROR: api_key is required. Set API_KEY in .env or
+WAIRZ_ALLOW_NO_AUTH=true for local-only deployments.
+```
+
+Exit code 78 is `EX_CONFIG` from `/usr/include/sysexits.h` —
+distinguishable from generic startup failures (exit 1).
+
+Then start the stack:
+
+```bash
 docker compose up --build
 ```
 
@@ -88,3 +115,26 @@ docker compose down
 docker system prune --filter "label=com.docker.compose.project=wairz"
 docker compose up --build
 ```
+
+### Backend container in restart loop
+
+If `docker compose ps` shows `wairz-backend-1 Restarting` and the
+restart count keeps climbing (`docker inspect wairz-backend-1
+--format '{{.RestartCount}}'`), check the logs:
+
+```bash
+docker compose logs --tail 20 backend
+```
+
+The most common cause is the missing auth setting documented above
+(exit code 78 / `EX_CONFIG`). Edit `.env` to add `WAIRZ_ALLOW_NO_AUTH=true`
+or `API_KEY=<value>`, then:
+
+```bash
+docker compose up -d backend
+```
+
+The worker container does not run the same auth check and will keep
+running healthy even while the backend restart-loops — so a "running"
+worker is not evidence the backend is up. Always confirm backend
+health with `docker compose ps` after a rebuild.
