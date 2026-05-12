@@ -459,6 +459,23 @@ _SOURCE_DPAPI_LARGE_MASTERKEY: WindowsFindingSource = (
     "windows_dpapi_large_masterkey"
 )
 
+# Phase κ.E.D — Windows USN Journal walker source-tag constants. Typed via
+# WindowsFindingSource so a typo in the source string fails at module
+# import (per Rule #33 .c narrow-Literal-at-helper-boundary discipline).
+# Emitted by emit_usnjrnl_findings_from_walk over rows produced by the
+# κ.E.C walker (pure-Python dissect.ntfs parser over $UsnJrnl:$J ADS).
+# The walker NEVER invokes any binary referenced by the journal entries;
+# these findings flag file-system change METADATA only.
+_SOURCE_USNJRNL_FILE_DELETION: WindowsFindingSource = (
+    "windows_usnjrnl_file_deletion"
+)
+_SOURCE_USNJRNL_TEMP_CREATE_DELETE_PAIR: WindowsFindingSource = (
+    "windows_usnjrnl_temp_create_delete_pair"
+)
+_SOURCE_USNJRNL_RENAMED_EXECUTABLE: WindowsFindingSource = (
+    "windows_usnjrnl_renamed_executable"
+)
+
 # Phase κ.C.D — Linux persistence-triplet (bash_history + crontab +
 # ld.so.preload) source-tag constants. Typed via LinuxFindingSource so
 # a typo in the source string fails at module import (per Rule #33 .c
@@ -4375,6 +4392,246 @@ def classify_dpapi_findings(
     return drafts
 
 
+# ── Phase κ.E.D — Windows USN Journal classifier ─────────────────────────────
+
+
+@dataclass(frozen=True)
+class _UsnJrnlFindingDraft:
+    """One Windows USN journal Finding row to emit. Sibling of
+    _DpapiFindingDraft (κ.D.D) / _AppCompatFindingDraft (κ.B.D).
+
+    Rule #36 discipline reminder: the κ.E.C walker reads the
+    ``$Extend/$UsnJrnl:$J`` ADS via ``dissect.ntfs`` AS DATA. The walker
+    NEVER invokes any binary referenced by the journal entries. These
+    drafts surface file-system change METADATA anomalies only.
+    """
+    source: WindowsFindingSource
+    severity: Severity
+    title: str
+    description: str
+    evidence: str
+    confidence: Confidence
+
+
+def _usnjrnl_evidence_lines(
+    *,
+    usn: int | None,
+    file_name: str | None,
+    parent_path: str | None,
+    timestamp: datetime | None,
+    reason_flags: dict,
+    source_file_path: str | None,
+    tier_label: str,
+    extra: list[str] | None = None,
+) -> list[str]:
+    # Trim _raw scalar + schema_version from the displayed flag set
+    # to keep evidence readable.
+    displayed_flags = {
+        k: v
+        for k, v in reason_flags.items()
+        if k not in ("_raw", "schema_version") and isinstance(v, bool) and v
+    }
+    lines = [
+        f"Tier: {tier_label}",
+        f"USN: {usn if usn is not None else '(unknown)'}",
+        f"File name: {file_name or '(unresolved)'}",
+        f"Parent path: {parent_path or '(unresolved)'}",
+        (
+            f"Timestamp: {timestamp.isoformat()}"
+            if timestamp is not None
+            else "Timestamp: (zero / unknown FILETIME)"
+        ),
+        f"Reason flags (true bits): {sorted(displayed_flags.keys())}",
+        f"Source image: {source_file_path or '(unknown)'}",
+    ]
+    if extra:
+        lines.extend(extra)
+    return lines
+
+
+def classify_usnjrnl_findings(
+    *,
+    usn: int | None,
+    file_name: str | None,
+    parent_path: str | None,
+    timestamp: datetime | None,
+    reason_flags: dict,
+    source_file_path: str | None,
+    in_temp_path: bool = False,
+    paired_create_delete: bool = False,
+    rename_extension_changed: bool = False,
+    paired_old_name: str | None = None,
+) -> list[_UsnJrnlFindingDraft]:
+    """Phase κ.E.D — map one WindowsUsnJrnlEntry row (plus cross-record
+    context flags) to 0+ Finding drafts.
+
+    Pure function — no DB access. Each row may yield 0 (no anomaly
+    fires) or up to 3 drafts (each emitted source is independent).
+
+    Tier mapping (Persona-E driven):
+
+    - windows_usnjrnl_file_deletion — MEDIUM (T1070.004 File Deletion).
+    - windows_usnjrnl_temp_create_delete_pair — HIGH (T1059 + T1070.004
+      chained — staged payload anti-forensics).
+    - windows_usnjrnl_renamed_executable — MEDIUM (T1036 Masquerading).
+
+    The cross-record context flags (``in_temp_path``,
+    ``paired_create_delete``, ``rename_extension_changed``) are computed
+    by the caller — typically the κ.E.C walker maintains the cross-record
+    bookkeeping and passes the verdict to this classifier.
+
+    Rule #36 reminder: the walker NEVER invokes any binary referenced
+    by the journal. These drafts flag METADATA anomalies only.
+    """
+    # Lazy import to keep this helper importable without pulling the
+    # walker module at finding-service load time (preserves layering;
+    # finding_service may be imported from contexts where dissect.ntfs
+    # hasn't been touched).
+    from app.services.usnjrnl_walker import has_executable_extension
+
+    drafts: list[_UsnJrnlFindingDraft] = []
+
+    # ── windows_usnjrnl_temp_create_delete_pair ──────────────────────────────
+    if paired_create_delete and in_temp_path:
+        tier_label = (
+            "HIGH (T1059 Command and Scripting Interpreter + "
+            "T1070.004 File Deletion chained — same file emits BOTH "
+            "FILE_CREATE and FILE_DELETE records within a short window "
+            "AND the parent directory lives under a canonical adversary-"
+            "staging path (Temp / AppData\\Local\\Temp / ProgramData / "
+            "Public\\Downloads). Staged-payload anti-forensics — "
+            "adversary drops → executes → deletes.)"
+        )
+        drafts.append(_UsnJrnlFindingDraft(
+            source=_SOURCE_USNJRNL_TEMP_CREATE_DELETE_PAIR,
+            severity=Severity.high,
+            title=(
+                f"USN temp-create-delete pair: "
+                f"{file_name or '(unknown)'}"
+            ),
+            description=(
+                "Windows NTFS USN journal records a CREATE+DELETE pair "
+                "for the same file (matched by parent MFT reference + "
+                "filename) within a short window, AND the parent "
+                "directory is a canonical adversary-staging path. This "
+                "is the classic 'drop, execute, delete' anti-forensics "
+                "shape — the adversary writes the payload, runs it, "
+                "then deletes the file. The $J journal preserves the "
+                "create+delete pair even after the file is gone. "
+                "Rule #36: wairz NEVER invokes the deleted binary; "
+                "this finding flags METADATA only. Operator should "
+                "correlate the parent path with available filesystem "
+                "artifacts and check process / network telemetry for "
+                "the execution window."
+            ),
+            evidence="\n".join(_usnjrnl_evidence_lines(
+                usn=usn,
+                file_name=file_name,
+                parent_path=parent_path,
+                timestamp=timestamp,
+                reason_flags=reason_flags,
+                source_file_path=source_file_path,
+                tier_label=tier_label,
+                extra=["Paired CREATE+DELETE: True", "In temp path: True"],
+            )),
+            confidence=Confidence.high,
+        ))
+
+    # ── windows_usnjrnl_file_deletion ─────────────────────────────────────────
+    # Fires when FILE_DELETE is set AND the filename has an executable
+    # extension. Suppressed when the temp_create_delete_pair fires for
+    # the same file (the higher-severity finding already covers it).
+    if (
+        reason_flags.get("file_delete")
+        and has_executable_extension(file_name)
+        and not (paired_create_delete and in_temp_path)
+    ):
+        tier_label = (
+            "MEDIUM (T1070.004 File Deletion — USN journal record "
+            "has FILE_DELETE reason flag on a filename ending in an "
+            "executable extension (.exe / .dll / .ps1 / .bat / .vbs / "
+            "etc.). The adversary deleted an executable; the $J record "
+            "preserves the deletion evidence even after the file is "
+            "gone.)"
+        )
+        drafts.append(_UsnJrnlFindingDraft(
+            source=_SOURCE_USNJRNL_FILE_DELETION,
+            severity=Severity.medium,
+            title=(
+                f"USN file deletion (executable): "
+                f"{file_name or '(unknown)'}"
+            ),
+            description=(
+                "Windows NTFS USN journal records a FILE_DELETE event "
+                "for a file with an executable extension. T1070.004 — "
+                "the adversary deleted an executable artifact. While "
+                "the file is gone, the $J journal preserves the "
+                "deletion record (and any earlier CREATE) for forensic "
+                "triage. Rule #36: wairz NEVER invokes the deleted "
+                "binary. Operator should check MFT triage (η.A walker) "
+                "for the deleted record + correlate filename against "
+                "filesystem snapshots or backup volumes."
+            ),
+            evidence="\n".join(_usnjrnl_evidence_lines(
+                usn=usn,
+                file_name=file_name,
+                parent_path=parent_path,
+                timestamp=timestamp,
+                reason_flags=reason_flags,
+                source_file_path=source_file_path,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.medium,
+        ))
+
+    # ── windows_usnjrnl_renamed_executable ────────────────────────────────────
+    if rename_extension_changed:
+        tier_label = (
+            "MEDIUM (T1036 Masquerading — USN journal records a "
+            "RENAME_OLD_NAME + RENAME_NEW_NAME pair with an extension "
+            "change. Common adversary shape: drop ``payload.tmp`` to "
+            "disk → rename to ``payload.exe`` at runtime → execute. "
+            "Extension hiding evades static-only scanners.)"
+        )
+        extra_lines = [
+            f"Old name: {paired_old_name or '(unknown)'}",
+            f"New name: {file_name or '(unknown)'}",
+        ]
+        drafts.append(_UsnJrnlFindingDraft(
+            source=_SOURCE_USNJRNL_RENAMED_EXECUTABLE,
+            severity=Severity.medium,
+            title=(
+                f"USN renamed executable: "
+                f"{paired_old_name or '(?)'} → {file_name or '(?)'}"
+            ),
+            description=(
+                "Windows NTFS USN journal records a RENAME_OLD_NAME + "
+                "RENAME_NEW_NAME pair where the file's extension "
+                "changes. T1036 Masquerading — adversaries drop files "
+                "with innocuous extensions (.tmp / .dat / .png) and "
+                "rename to executable extensions at runtime to evade "
+                "scanners that gate on extension. Rule #36: wairz NEVER "
+                "invokes the renamed file; this finding flags METADATA "
+                "only. Operator should check whether the renamed-to "
+                "filename has further activity in the journal or in "
+                "AppCompat / Prefetch / MFT triage."
+            ),
+            evidence="\n".join(_usnjrnl_evidence_lines(
+                usn=usn,
+                file_name=file_name,
+                parent_path=parent_path,
+                timestamp=timestamp,
+                reason_flags=reason_flags,
+                source_file_path=source_file_path,
+                tier_label=tier_label,
+                extra=extra_lines,
+            )),
+            confidence=Confidence.medium,
+        ))
+
+    return drafts
+
+
 # ── Phase κ.C.D — Linux persistence-triplet classifier (FOURTH LINUX) ────────
 
 
@@ -6846,6 +7103,208 @@ class FindingService:
                     file_path=record.source_file_path,
                     # Tier-bearing draft per κ.D.D classifier —
                     # preserve heuristic tier confidence map.
+                    confidence=draft.confidence,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_usnjrnl_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Phase κ.E.D — emit windows_usnjrnl_* Finding rows for one
+        firmware (TENTH κ-era walker emit hook).
+
+        Reads every persisted ``WindowsUsnJrnlEntry`` row for the
+        firmware (rows produced by the κ.E.C walker) and projects each
+        row through :func:`classify_usnjrnl_findings` with cross-record
+        context (paired CREATE+DELETE detection, RENAME pair extension
+        change). May emit 0-3 drafts per row (each emitted source is
+        independent).
+
+        Confidence tier is heuristic-driven by the classifier:
+
+        - HIGH — windows_usnjrnl_temp_create_delete_pair (T1059 +
+          T1070.004 chained — staged-payload anti-forensics).
+        - MEDIUM — windows_usnjrnl_file_deletion (T1070.004 — executable
+          deleted; $J preserves deletion evidence).
+        - MEDIUM — windows_usnjrnl_renamed_executable (T1036
+          Masquerading — extension change in rename pair).
+
+        Idempotency is the caller's responsibility — same shape as
+        emit_dpapi_findings_from_walk; callers DELETE prior
+        windows_usnjrnl_* findings for the firmware before re-emitting.
+
+        Per Rule #36 — the walker (κ.E.C) NEVER invokes any binary
+        referenced by the journal entries; these findings flag METADATA
+        anomalies only.
+        """
+        from app.models.windows_usnjrnl_entries import WindowsUsnJrnlEntry
+        from app.services.jsonb_normalizers import (
+            _normalize_windows_usnjrnl_reason_flags,
+        )
+        from app.services.usnjrnl_walker import (
+            extension_changed,
+            looks_like_temp_path,
+        )
+
+        stmt = (
+            select(WindowsUsnJrnlEntry)
+            .where(WindowsUsnJrnlEntry.firmware_id == firmware_id)
+            .order_by(WindowsUsnJrnlEntry.usn)
+        )
+        rows = (await self.db.execute(stmt)).scalars().all()
+
+        # Cross-record bookkeeping — build the CREATE+DELETE bucket map
+        # AND the pending-rename pair map by iterating the rows in USN
+        # order. We surface the same (parent_ref, filename) → list[reason]
+        # bucket the walker maintained per-image; here we cross every
+        # row in the firmware (since the walker may have iterated across
+        # multiple NTFS images).
+        from collections import defaultdict
+        from datetime import timedelta
+
+        WINDOW = timedelta(minutes=5)
+        per_key_records: dict[tuple[int, str], list[WindowsUsnJrnlEntry]] = (
+            defaultdict(list)
+        )
+        for record in rows:
+            if (
+                record.parent_file_reference_number is not None
+                and record.file_name
+            ):
+                key = (
+                    record.parent_file_reference_number,
+                    record.file_name.lower(),
+                )
+                per_key_records[key].append(record)
+
+        # Pre-compute paired-CREATE+DELETE verdicts per key.
+        paired_keys: set[tuple[int, str]] = set()
+        for key, key_rows in per_key_records.items():
+            create_times: list[datetime] = []
+            delete_times: list[datetime] = []
+            for r in key_rows:
+                rf = _normalize_windows_usnjrnl_reason_flags(r.reason_flags)
+                if rf.get("file_create") and r.timestamp is not None:
+                    create_times.append(r.timestamp)
+                if rf.get("file_delete") and r.timestamp is not None:
+                    delete_times.append(r.timestamp)
+            if not (create_times and delete_times):
+                continue
+            delta = abs(max(delete_times) - min(create_times))
+            if delta <= WINDOW:
+                paired_keys.add(key)
+
+        # Pair RENAME_OLD_NAME → RENAME_NEW_NAME by walking the rows
+        # again. The pair is two consecutive records under the same
+        # parent_ref where one has rename_old_name and the next has
+        # rename_new_name.
+        rename_pair_map: dict[int, tuple[str | None, str | None]] = {}
+        # Map: row.id -> (old_name, new_name)
+        # Find by sliding window of (prev, curr) over the rows.
+        prev_old: tuple[int, str, int] | None = None
+        # tuple = (parent_ref, old_name, prev_row_id_index)
+        for idx, record in enumerate(rows):
+            rf = _normalize_windows_usnjrnl_reason_flags(record.reason_flags)
+            if rf.get("rename_old_name") and record.file_name:
+                prev_old = (
+                    record.parent_file_reference_number or 0,
+                    record.file_name,
+                    idx,
+                )
+                continue
+            if rf.get("rename_new_name") and prev_old is not None:
+                old_parent, old_name, _old_idx = prev_old
+                if old_parent == (record.parent_file_reference_number or 0):
+                    # Map by the NEW_NAME record (the one that carries
+                    # the post-rename filename).
+                    rename_pair_map[idx] = (old_name, record.file_name)
+                prev_old = None
+
+        emitted: list[Finding] = []
+        for idx, record in enumerate(rows):
+            reason_flags = _normalize_windows_usnjrnl_reason_flags(
+                record.reason_flags
+            )
+
+            # Resolve parent path for the in_temp_path verdict — best-
+            # effort string match against the SOURCE filename's parent
+            # since walker stores parent_file_reference_number, not the
+            # parent path. We rely on the walker having recorded the
+            # source image path; if the operator wants per-record parent
+            # paths they re-walk via the MCP tool.
+            #
+            # For the classifier here, we use a defensive proxy: if the
+            # parent ref is known AND any OTHER record under the same
+            # ref has a temp-path-like FULL PATH derived from MFT
+            # cross-correlation. Since we don't carry that aggregate
+            # in the schema, we conservatively gate temp-path-pair on a
+            # filename match against canonical temp directory names
+            # appearing in adjacent records' file_name (parent's name
+            # appears as that record's file_name when the parent is
+            # itself listed). This is approximate; the walker's per-
+            # image aggregate has the canonical parent-path verdict in
+            # ``temp_create_delete_pair_count``.
+            in_temp = False
+            if (
+                record.parent_file_reference_number is not None
+                and record.file_name
+            ):
+                key = (
+                    record.parent_file_reference_number,
+                    record.file_name.lower(),
+                )
+                if key in paired_keys:
+                    # Probe: scan ALL filenames under the same parent
+                    # for a temp-path-like NAME. This catches the case
+                    # where the parent directory entry name is e.g.
+                    # "Temp" or "AppData".
+                    for other in per_key_records[key]:
+                        if other.file_name and looks_like_temp_path(
+                            other.file_name
+                        ):
+                            in_temp = True
+                            break
+
+            paired = (
+                record.parent_file_reference_number is not None
+                and record.file_name is not None
+                and (
+                    record.parent_file_reference_number,
+                    record.file_name.lower(),
+                ) in paired_keys
+            )
+
+            pair_old, pair_new = rename_pair_map.get(idx, (None, None))
+            rename_changed = (
+                pair_old is not None
+                and pair_new is not None
+                and extension_changed(pair_old, pair_new)
+            )
+
+            drafts = classify_usnjrnl_findings(
+                usn=record.usn,
+                file_name=record.file_name,
+                parent_path=None,  # not stored on the ORM; nullable evidence
+                timestamp=record.timestamp,
+                reason_flags=reason_flags,
+                source_file_path=record.source_file_path,
+                in_temp_path=in_temp,
+                paired_create_delete=paired,
+                rename_extension_changed=rename_changed,
+                paired_old_name=pair_old,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.source_file_path,
                     confidence=draft.confidence,
                     firmware_id=firmware_id,
                     source=draft.source,

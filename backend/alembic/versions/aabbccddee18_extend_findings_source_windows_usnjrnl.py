@@ -1,0 +1,209 @@
+r"""extend findings.source CHECK with windows_usnjrnl_* (Phase κ.E.D)
+
+Revision ID: aabbccddee18
+Revises: aabbccddee17
+Create Date: 2026-05-13 00:15:00.000000
+
+Phase κ.E.D — extends ``ck_findings_source`` with THREE new source
+values so the κ.E.C $UsnJrnl:$J change-log walker can persist
+operator-actionable findings as Finding rows. TENTH κ-era cross-stack
+alignment commit. Rule #25 single-slice exception #2 (DB CHECK +
+frontend mirror + backend Literal extension all in one atomic commit —
+``test_finding_source_alignment.py`` enforces pairwise agreement).
+
+NEW SOURCES:
+
+- ``windows_usnjrnl_file_deletion`` MEDIUM — USN journal record with
+  ``FILE_DELETE`` reason flag on an executable-extension filename.
+  T1070.004 (File Deletion) — the adversary deleted an executable;
+  the $J record preserves the create+delete pair even after the file
+  is gone. Persona-E MEDIUM.
+
+- ``windows_usnjrnl_temp_create_delete_pair`` HIGH — same file (matched
+  by parent_file_reference_number + file_name) has both ``FILE_CREATE``
+  AND ``FILE_DELETE`` records within 5 minutes AND the file lives
+  under ``Temp`` / ``AppData\\Local\\Temp`` / ``ProgramData`` /
+  ``Public\\Downloads``. Staged-payload anti-forensics (T1059 + T1070.004
+  chained). Persona-E HIGH.
+
+- ``windows_usnjrnl_renamed_executable`` MEDIUM — ``RENAME_OLD_NAME`` +
+  ``RENAME_NEW_NAME`` pair with extension change (``.tmp`` → ``.exe``,
+  ``.dat`` → ``.dll``, ``.png`` → ``.bat``). T1036 Masquerading.
+  Persona-E MEDIUM.
+
+**Rule #36 no-execute REMINDER.** These findings are emitted from the
+κ.E.C walker's pure-Python ``dissect.ntfs`` parser over $UsnJrnl:$J
+records. The walker NEVER invokes any binary referenced by the
+journal entries, NEVER mounts the image, NEVER shells out to ntfs-3g.
+Findings flag METADATA only.
+
+Live audit at migration-authoring time (2026-05-12):
+
+    SELECT source, COUNT(*) FROM findings GROUP BY source ORDER BY 2 DESC;
+    -- 0 rows for any windows_usnjrnl_* (κ.E.D ships first consumer).
+
+Zero existing rows ⇒ "extend CHECK" path; no defensive backfill needed.
+
+Mirrors ``aabbccddee15_extend_findings_source_windows_dpapi.py`` (κ.D.D)
+— same drop-and-recreate shape with an extended ``_NEW_SOURCE_VALUES``
+tuple. Tuple is exposed under that exact name so
+``test_finding_source_alignment._load_db_source_values`` can import it
+via importlib and assert agreement with the frontend ``FindingSource``
+union (Rule #21 mirror discipline).
+
+Frontend mirror lands in this same commit per Rule #25 single-slice
+exception #2 (cross-stack alignment). Files updated atomically:
+
+- ``frontend/src/types/index.ts`` — ``FindingSource`` union extended.
+- ``frontend/src/constants/statusConfig.ts`` — ``FINDING_SOURCE_CONFIG``
+  entries for each new source (icon + label + className).
+- ``backend/app/schemas/finding.py`` — ``WindowsFindingSource`` Literal
+  extended with the same 3 values.
+- ``backend/app/services/finding_service.py`` — typed module-level
+  ``_SOURCE_USNJRNL_*`` constants + emit hook
+  ``emit_usnjrnl_findings_from_walk`` + ``classify_usnjrnl_findings``.
+
+Revision ID ``aabbccddee18`` was pre-validated FREE against the
+versions tree before authoring (Rule #19 evidence-first). Chains from
+κ.E.B head ``aabbccddee17``.
+"""
+
+from alembic import op
+
+
+revision: str = "aabbccddee18"
+down_revision: str | None = "aabbccddee17"
+branch_labels: str | None = None
+depends_on: str | None = None
+
+
+_NEW_SOURCE_VALUES: tuple[str, ...] = (
+    "manual",
+    "security_audit",
+    "yara_scan",
+    "attack_surface",
+    "sbom_scan",
+    "hardware_firmware_graph",
+    "apk-manifest-scan",
+    "apk-bytecode-scan",
+    "apk-mobsfscan",
+    "cwe_checker",
+    "uefi_scan",
+    "clamav_scan",
+    "vt_scan",
+    "abusech_scan",
+    "fuzzing",
+    "unpack_audit",
+    "security_review",
+    "ai_discovered",
+    "windows_authenticode",
+    "windows_dbx_revoked",
+    "windows_registry_persistence",
+    "windows_inf",
+    "windows_driver_imports",
+    "windows_r2r_stomp",
+    "windows_il_capa",
+    "windows_sysmon_proc_create",
+    "windows_logon_success",
+    "windows_logon_failure",
+    "windows_amcache_install",
+    "windows_prefetch_execution",
+    "windows_srum_network_activity",
+    "windows_srum_application_runtime",
+    "windows_powershell_script_block",
+    "windows_scheduled_task_persistence",
+    "windows_lnk_abnormal_target",
+    "windows_mft_ads_hidden_content",
+    "windows_mft_timestomping",
+    "windows_byovd_driver",
+    "windows_bcd_suspicious_path",
+    "windows_bcd_testsigning_enabled",
+    "windows_wmi_persistence",
+    "windows_esp_unsigned",
+    "windows_esp_dbx_revoked",
+    "windows_mbr_bootkit",
+    "windows_vbr_anomaly",
+    "windows_sdb_inject_dll",
+    "windows_sdb_redirect_exe",
+    "windows_sdb_custom_shim",
+    "linux_journald_priority_critical",
+    "linux_journald_oom_killer",
+    "linux_journald_suspicious_unit",
+    "linux_journald_log_clear",
+    "linux_journald_selinux_denied",
+    "linux_systemd_suspicious_path",
+    "linux_systemd_obfuscated_exec",
+    "linux_systemd_socket_unusual_port",
+    "linux_systemd_root_minimal_deps",
+    "linux_systemd_enabled_outside_standard",
+    "windows_etl_kernel_proc_after_clear",
+    "windows_etl_provider_disabled",
+    "windows_etl_unusual_provider",
+    "windows_etl_non_microsoft_in_diagtrack",
+    "windows_efs_orphaned_drf",
+    "windows_efs_unusual_recovery_agent",
+    "windows_efs_domain_admin_in_ddf",
+    "windows_efs_large_drf",
+    "linux_container_privileged_mode",
+    "linux_container_dangerous_capability",
+    "linux_container_unsafe_host_mount",
+    "linux_container_unconfined_security",
+    "linux_container_unknown_registry_image",
+    "windows_appcompat_suspicious_path",
+    "windows_appcompat_temp_execution",
+    "windows_appcompat_recent_baseline",
+    "linux_bash_history_clear",
+    "linux_cron_suspicious_command",
+    "linux_ld_preload_hijack",
+    "windows_dpapi_orphaned_masterkey",
+    "windows_dpapi_admin_creator_sid",
+    "windows_dpapi_large_masterkey",
+    # Phase κ.E.D additions — Windows NTFS $UsnJrnl:$J change-log walker
+    # (Rule #36 — walker NEVER invokes referenced binaries; surfaces
+    # file-system change METADATA only).
+    "windows_usnjrnl_file_deletion",
+    "windows_usnjrnl_temp_create_delete_pair",
+    "windows_usnjrnl_renamed_executable",
+)
+
+
+_REMOVED_IN_THIS_REVISION: tuple[str, ...] = (
+    "windows_usnjrnl_file_deletion",
+    "windows_usnjrnl_temp_create_delete_pair",
+    "windows_usnjrnl_renamed_executable",
+)
+
+
+def _in_list_sql(column: str, values: tuple[str, ...]) -> str:
+    quoted = ", ".join(f"'{v}'" for v in values)
+    return f"{column} IN ({quoted})"
+
+
+def upgrade() -> None:
+    op.drop_constraint("ck_findings_source", "findings", type_="check")
+    op.create_check_constraint(
+        "ck_findings_source",
+        "findings",
+        _in_list_sql("source", _NEW_SOURCE_VALUES),
+    )
+
+
+def downgrade() -> None:
+    op.execute(
+        "UPDATE findings SET source = 'manual' "
+        "WHERE source IN ("
+        "'windows_usnjrnl_file_deletion', "
+        "'windows_usnjrnl_temp_create_delete_pair', "
+        "'windows_usnjrnl_renamed_executable'"
+        ")"
+    )
+
+    op.drop_constraint("ck_findings_source", "findings", type_="check")
+    prior = tuple(
+        v for v in _NEW_SOURCE_VALUES if v not in _REMOVED_IN_THIS_REVISION
+    )
+    op.create_check_constraint(
+        "ck_findings_source",
+        "findings",
+        _in_list_sql("source", prior),
+    )

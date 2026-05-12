@@ -28,6 +28,9 @@ import {
   HardDrive,
   KeyRound,
   Workflow,
+  Trash2,
+  FileMinus,
+  FileX,
 } from 'lucide-react'
 import type { Severity, FindingStatus, FindingSource, Confidence } from '@/types'
 
@@ -160,6 +163,9 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   windows_dpapi_orphaned_masterkey: { icon: KeyRound, label: 'DPAPI Orphaned Key', className: 'border-red-800/70 text-red-800 dark:text-red-200' },
   windows_dpapi_admin_creator_sid: { icon: ShieldAlert, label: 'DPAPI Admin Creator', className: 'border-orange-600/50 text-orange-700 dark:text-orange-300' },
   windows_dpapi_large_masterkey: { icon: Info, label: 'DPAPI Large Master-Key', className: 'border-blue-500/50 text-blue-600 dark:text-blue-400' },
+  windows_usnjrnl_file_deletion: { icon: Trash2, label: 'USN File Deletion', className: 'border-orange-600/50 text-orange-700 dark:text-orange-300' },
+  windows_usnjrnl_temp_create_delete_pair: { icon: FileX, label: 'USN Temp Create+Delete', className: 'border-red-800/70 text-red-800 dark:text-red-200' },
+  windows_usnjrnl_renamed_executable: { icon: FileMinus, label: 'USN Renamed Executable', className: 'border-orange-600/50 text-orange-700 dark:text-orange-300' },
 }
 
 // ── Finding confidence ──

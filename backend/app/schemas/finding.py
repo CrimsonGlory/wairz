@@ -399,6 +399,32 @@ WindowsFindingSource = Literal[
     "windows_dpapi_orphaned_masterkey",
     "windows_dpapi_admin_creator_sid",
     "windows_dpapi_large_masterkey",
+    # Phase κ.E.D — alignment slice with frontend FindingSource union +
+    # FINDING_SOURCE_CONFIG entries. Emitted by the USN journal finding-
+    # emit hook (``finding_service.emit_usnjrnl_findings_from_walk``)
+    # for the κ.E.C walker output. TENTH κ-era cross-stack alignment
+    # commit. Rule #36 surface — the walker NEVER invokes any binary
+    # referenced by the journal; these findings flag METADATA anomalies
+    # only.
+    #
+    # windows_usnjrnl_file_deletion — reason_flags has ``FILE_DELETE``
+    #   AND filename ends in an executable extension (.exe / .dll /
+    #   .ps1 / .bat / .vbs / .scr / etc.). T1070.004 (File Deletion) —
+    #   adversary deleted an executable; the $J record preserves the
+    #   create+delete pair. Persona-E MEDIUM.
+    #
+    # windows_usnjrnl_temp_create_delete_pair — same file has both
+    #   ``FILE_CREATE`` AND ``FILE_DELETE`` records within 5 minutes
+    #   AND lives under Temp / AppData\Local\Temp / ProgramData /
+    #   Public\Downloads. Staged-payload anti-forensics
+    #   (T1059 + T1070.004 chained). Persona-E HIGH.
+    #
+    # windows_usnjrnl_renamed_executable — RENAME_OLD_NAME +
+    #   RENAME_NEW_NAME pair with extension change (.tmp → .exe etc.).
+    #   T1036 Masquerading. Persona-E MEDIUM.
+    "windows_usnjrnl_file_deletion",
+    "windows_usnjrnl_temp_create_delete_pair",
+    "windows_usnjrnl_renamed_executable",
 ]
 
 
