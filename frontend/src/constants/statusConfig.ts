@@ -146,6 +146,11 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   windows_efs_unusual_recovery_agent: { icon: KeyRound, label: 'EFS Unusual Recovery', className: 'border-amber-600/50 text-amber-700 dark:text-amber-300' },
   windows_efs_domain_admin_in_ddf: { icon: ShieldAlert, label: 'EFS Admin in DDF', className: 'border-orange-600/50 text-orange-700 dark:text-orange-300' },
   windows_efs_large_drf: { icon: Network, label: 'EFS Large DRF', className: 'border-blue-500/50 text-blue-600 dark:text-blue-400' },
+  linux_container_privileged_mode: { icon: Skull, label: 'Container Privileged', className: 'border-red-800/70 text-red-800 dark:text-red-200' },
+  linux_container_dangerous_capability: { icon: ShieldAlert, label: 'Container Dangerous Cap', className: 'border-red-700/70 text-red-700 dark:text-red-200' },
+  linux_container_unsafe_host_mount: { icon: HardDrive, label: 'Container Unsafe Mount', className: 'border-red-700/70 text-red-700 dark:text-red-200' },
+  linux_container_unconfined_security: { icon: ShieldX, label: 'Container Unconfined', className: 'border-orange-600/50 text-orange-700 dark:text-orange-300' },
+  linux_container_unknown_registry_image: { icon: Package, label: 'Container Unknown Registry', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
 }
 
 // ── Finding confidence ──

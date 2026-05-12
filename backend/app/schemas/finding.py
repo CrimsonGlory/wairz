@@ -423,6 +423,34 @@ LinuxFindingSource = Literal[
     "linux_systemd_socket_unusual_port",
     "linux_systemd_root_minimal_deps",
     "linux_systemd_enabled_outside_standard",
+    # Phase ι.E.D — Linux container runtime artefact walker emit sources
+    # (THIRD LINUX source family extension; FIFTH ι walker overall).
+    #
+    # linux_container_privileged_mode — HostConfig.Privileged=true OR
+    #   OCI-runtime equivalent. T1610 Deploy Container — privileged
+    #   container is a foothold + escalation primitive. Persona-E HIGH.
+    #
+    # linux_container_dangerous_capability — CapAdd contains SYS_ADMIN
+    #   / SYS_PTRACE / SYS_MODULE / DAC_READ_SEARCH / NET_ADMIN /
+    #   SETUID / SETGID etc. T1611 Escape to Host. Persona-E HIGH.
+    #
+    # linux_container_unsafe_host_mount — bind mount source under host
+    #   sensitive prefix (/, /etc, /proc, /sys, /dev,
+    #   /var/run/docker.sock, /home). T1611 escape pathway. Persona-E HIGH.
+    #
+    # linux_container_unconfined_security — seccomp=unconfined OR
+    #   AppArmorProfile=unconfined. Removes the kernel-syscall filter that
+    #   blocks container-escape primitives. Persona-E MEDIUM.
+    #
+    # linux_container_unknown_registry_image — image_repository not in
+    #   the major registry allowlist (docker.io / gcr.io / mcr.microsoft.com
+    #   / quay.io / public.ecr.aws / etc). Could be private (legitimate)
+    #   or attacker-controlled (compromise). Persona-E MEDIUM baseline.
+    "linux_container_privileged_mode",
+    "linux_container_dangerous_capability",
+    "linux_container_unsafe_host_mount",
+    "linux_container_unconfined_security",
+    "linux_container_unknown_registry_image",
 ]
 
 

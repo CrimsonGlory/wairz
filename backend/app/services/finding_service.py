@@ -348,6 +348,29 @@ _SOURCE_SYSTEMD_ENABLED_OUTSIDE_STANDARD: LinuxFindingSource = (
     "linux_systemd_enabled_outside_standard"
 )
 
+# Phase ι.E.D — Linux container runtime artefact source-name constants.
+# Typed as LinuxFindingSource so compile-time typo detection fires at
+# code-load time. The DB CHECK (ck_findings_source from ι.E.D alembic
+# aabbccddee0c) is the durable safety floor enforcing the full allowlist.
+# FIFTH ι cross-stack alignment commit and the THIRD LINUX source family
+# extension (ι.A journald + ι.B systemd + this ι.E container). Rule #25
+# single-slice exception #2, Rule-of-Twenty-Two → Rule-of-Twenty-Three.
+_SOURCE_CONTAINER_PRIVILEGED_MODE: LinuxFindingSource = (
+    "linux_container_privileged_mode"
+)
+_SOURCE_CONTAINER_DANGEROUS_CAPABILITY: LinuxFindingSource = (
+    "linux_container_dangerous_capability"
+)
+_SOURCE_CONTAINER_UNSAFE_HOST_MOUNT: LinuxFindingSource = (
+    "linux_container_unsafe_host_mount"
+)
+_SOURCE_CONTAINER_UNCONFINED_SECURITY: LinuxFindingSource = (
+    "linux_container_unconfined_security"
+)
+_SOURCE_CONTAINER_UNKNOWN_REGISTRY_IMAGE: LinuxFindingSource = (
+    "linux_container_unknown_registry_image"
+)
+
 # ── Phase ι.C.D — Windows ETL source constants (FIRST ι WINDOWS-SIDE) ─────────
 #
 # Sibling family to the Windows source constants above. Same Rule #33 .c
@@ -3848,6 +3871,385 @@ def classify_efs_findings(
     return drafts
 
 
+# ── Phase ι.E.D — Linux container runtime classifier (THIRD LINUX) ──────────
+
+
+@dataclass(frozen=True)
+class _ContainerArtifactFindingDraft:
+    """One Linux container Finding row to emit. Sibling of
+    _SystemdUnitFindingDraft (ι.B.D) / _JournaldFindingDraft (ι.A.D).
+    source typed as LinuxFindingSource; confidence tier carried at the
+    draft so emit_container_findings_from_walk preserves the heuristic-
+    driven map (HIGH for privileged_mode / dangerous_capability /
+    unsafe_host_mount; MEDIUM for unconfined_security / unknown_registry).
+    """
+    source: LinuxFindingSource
+    severity: Severity
+    title: str
+    description: str
+    evidence: str
+    confidence: Confidence
+
+
+def _container_evidence_lines(
+    *,
+    artifact_path: str,
+    artifact_type: str,
+    container_id: str | None,
+    image_name: str | None,
+    image_repository: str | None,
+    image_tag: str | None,
+    runtime: str | None,
+    state: str | None,
+    privileged: bool | None,
+    network_mode: str | None,
+    seccomp_profile: str | None,
+    apparmor_profile: str | None,
+    capabilities_add: list[str] | None,
+    mounts: list[dict] | None,
+    anomaly_flags: dict,
+    tier_label: str,
+) -> list[str]:
+    """Build evidence body shared by all 5 container classifiers."""
+    # Cap mounts preview at 5 entries for evidence display.
+    mount_preview: list[str] = []
+    if mounts:
+        for m in mounts[:5]:
+            if not isinstance(m, dict):
+                continue
+            mount_preview.append(
+                f"  - src={m.get('source', '?')!r} "
+                f"dst={m.get('destination', '?')!r} "
+                f"type={m.get('type', '?')!r} mode={m.get('mode', '?')!r}"
+            )
+    return [
+        f"Tier: {tier_label}",
+        f"Artifact path: {artifact_path}",
+        f"Artifact type: {artifact_type}",
+        f"Container ID: {container_id or '(none)'}",
+        f"Image: {image_name or '(none)'}",
+        f"Image repository: {image_repository or '(none)'}",
+        f"Image tag: {image_tag or '(none)'}",
+        f"Runtime: {runtime or '(unknown)'}",
+        f"State: {state or '(unknown)'}",
+        f"Privileged: {privileged}",
+        f"Network mode: {network_mode or '(default)'}",
+        f"Seccomp profile: {seccomp_profile or '(default)'}",
+        f"AppArmor profile: {apparmor_profile or '(default)'}",
+        f"Capabilities added: {list(capabilities_add or [])}",
+        "Mounts (top 5):" if mount_preview else "Mounts: (none)",
+        *mount_preview,
+        f"Anomaly flags: {dict(anomaly_flags)}",
+    ]
+
+
+def classify_container_findings(
+    *,
+    artifact_path: str,
+    artifact_type: str,
+    container_id: str | None,
+    image_name: str | None,
+    image_repository: str | None,
+    image_tag: str | None,
+    runtime: str | None,
+    state: str | None,
+    privileged: bool | None,
+    network_mode: str | None,
+    seccomp_profile: str | None,
+    apparmor_profile: str | None,
+    capabilities_add: list[str] | None,
+    mounts: list[dict] | None,
+    anomaly_flags: dict,
+) -> list[_ContainerArtifactFindingDraft]:
+    """Phase ι.E.D — map one LinuxContainerArtifact row to 0+ Finding drafts.
+
+    Pure function — no DB access. Each row may yield 0 (no anomaly bit
+    fires) or up to 5 drafts (each emitted source is independent — a
+    single privileged container with host network + CAP_SYS_ADMIN +
+    docker.sock mount + unconfined seccomp fires 4 simultaneously).
+
+    Tier mapping (Persona-E driven):
+
+    - linux_container_privileged_mode — HIGH (T1610 Deploy Container —
+      privileged is the canonical foothold + escalation primitive).
+    - linux_container_dangerous_capability — HIGH (T1611 Escape to Host
+      — SYS_ADMIN / SYS_PTRACE / SYS_MODULE / DAC_READ_SEARCH /
+      NET_ADMIN / SETUID / SETGID open escape pathways).
+    - linux_container_unsafe_host_mount — HIGH (T1611 Escape to Host —
+      bind mount under /, /etc, /proc, /sys, /dev,
+      /var/run/docker.sock, /home is the canonical breakout vector).
+    - linux_container_unconfined_security — MEDIUM (removes the kernel-
+      syscall filter; sufficient but not always necessary for escape).
+    - linux_container_unknown_registry_image — MEDIUM (baseline review —
+      private registries are legitimate but worth verifying).
+
+    Mirrors classify_systemd_findings (ι.B.D precedent) shape.
+    """
+    drafts: list[_ContainerArtifactFindingDraft] = []
+
+    # ── linux_container_privileged_mode ──────────────────────────────────
+    if anomaly_flags.get("privileged_mode"):
+        tier_label = (
+            "HIGH (T1610 Deploy Container — privileged container is a "
+            "foothold + escalation primitive; --privileged is a "
+            "documented adversary tradecraft from 2025 runc CVE cluster)"
+        )
+        drafts.append(_ContainerArtifactFindingDraft(
+            source=_SOURCE_CONTAINER_PRIVILEGED_MODE,
+            severity=Severity.high,
+            title=(
+                f"Privileged container deploy: "
+                f"{image_name or container_id or artifact_path}"
+            ),
+            description=(
+                "Linux container runs with the --privileged flag, which "
+                "disables ALL Linux security mechanisms (capabilities, "
+                "seccomp, apparmor, cgroup restrictions, device cgroup) "
+                "and grants the container nearly identical access to "
+                "the host as the host's root user. T1610 Deploy "
+                "Container — adversary deploys a privileged container "
+                "to gain a foothold and escalate to host root. 2025 "
+                "runc CVE cluster (CVE-2025-31133 / -52565 / -52881) + "
+                "Docker CVE-2025-9074 all exploit shapes that --privileged "
+                "removes the kernel safeguards against. Operator should "
+                "review whether the deploy is intentional (rare for "
+                "production workloads — usually limited to debug / "
+                "introspection containers)."
+            ),
+            evidence="\n".join(_container_evidence_lines(
+                artifact_path=artifact_path,
+                artifact_type=artifact_type,
+                container_id=container_id,
+                image_name=image_name,
+                image_repository=image_repository,
+                image_tag=image_tag,
+                runtime=runtime,
+                state=state,
+                privileged=privileged,
+                network_mode=network_mode,
+                seccomp_profile=seccomp_profile,
+                apparmor_profile=apparmor_profile,
+                capabilities_add=capabilities_add,
+                mounts=mounts,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.high,
+        ))
+
+    # ── linux_container_dangerous_capability ─────────────────────────────
+    if anomaly_flags.get("dangerous_capability"):
+        tier_label = (
+            "HIGH (T1611 Escape to Host — CAP_SYS_ADMIN / SYS_PTRACE / "
+            "SYS_MODULE / DAC_READ_SEARCH / NET_ADMIN / SETUID / SETGID "
+            "open container-escape pathways)"
+        )
+        drafts.append(_ContainerArtifactFindingDraft(
+            source=_SOURCE_CONTAINER_DANGEROUS_CAPABILITY,
+            severity=Severity.high,
+            title=(
+                f"Container with dangerous capability: "
+                f"{image_name or container_id or artifact_path}"
+            ),
+            description=(
+                "Linux container has been granted one or more "
+                "high-risk Linux capabilities (CAP_SYS_ADMIN, "
+                "CAP_SYS_PTRACE, CAP_SYS_MODULE, CAP_DAC_READ_SEARCH, "
+                "CAP_DAC_OVERRIDE, CAP_NET_ADMIN, CAP_NET_RAW, "
+                "CAP_SETUID, CAP_SETGID, CAP_MKNOD, CAP_AUDIT_WRITE). "
+                "Each of these capabilities OPENS A SPECIFIC ESCAPE OR "
+                "PRIVILEGE-ESCALATION pathway: CAP_SYS_ADMIN is the "
+                "'almost-root' superset; CAP_SYS_PTRACE allows ptrace "
+                "of any process (including host pid 1 when paired with "
+                "host PID namespace); CAP_SYS_MODULE allows kernel "
+                "module loading; CAP_DAC_READ_SEARCH bypasses file "
+                "discretionary access controls; CAP_NET_ADMIN allows "
+                "network namespace manipulation. T1611 Escape to Host "
+                "is the canonical mapping. Operator should review "
+                "whether the granted capabilities are minimum-necessary "
+                "for the container's documented function."
+            ),
+            evidence="\n".join(_container_evidence_lines(
+                artifact_path=artifact_path,
+                artifact_type=artifact_type,
+                container_id=container_id,
+                image_name=image_name,
+                image_repository=image_repository,
+                image_tag=image_tag,
+                runtime=runtime,
+                state=state,
+                privileged=privileged,
+                network_mode=network_mode,
+                seccomp_profile=seccomp_profile,
+                apparmor_profile=apparmor_profile,
+                capabilities_add=capabilities_add,
+                mounts=mounts,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.high,
+        ))
+
+    # ── linux_container_unsafe_host_mount ────────────────────────────────
+    if anomaly_flags.get("unsafe_mount"):
+        tier_label = (
+            "HIGH (T1611 Escape to Host — bind mount under host "
+            "sensitive prefix (/var/run/docker.sock, /, /etc, /proc, "
+            "/sys, /dev, /home) is the canonical container breakout vector)"
+        )
+        drafts.append(_ContainerArtifactFindingDraft(
+            source=_SOURCE_CONTAINER_UNSAFE_HOST_MOUNT,
+            severity=Severity.high,
+            title=(
+                f"Container with unsafe host mount: "
+                f"{image_name or container_id or artifact_path}"
+            ),
+            description=(
+                "Linux container has a bind mount whose SOURCE is on a "
+                "host-sensitive prefix: /var/run/docker.sock (escape to "
+                "Docker socket → host root), /var/run/containerd/* "
+                "(escape to containerd → host root), / (entire host "
+                "filesystem), /etc (host system config), /proc (host "
+                "process control), /sys (host kernel config), /dev "
+                "(host devices), /home (host user data). Each of these "
+                "OPENS A SPECIFIC ESCAPE PATHWAY. The docker.sock + "
+                "/proc + /sys patterns are documented adversary "
+                "tradecraft from 2025 — runc CVE-2025-31133 (unsafe "
+                "symlink mount) + CVE-2025-52881 (procfs write "
+                "redirect) both exploit shape that wairz now surfaces. "
+                "T1611 Escape to Host. Operator should review whether "
+                "the bind mount is minimum-necessary."
+            ),
+            evidence="\n".join(_container_evidence_lines(
+                artifact_path=artifact_path,
+                artifact_type=artifact_type,
+                container_id=container_id,
+                image_name=image_name,
+                image_repository=image_repository,
+                image_tag=image_tag,
+                runtime=runtime,
+                state=state,
+                privileged=privileged,
+                network_mode=network_mode,
+                seccomp_profile=seccomp_profile,
+                apparmor_profile=apparmor_profile,
+                capabilities_add=capabilities_add,
+                mounts=mounts,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.high,
+        ))
+
+    # ── linux_container_unconfined_security ──────────────────────────────
+    if (
+        anomaly_flags.get("unconfined_seccomp")
+        or anomaly_flags.get("unconfined_apparmor")
+    ):
+        tier_label = (
+            "MEDIUM (removes the kernel-syscall filter that blocks "
+            "container-escape primitives; sufficient but not always "
+            "necessary for escape)"
+        )
+        drafts.append(_ContainerArtifactFindingDraft(
+            source=_SOURCE_CONTAINER_UNCONFINED_SECURITY,
+            severity=Severity.medium,
+            title=(
+                f"Container with unconfined security profile: "
+                f"{image_name or container_id or artifact_path}"
+            ),
+            description=(
+                "Linux container is running with seccomp=unconfined "
+                "AND/OR apparmor=unconfined. The seccomp filter blocks "
+                "~50 dangerous Linux syscalls by default (kexec_load, "
+                "create_module, init_module, settimeofday, ptrace at "
+                "elevated privilege, etc); apparmor enforces a Linux "
+                "Security Module policy that restricts file / network / "
+                "capability access. Setting either to 'unconfined' "
+                "removes the kernel-level mitigation. Combined with a "
+                "dangerous capability OR an unsafe mount, unconfined "
+                "security is the difference between a difficult escape "
+                "and a trivial one. Operator should review whether "
+                "the unconfined setting is intentional (rare — usually "
+                "limited to development containers)."
+            ),
+            evidence="\n".join(_container_evidence_lines(
+                artifact_path=artifact_path,
+                artifact_type=artifact_type,
+                container_id=container_id,
+                image_name=image_name,
+                image_repository=image_repository,
+                image_tag=image_tag,
+                runtime=runtime,
+                state=state,
+                privileged=privileged,
+                network_mode=network_mode,
+                seccomp_profile=seccomp_profile,
+                apparmor_profile=apparmor_profile,
+                capabilities_add=capabilities_add,
+                mounts=mounts,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.medium,
+        ))
+
+    # ── linux_container_unknown_registry_image ───────────────────────────
+    if anomaly_flags.get("unknown_registry"):
+        tier_label = (
+            "MEDIUM (baseline review — image_repository not in major "
+            "registry allowlist; could be private/legitimate or "
+            "attacker-controlled)"
+        )
+        drafts.append(_ContainerArtifactFindingDraft(
+            source=_SOURCE_CONTAINER_UNKNOWN_REGISTRY_IMAGE,
+            severity=Severity.medium,
+            title=(
+                f"Container image from unknown registry: "
+                f"{image_name or container_id or artifact_path}"
+            ),
+            description=(
+                "Linux container references an image from a registry "
+                "NOT in the major-known allowlist (docker.io, gcr.io, "
+                "mcr.microsoft.com, quay.io, public.ecr.aws, "
+                "registry.access.redhat.com, registry.redhat.io, "
+                "ghcr.io, registry.k8s.io, k8s.gcr.io, nvcr.io). This "
+                "may be: (a) a legitimate private corporate registry — "
+                "verify against operator's documented internal registry "
+                "list, (b) a typo / similar-looking attacker domain "
+                "(typosquatting), (c) genuinely an attacker-controlled "
+                "registry pushing supply-chain compromise. T1612 Build "
+                "Image on Host supporting indicator. Operator should "
+                "cross-reference the registry against documented "
+                "vendor / internal registries, AND use "
+                "lookup_container_image_across_firmwares MCP tool to "
+                "detect supply-chain spread (same image across multiple "
+                "supposedly-independent firmwares)."
+            ),
+            evidence="\n".join(_container_evidence_lines(
+                artifact_path=artifact_path,
+                artifact_type=artifact_type,
+                container_id=container_id,
+                image_name=image_name,
+                image_repository=image_repository,
+                image_tag=image_tag,
+                runtime=runtime,
+                state=state,
+                privileged=privileged,
+                network_mode=network_mode,
+                seccomp_profile=seccomp_profile,
+                apparmor_profile=apparmor_profile,
+                capabilities_add=capabilities_add,
+                mounts=mounts,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.medium,
+        ))
+
+    return drafts
+
+
 # ── Phase η.D.D — LOLDrivers BYOVD fingerprint classifier ──────────────────
 
 
@@ -5506,6 +5908,110 @@ class FindingService:
                     evidence=draft.evidence,
                     file_path=record.file_path,
                     # Tier-bearing draft per ι.D.D classifier —
+                    # preserve heuristic tier confidence map.
+                    confidence=draft.confidence,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_container_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Phase ι.E.D — emit linux_container_* Finding rows for one
+        firmware (THIRD LINUX emit hook; ι.A.D shipped journald + ι.B.D
+        shipped systemd).
+
+        Reads every persisted ``LinuxContainerArtifact`` row for the
+        firmware (rows produced by the ι.E.C walker) and projects each
+        row through :func:`classify_container_findings` which may emit
+        0-5 drafts (each anomaly bit is independent — a single
+        privileged container with host network + CAP_SYS_ADMIN +
+        docker.sock mount + unconfined seccomp can fire 4 simultaneously).
+
+        Confidence tier is heuristic-driven by the classifier:
+
+        - HIGH — linux_container_privileged_mode (T1610 Deploy Container).
+        - HIGH — linux_container_dangerous_capability (T1611 Escape to
+          Host — SYS_ADMIN / SYS_PTRACE / etc).
+        - HIGH — linux_container_unsafe_host_mount (T1611 Escape to Host
+          — bind mount under /var/run/docker.sock / / / /etc / /proc /
+          /sys / /dev / /home).
+        - MEDIUM — linux_container_unconfined_security (seccomp /
+          apparmor unconfined — removes the syscall filter).
+        - MEDIUM — linux_container_unknown_registry_image (baseline
+          review for non-major registries).
+
+        Mirrors emit_systemd_findings_from_walk shape — tier-bearing
+        drafts preserved through the boundary so FindingCreate.confidence
+        reflects the heuristic map.
+
+        Idempotency is the caller's responsibility — same shape as
+        emit_systemd_findings_from_walk; callers DELETE prior
+        linux_container_* findings for the firmware before re-emitting.
+
+        Per Rule #36 — the classifier surfaces image / mount / capability
+        / network / seccomp / apparmor fields as DATA in the Finding's
+        evidence field for operator review only; wairz NEVER invokes
+        the parsed container, NEVER exec's into one, NEVER pulls images.
+        """
+        from app.models.linux_container_artifacts import (
+            LinuxContainerArtifact,
+        )
+        from app.services.jsonb_normalizers import (
+            _normalize_linux_container_artifacts_anomaly_flags,
+            _normalize_linux_container_artifacts_capabilities_add,
+            _normalize_linux_container_artifacts_mounts,
+        )
+
+        stmt = select(LinuxContainerArtifact).where(
+            LinuxContainerArtifact.firmware_id == firmware_id
+        )
+        rows = (await self.db.execute(stmt)).scalars().all()
+
+        emitted: list[Finding] = []
+        for record in rows:
+            anomaly_flags = (
+                _normalize_linux_container_artifacts_anomaly_flags(
+                    record.anomaly_flags
+                )
+            )
+            capabilities_add = (
+                _normalize_linux_container_artifacts_capabilities_add(
+                    record.capabilities_add
+                )
+            )
+            mounts = _normalize_linux_container_artifacts_mounts(
+                record.mounts
+            )
+            drafts = classify_container_findings(
+                artifact_path=record.artifact_path,
+                artifact_type=record.artifact_type,
+                container_id=record.container_id,
+                image_name=record.image_name,
+                image_repository=record.image_repository,
+                image_tag=record.image_tag,
+                runtime=record.runtime,
+                state=record.state,
+                privileged=record.privileged,
+                network_mode=record.network_mode,
+                seccomp_profile=record.seccomp_profile,
+                apparmor_profile=record.apparmor_profile,
+                capabilities_add=capabilities_add,
+                mounts=mounts,
+                anomaly_flags=anomaly_flags,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.artifact_path,
+                    # Tier-bearing draft per ι.E.D classifier —
                     # preserve heuristic tier confidence map.
                     confidence=draft.confidence,
                     firmware_id=firmware_id,
