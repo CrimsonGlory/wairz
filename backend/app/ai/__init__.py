@@ -26,6 +26,7 @@ from app.ai.tools.windows_archive import register_windows_archive_tools
 from app.ai.tools.windows_bcd import register_windows_bcd_tools
 from app.ai.tools.windows_dotnet import register_windows_dotnet_tools
 from app.ai.tools.windows_driver import register_windows_driver_tools
+from app.ai.tools.windows_efs import register_windows_efs_tools
 from app.ai.tools.windows_esp import register_windows_esp_tools
 from app.ai.tools.windows_etl import register_windows_etl_tools
 from app.ai.tools.windows_event_log import register_windows_event_log_tools
@@ -90,4 +91,5 @@ def create_tool_registry() -> ToolRegistry:
     register_linux_journald_tools(registry)
     register_linux_systemd_tools(registry)
     register_windows_etl_tools(registry)
+    register_windows_efs_tools(registry)
     return registry
