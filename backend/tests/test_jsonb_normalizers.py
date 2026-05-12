@@ -28,6 +28,7 @@ from app.services.jsonb_normalizers import (
     EMULATION_PRESETS_PORT_FORWARDS_SCHEMA_VERSION,
     EMULATION_SESSIONS_DISCOVERED_SERVICES_SCHEMA_VERSION,
     EMULATION_SESSIONS_PORT_FORWARDS_SCHEMA_VERSION,
+    FIRMWARE_APPCOMPAT_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_AUTHENTICODE_CHAIN_RESULT_SCHEMA_VERSION,
     FIRMWARE_BCD_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_BINARY_INFO_SCHEMA_VERSION,
@@ -54,6 +55,7 @@ from app.services.jsonb_normalizers import (
     LINUX_JOURNALD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION,
     LINUX_SYSTEMD_UNITS_ANOMALY_FLAGS_SCHEMA_VERSION,
     SBOM_COMPONENTS_METADATA_SCHEMA_VERSION,
+    WINDOWS_APPCOMPAT_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION,
     WINDOWS_BCD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION,
     WINDOWS_BCD_ENTRIES_CUSTOM_ELEMENTS_SCHEMA_VERSION,
     WINDOWS_DRIVERS_INF_METADATA_SCHEMA_VERSION,
@@ -92,6 +94,7 @@ from app.services.jsonb_normalizers import (
     _normalize_emulation_sessions_discovered_services,
     _normalize_emulation_sessions_nvram_state,
     _normalize_emulation_sessions_port_forwards,
+    _normalize_firmware_appcompat_walk_result,
     _normalize_firmware_authenticode_chain_result,
     _normalize_firmware_bcd_walk_result,
     _normalize_firmware_binary_info,
@@ -130,6 +133,7 @@ from app.services.jsonb_normalizers import (
     _normalize_linux_systemd_units_triggers,
     _normalize_linux_systemd_units_wanted_by,
     _normalize_sbom_components_metadata,
+    _normalize_windows_appcompat_entries_anomaly_flags,
     _normalize_windows_bcd_entries_anomaly_flags,
     _normalize_windows_bcd_entries_custom_elements,
     _normalize_windows_drivers_inf_metadata,
@@ -157,6 +161,7 @@ from app.services.jsonb_normalizers import (
     _normalize_windows_wmi_events_consumer_payload,
     _stamp_analysis_cache_result,
     _stamp_attack_surface_entries_score_breakdown,
+    _stamp_firmware_appcompat_walk_result,
     _stamp_firmware_authenticode_chain_result,
     _stamp_firmware_bcd_walk_result,
     _stamp_firmware_binary_info,
@@ -182,6 +187,7 @@ from app.services.jsonb_normalizers import (
     _stamp_linux_container_artifacts_anomaly_flags,
     _stamp_linux_journald_entries_anomaly_flags,
     _stamp_linux_systemd_units_anomaly_flags,
+    _stamp_windows_appcompat_entries_anomaly_flags,
     _stamp_windows_bcd_entries_anomaly_flags,
     _stamp_windows_bcd_entries_custom_elements,
     _stamp_windows_drivers_inf_metadata,
@@ -4254,3 +4260,122 @@ def test_stamp_firmware_container_walk_result_idempotent():
 
 def test_firmware_container_walk_result_schema_version_constant():
     assert FIRMWARE_CONTAINER_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+# ── windows_appcompat_entries.anomaly_flags (Phase κ.B.A) ────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical shape — dict with all bits + schema_version.
+        (
+            {
+                "schema_version": 1,
+                "suspicious_path": True,
+                "temp_execution": False,
+                "unusual_extension": False,
+                "parse_error": False,
+            },
+            {
+                "schema_version": 1,
+                "suspicious_path": True,
+                "temp_execution": False,
+                "unusual_extension": False,
+                "parse_error": False,
+            },
+        ),
+        # Empty dict pass-through.
+        ({}, {}),
+        # None / wrong-types collapse to empty dict.
+        (None, {}),
+        ([{"a": 1}], {}),
+        ("not a dict", {}),
+        (42, {}),
+    ],
+)
+def test_normalize_windows_appcompat_entries_anomaly_flags(value, expected):
+    assert (
+        _normalize_windows_appcompat_entries_anomaly_flags(value) == expected
+    )
+
+
+def test_normalize_windows_appcompat_entries_anomaly_flags_idempotent():
+    canonical = {"schema_version": 1, "suspicious_path": True}
+    once = _normalize_windows_appcompat_entries_anomaly_flags(canonical)
+    twice = _normalize_windows_appcompat_entries_anomaly_flags(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_appcompat_entries_anomaly_flags_adds_version():
+    out = _stamp_windows_appcompat_entries_anomaly_flags(
+        {"suspicious_path": True}
+    )
+    assert (
+        out["schema_version"]
+        == WINDOWS_APPCOMPAT_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+
+
+def test_stamp_windows_appcompat_entries_anomaly_flags_idempotent():
+    once = _stamp_windows_appcompat_entries_anomaly_flags(
+        {"suspicious_path": True}
+    )
+    twice = _stamp_windows_appcompat_entries_anomaly_flags(once)
+    assert once == twice
+
+
+def test_windows_appcompat_entries_anomaly_flags_schema_version_constant():
+    assert WINDOWS_APPCOMPAT_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION == 1
+
+
+# ── firmware.appcompat_walk_result (Phase κ.B.B) ─────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical shape — dict with arbitrary sub-keys.
+        (
+            {
+                "schema_version": 1,
+                "hives_scanned": 2,
+                "entries_persisted": 50,
+                "anomaly_total": 3,
+            },
+            {
+                "schema_version": 1,
+                "hives_scanned": 2,
+                "entries_persisted": 50,
+                "anomaly_total": 3,
+            },
+        ),
+        # Empty dict — preserved (no run yet but field exists).
+        ({}, {}),
+        # None preserved (semantic "no completed run").
+        (None, None),
+        # Wrong-types collapse to None.
+        ([{"a": 1}], None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_appcompat_walk_result(value, expected):
+    assert _normalize_firmware_appcompat_walk_result(value) == expected
+
+
+def test_stamp_firmware_appcompat_walk_result_adds_version():
+    out = _stamp_firmware_appcompat_walk_result({"hives_scanned": 0})
+    assert (
+        out["schema_version"] == FIRMWARE_APPCOMPAT_WALK_RESULT_SCHEMA_VERSION
+    )
+
+
+def test_stamp_firmware_appcompat_walk_result_idempotent():
+    once = _stamp_firmware_appcompat_walk_result({"hives_scanned": 0})
+    twice = _stamp_firmware_appcompat_walk_result(once)
+    assert once == twice
+
+
+def test_firmware_appcompat_walk_result_schema_version_constant():
+    assert FIRMWARE_APPCOMPAT_WALK_RESULT_SCHEMA_VERSION == 1

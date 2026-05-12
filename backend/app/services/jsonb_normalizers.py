@@ -3502,3 +3502,88 @@ def _stamp_firmware_container_walk_result(payload: dict) -> dict:
     ``Firmware.container_walk_result``. Idempotent."""
     payload["schema_version"] = FIRMWARE_CONTAINER_WALK_RESULT_SCHEMA_VERSION
     return payload
+
+
+# ── windows_appcompat_entries.anomaly_flags (Phase κ.B.A) ────────────────────
+#
+# Per-entry anomaly aggregate computed by the κ.B.C classifier. Canonical
+# shape:
+#
+#   {
+#     "schema_version": 1,
+#     "suspicious_path": bool,        # under canonical adversary-staging directories
+#     "temp_execution": bool,         # .tmp/.dat extension on exec-shape path
+#     "unusual_extension": bool,      # extension outside the standard set
+#     "parse_error": bool,            # entry failed structured parse
+#   }
+#
+# Consumers (≥3 — Rule #35c stamp helper required):
+# - app/services/appcompat_walker.py (writer — populates from classifier)
+# - app/services/finding_service.py (emit_appcompat_findings_from_walk —
+#   κ.B.D classifier)
+# - app/ai/tools/windows_appcompat.py (MCP tools — exposes anomaly_only filter)
+
+WINDOWS_APPCOMPAT_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_appcompat_entries_anomaly_flags(value: object) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``WindowsAppCompatEntry.anomaly_flags``.
+
+    Defensive: None / wrong-typed → empty dict. Empty dict means "no
+    anomaly evaluation was performed" (e.g. early-init path).
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_windows_appcompat_entries_anomaly_flags(payload: dict) -> dict:
+    """Stamp the schema_version inline onto an ``anomaly_flags`` payload
+    for ``WindowsAppCompatEntry.anomaly_flags``. Idempotent."""
+    payload["schema_version"] = (
+        WINDOWS_APPCOMPAT_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+    return payload
+
+
+# ── firmware.appcompat_walk_result (Phase κ.B.B) ──────────────────────────────
+#
+# Per-firmware aggregate from a single AppCompat walk. Mirrors
+# etl_walk_result / efs_walk_result / container_walk_result. Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,
+#     "hives_scanned": int,
+#     "entries_persisted": int,
+#     "entries_capped": int,
+#     "parse_errors": int,
+#     "suspicious_path_count": int,
+#     "temp_execution_count": int,
+#     "unusual_extension_count": int,
+#     "anomaly_total": int,
+#     "errors": list[str],
+#     "per_hive": list[dict],
+#   }
+
+FIRMWARE_APPCOMPAT_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_appcompat_walk_result(value: object) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.appcompat_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_appcompat_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.appcompat_walk_result``. Idempotent."""
+    payload["schema_version"] = FIRMWARE_APPCOMPAT_WALK_RESULT_SCHEMA_VERSION
+    return payload
