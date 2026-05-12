@@ -39,6 +39,7 @@ from app.services.jsonb_normalizers import (
     FIRMWARE_SRUM_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_WINDOWS_ARTIFACTS_SCHEMA_VERSION,
     FIRMWARE_WINDOWS_UPDATE_DIFF_RESULT_SCHEMA_VERSION,
+    FIRMWARE_WMI_WALK_RESULT_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
     HARDWARE_FIRMWARE_BLOBS_METADATA_SCHEMA_VERSION,
@@ -84,6 +85,7 @@ from app.services.jsonb_normalizers import (
     _normalize_firmware_srum_walk_result,
     _normalize_firmware_windows_artifacts,
     _normalize_firmware_windows_update_diff_result,
+    _normalize_firmware_wmi_walk_result,
     _normalize_fuzzing_campaigns_config,
     _normalize_fuzzing_campaigns_stats,
     _normalize_hardware_firmware_blobs_metadata,
@@ -117,6 +119,7 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_srum_walk_result,
     _stamp_firmware_windows_artifacts,
     _stamp_firmware_windows_update_diff_result,
+    _stamp_firmware_wmi_walk_result,
     _stamp_fuzzing_campaigns_config,
     _stamp_fuzzing_campaigns_stats,
     _stamp_hardware_firmware_blobs_metadata,
@@ -2757,3 +2760,50 @@ def test_stamp_windows_wmi_events_anomaly_flags_idempotent():
 
 def test_windows_wmi_events_anomaly_flags_schema_version_constant():
     assert WINDOWS_WMI_EVENTS_ANOMALY_FLAGS_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp_firmware_wmi_walk_result (Phase θ.B.C) ────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {
+                "schema_version": 1,
+                "objects_data_scanned": 1,
+                "bindings_walked": 3,
+                "bindings_persisted": 3,
+                "active_script_count": 1,
+            },
+            {
+                "schema_version": 1,
+                "objects_data_scanned": 1,
+                "bindings_walked": 3,
+                "bindings_persisted": 3,
+                "active_script_count": 1,
+            },
+        ),
+        ({}, {}),
+        (None, None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_wmi_walk_result(value, expected):
+    assert _normalize_firmware_wmi_walk_result(value) == expected
+
+
+def test_stamp_firmware_wmi_walk_result_adds_version():
+    out = _stamp_firmware_wmi_walk_result({"objects_data_scanned": 0})
+    assert out["schema_version"] == FIRMWARE_WMI_WALK_RESULT_SCHEMA_VERSION
+
+
+def test_stamp_firmware_wmi_walk_result_idempotent():
+    once = _stamp_firmware_wmi_walk_result({"objects_data_scanned": 0})
+    twice = _stamp_firmware_wmi_walk_result(once)
+    assert once == twice
+
+
+def test_firmware_wmi_walk_result_schema_version_constant():
+    assert FIRMWARE_WMI_WALK_RESULT_SCHEMA_VERSION == 1

@@ -2247,3 +2247,48 @@ def _stamp_windows_wmi_events_anomaly_flags(payload: dict) -> dict:
         WINDOWS_WMI_EVENTS_ANOMALY_FLAGS_SCHEMA_VERSION
     )
     return payload
+
+
+# ── firmware.wmi_walk_result (Phase θ.B.C) ──────────────────────────────────
+#
+# Per-firmware aggregate from a single WMI persistence walk. Mirrors
+# the bcd_walk_result / mft_walk_result / lnk_walk_result shape — a
+# flat dict with top-level summary fields. The runner stamps this once
+# at completion.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,
+#     "objects_data_scanned": int,    # OBJECTS.DATA files opened
+#     "bindings_walked": int,         # FilterToConsumerBindings found
+#     "bindings_persisted": int,      # rows written
+#     "active_script_count": int,     # ActiveScriptEventConsumer bindings
+#     "command_line_count": int,      # CommandLineEventConsumer bindings
+#     "encoded_powershell_count": int,
+#     "non_benign_count": int,        # bindings with probably_benign=False
+#     "errors": list[str],            # session-level errors
+#     "per_repository": list[dict],   # per-OBJECTS.DATA summaries
+#   }
+
+FIRMWARE_WMI_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_wmi_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.wmi_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_wmi_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.wmi_walk_result``. Idempotent."""
+    payload["schema_version"] = FIRMWARE_WMI_WALK_RESULT_SCHEMA_VERSION
+    return payload

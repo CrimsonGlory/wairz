@@ -352,6 +352,34 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # Phase θ.B.C WMI persistence walker columns (CLAUDE.md Rule #33 contract).
+    # Background runner ``run_wmi_walk_background`` opens each WMI
+    # OBJECTS.DATA file (typically under ``Windows/System32/wbem/Repository/``
+    # per Rule #16 detection-roots), parses each via the vendored
+    # PyWMIPersistenceFinder (pure-Python keyword-search parser per
+    # Rule #36 — DATA only, never invoked via wscript / cscript /
+    # powershell / mshta / WmiPrvSE / wmiexec), iterates every detected
+    # ``__FilterToConsumerBinding`` triple, persists per-binding rows
+    # into ``windows_wmi_events`` (table from θ.B.B), and stamps an
+    # aggregate JSONB result onto ``wmi_walk_result``. Rule #33 .c CHECK
+    # enforces the 5-state machine; Rule #33 .d — asyncio.create_task
+    # dispatch (in-process pure-Python parser; no Docker spawn).
+    wmi_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    wmi_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    wmi_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    wmi_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    wmi_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

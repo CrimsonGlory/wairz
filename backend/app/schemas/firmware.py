@@ -58,6 +58,17 @@ BcdWalkStatus = Literal[
     "idle", "queued", "running", "completed", "failed"
 ]
 
+# Phase θ.B.C Windows WMI persistence walker — Rule #33 .c Pydantic
+# Literal typo-gate at the trigger MCP tool / status reader boundary.
+# The DB CHECK constraint ``ck_firmware_wmi_walk_status`` (alembic
+# revision 5d8e6f9c0a2b) is the durable safety floor; this Literal
+# adds compile-time typo detection for new callers. Mirrors the
+# ScheduledTaskWalkStatus / LnkWalkStatus / MftWalkStatus /
+# BcdWalkStatus shapes.
+WmiWalkStatus = Literal[
+    "idle", "queued", "running", "completed", "failed"
+]
+
 
 class FirmwareUploadResponse(BaseModel):
     model_config = {"from_attributes": True}
