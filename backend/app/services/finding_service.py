@@ -267,6 +267,24 @@ _SOURCE_WMI_PERSISTENCE: WindowsFindingSource = "windows_wmi_persistence"
 _SOURCE_ESP_UNSIGNED: WindowsFindingSource = "windows_esp_unsigned"
 _SOURCE_ESP_DBX_REVOKED: WindowsFindingSource = "windows_esp_dbx_revoked"
 
+# Phase θ.E.D — MBR/VBR boot-sector walker emit sources. Emitted by
+# ``emit_mbr_vbr_findings_from_walk`` for every ``WindowsMbrVbrSector``
+# row produced by the θ.E.C walker whose known_bootkit_match or
+# anomaly_flags shape matches T1542.003 Pre-OS Boot: Bootkit indicators
+# at the BIOS / legacy boot layer.
+#
+# windows_mbr_bootkit — MBR with known_bootkit_match populated
+# (TDL4 / Petya / Mebroot / Olmasco / BlackEnergy). Confidence: HIGH
+# always — direct named-bootkit fingerprint hit.
+#
+# windows_vbr_anomaly — VBR with known_bootkit_match OR
+# (bootcode_signature_match=NULL AND >=2 anomaly flags). Tier:
+# - HIGH — known_bootkit_match populated (named VBR variant).
+# - MEDIUM — bootcode_signature_match=NULL AND >=2 anomaly flags
+#   (modified VBR without a named bootkit; supply-chain candidate).
+_SOURCE_MBR_BOOTKIT: WindowsFindingSource = "windows_mbr_bootkit"
+_SOURCE_VBR_ANOMALY: WindowsFindingSource = "windows_vbr_anomaly"
+
 
 # ── Phase η.E — PowerShell EID classifier helper ──
 #
@@ -2074,6 +2092,220 @@ def classify_esp_findings(
     return drafts
 
 
+# ── Phase θ.E.D — MBR/VBR boot-sector classifier ────────────────────────────
+
+
+@dataclass(frozen=True)
+class _MBRVBRFindingDraft:
+    """One MBR/VBR boot-sector Finding row to emit. Carries an explicit
+    confidence tier alongside the standard fields so the emit hook can
+    preserve the tier-mapping derived from known_bootkit_match +
+    anomaly_flags shape.
+
+    Mirrors _ESPFindingDraft / _BCDFindingDraft / _WMIFindingDraft —
+    tier-bearing draft preserved through the emit boundary so the
+    FindingCreate.confidence is heuristic-driven, not fixed at low.
+    """
+    source: WindowsFindingSource
+    severity: Severity
+    title: str
+    description: str
+    evidence: str
+    confidence: Confidence
+
+
+# Anomaly flag keys that count toward the "modified VBR" classifier
+# threshold (excludes the is_mbr / is_vbr convenience booleans).
+_MBR_VBR_ANOMALY_FLAG_KEYS: tuple[str, ...] = (
+    "non_zero_padding",
+    "unexpected_partition_table",
+    "non_standard_jmp",
+)
+
+
+def _count_mbr_vbr_anomalies(anomaly_flags: dict) -> int:
+    """Count anomaly flags raised on a sector. Pure function."""
+    return sum(
+        1
+        for key in _MBR_VBR_ANOMALY_FLAG_KEYS
+        if bool(anomaly_flags.get(key))
+    )
+
+
+def classify_mbr_vbr_findings(
+    *,
+    file_path: str,
+    sector_offset: int,
+    sector_kind: str,
+    sector_sha256: str,
+    sector_size: int,
+    bootcode_signature_match: str | None,
+    known_bootkit_match: str | None,
+    anomaly_flags: dict,
+) -> list[_MBRVBRFindingDraft]:
+    """Phase θ.E.D — map one WindowsMbrVbrSector row to 0, 1, or 2
+    Finding drafts.
+
+    Pure function — no DB access. Returns:
+
+    - 0 drafts for a clean Windows MBR/VBR with known-good signature
+      match AND no bootkit match AND no anomalies.
+    - 1 draft (``windows_mbr_bootkit``) on sector_kind=mbr with
+      known_bootkit_match populated. Tier: HIGH always.
+    - 1 draft (``windows_vbr_anomaly``) on sector_kind=vbr_* with
+      known_bootkit_match populated OR
+      (bootcode_signature_match is NULL AND >=2 anomaly flags).
+      Tier: HIGH if known_bootkit_match populated, MEDIUM otherwise.
+    - 2 drafts not possible — MBR-kind emits at most windows_mbr_bootkit;
+      VBR-kind emits at most windows_vbr_anomaly. The kinds are
+      mutually exclusive on a single sector.
+
+    Mirrors classify_esp_findings / classify_bcd_findings shape —
+    tier-bearing drafts, one per detection pattern.
+    """
+    drafts: list[_MBRVBRFindingDraft] = []
+
+    # ── windows_mbr_bootkit draft ──────────────────────────────────────────
+    if sector_kind == "mbr" and known_bootkit_match:
+        confidence = Confidence.high
+        severity = Severity.high
+        tier_label = (
+            f"HIGH (named bootkit '{known_bootkit_match}' — direct "
+            "T1542.003 Pre-OS Boot: Bootkit signal at the BIOS / "
+            "legacy boot layer)"
+        )
+
+        anomalies_raised = _count_mbr_vbr_anomalies(anomaly_flags)
+        evidence_lines = [
+            f"Tier: {tier_label}",
+            f"File path: {file_path}",
+            f"Sector offset: {sector_offset}",
+            f"Sector kind: {sector_kind}",
+            f"Sector SHA256: {sector_sha256}",
+            f"Sector size: {sector_size} bytes",
+            f"Known bootkit match: {known_bootkit_match}",
+            f"Bootcode signature match: "
+            f"{bootcode_signature_match or '(none)'}",
+            f"Anomaly flags raised: {anomalies_raised}",
+            f"non_zero_padding: "
+            f"{bool(anomaly_flags.get('non_zero_padding'))}",
+            f"unexpected_partition_table: "
+            f"{bool(anomaly_flags.get('unexpected_partition_table'))}",
+            f"non_standard_jmp: "
+            f"{bool(anomaly_flags.get('non_standard_jmp'))}",
+        ]
+
+        drafts.append(_MBRVBRFindingDraft(
+            source=_SOURCE_MBR_BOOTKIT,
+            severity=severity,
+            title=(
+                f"MBR bootkit detected: {known_bootkit_match} "
+                f"in {os.path.basename(file_path) or file_path}"
+            ),
+            description=(
+                "The Master Boot Record (MBR — first 512 bytes of "
+                "the disk image, with bytes 0..445 as 16-bit x86 "
+                "boot code) matches a known malicious bootkit "
+                f"signature ('{known_bootkit_match}'). The MBR is "
+                "loaded by the CPU BIOS at 0x7C00 BEFORE any OS "
+                "code runs; adversary modification achieves Ring -2 "
+                "persistence that survives reboot at the highest "
+                "possible privilege level. Adversary tradecraft: "
+                "TDL4/TDSS (Kaspersky 2011 — MBR + driver hijack), "
+                "Petya/NotPetya (2016-2017 ransomware MBR replacement), "
+                "Mebroot/Sinowal (2008-2010 banking-trojan MBR "
+                "modification), Olmasco (2011-2013 MBR variant with "
+                "VBR-overwrite), BlackEnergy 3 (2015-2016 Ukrainian "
+                "grid attack — KillDisk MBR-wipe). The boot code is "
+                "surfaced as DATA in WindowsMbrVbrSector.sector_sha256 "
+                "+ this evidence field; wairz NEVER invokes the boot "
+                "sector code (Rule #36 no-execute discipline)."
+            ),
+            evidence="\n".join(evidence_lines),
+            confidence=confidence,
+        ))
+
+    # ── windows_vbr_anomaly draft ──────────────────────────────────────────
+    if sector_kind.startswith("vbr_"):
+        anomalies_raised = _count_mbr_vbr_anomalies(anomaly_flags)
+        emit_high = bool(known_bootkit_match)
+        emit_medium = (
+            bootcode_signature_match is None and anomalies_raised >= 2
+        )
+
+        if emit_high or emit_medium:
+            if emit_high:
+                confidence = Confidence.high
+                severity = Severity.high
+                tier_label = (
+                    f"HIGH (named VBR bootkit '{known_bootkit_match}' "
+                    "— Mebroot/Olmasco VBR variant or similar)"
+                )
+            else:
+                confidence = Confidence.medium
+                severity = Severity.medium
+                tier_label = (
+                    "MEDIUM (modified VBR without a named bootkit "
+                    f"match — bootcode_signature_match=NULL AND "
+                    f"{anomalies_raised} anomaly flags raised; "
+                    "supply-chain compromise candidate; operator "
+                    "triages)"
+                )
+
+            evidence_lines = [
+                f"Tier: {tier_label}",
+                f"File path: {file_path}",
+                f"Sector offset: {sector_offset}",
+                f"Sector kind: {sector_kind}",
+                f"Sector SHA256: {sector_sha256}",
+                f"Sector size: {sector_size} bytes",
+                f"Known bootkit match: "
+                f"{known_bootkit_match or '(none)'}",
+                f"Bootcode signature match: "
+                f"{bootcode_signature_match or '(none)'}",
+                f"Anomaly flags raised: {anomalies_raised}",
+                f"non_zero_padding: "
+                f"{bool(anomaly_flags.get('non_zero_padding'))}",
+                f"unexpected_partition_table: "
+                f"{bool(anomaly_flags.get('unexpected_partition_table'))}",
+                f"non_standard_jmp: "
+                f"{bool(anomaly_flags.get('non_standard_jmp'))}",
+            ]
+
+            drafts.append(_MBRVBRFindingDraft(
+                source=_SOURCE_VBR_ANOMALY,
+                severity=severity,
+                title=(
+                    f"VBR anomaly: {sector_kind} at offset "
+                    f"{sector_offset} in "
+                    f"{os.path.basename(file_path) or file_path}"
+                ),
+                description=(
+                    "A Volume Boot Record (VBR — first sector of a "
+                    "FAT/NTFS partition, containing the partition-"
+                    "format BIOS Parameter Block plus partition "
+                    "bootloader code) shows signs of adversary "
+                    "modification. The VBR runs after the MBR JMPs "
+                    "to the active partition's first sector but "
+                    "BEFORE the OS bootmgr; a modified VBR achieves "
+                    "the same Ring -2 persistence shape as a "
+                    "modified MBR. Known VBR-modifying tradecraft: "
+                    "Mebroot VBR variant (2008-2010 banking trojan), "
+                    "Olmasco's secondary VBR-overwrite component, "
+                    "supply-chain compromises that replace the "
+                    "bootmgr loader at the partition layer. The boot "
+                    "code is surfaced as DATA in "
+                    "WindowsMbrVbrSector.sector_sha256 + this "
+                    "evidence field; wairz NEVER invokes the boot "
+                    "sector code (Rule #36 no-execute discipline)."
+                ),
+                evidence="\n".join(evidence_lines),
+                confidence=confidence,
+            ))
+
+    return drafts
+
+
 # ── Phase η.D.D — LOLDrivers BYOVD fingerprint classifier ──────────────────
 
 
@@ -3201,6 +3433,83 @@ class FindingService:
                     evidence=draft.evidence,
                     file_path=record.file_path,
                     # Tier-bearing draft per θ.C.D classifier —
+                    # preserve heuristic tier confidence map.
+                    confidence=draft.confidence,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_mbr_vbr_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Phase θ.E.D — emit windows_mbr_bootkit + windows_vbr_anomaly
+        Finding rows for one firmware.
+
+        Reads every persisted ``WindowsMbrVbrSector`` row for the
+        firmware (rows are produced by the θ.E.C walker) and projects
+        each row through :func:`classify_mbr_vbr_findings` which may
+        emit 0 or 1 drafts per row (mbr_bootkit vs vbr_anomaly are
+        mutually exclusive per sector_kind).
+
+        Confidence tier is heuristic-driven by the classifier:
+
+        - HIGH — named bootkit match (windows_mbr_bootkit always
+          HIGH; windows_vbr_anomaly HIGH when known_bootkit_match
+          populated).
+        - MEDIUM — windows_vbr_anomaly with bootcode_signature_match=
+          NULL AND >=2 anomaly flags.
+
+        Mirrors emit_esp_findings_from_walk / emit_bcd_findings_from_walk
+        shape — tier-bearing drafts preserved through the boundary.
+
+        Idempotency is the caller's responsibility — callers DELETE
+        prior windows_mbr_* / windows_vbr_* findings for the firmware
+        before re-emitting.
+
+        Per Rule #36 — the classifier never invokes the boot sector
+        code; the file_path + sector_offset + sha256 + bootkit_match
+        are surfaced as DATA in the Finding's evidence field for
+        operator review only.
+        """
+        from app.models.windows_mbr_vbr_sector import WindowsMbrVbrSector
+        from app.services.jsonb_normalizers import (
+            _normalize_windows_mbr_vbr_sectors_anomaly_flags,
+        )
+
+        stmt = select(WindowsMbrVbrSector).where(
+            WindowsMbrVbrSector.firmware_id == firmware_id
+        )
+        rows = (await self.db.execute(stmt)).scalars().all()
+
+        emitted: list[Finding] = []
+        for record in rows:
+            anomaly_flags = (
+                _normalize_windows_mbr_vbr_sectors_anomaly_flags(
+                    record.anomaly_flags
+                )
+            )
+            drafts = classify_mbr_vbr_findings(
+                file_path=record.file_path,
+                sector_offset=record.sector_offset,
+                sector_kind=record.sector_kind,
+                sector_sha256=record.sector_sha256,
+                sector_size=record.sector_size,
+                bootcode_signature_match=record.bootcode_signature_match,
+                known_bootkit_match=record.known_bootkit_match,
+                anomaly_flags=anomaly_flags,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.file_path,
+                    # Tier-bearing draft per θ.E.D classifier —
                     # preserve heuristic tier confidence map.
                     confidence=draft.confidence,
                     firmware_id=firmware_id,

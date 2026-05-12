@@ -123,6 +123,8 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   windows_wmi_persistence: { icon: Workflow, label: 'WMI Persistence', className: 'border-red-600/50 text-red-700 dark:text-red-300' },
   windows_esp_unsigned: { icon: HardDrive, label: 'ESP Unsigned', className: 'border-orange-600/50 text-orange-700 dark:text-orange-300' },
   windows_esp_dbx_revoked: { icon: ShieldX, label: 'ESP DBX Revoked', className: 'border-red-700/60 text-red-700 dark:text-red-300' },
+  windows_mbr_bootkit: { icon: Skull, label: 'MBR Bootkit', className: 'border-red-800/70 text-red-800 dark:text-red-200' },
+  windows_vbr_anomaly: { icon: HardDrive, label: 'VBR Anomaly', className: 'border-orange-700/60 text-orange-800 dark:text-orange-200' },
 }
 
 // ── Finding confidence ──

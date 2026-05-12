@@ -235,6 +235,30 @@ WindowsFindingSource = Literal[
     #   revocation is the authoritative signal regardless of path.
     "windows_esp_unsigned",
     "windows_esp_dbx_revoked",
+    # Phase θ.E.D — alignment slice with frontend FindingSource union +
+    # FINDING_SOURCE_CONFIG entries. Emitted by
+    # ``emit_mbr_vbr_findings_from_walk`` for every
+    # ``WindowsMbrVbrSector`` row produced by the θ.E.C walker whose
+    # known_bootkit_match or anomaly_flags shape matches T1542.003
+    # Pre-OS Boot: Bootkit indicators at the BIOS / legacy boot layer
+    # (TDL4 / Olmasco / Mebroot / Petya / BlackEnergy). Completes the
+    # boot-chain trifecta with windows_bcd_* (OS-stage) + windows_esp_*
+    # (UEFI pre-bootmgr).
+    #
+    # windows_mbr_bootkit — MBR with known_bootkit_match populated.
+    # Confidence tier mapping:
+    # - HIGH (Confidence.high) — known_bootkit_match populated (named
+    #   bootkit fingerprint hit: TDL4 / Petya / Mebroot / etc.).
+    #   Direct adversary deployment evidence.
+    #
+    # windows_vbr_anomaly — VBR with known_bootkit_match OR
+    # (bootcode_signature_match=NULL AND >=2 anomaly flags). Tier:
+    # - HIGH (Confidence.high) — known_bootkit_match populated (named
+    #   VBR bootkit — Mebroot/Olmasco VBR variants).
+    # - MEDIUM (Confidence.medium) — bootcode_signature_match=NULL AND
+    #   >=2 anomaly flags raised (modified VBR; supply-chain candidate).
+    "windows_mbr_bootkit",
+    "windows_vbr_anomaly",
 ]
 
 
