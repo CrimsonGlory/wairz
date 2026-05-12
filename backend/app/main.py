@@ -210,6 +210,47 @@ async def lifespan(app: FastAPI):
             "DBX bundle probe failed unexpectedly", exc_info=True,
         )
 
+    # Probe the offline LOLDrivers BYOVD bundle (Phase η.D / Rule #37).
+    # The bundle is baked into the image at build time (backend/Dockerfile
+    # + backend/ms-anchors/loldrivers.json); the worker's
+    # loldrivers_lookup_service reads via $LOLDRIVERS_BUNDLE_PATH. Logging
+    # presence + size + mtime + indexed-entry count at boot lets operators
+    # confirm the bundle survived the build and the cron-refresh schedule
+    # held. Anything other than "bundle present, entries > 0" silently
+    # degrades every BYOVD lookup to None — surface the state so it's not
+    # invisible.
+    try:
+        import logging
+        from datetime import datetime
+        from pathlib import Path
+        from app.services.loldrivers_lookup_service import is_loldrivers_available
+        bundle_path_str = os.environ.get(
+            "LOLDRIVERS_BUNDLE_PATH", "/opt/wairz/loldrivers.json",
+        )
+        bundle_path = Path(bundle_path_str)
+        log = logging.getLogger(__name__)
+        if bundle_path.is_file():  # noqa: ASYNC240 — one-shot lifespan startup probe; not on a request hot path
+            stat = bundle_path.stat()  # noqa: ASYNC240 — one-shot lifespan startup probe; not on a request hot path
+            mtime = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
+            available = is_loldrivers_available(bundle_path_str)
+            log.info(
+                "LOLDrivers bundle ready: path=%s size=%d mtime=%s available=%s",
+                bundle_path_str, stat.st_size, mtime.isoformat(), available,
+            )
+        else:
+            log.warning(
+                "LOLDrivers bundle NOT FOUND at path=%s — every BYOVD "
+                "lookup will return None (no fingerprinting data). "
+                "Rebuild the worker image (CLAUDE.md Rule #8) or run "
+                "scripts/refresh-loldrivers.sh.",
+                bundle_path_str,
+            )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning(
+            "LOLDrivers bundle probe failed unexpectedly", exc_info=True,
+        )
+
     yield
 
     # Shutdown Redis
