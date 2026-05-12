@@ -2787,3 +2787,190 @@ def _stamp_firmware_journald_walk_result(payload: dict) -> dict:
     ``Firmware.journald_walk_result``. Idempotent."""
     payload["schema_version"] = FIRMWARE_JOURNALD_WALK_RESULT_SCHEMA_VERSION
     return payload
+
+
+# ── linux_systemd_units.* (Phase ι.B.A — SECOND LINUX WALKER) ────────────────
+#
+# 8 JSONB columns on the linux_systemd_units table — each gets its own
+# normalizer per CLAUDE.md Rule #35c. The list-shape columns (wanted_by /
+# required_by / requires / after / before) canonicalize to list[str].
+# The dict-shape columns (triggers / socket_listen) canonicalize to
+# dict[str, Any]. The anomaly_flags column carries the heuristic
+# detection aggregate (canonical shape lives in the docstring of
+# ``LinuxSystemdUnit.anomaly_flags``).
+#
+# Consumers (≥3 — Rule #35c stamp helpers required for any field whose
+# read sites span 3+ files):
+# - app/services/systemd_walker.py (writer — populates from parsed
+#   INI text via stdlib configparser)
+# - app/services/finding_service.py (emit_systemd_findings_from_walk —
+#   ι.B.D classifier)
+# - app/ai/tools/linux_systemd.py (MCP tools — surface fields in
+#   tool output JSON)
+
+
+def _normalize_linux_systemd_units_wanted_by(value: object) -> list:
+    """Return the canonical ``list[str]`` shape for
+    ``LinuxSystemdUnit.wanted_by``.
+
+    Canonical: list of strings (each a systemd target unit name such
+    as ``multi-user.target``). Defensive: None → empty list; wrong-
+    typed values collapse to empty list; non-string list elements are
+    coerced via ``str()``.
+    """
+    if isinstance(value, list):
+        return [str(v) for v in value if v is not None]
+    return []
+
+
+def _normalize_linux_systemd_units_required_by(value: object) -> list:
+    """Return the canonical ``list[str]`` shape for
+    ``LinuxSystemdUnit.required_by``. Same shape as wanted_by."""
+    if isinstance(value, list):
+        return [str(v) for v in value if v is not None]
+    return []
+
+
+def _normalize_linux_systemd_units_requires(value: object) -> list:
+    """Return the canonical ``list[str]`` shape for
+    ``LinuxSystemdUnit.requires``. Same shape as wanted_by."""
+    if isinstance(value, list):
+        return [str(v) for v in value if v is not None]
+    return []
+
+
+def _normalize_linux_systemd_units_after(value: object) -> list:
+    """Return the canonical ``list[str]`` shape for
+    ``LinuxSystemdUnit.after``. Same shape as wanted_by."""
+    if isinstance(value, list):
+        return [str(v) for v in value if v is not None]
+    return []
+
+
+def _normalize_linux_systemd_units_before(value: object) -> list:
+    """Return the canonical ``list[str]`` shape for
+    ``LinuxSystemdUnit.before``. Same shape as wanted_by."""
+    if isinstance(value, list):
+        return [str(v) for v in value if v is not None]
+    return []
+
+
+def _normalize_linux_systemd_units_triggers(value: object) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``LinuxSystemdUnit.triggers``.
+
+    Canonical shape: dict[str, Any] where keys are [Timer]-section
+    directive names (OnCalendar / OnBootSec / OnUnitActiveSec /
+    OnStartupSec / etc) and values are the raw strings as parsed
+    from the INI file. Defensive: None / wrong-typed → empty dict.
+    Empty dict means "no [Timer] section parsed for this unit".
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _normalize_linux_systemd_units_socket_listen(value: object) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``LinuxSystemdUnit.socket_listen``.
+
+    Canonical shape: dict[str, Any] where keys are [Socket]-section
+    directive names (ListenStream / ListenDatagram / ListenFIFO /
+    ListenSequentialPacket / etc) and values are the raw strings as
+    parsed. Defensive: None / wrong-typed → empty dict. Empty dict
+    means "no [Socket] section parsed for this unit".
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+# Schema version for the inline-stamped anomaly_flags column.
+LINUX_SYSTEMD_UNITS_ANOMALY_FLAGS_SCHEMA_VERSION = 1
+
+
+def _normalize_linux_systemd_units_anomaly_flags(value: object) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``LinuxSystemdUnit.anomaly_flags``.
+
+    Canonical shape (all 7 bits inline-stamped with schema_version):
+
+      {
+        "schema_version": 1,
+        "suspicious_path": bool,          # ExecStart under writable dir
+        "suspicious_unit_name": bool,     # unit name matches rand-hex
+        "socket_unusual_port": bool,      # socket on non-standard port
+        "root_minimal_deps": bool,        # User=root + minimal Requires
+        "disabled_but_present": bool,     # no enabled-symlink found
+        "enabled_outside_standard": bool, # WantedBy != standard targets
+        "obfuscated_exec": bool,          # base64/eval/long-shell pattern
+      }
+
+    Defensive: None / wrong-typed → empty dict. Empty dict means
+    "no anomaly evaluation was performed" (e.g. parser-failure path).
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_linux_systemd_units_anomaly_flags(payload: dict) -> dict:
+    """Stamp the schema_version inline onto an ``anomaly_flags``
+    payload for ``LinuxSystemdUnit.anomaly_flags``. Idempotent."""
+    payload["schema_version"] = (
+        LINUX_SYSTEMD_UNITS_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+    return payload
+
+
+# ── firmware.systemd_walk_result (Phase ι.B.B) ───────────────────────────────
+#
+# Per-firmware aggregate from a single systemd-units walk. Mirrors the
+# journald_walk_result shape — a flat dict with top-level summary
+# fields. The runner stamps this once at completion.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,
+#     "units_scanned": int,                  # unit files parsed
+#     "units_persisted": int,                # rows written
+#     "service_count": int,
+#     "timer_count": int,
+#     "socket_count": int,
+#     "target_count": int,
+#     "other_count": int,                    # path / mount / swap / etc
+#     "enabled_count": int,
+#     "suspicious_path_count": int,
+#     "suspicious_unit_name_count": int,
+#     "socket_unusual_port_count": int,
+#     "root_minimal_deps_count": int,
+#     "disabled_but_present_count": int,
+#     "enabled_outside_standard_count": int,
+#     "obfuscated_exec_count": int,
+#     "anomaly_total": int,                  # units flagged by ≥1 anomaly
+#     "errors": list[str],                   # session-level errors
+#     "per_root": list[dict],                # per-detection-root aggregates
+#   }
+
+FIRMWARE_SYSTEMD_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_systemd_walk_result(value: object) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.systemd_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_systemd_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.systemd_walk_result``. Idempotent."""
+    payload["schema_version"] = FIRMWARE_SYSTEMD_WALK_RESULT_SCHEMA_VERSION
+    return payload

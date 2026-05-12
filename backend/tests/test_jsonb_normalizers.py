@@ -40,6 +40,7 @@ from app.services.jsonb_normalizers import (
     FIRMWARE_MFT_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_REGISTRY_HIVE_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_SRUM_WALK_RESULT_SCHEMA_VERSION,
+    FIRMWARE_SYSTEMD_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_WINDOWS_ARTIFACTS_SCHEMA_VERSION,
     FIRMWARE_WINDOWS_UPDATE_DIFF_RESULT_SCHEMA_VERSION,
     FIRMWARE_WMI_WALK_RESULT_SCHEMA_VERSION,
@@ -47,6 +48,7 @@ from app.services.jsonb_normalizers import (
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
     HARDWARE_FIRMWARE_BLOBS_METADATA_SCHEMA_VERSION,
     LINUX_JOURNALD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION,
+    LINUX_SYSTEMD_UNITS_ANOMALY_FLAGS_SCHEMA_VERSION,
     SBOM_COMPONENTS_METADATA_SCHEMA_VERSION,
     WINDOWS_BCD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION,
     WINDOWS_BCD_ENTRIES_CUSTOM_ELEMENTS_SCHEMA_VERSION,
@@ -94,6 +96,7 @@ from app.services.jsonb_normalizers import (
     _normalize_firmware_mft_walk_result,
     _normalize_firmware_registry_hive_walk_result,
     _normalize_firmware_srum_walk_result,
+    _normalize_firmware_systemd_walk_result,
     _normalize_firmware_windows_artifacts,
     _normalize_firmware_windows_update_diff_result,
     _normalize_firmware_wmi_walk_result,
@@ -101,6 +104,14 @@ from app.services.jsonb_normalizers import (
     _normalize_fuzzing_campaigns_stats,
     _normalize_hardware_firmware_blobs_metadata,
     _normalize_linux_journald_entries_anomaly_flags,
+    _normalize_linux_systemd_units_after,
+    _normalize_linux_systemd_units_anomaly_flags,
+    _normalize_linux_systemd_units_before,
+    _normalize_linux_systemd_units_required_by,
+    _normalize_linux_systemd_units_requires,
+    _normalize_linux_systemd_units_socket_listen,
+    _normalize_linux_systemd_units_triggers,
+    _normalize_linux_systemd_units_wanted_by,
     _normalize_sbom_components_metadata,
     _normalize_windows_bcd_entries_anomaly_flags,
     _normalize_windows_bcd_entries_custom_elements,
@@ -136,6 +147,7 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_mft_walk_result,
     _stamp_firmware_registry_hive_walk_result,
     _stamp_firmware_srum_walk_result,
+    _stamp_firmware_systemd_walk_result,
     _stamp_firmware_windows_artifacts,
     _stamp_firmware_windows_update_diff_result,
     _stamp_firmware_wmi_walk_result,
@@ -143,6 +155,7 @@ from app.services.jsonb_normalizers import (
     _stamp_fuzzing_campaigns_stats,
     _stamp_hardware_firmware_blobs_metadata,
     _stamp_linux_journald_entries_anomaly_flags,
+    _stamp_linux_systemd_units_anomaly_flags,
     _stamp_windows_bcd_entries_anomaly_flags,
     _stamp_windows_bcd_entries_custom_elements,
     _stamp_windows_drivers_inf_metadata,
@@ -3289,3 +3302,236 @@ def test_stamp_firmware_journald_walk_result_idempotent():
 
 def test_firmware_journald_walk_result_schema_version_constant():
     assert FIRMWARE_JOURNALD_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+# ── _normalize linux_systemd_units list-shape columns (Phase ι.B.A) ──────────
+
+
+@pytest.mark.parametrize(
+    "normalizer",
+    [
+        _normalize_linux_systemd_units_wanted_by,
+        _normalize_linux_systemd_units_required_by,
+        _normalize_linux_systemd_units_requires,
+        _normalize_linux_systemd_units_after,
+        _normalize_linux_systemd_units_before,
+    ],
+)
+def test_normalize_linux_systemd_units_list_columns_canonical_passthrough(
+    normalizer,
+):
+    canonical = ["multi-user.target", "graphical.target"]
+    assert normalizer(canonical) == canonical
+
+
+@pytest.mark.parametrize(
+    "normalizer",
+    [
+        _normalize_linux_systemd_units_wanted_by,
+        _normalize_linux_systemd_units_required_by,
+        _normalize_linux_systemd_units_requires,
+        _normalize_linux_systemd_units_after,
+        _normalize_linux_systemd_units_before,
+    ],
+)
+@pytest.mark.parametrize("bad", [None, {}, "string", 42, 0.5])
+def test_normalize_linux_systemd_units_list_columns_defensive(
+    normalizer, bad
+):
+    """None / wrong-typed → empty list."""
+    assert normalizer(bad) == []
+
+
+@pytest.mark.parametrize(
+    "normalizer",
+    [
+        _normalize_linux_systemd_units_wanted_by,
+        _normalize_linux_systemd_units_required_by,
+        _normalize_linux_systemd_units_requires,
+        _normalize_linux_systemd_units_after,
+        _normalize_linux_systemd_units_before,
+    ],
+)
+def test_normalize_linux_systemd_units_list_columns_idempotent(normalizer):
+    canonical = ["sshd.service"]
+    once = normalizer(canonical)
+    twice = normalizer(once)
+    assert once == twice == canonical
+
+
+def test_normalize_linux_systemd_units_list_columns_coerce_non_string_elements():
+    """Non-string list elements coerce via str(); None elements dropped."""
+    raw = ["foo.target", None, 42]
+    out = _normalize_linux_systemd_units_wanted_by(raw)
+    assert out == ["foo.target", "42"]
+
+
+# ── _normalize linux_systemd_units dict-shape columns (Phase ι.B.A) ──────────
+
+
+@pytest.mark.parametrize(
+    "normalizer",
+    [
+        _normalize_linux_systemd_units_triggers,
+        _normalize_linux_systemd_units_socket_listen,
+    ],
+)
+def test_normalize_linux_systemd_units_dict_columns_canonical_passthrough(
+    normalizer,
+):
+    canonical = {"OnCalendar": "*-*-* 02:00:00", "Persistent": "true"}
+    assert normalizer(canonical) == canonical
+
+
+@pytest.mark.parametrize(
+    "normalizer",
+    [
+        _normalize_linux_systemd_units_triggers,
+        _normalize_linux_systemd_units_socket_listen,
+    ],
+)
+@pytest.mark.parametrize("bad", [None, [], "string", 42, 0.5])
+def test_normalize_linux_systemd_units_dict_columns_defensive(
+    normalizer, bad
+):
+    """None / wrong-typed → empty dict."""
+    assert normalizer(bad) == {}
+
+
+@pytest.mark.parametrize(
+    "normalizer",
+    [
+        _normalize_linux_systemd_units_triggers,
+        _normalize_linux_systemd_units_socket_listen,
+    ],
+)
+def test_normalize_linux_systemd_units_dict_columns_idempotent(normalizer):
+    canonical = {"ListenStream": "8080"}
+    once = normalizer(canonical)
+    twice = normalizer(once)
+    assert once == twice == canonical
+
+
+# ── _normalize/_stamp linux_systemd_units.anomaly_flags (Phase ι.B.A) ────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical pass-through.
+        (
+            {
+                "schema_version": 1,
+                "suspicious_path": True,
+                "suspicious_unit_name": False,
+                "socket_unusual_port": False,
+                "root_minimal_deps": True,
+                "disabled_but_present": False,
+                "enabled_outside_standard": False,
+                "obfuscated_exec": False,
+            },
+            {
+                "schema_version": 1,
+                "suspicious_path": True,
+                "suspicious_unit_name": False,
+                "socket_unusual_port": False,
+                "root_minimal_deps": True,
+                "disabled_but_present": False,
+                "enabled_outside_standard": False,
+                "obfuscated_exec": False,
+            },
+        ),
+        # Empty dict pass-through.
+        ({}, {}),
+        # None collapses to empty dict.
+        (None, {}),
+        # Wrong type — list — collapses to empty dict.
+        ([{"a": 1}], {}),
+        # Wrong type — string — collapses to empty dict.
+        ("not a dict", {}),
+        # Wrong type — int — collapses to empty dict.
+        (42, {}),
+    ],
+)
+def test_normalize_linux_systemd_units_anomaly_flags(value, expected):
+    assert _normalize_linux_systemd_units_anomaly_flags(value) == expected
+
+
+def test_normalize_linux_systemd_units_anomaly_flags_idempotent():
+    canonical = {
+        "schema_version": 1,
+        "suspicious_path": True,
+        "obfuscated_exec": True,
+    }
+    once = _normalize_linux_systemd_units_anomaly_flags(canonical)
+    twice = _normalize_linux_systemd_units_anomaly_flags(once)
+    assert once == twice == canonical
+
+
+def test_stamp_linux_systemd_units_anomaly_flags_adds_version():
+    out = _stamp_linux_systemd_units_anomaly_flags(
+        {"suspicious_path": True}
+    )
+    assert (
+        out["schema_version"]
+        == LINUX_SYSTEMD_UNITS_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+
+
+def test_stamp_linux_systemd_units_anomaly_flags_idempotent():
+    once = _stamp_linux_systemd_units_anomaly_flags({"a": 1})
+    twice = _stamp_linux_systemd_units_anomaly_flags(once)
+    assert once == twice
+
+
+def test_linux_systemd_units_anomaly_flags_schema_version_constant():
+    assert LINUX_SYSTEMD_UNITS_ANOMALY_FLAGS_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp firmware.systemd_walk_result (Phase ι.B.B) ─────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {
+                "schema_version": 1,
+                "units_scanned": 24,
+                "units_persisted": 24,
+                "service_count": 18,
+                "timer_count": 4,
+                "anomaly_total": 2,
+            },
+            {
+                "schema_version": 1,
+                "units_scanned": 24,
+                "units_persisted": 24,
+                "service_count": 18,
+                "timer_count": 4,
+                "anomaly_total": 2,
+            },
+        ),
+        ({}, {}),
+        (None, None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_systemd_walk_result(value, expected):
+    assert _normalize_firmware_systemd_walk_result(value) == expected
+
+
+def test_stamp_firmware_systemd_walk_result_adds_version():
+    out = _stamp_firmware_systemd_walk_result({"units_scanned": 0})
+    assert out["schema_version"] == FIRMWARE_SYSTEMD_WALK_RESULT_SCHEMA_VERSION
+
+
+def test_stamp_firmware_systemd_walk_result_idempotent():
+    once = _stamp_firmware_systemd_walk_result({"units_scanned": 0})
+    twice = _stamp_firmware_systemd_walk_result(once)
+    assert once == twice
+
+
+def test_firmware_systemd_walk_result_schema_version_constant():
+    assert FIRMWARE_SYSTEMD_WALK_RESULT_SCHEMA_VERSION == 1
