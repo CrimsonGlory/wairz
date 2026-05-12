@@ -339,6 +339,28 @@ RUN mkdir -p /opt/wairz/ms-roots \
     && cp /app/ms-anchors/dbxupdate.bin /opt/wairz/dbxupdate.bin \
     && chmod 0444 /opt/wairz/dbxupdate.bin
 
+# Bundle LOLDrivers data set (Phase η.D — CLAUDE.md Rule #37 offline-trust-
+# anchor discipline). 29.8 MB Apache-2.0 JSON from
+# magicsword-io/LOLDrivers (via https://www.loldrivers.io/api/drivers.json)
+# baked into the worker+backend image at build time so BYOVD lookup runs
+# FULLY OFFLINE at scan time. Refusing to build on hash drift catches a
+# corrupted commit OR an upstream regen the operator hasn't reviewed yet.
+# Companion script scripts/refresh-loldrivers.sh runs quarterly + alerts on
+# drift.
+#
+#   /opt/wairz/loldrivers.json — Read by
+#     app.services.loldrivers_lookup_service.lookup_driver_byovd via
+#     $LOLDRIVERS_BUNDLE_PATH (set in docker-compose.yml). Apache-2.0
+#     attribution NOTICE + LICENSE sidecars live alongside the bundle
+#     in backend/ms-anchors/ but are NOT copied into /opt/wairz/ — the
+#     source-tree copies satisfy Apache-2.0 §4 redistribution terms.
+#
+# Per Rule #36 no-execute discipline: the JSON is read AS DATA; no driver
+# content from the bundle is invoked.
+RUN (cd /app/ms-anchors && sha256sum -c loldrivers.json.sha256) \
+    && cp /app/ms-anchors/loldrivers.json /opt/wairz/loldrivers.json \
+    && chmod 0444 /opt/wairz/loldrivers.json
+
 # ---------------------------------------------------------------------------
 # Phase δ.4: gated dotnet-runtime + ilspycmd for .NET single-file bundle
 # decompile. Disabled by default to keep the backend image small (worker
