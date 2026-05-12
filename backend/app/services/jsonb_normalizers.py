@@ -3587,3 +3587,112 @@ def _stamp_firmware_appcompat_walk_result(payload: dict) -> dict:
     ``Firmware.appcompat_walk_result``. Idempotent."""
     payload["schema_version"] = FIRMWARE_APPCOMPAT_WALK_RESULT_SCHEMA_VERSION
     return payload
+
+
+# ── linux_bash_history_entries.suspicious_flags (Phase κ.C.A) ────────────────
+#
+# Per-line heuristic aggregate computed by the κ.C.D classifier over a
+# Linux bash_history file. Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "clear_marker": bool,        # T1070.003 clear-history attempt
+#     "download_pattern": bool,    # T1105 ingress-tool-transfer
+#     "priv_esc_pattern": bool,    # T1548.003 / T1222.002 priv-esc
+#   }
+#
+# Consumers (≥3 — Rule #35c stamp helper required):
+# - app/services/linux_persistence_walker.py (writer — populates from classifier)
+# - app/services/finding_service.py (emit_linux_persistence_findings_from_walk —
+#   κ.C.D classifier)
+# - app/ai/tools/linux_persistence.py (MCP tools — exposes suspicious_only filter)
+
+LINUX_BASH_HISTORY_ENTRIES_SUSPICIOUS_FLAGS_SCHEMA_VERSION = 1
+
+
+def _normalize_linux_bash_history_suspicious_flags(value: object) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``LinuxBashHistoryEntry.suspicious_flags``.
+
+    Defensive: None / wrong-typed → empty dict.
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_linux_bash_history_suspicious_flags(payload: dict) -> dict:
+    """Stamp the schema_version inline onto a ``suspicious_flags`` payload
+    for ``LinuxBashHistoryEntry.suspicious_flags``. Idempotent."""
+    payload["schema_version"] = (
+        LINUX_BASH_HISTORY_ENTRIES_SUSPICIOUS_FLAGS_SCHEMA_VERSION
+    )
+    return payload
+
+
+# ── linux_cron_jobs.suspicious_flags (Phase κ.C.A) ───────────────────────────
+#
+# Per-line heuristic aggregate for a Linux crontab. Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "temp_path_command": bool,
+#     "reboot_persistence": bool,
+#     "network_egress_pattern": bool,
+#   }
+
+LINUX_CRON_JOBS_SUSPICIOUS_FLAGS_SCHEMA_VERSION = 1
+
+
+def _normalize_linux_cron_suspicious_flags(value: object) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``LinuxCronJob.suspicious_flags``.
+
+    Defensive: None / wrong-typed → empty dict.
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_linux_cron_suspicious_flags(payload: dict) -> dict:
+    """Stamp the schema_version inline onto a ``suspicious_flags`` payload
+    for ``LinuxCronJob.suspicious_flags``. Idempotent."""
+    payload["schema_version"] = (
+        LINUX_CRON_JOBS_SUSPICIOUS_FLAGS_SCHEMA_VERSION
+    )
+    return payload
+
+
+# ── linux_ld_preload_entries.suspicious_flags (Phase κ.C.A) ──────────────────
+#
+# Per-line heuristic aggregate for a Linux ld.so.preload file. Canonical:
+#
+#   {
+#     "schema_version": 1,
+#     "temp_path_library": bool,
+#     "unusual_extension": bool,
+#     "world_writable_dir": bool,
+#   }
+
+LINUX_LD_PRELOAD_ENTRIES_SUSPICIOUS_FLAGS_SCHEMA_VERSION = 1
+
+
+def _normalize_linux_ld_preload_suspicious_flags(value: object) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``LinuxLdPreloadEntry.suspicious_flags``.
+
+    Defensive: None / wrong-typed → empty dict.
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_linux_ld_preload_suspicious_flags(payload: dict) -> dict:
+    """Stamp the schema_version inline onto a ``suspicious_flags`` payload
+    for ``LinuxLdPreloadEntry.suspicious_flags``. Idempotent."""
+    payload["schema_version"] = (
+        LINUX_LD_PRELOAD_ENTRIES_SUSPICIOUS_FLAGS_SCHEMA_VERSION
+    )
+    return payload

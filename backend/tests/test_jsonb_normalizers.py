@@ -51,8 +51,11 @@ from app.services.jsonb_normalizers import (
     FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
     HARDWARE_FIRMWARE_BLOBS_METADATA_SCHEMA_VERSION,
+    LINUX_BASH_HISTORY_ENTRIES_SUSPICIOUS_FLAGS_SCHEMA_VERSION,
     LINUX_CONTAINER_ARTIFACTS_ANOMALY_FLAGS_SCHEMA_VERSION,
+    LINUX_CRON_JOBS_SUSPICIOUS_FLAGS_SCHEMA_VERSION,
     LINUX_JOURNALD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION,
+    LINUX_LD_PRELOAD_ENTRIES_SUSPICIOUS_FLAGS_SCHEMA_VERSION,
     LINUX_SYSTEMD_UNITS_ANOMALY_FLAGS_SCHEMA_VERSION,
     SBOM_COMPONENTS_METADATA_SCHEMA_VERSION,
     WINDOWS_APPCOMPAT_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION,
@@ -118,12 +121,15 @@ from app.services.jsonb_normalizers import (
     _normalize_fuzzing_campaigns_config,
     _normalize_fuzzing_campaigns_stats,
     _normalize_hardware_firmware_blobs_metadata,
+    _normalize_linux_bash_history_suspicious_flags,
     _normalize_linux_container_artifacts_anomaly_flags,
     _normalize_linux_container_artifacts_capabilities_add,
     _normalize_linux_container_artifacts_capabilities_drop,
     _normalize_linux_container_artifacts_env_vars,
     _normalize_linux_container_artifacts_mounts,
+    _normalize_linux_cron_suspicious_flags,
     _normalize_linux_journald_entries_anomaly_flags,
+    _normalize_linux_ld_preload_suspicious_flags,
     _normalize_linux_systemd_units_after,
     _normalize_linux_systemd_units_anomaly_flags,
     _normalize_linux_systemd_units_before,
@@ -184,8 +190,11 @@ from app.services.jsonb_normalizers import (
     _stamp_fuzzing_campaigns_config,
     _stamp_fuzzing_campaigns_stats,
     _stamp_hardware_firmware_blobs_metadata,
+    _stamp_linux_bash_history_suspicious_flags,
     _stamp_linux_container_artifacts_anomaly_flags,
+    _stamp_linux_cron_suspicious_flags,
     _stamp_linux_journald_entries_anomaly_flags,
+    _stamp_linux_ld_preload_suspicious_flags,
     _stamp_linux_systemd_units_anomaly_flags,
     _stamp_windows_appcompat_entries_anomaly_flags,
     _stamp_windows_bcd_entries_anomaly_flags,
@@ -4379,3 +4388,181 @@ def test_stamp_firmware_appcompat_walk_result_idempotent():
 
 def test_firmware_appcompat_walk_result_schema_version_constant():
     assert FIRMWARE_APPCOMPAT_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+# ── linux_bash_history_entries.suspicious_flags (Phase κ.C.A) ────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {
+                "schema_version": 1,
+                "clear_marker": True,
+                "download_pattern": False,
+                "priv_esc_pattern": False,
+            },
+            {
+                "schema_version": 1,
+                "clear_marker": True,
+                "download_pattern": False,
+                "priv_esc_pattern": False,
+            },
+        ),
+        ({}, {}),
+        (None, {}),
+        ([{"a": 1}], {}),
+        ("not a dict", {}),
+        (42, {}),
+    ],
+)
+def test_normalize_linux_bash_history_suspicious_flags(value, expected):
+    assert (
+        _normalize_linux_bash_history_suspicious_flags(value) == expected
+    )
+
+
+def test_normalize_linux_bash_history_suspicious_flags_idempotent():
+    canonical = {"schema_version": 1, "clear_marker": True}
+    once = _normalize_linux_bash_history_suspicious_flags(canonical)
+    twice = _normalize_linux_bash_history_suspicious_flags(once)
+    assert once == twice == canonical
+
+
+def test_stamp_linux_bash_history_suspicious_flags_adds_version():
+    out = _stamp_linux_bash_history_suspicious_flags({"clear_marker": True})
+    assert (
+        out["schema_version"]
+        == LINUX_BASH_HISTORY_ENTRIES_SUSPICIOUS_FLAGS_SCHEMA_VERSION
+    )
+
+
+def test_stamp_linux_bash_history_suspicious_flags_idempotent():
+    once = _stamp_linux_bash_history_suspicious_flags(
+        {"clear_marker": True}
+    )
+    twice = _stamp_linux_bash_history_suspicious_flags(once)
+    assert once == twice
+
+
+def test_linux_bash_history_entries_suspicious_flags_schema_version_constant():
+    assert LINUX_BASH_HISTORY_ENTRIES_SUSPICIOUS_FLAGS_SCHEMA_VERSION == 1
+
+
+# ── linux_cron_jobs.suspicious_flags (Phase κ.C.A) ───────────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {
+                "schema_version": 1,
+                "temp_path_command": False,
+                "reboot_persistence": True,
+                "network_egress_pattern": False,
+            },
+            {
+                "schema_version": 1,
+                "temp_path_command": False,
+                "reboot_persistence": True,
+                "network_egress_pattern": False,
+            },
+        ),
+        ({}, {}),
+        (None, {}),
+        ([{"a": 1}], {}),
+        ("not a dict", {}),
+        (42, {}),
+    ],
+)
+def test_normalize_linux_cron_suspicious_flags(value, expected):
+    assert _normalize_linux_cron_suspicious_flags(value) == expected
+
+
+def test_normalize_linux_cron_suspicious_flags_idempotent():
+    canonical = {"schema_version": 1, "reboot_persistence": True}
+    once = _normalize_linux_cron_suspicious_flags(canonical)
+    twice = _normalize_linux_cron_suspicious_flags(once)
+    assert once == twice == canonical
+
+
+def test_stamp_linux_cron_suspicious_flags_adds_version():
+    out = _stamp_linux_cron_suspicious_flags({"reboot_persistence": True})
+    assert (
+        out["schema_version"]
+        == LINUX_CRON_JOBS_SUSPICIOUS_FLAGS_SCHEMA_VERSION
+    )
+
+
+def test_stamp_linux_cron_suspicious_flags_idempotent():
+    once = _stamp_linux_cron_suspicious_flags({"reboot_persistence": True})
+    twice = _stamp_linux_cron_suspicious_flags(once)
+    assert once == twice
+
+
+def test_linux_cron_jobs_suspicious_flags_schema_version_constant():
+    assert LINUX_CRON_JOBS_SUSPICIOUS_FLAGS_SCHEMA_VERSION == 1
+
+
+# ── linux_ld_preload_entries.suspicious_flags (Phase κ.C.A) ──────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {
+                "schema_version": 1,
+                "temp_path_library": True,
+                "unusual_extension": False,
+                "world_writable_dir": True,
+            },
+            {
+                "schema_version": 1,
+                "temp_path_library": True,
+                "unusual_extension": False,
+                "world_writable_dir": True,
+            },
+        ),
+        ({}, {}),
+        (None, {}),
+        ([{"a": 1}], {}),
+        ("not a dict", {}),
+        (42, {}),
+    ],
+)
+def test_normalize_linux_ld_preload_suspicious_flags(value, expected):
+    assert (
+        _normalize_linux_ld_preload_suspicious_flags(value) == expected
+    )
+
+
+def test_normalize_linux_ld_preload_suspicious_flags_idempotent():
+    canonical = {"schema_version": 1, "temp_path_library": True}
+    once = _normalize_linux_ld_preload_suspicious_flags(canonical)
+    twice = _normalize_linux_ld_preload_suspicious_flags(once)
+    assert once == twice == canonical
+
+
+def test_stamp_linux_ld_preload_suspicious_flags_adds_version():
+    out = _stamp_linux_ld_preload_suspicious_flags(
+        {"temp_path_library": True}
+    )
+    assert (
+        out["schema_version"]
+        == LINUX_LD_PRELOAD_ENTRIES_SUSPICIOUS_FLAGS_SCHEMA_VERSION
+    )
+
+
+def test_stamp_linux_ld_preload_suspicious_flags_idempotent():
+    once = _stamp_linux_ld_preload_suspicious_flags(
+        {"temp_path_library": True}
+    )
+    twice = _stamp_linux_ld_preload_suspicious_flags(once)
+    assert once == twice
+
+
+def test_linux_ld_preload_entries_suspicious_flags_schema_version_constant():
+    assert LINUX_LD_PRELOAD_ENTRIES_SUSPICIOUS_FLAGS_SCHEMA_VERSION == 1
