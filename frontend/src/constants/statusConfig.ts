@@ -154,6 +154,9 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   windows_appcompat_suspicious_path: { icon: Skull, label: 'AppCompat Suspicious Path', className: 'border-red-800/70 text-red-800 dark:text-red-200' },
   windows_appcompat_temp_execution: { icon: AlertTriangle, label: 'AppCompat Temp Execution', className: 'border-orange-600/50 text-orange-700 dark:text-orange-300' },
   windows_appcompat_recent_baseline: { icon: Clock, label: 'AppCompat Recent Baseline', className: 'border-blue-500/50 text-blue-600 dark:text-blue-400' },
+  linux_bash_history_clear: { icon: Skull, label: 'Bash History Clear', className: 'border-red-800/70 text-red-800 dark:text-red-200' },
+  linux_cron_suspicious_command: { icon: AlertTriangle, label: 'Cron Suspicious', className: 'border-orange-600/50 text-orange-700 dark:text-orange-300' },
+  linux_ld_preload_hijack: { icon: ShieldAlert, label: 'ld.so.preload Hijack', className: 'border-red-800/70 text-red-800 dark:text-red-200' },
 }
 
 // ── Finding confidence ──

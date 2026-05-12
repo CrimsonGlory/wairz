@@ -441,6 +441,24 @@ _SOURCE_APPCOMPAT_RECENT_BASELINE: WindowsFindingSource = (
     "windows_appcompat_recent_baseline"
 )
 
+# Phase κ.C.D — Linux persistence-triplet (bash_history + crontab +
+# ld.so.preload) source-tag constants. Typed via LinuxFindingSource so
+# a typo in the source string fails at module import (per Rule #33 .c
+# narrow-Literal-at-helper-boundary discipline). Emitted by
+# emit_linux_persistence_findings_from_walk over rows produced by the
+# κ.C.C walker (pure-Python text-line parser over 3 artefact families).
+# The walker NEVER invokes any extracted command / library / cron;
+# these findings flag persistence METADATA only.
+_SOURCE_LINUX_BASH_HISTORY_CLEAR: LinuxFindingSource = (
+    "linux_bash_history_clear"
+)
+_SOURCE_LINUX_CRON_SUSPICIOUS_COMMAND: LinuxFindingSource = (
+    "linux_cron_suspicious_command"
+)
+_SOURCE_LINUX_LD_PRELOAD_HIJACK: LinuxFindingSource = (
+    "linux_ld_preload_hijack"
+)
+
 
 # ── Phase η.E — PowerShell EID classifier helper ──
 #
@@ -4104,6 +4122,289 @@ def classify_appcompat_findings(
     return drafts
 
 
+# ── Phase κ.C.D — Linux persistence-triplet classifier (FOURTH LINUX) ────────
+
+
+@dataclass(frozen=True)
+class _LinuxPersistenceFindingDraft:
+    """One Linux persistence Finding row to emit. Sibling of
+    _ContainerArtifactFindingDraft (ι.E.D).
+
+    PARSE-ONLY discipline reminder: the κ.C.C walker reads each artefact
+    file AS TEXT and emits per-line rows. Drafts surface persistence
+    METADATA only — file paths, commands, library paths. The walker
+    NEVER invokes ``bash`` / ``crontab`` / ``ldconfig`` against parsed
+    lines.
+    """
+    source: LinuxFindingSource
+    severity: Severity
+    title: str
+    description: str
+    evidence: str
+    confidence: Confidence
+
+
+def _bash_history_evidence_lines(
+    *,
+    source_file: str,
+    line_number: int,
+    command: str | None,
+    suspicious_flags: dict,
+    tier_label: str,
+) -> list[str]:
+    return [
+        f"Tier: {tier_label}",
+        f"Source file: {source_file}",
+        f"Line number: {line_number}",
+        f"Command: {(command or '')[:200]!r}",
+        f"Suspicious flags: {dict(suspicious_flags)}",
+    ]
+
+
+def _cron_evidence_lines(
+    *,
+    source_file: str,
+    line_number: int,
+    schedule_spec: str | None,
+    user: str | None,
+    command: str | None,
+    suspicious_flags: dict,
+    tier_label: str,
+) -> list[str]:
+    return [
+        f"Tier: {tier_label}",
+        f"Source file: {source_file}",
+        f"Line number: {line_number}",
+        f"Schedule: {schedule_spec or '(unparseable)'}",
+        f"User: {user or '(unspecified)'}",
+        f"Command: {(command or '')[:200]!r}",
+        f"Suspicious flags: {dict(suspicious_flags)}",
+    ]
+
+
+def _ld_preload_evidence_lines(
+    *,
+    source_file: str,
+    line_number: int,
+    library_path: str | None,
+    suspicious_flags: dict,
+    tier_label: str,
+) -> list[str]:
+    return [
+        f"Tier: {tier_label}",
+        f"Source file: {source_file}",
+        f"Line number: {line_number}",
+        f"Library path: {library_path or '(empty)'}",
+        f"Suspicious flags: {dict(suspicious_flags)}",
+    ]
+
+
+def classify_bash_history_findings_persistence(
+    *,
+    source_file: str,
+    line_number: int,
+    command: str | None,
+    suspicious_flags: dict,
+) -> list[_LinuxPersistenceFindingDraft]:
+    """Map one LinuxBashHistoryEntry row to 0-1 Finding drafts.
+
+    Fires ``linux_bash_history_clear`` (HIGH) when the line has the
+    ``clear_marker`` anomaly bit set — i.e. the line itself is an
+    attempt to clear the bash_history. The attempt leaves the cleanup
+    command in the persisted entries; that's the forensic value.
+    """
+    drafts: list[_LinuxPersistenceFindingDraft] = []
+    if not suspicious_flags.get("clear_marker"):
+        return drafts
+
+    tier_label = (
+        "HIGH (T1070.003 Indicator Removal: Clear Command History — the "
+        "command itself attempts to clear bash_history; its presence in "
+        "the persisted history is the evidence.)"
+    )
+    drafts.append(_LinuxPersistenceFindingDraft(
+        source=_SOURCE_LINUX_BASH_HISTORY_CLEAR,
+        severity=Severity.high,
+        title=(
+            f"bash_history clear attempt: {source_file}:{line_number}"
+        ),
+        description=(
+            "A bash_history line invokes a clear-history primitive "
+            "(`history -c`, `: > ~/.bash_history`, `rm -f "
+            "~/.bash_history`, `unset HISTFILE`, `export HISTSIZE=0`, "
+            "`set +o history`). T1070.003 Indicator Removal: Clear "
+            "Command History. The cleanup attempt itself remains in the "
+            "ON-DISK .bash_history file BELOW the cleanup line (and in "
+            "wairz's persisted rows) — adversaries who clear interactive "
+            "history typically leave the cleanup command itself behind. "
+            "PARSE-ONLY: wairz NEVER executes the recorded commands. "
+            "Operator should correlate with the surrounding lines "
+            "(line_number-10 .. line_number+10) to identify what the "
+            "adversary tried to hide."
+        ),
+        evidence="\n".join(_bash_history_evidence_lines(
+            source_file=source_file,
+            line_number=line_number,
+            command=command,
+            suspicious_flags=suspicious_flags,
+            tier_label=tier_label,
+        )),
+        confidence=Confidence.high,
+    ))
+    return drafts
+
+
+def classify_cron_findings_persistence(
+    *,
+    source_file: str,
+    line_number: int,
+    schedule_spec: str | None,
+    user: str | None,
+    command: str | None,
+    suspicious_flags: dict,
+) -> list[_LinuxPersistenceFindingDraft]:
+    """Map one LinuxCronJob row to 0-1 Finding drafts.
+
+    Fires ``linux_cron_suspicious_command`` (MEDIUM) when at least one
+    of the 3 suspicious_flags bits fires (temp_path_command,
+    reboot_persistence, or network_egress_pattern). A single
+    ``reboot_persistence`` alone is NOT suspicious in isolation
+    (legitimate boot-time tasks exist) — we additionally require
+    temp_path_command OR network_egress_pattern when reboot_persistence
+    is the only bit, to keep false-positive rate manageable.
+    """
+    drafts: list[_LinuxPersistenceFindingDraft] = []
+    temp_path = bool(suspicious_flags.get("temp_path_command"))
+    reboot = bool(suspicious_flags.get("reboot_persistence"))
+    egress = bool(suspicious_flags.get("network_egress_pattern"))
+
+    # Reject lone-reboot to keep signal-to-noise sane.
+    fires = temp_path or egress or (reboot and (temp_path or egress))
+    if not fires:
+        return drafts
+
+    tactics_parts: list[str] = []
+    if temp_path:
+        tactics_parts.append("T1543.002 / T1053.003 (command from /tmp/ or /dev/shm/)")
+    if reboot:
+        tactics_parts.append("T1547 (Boot or Logon Autostart)")
+    if egress:
+        tactics_parts.append("T1105 + T1071 (network egress in cron)")
+    tier_label = (
+        "MEDIUM ("
+        + ", ".join(tactics_parts)
+        + " — cron line combines suspicious-shape flags warranting "
+        "operator review.)"
+    )
+    drafts.append(_LinuxPersistenceFindingDraft(
+        source=_SOURCE_LINUX_CRON_SUSPICIOUS_COMMAND,
+        severity=Severity.medium,
+        title=(
+            f"Suspicious cron entry: {source_file}:{line_number}"
+        ),
+        description=(
+            "A crontab line combines suspicious-shape indicators worth "
+            "operator review. Possible patterns: (a) the command runs "
+            "from /tmp/, /dev/shm/, /var/tmp/, or /run/shm/ — canonical "
+            "adversary-staging directories; T1543.002 / T1053.003. "
+            "(b) the schedule includes @reboot — boot-time re-execution "
+            "of a staged payload; T1547. (c) the command pipes through "
+            "curl / wget / nc / ncat / socat — network fetch in a "
+            "scheduled context, T1105 + T1071. wairz fires this finding "
+            "when at least one suspicious bit is set AND, if "
+            "reboot_persistence is the only bit, additionally requires "
+            "temp_path_command OR network_egress_pattern (to keep the "
+            "false-positive rate manageable; legitimate @reboot tasks "
+            "are common). PARSE-ONLY: wairz NEVER invokes the cron "
+            "command. Operator should examine the command, the user "
+            "field, and what the binary at that path actually does."
+        ),
+        evidence="\n".join(_cron_evidence_lines(
+            source_file=source_file,
+            line_number=line_number,
+            schedule_spec=schedule_spec,
+            user=user,
+            command=command,
+            suspicious_flags=suspicious_flags,
+            tier_label=tier_label,
+        )),
+        confidence=Confidence.medium,
+    ))
+    return drafts
+
+
+def classify_ld_preload_findings_persistence(
+    *,
+    source_file: str,
+    line_number: int,
+    library_path: str | None,
+    suspicious_flags: dict,
+) -> list[_LinuxPersistenceFindingDraft]:
+    """Map one LinuxLdPreloadEntry row to 0-1 Finding drafts.
+
+    ALWAYS fires ``linux_ld_preload_hijack`` (HIGH) — ANY ld.so.preload
+    entry warrants operator review because the file is inherently
+    sensitive (every dynamically-linked process loads listed libraries
+    before its own deps). Suspicious-flags merely elevate severity
+    rationale; a legitimate-looking entry still emits a finding.
+    """
+    drafts: list[_LinuxPersistenceFindingDraft] = []
+
+    temp_path = bool(suspicious_flags.get("temp_path_library"))
+    unusual_ext = bool(suspicious_flags.get("unusual_extension"))
+    world_writable = bool(suspicious_flags.get("world_writable_dir"))
+
+    if temp_path or unusual_ext or world_writable:
+        tier_label = (
+            "HIGH (T1574.006 Hijack Execution Flow: Dynamic Linker "
+            "Hijacking + suspicious indicators — library_path under "
+            "world-writable directory, /tmp/, /dev/shm/, /var/tmp/, "
+            "/run/shm/, OR unusual extension. Common Linux rootkit shape: "
+            "libprocesshider, Diamorphine variants, Reptile.)"
+        )
+    else:
+        tier_label = (
+            "HIGH (T1574.006 Hijack Execution Flow: Dynamic Linker "
+            "Hijacking — ANY ld.so.preload entry is inherently "
+            "sensitive; every dynamically-linked process loads listed "
+            "libraries BEFORE its own deps. Even without suspicious-shape "
+            "indicators, operator MUST verify legitimacy.)"
+        )
+
+    drafts.append(_LinuxPersistenceFindingDraft(
+        source=_SOURCE_LINUX_LD_PRELOAD_HIJACK,
+        severity=Severity.high,
+        title=(
+            f"ld.so.preload entry: {library_path or '(empty)'} in {source_file}:{line_number}"
+        ),
+        description=(
+            "An entry was found in ld.so.preload. Every dynamically-"
+            "linked process spawned AFTER this file is written will "
+            "load the listed library BEFORE its own dependencies "
+            "resolve — adversary library functions can shadow libc "
+            "functions (open, read, write, stat, opendir) and hide "
+            "files / processes / network connections from every "
+            "userspace tool that doesn't make a raw syscall. T1574.006 "
+            "Hijack Execution Flow: Dynamic Linker Hijacking. Common "
+            "Linux rootkits using this primitive: libprocesshider, "
+            "Diamorphine variants, Reptile. PARSE-ONLY: wairz NEVER "
+            "loads any listed library, NEVER invokes ldconfig, NEVER "
+            "runs ldd against the path. Operator MUST verify whether "
+            "the library is legitimate — even one entry in this file "
+            "warrants thorough review."
+        ),
+        evidence="\n".join(_ld_preload_evidence_lines(
+            source_file=source_file,
+            line_number=line_number,
+            library_path=library_path,
+            suspicious_flags=suspicious_flags,
+            tier_label=tier_label,
+        )),
+        confidence=Confidence.high,
+    ))
+    return drafts
+
+
 # ── Phase ι.E.D — Linux container runtime classifier (THIRD LINUX) ──────────
 
 
@@ -6325,6 +6626,141 @@ class FindingService:
                     source=draft.source,
                 )
                 emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_linux_persistence_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Phase κ.C.D — emit linux_bash_history_clear /
+        linux_cron_suspicious_command / linux_ld_preload_hijack Finding
+        rows for one firmware.
+
+        Reads every persisted row from the 3 κ.C.A landing-zone tables
+        for the firmware (rows produced by the κ.C.C walker) and
+        projects each through the matching classifier in this module
+        (``classify_bash_history_findings_persistence``,
+        ``classify_cron_findings_persistence``,
+        ``classify_ld_preload_findings_persistence``).
+
+        Confidence tier (Persona-E driven):
+
+        - HIGH — linux_bash_history_clear (T1070.003)
+        - MEDIUM — linux_cron_suspicious_command (T1053.003 + T1547 +
+          T1105)
+        - HIGH — linux_ld_preload_hijack (T1574.006 — ANY entry warrants
+          HIGH; the file is inherently sensitive)
+
+        Idempotency is the caller's responsibility — same shape as
+        emit_container_findings_from_walk; callers DELETE prior
+        linux_bash_history_clear / linux_cron_suspicious_command /
+        linux_ld_preload_hijack findings for the firmware before
+        re-emitting.
+
+        Per Rule #36 — the walker (κ.C.C) NEVER invokes any extracted
+        command / library, NEVER spawns subprocess, NEVER runs ldconfig.
+        These findings flag persistence METADATA only.
+        """
+        from app.models.linux_bash_history_entries import (
+            LinuxBashHistoryEntry,
+        )
+        from app.models.linux_cron_jobs import LinuxCronJob
+        from app.models.linux_ld_preload_entries import LinuxLdPreloadEntry
+        from app.services.jsonb_normalizers import (
+            _normalize_linux_bash_history_suspicious_flags,
+            _normalize_linux_cron_suspicious_flags,
+            _normalize_linux_ld_preload_suspicious_flags,
+        )
+
+        emitted: list[Finding] = []
+
+        # ── bash_history ──
+        stmt = select(LinuxBashHistoryEntry).where(
+            LinuxBashHistoryEntry.firmware_id == firmware_id
+        )
+        bash_rows = (await self.db.execute(stmt)).scalars().all()
+        for record in bash_rows:
+            flags = _normalize_linux_bash_history_suspicious_flags(
+                record.suspicious_flags
+            )
+            drafts = classify_bash_history_findings_persistence(
+                source_file=record.source_file,
+                line_number=record.line_number,
+                command=record.command,
+                suspicious_flags=flags,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.source_file,
+                    confidence=draft.confidence,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+
+        # ── crontab ──
+        stmt = select(LinuxCronJob).where(
+            LinuxCronJob.firmware_id == firmware_id
+        )
+        cron_rows = (await self.db.execute(stmt)).scalars().all()
+        for record in cron_rows:
+            flags = _normalize_linux_cron_suspicious_flags(
+                record.suspicious_flags
+            )
+            drafts = classify_cron_findings_persistence(
+                source_file=record.source_file,
+                line_number=record.line_number,
+                schedule_spec=record.schedule_spec,
+                user=record.user,
+                command=record.command,
+                suspicious_flags=flags,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.source_file,
+                    confidence=draft.confidence,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+
+        # ── ld.so.preload ──
+        stmt = select(LinuxLdPreloadEntry).where(
+            LinuxLdPreloadEntry.firmware_id == firmware_id
+        )
+        ld_rows = (await self.db.execute(stmt)).scalars().all()
+        for record in ld_rows:
+            flags = _normalize_linux_ld_preload_suspicious_flags(
+                record.suspicious_flags
+            )
+            drafts = classify_ld_preload_findings_persistence(
+                source_file=record.source_file,
+                line_number=record.line_number,
+                library_path=record.library_path,
+                suspicious_flags=flags,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.source_file,
+                    confidence=draft.confidence,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+
         return emitted
 
     async def emit_byovd_findings_from_driver(

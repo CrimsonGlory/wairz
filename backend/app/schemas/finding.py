@@ -473,6 +473,28 @@ LinuxFindingSource = Literal[
     "linux_container_unsafe_host_mount",
     "linux_container_unconfined_security",
     "linux_container_unknown_registry_image",
+    # Phase κ.C.D — Linux persistence-triplet walker emit sources
+    # (FOURTH LINUX source family extension; EIGHTH κ-era walker).
+    #
+    # linux_bash_history_clear — T1070.003 Indicator Removal: Clear
+    #   Command History. The act of trying to clear bash_history leaves
+    #   the cleanup command (`history -c` / `> ~/.bash_history` / etc)
+    #   in the persisted lines below. Persona-E HIGH — adversary
+    #   tradecraft signal.
+    #
+    # linux_cron_suspicious_command — T1053.003 Scheduled Task / Cron
+    #   + persistence. Fires when a crontab line combines suspicious
+    #   flags (temp_path_command, reboot_persistence + network_egress).
+    #   Persona-E MEDIUM baseline.
+    #
+    # linux_ld_preload_hijack — T1574.006 Hijack Execution Flow:
+    #   Dynamic Linker Hijacking. ANY ld.so.preload entry warrants
+    #   review; library_path under /tmp/ / /dev/shm/ or unusual
+    #   extension elevates to open-and-shut compromise. Persona-E
+    #   HIGH.
+    "linux_bash_history_clear",
+    "linux_cron_suspicious_command",
+    "linux_ld_preload_hijack",
 ]
 
 
