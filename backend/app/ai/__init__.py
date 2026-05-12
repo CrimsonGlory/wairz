@@ -36,6 +36,7 @@ from app.ai.tools.windows_scheduled_task import (
 from app.ai.tools.windows_srum import register_windows_srum_tools
 from app.ai.tools.windows_storage import register_windows_storage_tools
 from app.ai.tools.windows_update import register_windows_update_tools
+from app.ai.tools.windows_wmi import register_windows_wmi_tools
 
 
 def create_tool_registry() -> ToolRegistry:
@@ -76,4 +77,5 @@ def create_tool_registry() -> ToolRegistry:
     register_windows_lnk_tools(registry)
     register_windows_mft_tools(registry)
     register_windows_bcd_tools(registry)
+    register_windows_wmi_tools(registry)
     return registry
