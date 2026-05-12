@@ -28,6 +28,7 @@ from app.ai.tools.windows_appcompat import register_windows_appcompat_tools
 from app.ai.tools.windows_archive import register_windows_archive_tools
 from app.ai.tools.windows_bcd import register_windows_bcd_tools
 from app.ai.tools.windows_dotnet import register_windows_dotnet_tools
+from app.ai.tools.windows_dpapi import register_windows_dpapi_tools
 from app.ai.tools.windows_driver import register_windows_driver_tools
 from app.ai.tools.windows_efs import register_windows_efs_tools
 from app.ai.tools.windows_esp import register_windows_esp_tools
@@ -98,4 +99,5 @@ def create_tool_registry() -> ToolRegistry:
     register_linux_container_tools(registry)
     register_windows_appcompat_tools(registry)
     register_linux_persistence_tools(registry)
+    register_windows_dpapi_tools(registry)
     return registry
