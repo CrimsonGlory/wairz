@@ -543,6 +543,49 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # Phase κ.B Windows AppCompat / Shimcache execution-evidence walker
+    # columns (CLAUDE.md Rule #33 contract). SEVENTH κ-era walker.
+    # Background runner ``run_appcompat_walk_background`` walks each
+    # detection root per Rule #16, locates Windows SYSTEM hive candidates
+    # (typically ``Windows/System32/config/SYSTEM`` paths under detection
+    # roots; mirrored backups via RegBack also picked up), opens each via
+    # ``regipy``, reads the ``ControlSet00X\Control\Session Manager\
+    # AppCompatCache\AppCompatCache`` REG_BINARY value, parses it via a
+    # pure-Python ``struct``-based AppCompatCache parser (Win10/11 +
+    # Server 2016+ format), classifies per-entry anomalies, persists
+    # per-entry rows into ``windows_appcompat_entries`` (table from
+    # κ.B.A), and stamps an aggregate JSONB result onto
+    # ``appcompat_walk_result``.
+    #
+    # **AppCompat is execution evidence** — the Application Compatibility
+    # Engine records EVERY executable the system has seen, regardless of
+    # whether it actually ran. Forensic gold for T1106 / T1059 / LotL
+    # hunts.
+    #
+    # **PARSE-ONLY DISCIPLINE — Rule #36.** The walker parses the
+    # AppCompatCache REG_BINARY value AS DATA via pure-Python ``struct``
+    # unpacking. NO sub-process invocations, NO Windows API calls. Test
+    # gate ``test_appcompat_walker_no_execute``.
+    #
+    # Rule #33 .c CHECK enforces the 5-state machine; Rule #33 .d —
+    # asyncio.create_task dispatch (in-process pure-Python parser; no
+    # Docker spawn; reuses regipy already in tree).
+    appcompat_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    appcompat_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    appcompat_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    appcompat_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    appcompat_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     # Phase θ.B.C WMI persistence walker columns (CLAUDE.md Rule #33 contract).
     # Background runner ``run_wmi_walk_background`` opens each WMI
     # OBJECTS.DATA file (typically under ``Windows/System32/wbem/Repository/``
