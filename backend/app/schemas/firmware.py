@@ -92,6 +92,30 @@ EspAuthenticodeState = Literal[
     "parse_failed",
 ]
 
+# Phase θ.E.B Windows MBR/VBR boot-sector walker — Rule #33 .c Pydantic
+# Literal typo-gate at the trigger MCP tool / status reader boundary.
+# The DB CHECK constraint ``ck_firmware_mbr_vbr_walk_status`` (alembic
+# revision bc0d1e2f3a4b) is the durable safety floor; this Literal
+# adds compile-time typo detection for new callers. Mirrors the
+# ScheduledTaskWalkStatus / LnkWalkStatus / MftWalkStatus /
+# BcdWalkStatus / WmiWalkStatus / EspWalkStatus shapes.
+MbrVbrWalkStatus = Literal[
+    "idle", "queued", "running", "completed", "failed"
+]
+
+# Phase θ.E.A WindowsMbrVbrSector.sector_kind — Rule #33 .c Pydantic
+# Literal typo-gate. The DB CHECK constraint
+# ``ck_windows_mbr_vbr_sectors_sector_kind`` (alembic revision
+# ab0c1d2e3f4a) is the durable safety floor.
+MbrVbrSectorKind = Literal[
+    "mbr",
+    "vbr_fat32",
+    "vbr_ntfs",
+    "vbr_fat16",
+    "vbr_exfat",
+    "unknown",
+]
+
 
 class FirmwareUploadResponse(BaseModel):
     model_config = {"from_attributes": True}

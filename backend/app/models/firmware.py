@@ -409,6 +409,38 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # Phase θ.E.B MBR/VBR boot-sector walker columns (CLAUDE.md Rule #33
+    # contract). Background runner ``run_mbr_vbr_walk_background`` walks
+    # for raw disk image files (.img / .raw / .vhd / .vhdx — possibly
+    # converted by α.2.7) AND partition images under each detection
+    # root (Rule #16 — disk images surface differently per unpacker),
+    # reads the first 512 bytes (MBR), examines the partition table at
+    # offset 446, then reads each partition's first sector (VBR),
+    # SHA256-hashes each sector, signature-matches against the bundled
+    # known-good Windows VBR + known-malicious bootkit (TDL4 / Olmasco /
+    # Mebroot / Petya / etc.) tables, and persists per-sector rows
+    # (table from θ.E.A). All pure-Python; no subprocess (per Rule #36 —
+    # MBR/VBR are 512 bytes of x86 boot code and MUST NEVER be invoked
+    # via nasm / objdump / qemu-system / chainloader). Rule #33 .c
+    # CHECK enforces the 5-state machine; Rule #33 .d —
+    # asyncio.create_task dispatch (in-process pure-Python; no Docker
+    # spawn).
+    mbr_vbr_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    mbr_vbr_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    mbr_vbr_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    mbr_vbr_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    mbr_vbr_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
