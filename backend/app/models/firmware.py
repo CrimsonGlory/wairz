@@ -352,6 +352,39 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # Phase ι.A.B Linux journald walker columns (CLAUDE.md Rule #33 contract).
+    # FIRST LINUX walker in wairz's portfolio. Background runner
+    # ``run_journald_walk_background`` opens each ``.journal`` file
+    # candidate (typically ``var/log/journal/<machine-id>/*.journal`` or
+    # ``run/log/journal/<machine-id>/*.journal`` under any detection root
+    # per Rule #16) via a clean-room parser implementing the upstream
+    # systemd/sd-journal binary format (no third-party Python package
+    # matched the Rule #19 evidence-first probe — ``dissect.journal``
+    # does not exist on PyPI; ``kaitaistruct`` is available but would
+    # require ~500 LOC of vendor-in generated code; clean-room is the
+    # smaller path. Pure-Python parser per Rule #36 — DATA only, never
+    # invoked via journalctl / systemd-cat), iterates every entry,
+    # persists per-entry rows into ``linux_journald_entries`` (table
+    # from ι.A.A), and stamps an aggregate JSONB result onto
+    # ``journald_walk_result``. Rule #33 .c CHECK enforces the 5-state
+    # machine; Rule #33 .d — asyncio.create_task dispatch (in-process
+    # pure-Python parser; no Docker spawn).
+    journald_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    journald_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    journald_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    journald_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    journald_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     # Phase θ.B.C WMI persistence walker columns (CLAUDE.md Rule #33 contract).
     # Background runner ``run_wmi_walk_background`` opens each WMI
     # OBJECTS.DATA file (typically under ``Windows/System32/wbem/Repository/``

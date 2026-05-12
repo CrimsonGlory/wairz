@@ -127,6 +127,18 @@ SdbWalkStatus = Literal[
     "idle", "queued", "running", "completed", "failed"
 ]
 
+# Phase ι.A.B Linux journald walker — Rule #33 .c Pydantic Literal
+# typo-gate at the trigger MCP tool / status reader boundary. FIRST
+# LINUX walker in wairz's portfolio (Phases η + θ shipped 10
+# Windows-only walkers). The DB CHECK constraint
+# ``ck_firmware_journald_walk_status`` (alembic revision fb3a4b5c6d7e)
+# is the durable safety floor; this Literal adds compile-time typo
+# detection for new callers. Mirrors the SdbWalkStatus / MbrVbrWalkStatus
+# / EspWalkStatus / WmiWalkStatus / BcdWalkStatus shapes.
+JournaldWalkStatus = Literal[
+    "idle", "queued", "running", "completed", "failed"
+]
+
 # Phase θ.D.B WindowsSdbEntry.sdb_kind — Rule #33 .c Pydantic
 # Literal typo-gate. The DB CHECK constraint
 # ``ck_windows_sdb_entries_sdb_kind`` (alembic revision
