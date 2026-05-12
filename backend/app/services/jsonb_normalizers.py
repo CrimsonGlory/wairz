@@ -2974,3 +2974,139 @@ def _stamp_firmware_systemd_walk_result(payload: dict) -> dict:
     ``Firmware.systemd_walk_result``. Idempotent."""
     payload["schema_version"] = FIRMWARE_SYSTEMD_WALK_RESULT_SCHEMA_VERSION
     return payload
+
+
+# ── windows_etl_events.payload (Phase ι.C.A) ─────────────────────────────────
+#
+# Decoded ETW event payload — manifest-resolved field key/value pairs
+# when dissect.etl matched the provider GUID to a known manifest; raw-
+# bytes preview otherwise. Canonical shape: dict[str, Any] of decoded
+# fields keyed by manifest-declared name. Defensive: None → empty dict
+# (matches "no manifest match — no decoded payload" semantic).
+#
+# Consumers (≥3):
+# - app/services/etl_walker.py (writer — populates from dissect.etl
+#   ``EventRecord.event.event_values()`` or raw bytes preview)
+# - app/services/finding_service.py (emit_etl_findings_from_walk —
+#   ι.C.D classifier)
+# - app/ai/tools/windows_etl.py (MCP tools — surface field in tool
+#   output JSON)
+
+
+WINDOWS_ETL_EVENTS_PAYLOAD_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_etl_events_payload(value: object) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``WindowsEtlEvent.payload``.
+
+    Canonical: dict[str, Any] of decoded payload fields (manifest-
+    resolved key/value pairs) OR a small raw-bytes preview as
+    ``{"raw_b64": "...", "raw_size": N}`` when no manifest match.
+    Defensive: None / wrong-typed → empty dict. Empty dict means "no
+    payload decoded for this event" — typical for system-control
+    records or events whose provider has no shipped manifest.
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_windows_etl_events_payload(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``WindowsEtlEvent.payload``. Idempotent."""
+    payload["schema_version"] = WINDOWS_ETL_EVENTS_PAYLOAD_SCHEMA_VERSION
+    return payload
+
+
+# ── windows_etl_events.anomaly_flags (Phase ι.C.A) ───────────────────────────
+#
+# Anomaly aggregate computed by the ι.C.C classifier per event/file.
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "kernel_proc_after_evtx_clear": bool,
+#     "provider_disable_evidence": bool,
+#     "unusual_provider": bool,
+#     "non_microsoft_in_diagtrack": bool,
+#   }
+#
+# Consumers (≥3):
+# - app/services/etl_walker.py (writer — populates from classifier)
+# - app/services/finding_service.py (emit_etl_findings_from_walk —
+#   ι.C.D classifier)
+# - app/ai/tools/windows_etl.py (MCP tools — exposes anomaly_only
+#   filter)
+
+
+WINDOWS_ETL_EVENTS_ANOMALY_FLAGS_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_etl_events_anomaly_flags(value: object) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``WindowsEtlEvent.anomaly_flags``.
+
+    Defensive: None / wrong-typed → empty dict. Empty dict means "no
+    anomaly evaluation was performed" (e.g. parser-failure path).
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_windows_etl_events_anomaly_flags(payload: dict) -> dict:
+    """Stamp the schema_version inline onto an ``anomaly_flags`` payload
+    for ``WindowsEtlEvent.anomaly_flags``. Idempotent."""
+    payload["schema_version"] = (
+        WINDOWS_ETL_EVENTS_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+    return payload
+
+
+# ── firmware.etl_walk_result (Phase ι.C.B) ───────────────────────────────────
+#
+# Per-firmware aggregate from a single ETL walk. Mirrors the
+# systemd_walk_result + journald_walk_result shape — a flat dict with
+# top-level summary fields. The runner stamps this once at completion.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,
+#     "files_scanned": int,
+#     "events_walked": int,                    # event records iterated
+#     "events_persisted": int,                 # rows written
+#     "oversize_skipped": int,                 # .etl files skipped (>500 MB)
+#     "events_capped": int,                    # events dropped (per-firmware cap)
+#     "kernel_proc_after_evtx_clear_count": int,
+#     "provider_disable_evidence_count": int,
+#     "unusual_provider_count": int,
+#     "non_microsoft_in_diagtrack_count": int,
+#     "anomaly_total": int,                    # events flagged by ≥1 anomaly
+#     "errors": list[str],
+#     "per_file": list[dict],                  # per-.etl-file aggregates
+#   }
+
+
+FIRMWARE_ETL_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_etl_walk_result(value: object) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.etl_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_etl_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.etl_walk_result``. Idempotent."""
+    payload["schema_version"] = FIRMWARE_ETL_WALK_RESULT_SCHEMA_VERSION
+    return payload

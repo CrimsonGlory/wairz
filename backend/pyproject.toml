@@ -173,6 +173,31 @@ dependencies = [
     # extracted binary, or spawns ntfs-3g / mount / qemu-system on
     # the parsed filesystem.
     "dissect.ntfs>=3.10",
+    # ── Phase ι.C: ETW .etl trace-log walking (FIRST ι Windows-side) ──
+    # dissect.etl — pure-Python read-only Event Tracing for Windows
+    # (ETW) binary trace-log parser by Fox-IT. The ι.C walker iterates
+    # every .etl file under detection roots (typically Windows/System32/
+    # WDI/LogFiles/, Windows/System32/winevt/Logs/, Windows/Logs/CBS/,
+    # Windows/Logs/NetSetup/, Windows/Logs/WindowsBackup/, Windows/Logs/
+    # WindowsUpdate/, Windows/System32/LogFiles/WMI/) and emits per-
+    # event WindowsEtlEvent rows. Persona-E ETW relevance: kernel ETL
+    # often survives EVTX clear (FortiGuard 2024 IR case — adversary
+    # cleared Security.evtx; AutoLogger-Diagtrack-Listener.etl retained
+    # the full post-clear process tree). Anomaly classifier flags
+    # kernel_proc_after_evtx_clear, provider_disable_evidence,
+    # unusual_provider, non_microsoft_in_diagtrack. Pure-Python — no
+    # native build deps; pulls dissect.cstruct + dissect.util as
+    # transitive AGPL dependencies (already in tree from dissect.ntfs).
+    # License: AGPL-3.0-or-later (wairz is AGPL too — compatible).
+    # Rule #19 evidence-first probe ran 2026-05-12T15:45Z: v3.14 released
+    # 2025-11-20; ETL(fh) consumes a binary file-handle; iteration yields
+    # EventRecord instances with .header (provider_id UUID, timestamp,
+    # process_id, thread_id, opcode) and .event (lazy manifest-resolved
+    # payload). Rule #36 no-execute discipline: dissect.etl reads .etl
+    # bytes AS DATA; nothing in wairz starts a kernel trace session,
+    # registers an ETW logger, invokes any process referenced in event
+    # payloads, or loads any embedded provider manifest as code.
+    "dissect.etl>=3.14",
 ]
 
 [project.scripts]

@@ -34,6 +34,7 @@ from app.services.jsonb_normalizers import (
     FIRMWARE_DEVICE_METADATA_SCHEMA_VERSION,
     FIRMWARE_DOTNET_DECOMPILE_RESULT_SCHEMA_VERSION,
     FIRMWARE_ESP_WALK_RESULT_SCHEMA_VERSION,
+    FIRMWARE_ETL_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_EVTX_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_JOURNALD_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_MBR_VBR_WALK_RESULT_SCHEMA_VERSION,
@@ -53,6 +54,8 @@ from app.services.jsonb_normalizers import (
     WINDOWS_BCD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION,
     WINDOWS_BCD_ENTRIES_CUSTOM_ELEMENTS_SCHEMA_VERSION,
     WINDOWS_DRIVERS_INF_METADATA_SCHEMA_VERSION,
+    WINDOWS_ETL_EVENTS_ANOMALY_FLAGS_SCHEMA_VERSION,
+    WINDOWS_ETL_EVENTS_PAYLOAD_SCHEMA_VERSION,
     WINDOWS_ESP_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION,
     WINDOWS_ESP_ENTRIES_AUTHENTICODE_CHAIN_SCHEMA_VERSION,
     WINDOWS_ESP_ENTRIES_DBX_REVOCATION_MATCH_SCHEMA_VERSION,
@@ -90,6 +93,7 @@ from app.services.jsonb_normalizers import (
     _normalize_firmware_device_metadata,
     _normalize_firmware_dotnet_decompile_result,
     _normalize_firmware_esp_walk_result,
+    _normalize_firmware_etl_walk_result,
     _normalize_firmware_evtx_walk_result,
     _normalize_firmware_journald_walk_result,
     _normalize_firmware_mbr_vbr_walk_result,
@@ -117,6 +121,8 @@ from app.services.jsonb_normalizers import (
     _normalize_windows_bcd_entries_custom_elements,
     _normalize_windows_drivers_inf_metadata,
     _normalize_windows_esp_entries_anomaly_flags,
+    _normalize_windows_etl_events_anomaly_flags,
+    _normalize_windows_etl_events_payload,
     _normalize_windows_esp_entries_authenticode_chain,
     _normalize_windows_esp_entries_dbx_revocation_match,
     _normalize_windows_event_records_message_xml,
@@ -141,6 +147,7 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_device_metadata,
     _stamp_firmware_dotnet_decompile_result,
     _stamp_firmware_esp_walk_result,
+    _stamp_firmware_etl_walk_result,
     _stamp_firmware_evtx_walk_result,
     _stamp_firmware_journald_walk_result,
     _stamp_firmware_mbr_vbr_walk_result,
@@ -160,6 +167,8 @@ from app.services.jsonb_normalizers import (
     _stamp_windows_bcd_entries_custom_elements,
     _stamp_windows_drivers_inf_metadata,
     _stamp_windows_esp_entries_anomaly_flags,
+    _stamp_windows_etl_events_anomaly_flags,
+    _stamp_windows_etl_events_payload,
     _stamp_windows_esp_entries_authenticode_chain,
     _stamp_windows_esp_entries_dbx_revocation_match,
     _stamp_windows_event_records_message_xml,
@@ -3535,3 +3544,175 @@ def test_stamp_firmware_systemd_walk_result_idempotent():
 
 def test_firmware_systemd_walk_result_schema_version_constant():
     assert FIRMWARE_SYSTEMD_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp windows_etl_events.payload (Phase ι.C.A) ───────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical pass-through — decoded manifest payload.
+        (
+            {
+                "schema_version": 1,
+                "ProcessId": 1234,
+                "ImageName": "C:\\Windows\\System32\\svchost.exe",
+            },
+            {
+                "schema_version": 1,
+                "ProcessId": 1234,
+                "ImageName": "C:\\Windows\\System32\\svchost.exe",
+            },
+        ),
+        # Raw bytes preview pass-through.
+        (
+            {"schema_version": 1, "raw_b64": "AABB==", "raw_size": 64},
+            {"schema_version": 1, "raw_b64": "AABB==", "raw_size": 64},
+        ),
+        # Empty dict pass-through.
+        ({}, {}),
+        # None / wrong-types collapse to empty dict.
+        (None, {}),
+        ([], {}),
+        ("not a dict", {}),
+        (42, {}),
+    ],
+)
+def test_normalize_windows_etl_events_payload(value, expected):
+    assert _normalize_windows_etl_events_payload(value) == expected
+
+
+def test_normalize_windows_etl_events_payload_idempotent():
+    canonical = {"schema_version": 1, "ProcessId": 1234}
+    once = _normalize_windows_etl_events_payload(canonical)
+    twice = _normalize_windows_etl_events_payload(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_etl_events_payload_adds_version():
+    out = _stamp_windows_etl_events_payload({"ProcessId": 1234})
+    assert out["schema_version"] == WINDOWS_ETL_EVENTS_PAYLOAD_SCHEMA_VERSION
+
+
+def test_stamp_windows_etl_events_payload_idempotent():
+    once = _stamp_windows_etl_events_payload({"a": 1})
+    twice = _stamp_windows_etl_events_payload(once)
+    assert once == twice
+
+
+def test_windows_etl_events_payload_schema_version_constant():
+    assert WINDOWS_ETL_EVENTS_PAYLOAD_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp windows_etl_events.anomaly_flags (Phase ι.C.A) ─────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical pass-through.
+        (
+            {
+                "schema_version": 1,
+                "kernel_proc_after_evtx_clear": True,
+                "provider_disable_evidence": False,
+                "unusual_provider": False,
+                "non_microsoft_in_diagtrack": False,
+            },
+            {
+                "schema_version": 1,
+                "kernel_proc_after_evtx_clear": True,
+                "provider_disable_evidence": False,
+                "unusual_provider": False,
+                "non_microsoft_in_diagtrack": False,
+            },
+        ),
+        # Empty dict pass-through.
+        ({}, {}),
+        # None / wrong-types collapse to empty dict.
+        (None, {}),
+        ([{"a": 1}], {}),
+        ("not a dict", {}),
+        (42, {}),
+    ],
+)
+def test_normalize_windows_etl_events_anomaly_flags(value, expected):
+    assert _normalize_windows_etl_events_anomaly_flags(value) == expected
+
+
+def test_normalize_windows_etl_events_anomaly_flags_idempotent():
+    canonical = {
+        "schema_version": 1,
+        "kernel_proc_after_evtx_clear": True,
+    }
+    once = _normalize_windows_etl_events_anomaly_flags(canonical)
+    twice = _normalize_windows_etl_events_anomaly_flags(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_etl_events_anomaly_flags_adds_version():
+    out = _stamp_windows_etl_events_anomaly_flags(
+        {"unusual_provider": True}
+    )
+    assert (
+        out["schema_version"]
+        == WINDOWS_ETL_EVENTS_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+
+
+def test_stamp_windows_etl_events_anomaly_flags_idempotent():
+    once = _stamp_windows_etl_events_anomaly_flags({"unusual_provider": True})
+    twice = _stamp_windows_etl_events_anomaly_flags(once)
+    assert once == twice
+
+
+def test_windows_etl_events_anomaly_flags_schema_version_constant():
+    assert WINDOWS_ETL_EVENTS_ANOMALY_FLAGS_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp firmware.etl_walk_result (Phase ι.C.B) ─────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {
+                "schema_version": 1,
+                "files_scanned": 8,
+                "events_walked": 12345,
+                "events_persisted": 9999,
+                "anomaly_total": 17,
+            },
+            {
+                "schema_version": 1,
+                "files_scanned": 8,
+                "events_walked": 12345,
+                "events_persisted": 9999,
+                "anomaly_total": 17,
+            },
+        ),
+        ({}, {}),
+        (None, None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_etl_walk_result(value, expected):
+    assert _normalize_firmware_etl_walk_result(value) == expected
+
+
+def test_stamp_firmware_etl_walk_result_adds_version():
+    out = _stamp_firmware_etl_walk_result({"files_scanned": 0})
+    assert out["schema_version"] == FIRMWARE_ETL_WALK_RESULT_SCHEMA_VERSION
+
+
+def test_stamp_firmware_etl_walk_result_idempotent():
+    once = _stamp_firmware_etl_walk_result({"files_scanned": 0})
+    twice = _stamp_firmware_etl_walk_result(once)
+    assert once == twice
+
+
+def test_firmware_etl_walk_result_schema_version_constant():
+    assert FIRMWARE_ETL_WALK_RESULT_SCHEMA_VERSION == 1

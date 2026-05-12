@@ -19,6 +19,7 @@ from app.models.uart_session import UARTSession
 from app.models.windows_bcd_entry import WindowsBcdEntry
 from app.models.windows_driver import WindowsDriver
 from app.models.windows_esp_entry import WindowsEspEntry
+from app.models.windows_etl_events import WindowsEtlEvent
 from app.models.windows_event_record import WindowsEventRecord
 from app.models.windows_lnk_record import WindowsLnkRecord
 from app.models.windows_mbr_vbr_sector import WindowsMbrVbrSector
@@ -43,7 +44,7 @@ __all__ = [
     "DeviceDumpSession", "LinuxJournaldEntry", "LinuxSystemdUnit",
     "WindowsPESignature", "WindowsRegistryExtract",
     "WindowsDriver", "WindowsUpdatePackage", "WindowsUpdateDllDiff",
-    "WindowsBcdEntry", "WindowsEspEntry", "WindowsEventRecord", "WindowsLnkRecord", "WindowsMbrVbrSector", "WindowsMftRecord",
+    "WindowsBcdEntry", "WindowsEspEntry", "WindowsEtlEvent", "WindowsEventRecord", "WindowsLnkRecord", "WindowsMbrVbrSector", "WindowsMftRecord",
     "WindowsPrefetchRecord", "WindowsScheduledTask", "WindowsSdbEntry",
     "WindowsSrumRecord", "WindowsWmiEvent",
 ]
