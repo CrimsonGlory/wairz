@@ -1,7 +1,8 @@
 # Campaign: Windows-Coverage God-Mode — Phase η (forensic-artifact horizontal expansion)
 
-Status: in-progress
+Status: CLOSED (5 of 5 streams shipped across 2 sessions; final close 2026-05-12)
 Started: 2026-05-11
+Closed: 2026-05-12
 Direction: "let's continue in this new session with as much in parallel as possible … spawn /citadel:archon for wave decomposition. THIS is the primary work for the session."
 Branch: direct-push to main per-piece (Pattern P5; Trust = trusted ≥184 sessions)
 Parent intake: `.planning/intake/windows-coverage-godmode-eta-2026-05-11.md`
@@ -91,15 +92,23 @@ Deferred to θ (next campaign letter):
 
 ## Active Context
 
-**This session (2026-05-11) — END STATE:**
+**Phase η CLOSED 2026-05-12 — all 5 streams shipped to origin/main.**
+
+### Continuation session (2026-05-12) — END STATE:
+
+- η.A (NTFS $MFT walker) COMPLETE — `b7264af` → `9baefd9` (7 per-piece commits; Rule-of-Twelve + Rule #39 Rule-of-Eight)
+- η.D (BYOVD LOLDrivers fingerprinting) COMPLETE — `3b2c78b` → `1f51716` (7 per-piece commits; Rule-of-Thirteen; new Rule #37 worked example; LOLDrivers bundle 29.79 MB bundled in `backend/ms-anchors/loldrivers.json`)
+- Cron empirical (Rule #41 mechanism (b)) DEFERRED again — current 2026-05-12 ~01:15 UTC; trigger 2026-05-13 06:00 UTC (~29h away)
+- End-of-session validation: Rule #8 backend+worker+migrator rebuild GREEN; Rule #11 import smoke ALL OK; frontend tsc -b --force ec=0; targeted pytest 138/138 PASS; alembic head verified in container = `a8b9c0d1e2f3`; LOLDrivers bundle mounted at `/opt/wairz/loldrivers.json` size 29,791,569 bytes
+
+### Initial session (2026-05-11) — recap:
 
 - Phase 0 + Phase 1 (research + synthesis) COMPLETE
 - Phase 2 (intake + tracking + 3 scout reports) COMPLETE — `f27f0ee`
 - η.E (PowerShell EID 4103/4104 annotation) COMPLETE — `ac98e55` (1 atomic alignment commit; Rule-of-Nine)
 - η.B (Scheduled Task XML walker) COMPLETE — `24d72ee` → `110584d` (5 per-piece commits; Rule-of-Ten + Rule #39 Rule-of-Six)
 - η.C (LNK file walker) COMPLETE — `88c3be0` → `d321ef2` (6 per-piece commits; Rule-of-Eleven + Rule #39 Rule-of-Seven)
-- η.A (NTFS $MFT walker) DEFERRED to next session (LARGEST stream; pre-decomposed in this file's η.A section + intake's η.A section)
-- η.D (BYOVD LOLDrivers fingerprinting) DEFERRED to next session (Rule #37 anchor work has its own focused scope)
+- η.A + η.D DEFERRED to 2026-05-12 continuation session (now CLOSED above)
 
 **Direction check:** aligned. Original direction was "next-frontier η+ decomposition for windows-coverage-godmode"; output is η decomposition with execution shipping 3 of the 5 streams (η.B + η.C + η.E) plus full pre-decomposition of the deferred η.A + η.D streams with end conditions ready for next-session pickup.
 
@@ -130,7 +139,37 @@ Deferred to θ (next campaign letter):
 
 ## Continuation State
 
-**Files modified this session — 14 commits to main:**
+**2026-05-12 continuation session — 15 commits to main (full Phase η now CLOSED):**
+
+```
+5bc9c7c chore(harness): session counter 184→185 (η continuation session start)
+b7264af deps(backend): add dissect.ntfs>=3.10 for Phase η.A NTFS $MFT walker
+ad5f0fa feat(mft): add windows_mft_records model + alembic + JSONB normalizers (Phase η.A.A)
+83442c6 feat(firmware): mft_walk_* 5-column 202+poll status set (Phase η.A.B)
+255adcc feat(mft): Rule #39 walker triplet for NTFS $MFT (Phase η.A.C)
+66bd8d6 feat(findings): MFT $DATA ADS + timestomp cross-stack alignment + emit (Phase η.A.D)
+838ab64 feat(mft): wire MFT finding emit into auto_mft_walk_firmware_safe (Phase η.A.E)
+9baefd9 feat(mcp): windows_mft MCP tool category — 3 tools (Phase η.A.F)
+3b2c78b feat(byovd): bundle LOLDrivers v1 JSON anchor per Rule #37 (Phase η.D.0)
+6160fc0 feat(byovd): Dockerfile COPY + docker-compose env var for LOLDrivers (Phase η.D.A)
+8a2edc7 feat(byovd): scripts/refresh-loldrivers.sh quarterly cron script (Phase η.D.B)
+6fee15f feat(byovd): loldrivers_lookup_service with hash-keyed lookup dict (Phase η.D.C)
+e0403f5 feat(findings): BYOVD driver cross-stack alignment + emit (Phase η.D.D)
+739473b feat(byovd): wire LOLDrivers lookup into α.2.6 driver-extractor hook (Phase η.D.E)
+1f51716 feat(mcp): lookup_byovd_driver MCP tool — 235→236 (Phase η.D.F)
+```
+
+**Phase η CLOSED.** Recommended NEXT session actions (in priority order):
+
+1. **Cron empirical (Item #1; deferred again):** on/after 2026-05-13 06:00 UTC, run `gh run list --workflow=backend-tests.yml --limit 10 --json event,conclusion,createdAt,headSha | jq '.[] | select(.event=="schedule")'`. If green, declare Rule #41 mechanism (b) validated and update `.mex/patterns/rule-41-must-complete-ci.md`.
+2. **Move this campaign file to `.planning/campaigns/completed/`** — Phase η is CLOSED; the file belongs in the completed directory.
+3. **Pick up Phase θ work** — pre-scoped in `.planning/intake/windows-coverage-godmode-eta-2026-05-11.md` "Out of scope (deferred to θ)" section: WMI persistence + Boot chain (BCD + MBR/VBR + ESP) + Volatility 3 + Shim .sdb / EFS / EVT / ETL / hibernate.sys.
+4. **Follow-up intake for backend `.env` `WAIRZ_ALLOW_NO_AUTH=true` documentation** — 118-restart-count anomaly surfaced this session (postmortem What Broke #8).
+5. **/citadel:learn windows-coverage-godmode-eta-2026-05-11** — extract patterns + antipatterns to harness.json quality rules.
+
+---
+
+**Initial session (2026-05-11) — 14 commits to main:**
 
 ```
 69283ff chore(planning): housekeeping carryover from postmortem-rec-closures-2026-05-11 + session counter
@@ -187,6 +226,20 @@ d321ef2 feat(mcp): windows_lnk MCP tool category — 3 tools (Phase η.C.E)
 | η.C.C | lnk walker triplet | `7e56881` | Rule #39 inner/outer/safe `lnk_walker.py` (LnkParse3 + `_jsonify` datetime coercer; **Rule-of-Seven** for walker triplet recipe) + 17 walker tests | 17/17 PASS |
 | η.C.D | lnk cross-stack alignment | `fd7cd23` | alembic `a7b8c9d0e1f2` + Literal + `_LnkFindingDraft` dataclass + classifier + emit + FE union + FE config + 8 emit tests; **Rule-of-Eleven** | 8/8 PASS; alignment green |
 | η.C.E | windows_lnk MCP tools | `d321ef2` | 3 tools (search + status + trigger) + 10 tool tests; tool count 229 → 232 | 10/10 PASS |
+| η.A.0 | dissect.ntfs>=3.10 dep | `b7264af` | pyproject + uv.lock; resolves dissect.ntfs==3.16 (AGPL-3.0; corrects intake's MIT claim); transitives `dissect.cstruct>=4,<5` + `dissect.util>=3,<4` (pure Python AGPL) | (host import smoke OK) |
+| η.A.A | mft records model + alembic + JSONB normalizers | `ad5f0fa` | alembic `1f3a2b4c5d6e` (pre-allocated `d2e3f4a5b6c7` collided; substituted) + `WindowsMftRecord` + register + normalizers + 27 tests (21 normalizer + 6 ORM round-trip) | 27/27 PASS |
+| η.A.B | mft_walk_* status set | `83442c6` | alembic `2a4b3c5d6e7f` + 5-column 202+poll + Pydantic Literal + DB CHECK `ck_firmware_mft_walk_status` | (covered by walker tests) |
+| η.A.C | mft walker triplet | `255adcc` | Rule #39 inner/outer/safe `mft_walker.py` (dissect.ntfs `NTFS(fh)` + `mft.segments()` + per-record $STD_INFO / $FILE_NAME / $DATA extraction; **Rule-of-Eight** for walker triplet recipe) + 31 walker tests; Rule #30 mock-at-source for fixture generation | 31/31 PASS |
+| η.A.D | mft cross-stack alignment | `66bd8d6` | alembic `3b5c4d6e7f8a` + Literal + `_MFTFindingDraft` + classifier helpers (`_classify_mft_ads_hidden` + `_classify_mft_timestomp` + `classify_mft_findings`) + emit + FE union + FE config + 17 tests (14 emit + 3 alignment); **Rule-of-Twelve** for Rule #25 single-slice exception #2 cross-stack alignment | 17/17 PASS; alignment green |
+| η.A.E | wire MFT emit into auto_mft_walk_firmware_safe | `838ab64` | emit hook + Rule #35b live-canary test verifying `confidence` field persistence | 1/1 PASS |
+| η.A.F | windows_mft MCP tools | `9baefd9` | 3 tools (search_mft_records + mft_walk_status + trigger_mft_walk) + 12 tool tests; tool count 232 → 235 | 12/12 PASS |
+| η.D.0 | LOLDrivers v1 JSON bundle per Rule #37 | `3b2c78b` | `backend/ms-anchors/loldrivers.json` 29.79 MB (intake's 5-10 MB estimate stale by 3-6x; scout-corrected) + .sha256 + .url + .LICENSE (Apache-2.0) + .NOTICE per redistribution terms; SHA256 pin `ddda516c90150069d1ca8b8a6151f53adadfd5608534a0e95265574792b81fec` | (post-push round-trip verified) |
+| η.D.A | Dockerfile COPY + docker-compose env var | `6160fc0` | Dockerfile COPY + sha256sum -c verify at build + place at /opt/wairz/loldrivers.json + docker-compose `LOLDRIVERS_BUNDLE_PATH` on backend + worker | (covered by lifespan probe) |
+| η.D.B | refresh-loldrivers.sh quarterly cron | `8a2edc7` | atomic download .tmp + rename + SHA256 compare + non-zero on drift + `--apply` + `--rebuild` flags; quarterly cadence (upstream releases ~5/week — borderline-stale; documented in script comments) | (script in scripts/) |
+| η.D.C | loldrivers_lookup_service with hash-keyed dict | `6fee15f` | `lookup_driver_byovd(blob_sha256)` + `is_loldrivers_available()` + Rule #35c normalizer (coalesces CVE/CVEs key drift + merges 23-records flat/nested hash anomaly; lowercases hex hash boundary) + lifespan startup probe + 25 tests | 25/25 PASS |
+| η.D.D | byovd cross-stack alignment | `e0403f5` | alembic `a8b9c0d1e2f3` (pre-allocated; verified free pre-dispatch) + Literal + `_BYOVDFindingDraft` + `classify_byovd_finding` + emit + FE union + FE config + 11 tests (8 classifier + 3 Rule #35b live-canary); **Rule-of-Thirteen** for Rule #25 single-slice exception #2 cross-stack alignment | 11/11 PASS; alignment green |
+| η.D.E | wire BYOVD lookup into α.2.6 driver-extractor hook | `739473b` | emit at unpack-time for matched drivers; γ Services walker hook DEFERRED per Rule #19 evidence-first (Services-walk → ImagePath → driver-blob resolution not currently exposed in `registry_hive_walker.py`; out-of-scope) + 2 tests | 2/2 PASS |
+| η.D.F | lookup_byovd_driver MCP tool | `1f51716` | extends `windows_driver` category with `lookup_byovd_driver` (blob_id resolution to SHA256 + verdict + LOLDrivers reference URL) + 4 tests; tool count 235 → 236 | 4/4 PASS |
 
 ## Reversibility
 

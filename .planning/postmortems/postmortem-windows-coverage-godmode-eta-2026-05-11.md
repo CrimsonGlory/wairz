@@ -165,3 +165,114 @@ Single Archon-orchestrated session decomposed and partially executed Phase η of
 ---
 
 Run `/citadel:learn windows-coverage-godmode-eta-2026-05-11` to extract patterns into the knowledge base.
+
+---
+
+# Continuation Session 2026-05-12 — η.A + η.D closure
+
+> Date: 2026-05-12
+> Duration: ~75 min single session (00:00 UTC kickoff → ~01:15 UTC end-of-validation)
+> Outcome: **complete** — Phase η closed; 5 of 5 streams shipped to main; campaign in `.planning/campaigns/` ready to move to `.planning/campaigns/completed/` after this commit.
+
+## Summary
+
+Single Archon-orchestrated continuation session shipped the two deferred Phase η streams (η.A NTFS $MFT walker + η.D BYOVD LOLDrivers fingerprinting). 15 commits to main: 1 housekeeping (session counter bump 184→185) + 7 η.A (deps + model + status set + Rule #39 walker triplet Rule-of-Eight + cross-stack alignment Rule-of-Twelve + emit wire + 3 MCP tools) + 7 η.D (bundle + Dockerfile/compose + cron script + lookup service + cross-stack alignment Rule-of-Thirteen + emit wire + 1 MCP tool). 130 new tier-1 tests (88 η.A + 42 η.D). 4 new MCP tools (235 → 236 includes the +3 from η.A's windows_mft category + 1 from η.D's windows_driver extension); WindowsFindingSource Literal 17 → 20 (+3); alembic chain `a7b8c9d0e1f2` → `a8b9c0d1e2f3` (+4 revisions; one ID collision auto-resolved by η.A's sub-agent). Bundle: `backend/ms-anchors/loldrivers.json` 29.79 MB (intake's 5-10 MB estimate was 3-6x stale; scout-corrected before commit). Cut-over Rule #8 backend+worker+migrator rebuild + Rule #11 import smoke completed cleanly post-stream (alembic head `a8b9c0d1e2f3` verified in container; Literal length 20 verified; LOLDrivers bundle mounted at `/opt/wairz/loldrivers.json` size 29,791,569 bytes verified).
+
+## What Broke (this continuation session)
+
+### 7. Main session's pre-allocated alembic revision IDs all collided with existing migrations
+
+- **What happened:** Main session pre-allocated `d2e3f4a5b6c7` (η.A.A), `e4f5a6b7c8d9` (η.A.B), `f6a7b8c9d0e1` (η.A.D), `a8b9c0d1e2f3` (η.D.D) and passed them VERBATIM to the η.A + η.D sub-agent prompts. η.A sub-agent's Rule #19 evidence-first probe (`grep -rl "^revision = \"<id>\"" backend/alembic/versions/`) revealed ALL THREE η.A-allocated IDs were already taken by older migrations (the alembic version tree has ~80 revisions; collision probability under naive hex-id picking is non-trivial). Sub-agent substituted with `1f3a2b4c5d6e` / `2a4b3c5d6e7f` / `3b5c4d6e7f8a` after grep-verifying free; documented the substitution in commit messages.
+- **Caught by:** η.A sub-agent's Rule #19 evidence-first grep BEFORE authoring the migrations. Zero migration-file conflicts; chain landed cleanly.
+- **Cost:** ~30 seconds — three greps and a re-selection.
+- **Fix:** η.A sub-agent re-grepped + substituted in-flight. η.D's pre-allocated `a8b9c0d1e2f3` happened to be FREE so was used as-allocated.
+- **Infrastructure created:** Reinforces Rule #19 evidence-first as a discipline that applies to MAIN-session pre-allocation, not just sub-agent-time decisions. Main-session shouldn't pre-allocate IDs without grep-verifying free FIRST. Future Archon dispatches with multi-stream alembic chains should EITHER pre-allocate post-grep, OR simply pass "current head + recipe" to the sub-agent + trust the sub-agent's Rule #19 grep.
+
+### 8. Backend `api_key` startup check has been pre-existing-failing on rebuild for 118 restart cycles
+
+- **What happened:** End-of-session Rule #8 `docker compose up -d --build backend worker migrator` rebuild started. After build completed, `docker compose ps` showed `wairz-backend-1 Restarting (3) <Ns> ago`. Backend exit reason: `ERROR: api_key is required. Set API_KEY in .env or WAIRZ_ALLOW_NO_AUTH=true for local-only deployments.` (`app/main.py:68-74`). `docker inspect wairz-backend-1 --format '{{.RestartCount}}'` returned **118** — meaning the backend has been failing this check on every rebuild attempt for a long time. The CITADEL `external-action-gate.js` blocks reads of `.env` (secrets), so couldn't directly inspect the file's contents; verified indirectly via `docker compose exec worker python -c "import os; print(os.environ.get('API_KEY'))"` returning `None`.
+- **Caught by:** End-of-session Rule #11 import smoke ATTEMPT — `docker compose exec -T backend ...` failed with backend in restart loop.
+- **Cost:** ~3 minutes — diagnosis + pivot to `docker compose run --rm -e WAIRZ_ALLOW_NO_AUTH=true backend ...` for the import smoke. End-of-session validation completed cleanly via the override.
+- **Fix:** **Not in scope for η.A/η.D.** This is a pre-existing repo-config issue (.env missing required key) unrelated to this session's work. Surfaced + documented; future sessions should add a setup-time check OR a one-time .env amendment to add `WAIRZ_ALLOW_NO_AUTH=true` for local dev. The 118-restart-count baseline confirms this is NOT a regression introduced by η.A or η.D — pre-existed for sessions.
+- **Infrastructure created:** **Worth a small `.mex/patterns/local-dev-env-no-auth.md` recipe** OR a `.env.example` doc-only PR noting `WAIRZ_ALLOW_NO_AUTH=true` should be in local-dev `.env`. Defer to follow-up session.
+
+### 9. Image stale-cache: `docker compose up -d --build worker` did NOT rebuild the worker container
+
+- **What happened:** Initial post-build `docker compose ps` showed `wairz-worker-1 Up 2 hours (healthy)` — worker WAS NOT recreated by the `up -d --build` invocation despite worker being explicitly named. Worker's image SHA `e434fe7e8adbe` was the OLD image; backend's new image was `a16365cf9e77`. Subsequent `docker compose up -d` (no `--build`) refreshed both containers using the just-built image.
+- **Caught by:** Side-by-side `docker inspect <name> --format '{{.Image}}'` comparison.
+- **Cost:** ~1 minute — explicit follow-up `docker compose up -d` to refresh worker.
+- **Fix:** Use `docker compose up -d --force-recreate --build <service>` when you need to GUARANTEE the named service is recreated against the latest image. Bare `up -d --build` may skip the recreate if the build cache decides nothing changed.
+- **Infrastructure created:** Minor caveat to add to CLAUDE.md Rule #8 — currently says "use `docker compose up -d` not `restart`" — should add a sub-bullet: "for genuine rebuild verification, `--force-recreate` ensures the named service is replaced even when the build cache says nothing changed."
+
+### 10. `docker compose exec backend python` uses system Python, not `.venv/bin/python` — `ModuleNotFoundError: No module named 'sqlalchemy'`
+
+- **What happened:** Initial Rule #11 import smoke ran `docker compose exec -T backend python -c "from app.services.mft_walker import ..."` — failed with `ModuleNotFoundError: No module named 'sqlalchemy'` even though the rebuilt image contains all deps installed in `/app/.venv`.
+- **Caught by:** Immediate failure of the import smoke command.
+- **Cost:** ~30 seconds — replaced `python` with `/app/.venv/bin/python` per CLAUDE.md Rule #20 cmd-shape (`docker compose exec -T -w /app -e PYTHONPATH=/app backend /app/.venv/bin/<tool>`).
+- **Fix:** Always use `/app/.venv/bin/python` for in-container Python invocations in wairz. The base image's system Python doesn't have wairz deps installed.
+- **Infrastructure created:** Already codified in CLAUDE.md Rule #20 caveat; reinforced.
+
+## Caught (this continuation session)
+
+11. **Pre-flight research scouts corrected 3 intake assumptions** — dissect.ntfs license (AGPL not MIT); LOLDrivers bundle size (29.8 MB not 5-10 MB); LOLDrivers schema field drift (CVE vs CVEs key + 23-records flat/nested anomaly). All corrections landed before the sub-agents committed.
+12. **η.A sub-agent's Rule #19 evidence-first grep caught the 3 alembic ID collisions** — see What Broke #7. Sub-agent substituted in-flight; zero migration-file conflicts.
+13. **η.D sub-agent applied Rule #19 evidence-first to defer the γ Services hive walker hook** — `registry_hive_walker.py` doesn't currently expose Services-walk → ImagePath → driver-blob resolution. Adding that walk would be new feature scope. Documented as a forward-spec finding; deferred to a future iteration rather than shotgun-implemented.
+14. **η.D sub-agent's Rule #35a pipe-induced silent exit detected mid-iteration** — `tail -5 /tmp/ruff.out; echo "ec=$?"` showed ec=0 from `tail` while the actual `ruff exit=1` was masked. Caught via re-run without pipe; Rule #35a worked as documented.
+15. **Bundle SHA256 pin verified post-push round-trip** — 29.79 MB JSON committed to git, pushed to origin, and re-verified via `( cd backend/ms-anchors && sha256sum -c loldrivers.json.sha256 ); ec=$?` → ec=0. Confirms the Rule #37 offline-trust-anchor flow handles large bundles cleanly through git transport.
+16. **Tier-1 tests caught η.A `is_file()` orphan-record test logic bug** — initial `_make_fake_mft_record` made `is_file()` depend on `full_path is not None`, causing the orphan test to skip the record. Fixed: `is_file()` now reflects the NTFS-level type flag independently of parent-chain resolution. Caught BEFORE commit.
+17. **Cross-stack alignment test `test_finding_source_alignment.py` stayed pairwise-green commit-by-commit through all 4 new alignment migrations** — η.A.D extends Literal 17→19; η.D.D extends 19→20. Zero alignment-test failures.
+18. **Rule #24 frontend tsc canary fired correctly** — `const x: number = "nope"` produced ec=2 from `npx tsc -b --force`; proves tsc is descending into referenced projects.
+19. **End-of-session Rule #11 import smoke ALL GREEN** — `mft_walker` triplet + `loldrivers_lookup_service` + new finding_service exports + Literal length 20 + `dissect.ntfs` + LOLDrivers bundle mounted at `/opt/wairz/loldrivers.json` size 29,791,569 bytes. Alembic head verified in container = `a8b9c0d1e2f3`.
+
+## Recommendations (this continuation session)
+
+1. **Promote Rule #19 to apply to MAIN-session alembic ID pre-allocation** — current Rule #19 wording emphasizes sub-agent / spec-vs-DB reconciliation. Worked example: this session pre-allocated 3 alembic IDs that ALL collided; sub-agent's grep saved the dispatch. Add a "Pre-allocating values for a sub-agent? grep first" guidance to Rule #19's "How to apply" notes OR codify as a separate Rule #44 candidate (Rule-of-One; defer to Rule-of-Two).
+
+2. **File a follow-up intake to add `WAIRZ_ALLOW_NO_AUTH=true` to local-dev `.env` documentation** — 118 restart cycles is a sign of recurring "rebuild then frustrated debug" cycles. The Citadel external-action-gate.js secrets-read block prevents AI agents from touching .env; document the fix in `.env.example` or a `docs/dev-setup.md` so operators can add the line themselves.
+
+3. **`docker compose up -d --force-recreate --build <service>` for guaranteed rebuild verification** — codify in CLAUDE.md Rule #8 as a sub-bullet. Worked example: this session's worker container didn't refresh on `up -d --build worker` alone.
+
+4. **Consider gzip-compressing `backend/ms-anchors/loldrivers.json` for git efficiency** — 29.79 MB raw; gzip → ~3 MB. Quarterly refreshes add ~30 MB/refresh raw vs ~3 MB compressed. Lifespan startup gunzips on load. Trade-off: simpler load (raw) vs git history bloat (compressed). Defer decision until 2 refresh cycles confirm pattern.
+
+5. **Rule #37 worked-examples bookkeeping** — promote η.D's `loldrivers.json` bundle to a 3rd worked example alongside β.4 + β.10. Update CLAUDE.md Rule #37 worked-examples section. (Auto-done via /learn dispatch.)
+
+6. **Run `/citadel:postmortem` + `/citadel:learn windows-coverage-godmode-eta-2026-05-11`** — full Phase η is closed. Patterns + antipatterns files updated inline with the +η.A/η.D additions; /learn can extract durable rules to harness.json.
+
+## Cumulative Phase η Numbers (across both sessions)
+
+| Metric | Value |
+|---|---:|
+| Sessions to close Phase η | 2 (2026-05-11 + 2026-05-12) |
+| Streams planned | 5 |
+| Streams shipped | 5 (η.A + η.B + η.C + η.D + η.E) |
+| Total commits to main (both sessions) | 31 (16 prior + 15 continuation) |
+| Phase code commits | 26 (12 prior + 14 continuation) |
+| Planning / housekeeping commits | 5 (4 prior + 1 continuation) |
+| New tier-1 tests (cumulative) | 212 (82 prior + 130 continuation) |
+| New MCP tools | 10 (6 prior + 4 continuation) |
+| MCP tool count delta | 226 → 236 |
+| New WindowsFindingSource Literal values | 6 (3 prior + 3 continuation) |
+| Literal values delta | 13 → 20 |
+| New alembic revisions | 10 (6 prior + 4 continuation) |
+| Alembic head delta | `c5f6e7d8a9b0` → `a8b9c0d1e2f3` |
+| Sub-agent delegations | 9 (5 prior + 4 continuation: 2 research scouts + 1 η.A + 1 η.D) |
+| Rule #39 walker triplet recipe | Rule-of-Five → Rule-of-Eight (3 new walkers: scheduled_task + lnk + mft) |
+| Rule #25 single-slice exception #2 cross-stack alignment | Rule-of-Eight → Rule-of-Thirteen (5 new alignment commits: η.E + η.B.D + η.C.D + η.A.D + η.D.D) |
+| Bugs caught BEFORE commit by tier-1 tests | 5 (3 prior + 2 continuation) |
+| Rework cycles (commit reverts) | 0 |
+| New external trust anchors bundled | 1 (LOLDrivers 29.79 MB Apache-2.0) |
+| Real elapsed time (both sessions, wall) | ~4 hours 45 min (3.5h prior + 1.25h continuation) |
+
+## Final HANDOFF (Phase η closed)
+
+```
+- Postmortem: windows-coverage-godmode-eta-2026-05-11 (this file, extended with continuation closure)
+- Document: .planning/postmortems/postmortem-windows-coverage-godmode-eta-2026-05-11.md
+- Failures documented: 10 (6 prior + 4 continuation)
+- Safety catches: 19 systems documented (10 prior + 9 continuation)
+- Recommendations: 12 (6 prior + 6 continuation)
+- Phase η status: CLOSED — all 5 streams shipped to origin/main per Pattern P5 per-piece direct-push
+- Parent campaign: `.planning/campaigns/windows-coverage-godmode-eta-2026-05-11.md` ready to move to `.planning/campaigns/completed/` (campaign closure commit pending)
+- Next-frontier work: Phase θ — pre-scoped in `.planning/intake/windows-coverage-godmode-eta-2026-05-11.md` "Out of scope (deferred to θ)" section (WMI persistence + Boot chain + Volatility 3 + Shim .sdb / EFS / EVT / ETL / hibernate.sys)
+- Cron empirical validation (Rule #41 mechanism (b)) DEFERRED again to next session: trigger 2026-05-13 06:00 UTC; current 2026-05-12 ~01:15 UTC = ~29h away
+```

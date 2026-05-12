@@ -1,6 +1,6 @@
-# Anti-patterns: Windows-Coverage God-Mode Phase η (2026-05-11)
+# Anti-patterns: Windows-Coverage God-Mode Phase η (2026-05-11 + 2026-05-12 continuation)
 
-> Extracted: 2026-05-11
+> Extracted: 2026-05-11 (initial); extended 2026-05-12 (η.A + η.D closure)
 > Campaign: `.planning/campaigns/windows-coverage-godmode-eta-2026-05-11.md`
 > Postmortem: `.planning/postmortems/postmortem-windows-coverage-godmode-eta-2026-05-11.md`
 
@@ -67,3 +67,44 @@
 
 - Companion to anti-pattern #2: `.planning/knowledge/windows-coverage-godmode-eta-2026-05-11-patterns.md` Pattern 5 (tier-1 tests catch sub-agent bugs BEFORE commit) — the safety net that turned both regex bugs from "post-merge revert cycle" into "30-second pre-commit fix."
 - Companion to anti-pattern #4: same patterns file Pattern 4 (Rule #20 + end-of-session Rule #8 rebuild + Rule #11 import smoke) — the validated cut-over discipline that closes the loop.
+
+## Additions from 2026-05-12 continuation session (η.A + η.D closure)
+
+### 7. Main session pre-allocates alembic revision IDs WITHOUT grep-verifying free first
+
+- **What was done:** Main Archon session pre-allocated 4 alembic revision IDs for the η.A + η.D dispatch: `d2e3f4a5b6c7` (η.A.A), `e4f5a6b7c8d9` (η.A.B), `f6a7b8c9d0e1` (η.A.D), `a8b9c0d1e2f3` (η.D.D). Passed VERBATIM in the sub-agent prompts. ONLY the η.D.D ID was verified-free by the main session before dispatch (single `grep -r "^revision = \"a8b9c0d1e2f3\""` returning 0 hits); the η.A IDs were NOT verified.
+- **Failure mode:** All 3 η.A-allocated IDs (`d2e3f4a5b6c7` + `e4f5a6b7c8d9` + `f6a7b8c9d0e1`) were already taken by older migrations in the ~80-revision tree. Hex-id collision probability under naive picking is non-trivial when the tree has 80+ revisions.
+- **Evidence:** η.A sub-agent's first Rule #19 evidence-first probe was `grep -rl "^revision = \"<id>\"" backend/alembic/versions/` for each pre-allocated ID — all 3 returned hits (≥1). Sub-agent substituted with `1f3a2b4c5d6e` / `2a4b3c5d6e7f` / `3b5c4d6e7f8a` after re-grep-verifying free. Documented the substitution in commit messages so the chain order is auditable.
+- **How to avoid:** **Main session MUST grep-verify all pre-allocated alembic IDs free BEFORE dispatch.** Mechanical check: for each pre-allocated `<id>`, run `grep -rl "^revision = \"<id>\"" backend/alembic/versions/` AND `grep -rl "^down_revision = \"<id>\"" backend/alembic/versions/` — both must return 0 hits. If collision found, pick fresh ID and re-verify. ALTERNATIVE: don't pre-allocate at all — pass only "current head + recipe" to the sub-agent and let the sub-agent pick its own IDs (η.A's sub-agent did this in-flight; works cleanly).
+- **Promotion threshold:** Rule-of-One for now (only this session). If a future Archon session repeats the mistake, promote to a CLAUDE.md rule or a `.mex/patterns/alembic-id-preallocation.md` recipe. Quality rule candidate: harness.json `qualityRules.custom` regex matching `revision_id\s*=\s*["'][0-9a-f]{12}["']` in Archon-authored sub-agent prompts that haven't been preceded by a verify-free grep — but this is hard to detect mechanically; the rule is best codified as a discipline reminder.
+
+### 8. Backend `api_key` startup check has been silently blocking rebuilds for 118 restart cycles
+
+- **What was done:** Pre-existing repo state: `.env` file at `/home/dustin/code/wairz/.env` (1557 bytes, dated Apr 19) does NOT contain `API_KEY=<value>` OR `WAIRZ_ALLOW_NO_AUTH=true`. `app/main.py:68-74` lifespan startup REFUSES to start without one or the other → backend exits 1 + restart loop.
+- **Failure mode:** Backend container has been in `Restarting (3)` state for **118 restart cycles** as confirmed via `docker inspect wairz-backend-1 --format '{{.RestartCount}}'`. Each Rule #8 rebuild attempt across multiple sessions has left the backend non-functional after build completion, but nobody noticed because:
+  (a) the worker container doesn't run the lifespan check (workers are healthy with same env state)
+  (b) sessions ran tier-1 tests against host `.venv` (not container) per the validated cadence
+  (c) per-session Rule #11 import smoke targeted the WORKER not the backend (which actually exposes this issue)
+  Pattern: a check that fires only on a path nobody exercises stays silently broken.
+- **Evidence:** This session's end-of-session Rule #11 import smoke attempted `docker compose exec -T backend ...` and hit the restart-loop wall. `docker inspect ... '{{.State.RestartCount}}'` reported 118 — meaning the issue has persisted across many sessions. Confirmed UNRELATED to η.A/η.D work via timestamp (.env is from Apr 19; the issue predates Phase η entirely).
+- **How to avoid:** This is a pre-existing repo-config issue, not a regression. Fix options (defer to follow-up session per Recommendation 2 in postmortem):
+  - (a) Add `WAIRZ_ALLOW_NO_AUTH=true` to `.env` for local dev (operator action; Citadel `external-action-gate.js` blocks AI from touching .env directly).
+  - (b) Update `.env.example` to clearly require one of the two settings + add a `docs/dev-setup.md` checklist that surfaces the requirement.
+  - (c) Have `app/main.py` lifespan log a clearer error message that surfaces both options on a single line AND exits with a more distinctive non-zero code (e.g. 78 EX_CONFIG) for easier downstream detection.
+- **Promotion threshold:** Rule-of-One for now (this session). The silent-fail-for-118-restarts pattern IS interesting and IS a Rule-of-One discovery. Future Archon sessions should run a quick `docker inspect wairz-backend-1 --format '{{.RestartCount}}'` post Rule #8 rebuild and flag suspiciously-high counts as a session-end recommendation. Could codify as a `.mex/patterns/post-rebuild-health-check.md` recipe.
+
+### 9. `docker compose up -d --build worker` did NOT recreate the worker container (build-cache short-circuit)
+
+- **What was done:** End-of-session Rule #8 rebuild ran `docker compose up -d --build backend worker migrator`. Build completed. Backend's image SHA updated to `a16365cf9e77` (new image); worker container's image SHA stayed at `e434fe7e8adbe` (OLD image, 2 hours old from a prior session's partial build).
+- **Failure mode:** `docker compose up -d --build <service>` only RECREATES the service if the image SHA changed OR the service config changed. Docker buildx may decide the build is a cache-hit and not produce a new image SHA, in which case worker isn't recreated. Symptom: import smoke against worker fails with `ModuleNotFoundError` even though backend's new image has the new modules.
+- **Evidence:** `docker inspect wairz-worker-1 --format '{{.Image}}'` returned `sha256:e434fe7e8adbef...` AFTER the rebuild; backend's was `sha256:4de566c064774de0...`. Side-by-side comparison surfaced the divergence.
+- **How to avoid:** For Rule #8 rebuild verification specifically, use `docker compose up -d --force-recreate --build backend worker migrator` to GUARANTEE all named services are recreated against the just-built image. The `--force-recreate` flag overrides the buildx "cache says unchanged" decision. Bare `up -d --build` is acceptable for non-rebuild deployments where idempotent up is the goal.
+- **Promotion threshold:** Rule-of-One for now (this session). Could codify as a sub-bullet under CLAUDE.md Rule #8 — "for genuine rebuild verification, `--force-recreate` ensures the named service is replaced even when the build cache says nothing changed." Defer to next /learn pass.
+
+### 10. `docker compose exec backend python` uses the base image's system Python, NOT `.venv/bin/python`
+
+- **What was done:** Initial Rule #11 import smoke ran `docker compose exec -T backend python -c "..."` with the new image. Failed with `ModuleNotFoundError: No module named 'sqlalchemy'` despite the rebuilt image carrying all dependencies installed in `/app/.venv`.
+- **Failure mode:** `python` resolves against the container's $PATH, which finds the base image's `/usr/bin/python` (the system Python with NO project deps installed). The project's venv at `/app/.venv` is NOT on the default $PATH.
+- **Evidence:** Immediate `ModuleNotFoundError` for `sqlalchemy` despite `pip install` having put it in `/app/.venv/lib/python3.12/site-packages/sqlalchemy/`. Fix: use `/app/.venv/bin/python` explicitly.
+- **How to avoid:** Always use the absolute path `/app/.venv/bin/python` for in-container Python invocations in wairz. Already codified in CLAUDE.md Rule #20 caveat (`docker compose exec -T -w /app -e PYTHONPATH=/app backend /app/.venv/bin/<tool>`) — this session's incident reinforces; the absolute-venv-path discipline is durable across all in-container Python invocations, NOT just alembic.
+- **Promotion threshold:** Already codified in Rule #20. Reinforces but doesn't require new promotion.

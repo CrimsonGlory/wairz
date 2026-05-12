@@ -1,9 +1,9 @@
-# Patterns: Windows-Coverage God-Mode Phase η (2026-05-11)
+# Patterns: Windows-Coverage God-Mode Phase η (2026-05-11 + 2026-05-12 continuation)
 
-> Extracted: 2026-05-11
+> Extracted: 2026-05-11 (initial); extended 2026-05-12 (η.A + η.D closure)
 > Campaign: `.planning/campaigns/windows-coverage-godmode-eta-2026-05-11.md`
 > Postmortem: `.planning/postmortems/postmortem-windows-coverage-godmode-eta-2026-05-11.md`
-> Outcome: partial — 3 of 5 streams shipped (η.B + η.C + η.E); 2 deferred (η.A + η.D) with full pre-decomposition
+> Outcome: **closed** — 5 of 5 streams shipped across 2 sessions (η.B + η.C + η.E on 2026-05-11; η.A + η.D on 2026-05-12)
 
 ## Successful Patterns
 
@@ -20,10 +20,10 @@
 - **Applies when:** A walker stream that follows the established Pattern P4 recipe (table + status + walker triplet + alignment + MCP tools = 5-6 commits). NOT applicable to genuinely-novel architectural work (use Archon-foreground execution with full visibility) or to truly-parallelizable file-disjoint streams (use Rule #23 worktree dispatch).
 - **Recipe extracted:** Sub-agent prompt structure includes (a) repo state at dispatch (HEAD, alembic head, tool count, container state), (b) goal + scope per campaign tracker section, (c) recipe shape file references (most-recent precedents), (d) prior sub-agent's HANDOFF recommendations, (e) validation checklist (pytest + ruff + tsc + alembic + Rule #11 smoke + tool count), (f) operating rules durable for every step (Rules #25/#38/#35a/#43 etc), (g) per-piece push strategy (Pattern P5), (h) HANDOFF format expected back.
 
-### 3. Cross-stack alignment commit shape (Rule #25 single-slice exception #2) is durable beyond debate — Rule-of-Eleven
+### 3. Cross-stack alignment commit shape (Rule #25 single-slice exception #2) is durable beyond debate — Rule-of-Thirteen (post η.D.D)
 
 - **Description:** Each new finding source value ships as ONE atomic commit touching: (a) alembic CHECK extension migration with `_NEW_SOURCE_VALUES` tuple + import-able by alignment test, (b) backend Pydantic Literal extension in `app/schemas/finding.py`, (c) backend module-level `_SOURCE_<NAME>: WindowsFindingSource = "<value>"` constant + classifier helper + emit method (or extension to existing emit method) in `app/services/finding_service.py`, (d) frontend `FindingSource` union extension in `frontend/src/types/index.ts`, (e) frontend `FINDING_SOURCE_CONFIG` dict entry in `frontend/src/constants/statusConfig.ts`, plus tier-1 classifier tests. Single ATOMIC commit. The `test_finding_source_alignment.py` STRICT pairwise test (DB CHECK ↔ FE union ↔ FE config) enforces zero-baseline-tolerance drift — splitting the commit would leave the test RED between commits.
-- **Evidence:** Rule-of-Eleven now: 7079b4d (2026-05-06 base) + ee2abd9 β.12a + f70c2e1 γ.7 + 20ea228 δ.8 + 5466644 ε.1.b.4 + da71afa ζ.1 + a6be708 ζ.2.C + 04a3c55 ζ.3.C → Rule-of-Eight; ac98e55 η.E + e149dcf η.B.D + fd7cd23 η.C.D this session → Rule-of-Eleven. The ATOMIC-commit shape ran 3 times this session by 3 different agents (Archon directly + η.B sub-agent + η.C sub-agent) without coordination friction; each invocation kept alignment tests green pairwise.
+- **Evidence:** Rule-of-Thirteen now: 7079b4d (2026-05-06 base) + ee2abd9 β.12a + f70c2e1 γ.7 + 20ea228 δ.8 + 5466644 ε.1.b.4 + da71afa ζ.1 + a6be708 ζ.2.C + 04a3c55 ζ.3.C → Rule-of-Eight; ac98e55 η.E + e149dcf η.B.D + fd7cd23 η.C.D (2026-05-11) → Rule-of-Eleven; 66bd8d6 η.A.D + e0403f5 η.D.D (2026-05-12) → Rule-of-Thirteen. The ATOMIC-commit shape ran 5 times across the 2 sessions by 5 different agents (Archon directly + η.B + η.C + η.A + η.D sub-agents) without coordination friction; each invocation kept alignment tests green pairwise.
 - **Applies when:** Adding a new value to `WindowsFindingSource` Literal that needs DB CHECK extension AND frontend UI rendering. The recipe location should be promoted to `.mex/patterns/cross-stack-finding-source-alignment.md` (this is one of the postmortem's recommendations).
 
 ### 4. Rule #20 docker cp + alembic upgrade head iteration deferring Rule #8 rebuild to end-of-session
@@ -42,10 +42,10 @@
   3. η.C JSONB datetime serialization (LnkParse3 returns `datetime` objects asyncpg rejects) → caught by walker tier-1 test against `tiny.lnk` fixture
 - **Applies when:** New classifier / parser / walker code where input shape is well-defined enough to write synthetic fixture tests. NOT applicable when input shape is genuinely unknown until real-firmware contact (those are Rule #35b live canaries — also valuable but slower feedback).
 
-### 6. Rule #39 inner/outer/safe runner triplet recipe — Rule-of-Seven
+### 6. Rule #39 inner/outer/safe runner triplet recipe — Rule-of-Eight (post η.A.C)
 
 - **Description:** Every walker that owns a Rule #33 .a state machine ships as the canonical 3-function triplet: `_do_<op>_run(db, firmware_id) -> dict` (INNER pure-logic; uses `get_detection_roots(firmware)`; called by tier-1 tests via `make_live_db()`); `run_<op>_background(firmware_id) -> None` (OUTER state-machine wrapper owning idle/queued/running/completed/failed transitions); `auto_<op>_walk_firmware_safe(firmware_id) -> None` (UNPACK-POST-DETECTION HOOK; swallows exceptions; doesn't mutate firmware status). Recipe: `.mex/patterns/inner-outer-safe-runner.md`.
-- **Evidence:** Rule-of-Seven now: γ.4 (registry_hive_walker, Rule-of-One implicit) + δ.5 (windows_update_diff_service) + ε.1.b.3 (evtx_service walker) + ζ.2.B (prefetch_walker) + ζ.3.B (srum_walker) → Rule-of-Five; η.B.C (scheduled_task_walker) + η.C.C (lnk_walker) this session → Rule-of-Seven. Recipe is the canonical Wave-1 shape for any new walker in wairz; under-1-hour-per-walker via single-sub-agent dispatch.
+- **Evidence:** Rule-of-Eight now: γ.4 (registry_hive_walker, Rule-of-One implicit) + δ.5 (windows_update_diff_service) + ε.1.b.3 (evtx_service walker) + ζ.2.B (prefetch_walker) + ζ.3.B (srum_walker) → Rule-of-Five; η.B.C (scheduled_task_walker, 2026-05-11) + η.C.C (lnk_walker, 2026-05-11) → Rule-of-Seven; η.A.C (mft_walker, 2026-05-12) → Rule-of-Eight. Recipe is the canonical Wave-1 shape for any new walker in wairz; under-30-minutes-per-walker via single-sub-agent dispatch.
 - **Applies when:** Any new firmware-walking service that produces persisted records + finding emission. The triplet shape is mechanical and reproducible.
 
 ### 7. Pre-allocated alembic chain order for serial sub-agent dispatch
@@ -78,5 +78,31 @@
 
 - **Recipe location for cross-stack alignment** — should be promoted to `.mex/patterns/cross-stack-finding-source-alignment.md` per postmortem recommendation 2.
 - **Recipe location for single-sub-agent-per-stream Archon dispatch** — should be documented as a follow-up to `feedback_do_them_all_pattern.md` per postmortem recommendation 3.
-- **Recipe location for inner/outer/safe runner triplet** — already exists at `.mex/patterns/inner-outer-safe-runner.md`; Rule-of-Five → Rule-of-Seven extension.
+- **Recipe location for inner/outer/safe runner triplet** — already exists at `.mex/patterns/inner-outer-safe-runner.md`; Rule-of-Five → Rule-of-Eight extension.
 - **Recipe location for Rule #41 must-complete CI mitigation** — already exists at `.mex/patterns/rule-41-must-complete-ci.md`; mechanism (b) empirical validation deferred to 2026-05-13 06:00 UTC nightly cron.
+
+## Additions from 2026-05-12 continuation session (η.A + η.D closure)
+
+### 9. Pre-flight research-scout-corrects-intake-assumptions before sub-agent dispatch — Rule-of-Two
+
+- **Description:** Before dispatching a single-sub-agent for a stream that depends on a NEW external library or NEW bundled artifact, run a focused ≤10-min research scout to verify: (a) license (intake may name a license that's stale), (b) API shape (the intake's pseudocode may be wrong against the real library), (c) bundle size / schema if applicable. The scout's findings get embedded VERBATIM in the sub-agent prompt so the agent doesn't need to re-research, saving wall time and reducing speculation-based errors.
+- **Evidence:** 2026-05-12 continuation session ran 2 parallel scouts for η.A + η.D streams:
+  - **dissect.ntfs scout** corrected intake's "MIT" license claim to AGPL-3.0-or-later (compatible with wairz AGPL but flagged); provided canonical inner-runner skeleton against GitHub HEAD; identified that `record.full_path()` can raise on orphans; confirmed `dissect.cstruct` + `dissect.util` transitive deps are pure-Python.
+  - **LOLDrivers scout** corrected intake's "5-10 MB" bundle size to **29.8 MB** (3-6x larger); verified Apache-2.0 license with redistribution permitted (LICENSE + NOTICE sidecars required); flagged schema field drift (`CVE` vs `CVEs` key + 23-records flat/nested hash anomaly) requiring Rule #35c normalizer; provided 7 recommended bundle fields.
+  - All 3 corrections landed BEFORE the sub-agents committed.
+- **Applies when:** Sub-agent dispatch for a stream that integrates with a new external library, bundle, or vendor-provided dataset. The "scout corrects intake" pattern works because intakes are written months ahead and external libraries / bundles evolve.
+- **Rule-of-Two:** Both scouts (one each for η.A + η.D) returned material corrections. Pattern is durable; promote to a `.mex/patterns/pre-dispatch-library-scout.md` recipe in a future learn pass.
+
+### 10. Mock-at-source per Rule #30 when fixture generation requires unavailable system deps
+
+- **Description:** When tier-1 walker tests need a synthetic fixture file (e.g. NTFS volume, registry hive, raw disk image) but the host environment lacks the tooling to generate one (sudo + ntfs-3g + loop-mount NOT available; `mkfs.ntfs` not installed; etc.), DON'T skip the tier-1 tests. Instead, apply Rule #30 patch-target discipline: mock the parser library at the SOURCE module (`patch("dissect.ntfs.NTFS")`) and have the mock yield fixture-shaped `MftRecord`-like objects. The walker code is exercised; the parser library's correctness is its own concern.
+- **Evidence:** η.A.C (`mft_walker.py`) hit this exactly: synthesizing an NTFS volume requires sudo + ntfs-3g + loop-mount on the dev host. Agent applied Rule #30: `patch("dissect.ntfs.NTFS")` returned a context-managed fake whose `mft.segments()` yielded hand-authored fixture-records with the expected $STD_INFO / $FILE_NAME / $DATA shape. 31 walker tests landed clean. Future campaign can add a pre-built `tiny.ntfs.dd` fixture under `backend/tests/fixtures/windows/` for real-parsing integration tests; the mock-at-source tests remain useful for fast feedback regardless.
+- **Applies when:** Walker / parser code where the upstream library requires a non-trivial input artifact AND the dev host can't generate one cheaply. NOT applicable to libraries that take pure-Python data structures as input (mock isn't needed there).
+- **Rule-of-One** for the NTFS case; reinforces Rule #30 patch-target discipline as a general technique.
+
+### 11. Bundle SHA256 pin verified post-push round-trip (large-file Rule #37 worked example)
+
+- **Description:** When committing a large external bundle (>1 MB) to git per Rule #37 offline-trust-anchor discipline, verify the SHA256 pin survives the full git transport: commit → push → fetch on origin → re-verify locally. Confirms the bundle hasn't been line-ending-normalized, truncated, or otherwise mutated by git in transit.
+- **Evidence:** η.D's `backend/ms-anchors/loldrivers.json` is **29.79 MB** — significantly larger than β.10's `dbxupdate.bin` (24 KB). η.D sub-agent ran `( cd backend/ms-anchors && sha256sum -c loldrivers.json.sha256 ); ec=$?` post-push and verified ec=0. Bundle SHA256 `ddda516c90150069d1ca8b8a6151f53adadfd5608534a0e95265574792b81fec` matched commit → push → re-verify. Rule #37 flow handles 30 MB bundles cleanly.
+- **Applies when:** Any Rule #37 bundle larger than ~1 MB. For sub-MB bundles, the post-push verification is over-engineering. For >1 MB, the verification is cheap insurance.
+- **Rule-of-Two now for Rule #37 worked examples** — β.4 (signify TRUSTED_CERTIFICATE_STORE, package-shipped) + β.10 (`dbxupdate.bin`, 24 KB raw) + η.D (`loldrivers.json`, 29.79 MB raw) = 3 worked examples. The pattern is durable across small-and-large bundles.
