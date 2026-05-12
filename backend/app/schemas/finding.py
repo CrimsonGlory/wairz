@@ -136,6 +136,25 @@ WindowsFindingSource = Literal[
     #   ALL FOUR $FN timestamps. timestomp.exe rewrites the full tuple.
     "windows_mft_ads_hidden_content",
     "windows_mft_timestomping",
+    # Phase η.D.D — alignment slice with frontend FindingSource union +
+    # FINDING_SOURCE_CONFIG entries. Emitted by
+    # ``emit_byovd_findings_from_driver`` for every Windows driver blob
+    # whose SHA256 (or Authenticode hash) matches a LOLDrivers record
+    # (``magicsword-io/LOLDrivers``, Apache-2.0, bundled per Rule #37
+    # at backend/ms-anchors/loldrivers.json). The lookup pipeline lives
+    # in ``app.services.loldrivers_lookup_service.lookup_driver_byovd``.
+    #
+    # windows_byovd_driver — Bring-Your-Own-Vulnerable-Driver fingerprint.
+    # Confidence tier mapping is heuristic-driven by category + CVE:
+    # - HIGH (Confidence.high) — category=``malicious``, OR category=
+    #   ``vulnerable driver`` AND ≥1 CVE association. The malicious case
+    #   is unambiguous compromise; the CVE-associated case carries
+    #   public-known-exploit weight beyond stale-driver flag.
+    # - MEDIUM (Confidence.medium) — category=``vulnerable driver`` with
+    #   no CVE association. Surfaces stale-driver BYOVD risk without
+    #   over-triaging legitimate-but-stale embedded firmware.
+    # Per intake style: ONE Literal value covers all tiers.
+    "windows_byovd_driver",
 ]
 
 

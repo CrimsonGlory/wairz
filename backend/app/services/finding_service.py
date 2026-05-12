@@ -1,7 +1,7 @@
 import os
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +14,9 @@ from app.schemas.finding import (
     Severity,
     WindowsFindingSource,
 )
+
+if TYPE_CHECKING:
+    from app.services.loldrivers_lookup_service import BYOVDVerdict
 
 # ── Phase β.12b — Authenticode + DBX verdict → Finding emission ──────────────
 #
@@ -177,6 +180,25 @@ _SOURCE_MFT_TIMESTOMPING: WindowsFindingSource = (
 # Tier thresholds — ADS payload size for HIGH-vs-MEDIUM split.
 _MFT_ADS_HIGH_CONFIDENCE_BYTES = 16 * 1024
 _MFT_ADS_MEDIUM_CONFIDENCE_BYTES = 1024  # excludes Zone.Identifier tag
+
+
+# Phase η.D.D — LOLDrivers BYOVD fingerprint emit source. Emitted by
+# ``emit_byovd_findings_from_driver`` for every Windows driver blob whose
+# SHA256 (or Authenticode hash) matches a LOLDrivers record (the η.D.C
+# lookup service returns a populated :class:`BYOVDVerdict`).
+#
+# Confidence tier mapping is heuristic-driven by category + CVE:
+# - HIGH (Confidence.high) — category=``malicious``, OR category=
+#   ``vulnerable driver`` AND ≥1 CVE association. The malicious case is
+#   unambiguous compromise; the CVE-associated case carries public-
+#   known-exploit weight beyond a stale-driver flag.
+# - MEDIUM (Confidence.medium) — category=``vulnerable driver`` with no
+#   CVE association. Surfaces stale-driver BYOVD risk without over-
+#   triaging legitimate-but-stale embedded firmware.
+# Per intake style: ONE Literal value covers all tiers (tier metadata
+# goes into the finding's confidence + evidence fields rather than
+# separate Literal values per tier).
+_SOURCE_BYOVD_DRIVER: WindowsFindingSource = "windows_byovd_driver"
 
 
 # ── Phase η.E — PowerShell EID classifier helper ──
@@ -1380,6 +1402,132 @@ def classify_mft_findings(
     return drafts
 
 
+# ── Phase η.D.D — LOLDrivers BYOVD fingerprint classifier ──────────────────
+
+
+@dataclass(frozen=True)
+class _BYOVDFindingDraft:
+    """One BYOVD-driver Finding row to emit. Carries an explicit confidence
+    tier alongside the standard fields so the emit hook can preserve
+    the tier-mapping derived from the LOLDrivers verdict (category +
+    CVE presence).
+
+    Distinct from _PEFindingDraft (fixes confidence at emit site) and
+    _LnkFindingDraft / _MFTFindingDraft (different tier semantics)
+    because BYOVD findings are 0-or-1 per driver-blob (the verdict
+    matched or didn't), not 0-N per record. The HVCI bypass capability
+    can bump the severity tier up by one notch.
+    """
+    source: WindowsFindingSource
+    severity: Severity
+    title: str
+    description: str
+    evidence: str
+    confidence: Confidence
+
+
+def classify_byovd_finding(
+    *,
+    driver_path: str,
+    blob_sha256: str,
+    category: str,
+    cve_ids: list[str],
+    mitre_id: str | None,
+    filename: str | None,
+    loldrivers_id: str,
+    loads_despite_hvci: bool,
+    sha256_match_kind: str,
+    reference_url: str,
+) -> _BYOVDFindingDraft:
+    """Map one LOLDrivers verdict to a Finding draft.
+
+    Pure function — no DB access. Always returns exactly one draft
+    (callers gate on the verdict being non-None before invoking).
+
+    Confidence tier mapping (per the schemas/finding.py docstring):
+    - HIGH — category=``malicious``, OR category=``vulnerable driver``
+      AND ≥1 CVE association.
+    - MEDIUM — category=``vulnerable driver`` AND no CVE association.
+
+    HVCI bypass bumps severity by one notch (medium → high, high stays
+    high). HVCI-bypass kernel-mode loaders are operationally Critical
+    on a Win10+/Win11 target so we bump severity all the way to
+    Severity.critical in that case.
+    """
+    display_name = filename or driver_path
+
+    # Tier decision.
+    cve_count = len(cve_ids or [])
+    if category == "malicious":
+        confidence = Confidence.high
+        severity = Severity.high
+        tier_label = (
+            f"HIGH (LOLDrivers category=malicious — {display_name} is a "
+            "known-malicious kernel driver fingerprint)"
+        )
+    elif category == "vulnerable driver" and cve_count > 0:
+        confidence = Confidence.high
+        severity = Severity.high
+        tier_label = (
+            f"HIGH (LOLDrivers category=vulnerable driver + {cve_count} "
+            f"associated CVE{'s' if cve_count != 1 else ''} — known-"
+            "exploitable BYOVD candidate)"
+        )
+    else:
+        # category == "vulnerable driver" with no CVE; or "unknown" which
+        # we treat conservatively.
+        confidence = Confidence.medium
+        severity = Severity.medium
+        tier_label = (
+            f"MEDIUM (LOLDrivers category={category} — stale-driver "
+            "BYOVD risk; no CVE association)"
+        )
+
+    # HVCI-bypass bump.
+    if loads_despite_hvci:
+        severity = Severity.critical
+        tier_label += " + HVCI-bypass tag (loads despite kernel-mode "
+        tier_label += "code-integrity enforcement)"
+
+    cve_line = (
+        ", ".join(cve_ids) if cve_ids else "(no associated CVE)"
+    )
+    mitre_line = mitre_id if mitre_id else "(no MitreID)"
+
+    evidence_lines = [
+        f"Tier: {tier_label}",
+        f"Driver path: {driver_path}",
+        f"Filename: {filename or '(unnamed)'}",
+        f"Blob SHA256: {blob_sha256}",
+        f"Match kind: {sha256_match_kind}",
+        f"LOLDrivers ID: {loldrivers_id}",
+        f"LOLDrivers reference: {reference_url}",
+        f"Category: {category}",
+        f"CVE: {cve_line}",
+        f"MITRE ATT&CK: {mitre_line}",
+        f"HVCI bypass: {loads_despite_hvci}",
+    ]
+
+    return _BYOVDFindingDraft(
+        source=_SOURCE_BYOVD_DRIVER,
+        severity=severity,
+        title=f"BYOVD driver: {display_name}",
+        description=(
+            f"Windows driver {display_name} (SHA256 prefix "
+            f"{blob_sha256[:12]}…) matches a known "
+            f"{category} record in the magicsword-io/LOLDrivers data "
+            "set. BYOVD ('Bring-Your-Own-Vulnerable-Driver') is the "
+            "tradecraft of loading a signed-but-vulnerable kernel "
+            "driver to bypass endpoint-protection isolation; this "
+            "match flags either a known-malicious driver or a "
+            "known-vulnerable-but-legitimate driver embedded in the "
+            f"firmware. See {reference_url} for the upstream record."
+        ),
+        evidence="\n".join(evidence_lines),
+        confidence=confidence,
+    )
+
+
 def classify_registry_persistence_findings(
     *,
     hive_path: str,
@@ -2147,6 +2295,63 @@ class FindingService:
                 )
                 emitted.append(await self.create(project_id, data))
         return emitted
+
+    async def emit_byovd_findings_from_driver(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+        driver_path: str,
+        blob_sha256: str,
+        verdict: "BYOVDVerdict",
+    ) -> Finding | None:
+        """Phase η.D.D — emit windows_byovd_driver Finding row for one
+        LOLDrivers verdict.
+
+        Called by the α.2.6 driver-package unpacker hook AND the γ Services
+        hive walker (η.D.E) immediately after a non-None
+        :func:`lookup_driver_byovd` result. Returns the persisted Finding
+        on success, or ``None`` when the caller passes a None verdict
+        (defensive; callers should gate on this themselves).
+
+        The classifier (:func:`classify_byovd_finding`) decides the tier
+        from category + CVE + HVCI; this method just persists the result.
+
+        Idempotency is the caller's responsibility — same shape as
+        emit_lnk_findings_from_walk / emit_mft_findings_from_walk;
+        callers DELETE prior windows_byovd_driver findings for the
+        driver before re-emitting (or use the driver_path + blob_sha256
+        natural-key to deduplicate at the walker layer).
+        """
+        from app.services.loldrivers_lookup_service import reference_url
+
+        if verdict is None:
+            return None
+
+        draft = classify_byovd_finding(
+            driver_path=driver_path,
+            blob_sha256=blob_sha256,
+            category=verdict.category,
+            cve_ids=list(verdict.cve_ids or []),
+            mitre_id=verdict.mitre_id,
+            filename=verdict.filename,
+            loldrivers_id=verdict.loldrivers_id,
+            loads_despite_hvci=bool(verdict.loads_despite_hvci),
+            sha256_match_kind=verdict.sha256_match_kind,
+            reference_url=reference_url(verdict.loldrivers_id),
+        )
+
+        data = FindingCreate(
+            title=draft.title,
+            severity=draft.severity,
+            description=draft.description,
+            evidence=draft.evidence,
+            file_path=driver_path,
+            cve_ids=list(verdict.cve_ids or []) or None,
+            confidence=draft.confidence,
+            firmware_id=firmware_id,
+            source=draft.source,
+        )
+        return await self.create(project_id, data)
 
     async def emit_driver_findings_from_extract(
         self,
