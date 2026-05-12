@@ -21,10 +21,13 @@ from sqlalchemy import select
 
 from app.models import Firmware, Project, WindowsSdbEntry
 from app.services.jsonb_normalizers import (
+    FIRMWARE_SDB_WALK_RESULT_SCHEMA_VERSION,
     WINDOWS_SDB_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION,
     WINDOWS_SDB_ENTRIES_SHIM_PAYLOAD_SCHEMA_VERSION,
+    _normalize_firmware_sdb_walk_result,
     _normalize_windows_sdb_entries_anomaly_flags,
     _normalize_windows_sdb_entries_shim_payload,
+    _stamp_firmware_sdb_walk_result,
     _stamp_windows_sdb_entries_anomaly_flags,
     _stamp_windows_sdb_entries_shim_payload,
 )
@@ -400,4 +403,51 @@ def test_stamp_anomaly_flags_is_idempotent():
     payload = {"is_custom_path": True}
     once = _stamp_windows_sdb_entries_anomaly_flags(dict(payload))
     twice = _stamp_windows_sdb_entries_anomaly_flags(once)
+    assert once == twice
+
+
+# ── firmware.sdb_walk_result normaliser tests (Rule #35c) ──────────────────
+
+
+def test_normalize_firmware_sdb_walk_result_canonical_passthrough():
+    """Canonical dict passes through unchanged (idempotent)."""
+    canonical = {
+        "schema_version": 1,
+        "run_seconds": 0.123,
+        "files_scanned": 1,
+        "entries_persisted": 2,
+        "shim_count": 1,
+        "patch_count": 1,
+        "custom_path_count": 1,
+        "inject_dll_count": 1,
+        "redirect_exe_count": 0,
+        "get_command_line_count": 0,
+        "redirect_shortcut_count": 0,
+        "anomaly_count": 1,
+        "errors": [],
+        "per_file": [],
+    }
+    assert _normalize_firmware_sdb_walk_result(canonical) == canonical
+
+
+def test_normalize_firmware_sdb_walk_result_defensive_none_preserved():
+    """None / non-dict inputs → None (semantic 'no completed run')."""
+    assert _normalize_firmware_sdb_walk_result(None) is None
+    assert _normalize_firmware_sdb_walk_result("string") is None
+    assert _normalize_firmware_sdb_walk_result([]) is None
+
+
+def test_stamp_firmware_sdb_walk_result_inline_stamps_version():
+    payload = {"files_scanned": 5}
+    stamped = _stamp_firmware_sdb_walk_result(payload)
+    assert stamped["schema_version"] == (
+        FIRMWARE_SDB_WALK_RESULT_SCHEMA_VERSION
+    )
+    assert stamped["files_scanned"] == 5
+
+
+def test_stamp_firmware_sdb_walk_result_is_idempotent():
+    payload = {"files_scanned": 5}
+    once = _stamp_firmware_sdb_walk_result(dict(payload))
+    twice = _stamp_firmware_sdb_walk_result(once)
     assert once == twice

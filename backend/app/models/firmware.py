@@ -441,6 +441,35 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # Phase θ.D.C SDB shim walker columns (CLAUDE.md Rule #33 contract).
+    # Background runner ``run_sdb_walk_background`` walks for `.sdb`
+    # files under each detection root (Rule #16 — `.sdb` files surface
+    # differently per unpacker; typically under
+    # Windows/AppPatch/Custom/<exe>.sdb for attacker-planted shims),
+    # parses the binary format via the vendored python_sdb clean-room
+    # parser, classifies each TAG_SHIM / TAG_PATCH entry into the
+    # 7-state shim_class enum, and persists per-entry rows (table from
+    # θ.D.B). All pure-Python; no subprocess (per Rule #36 — .sdb
+    # files describe shim instructions Windows AppHelp loads + executes
+    # via sdbinst.exe; wairz MUST NEVER invoke these). Rule #33 .c
+    # CHECK enforces the 5-state machine; Rule #33 .d — asyncio
+    # .create_task dispatch (in-process pure-Python; no Docker spawn).
+    sdb_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    sdb_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    sdb_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    sdb_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    sdb_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

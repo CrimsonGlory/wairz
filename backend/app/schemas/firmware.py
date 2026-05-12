@@ -116,6 +116,45 @@ MbrVbrSectorKind = Literal[
     "unknown",
 ]
 
+# Phase θ.D.C SDB shim walker — Rule #33 .c Pydantic Literal typo-gate
+# at the trigger MCP tool / status reader boundary. The DB CHECK
+# constraint ``ck_firmware_sdb_walk_status`` (alembic revision
+# bc1d2e3f4a5b) is the durable safety floor; this Literal adds
+# compile-time typo detection for new callers. Mirrors the
+# MbrVbrWalkStatus / EspWalkStatus / WmiWalkStatus / BcdWalkStatus
+# shapes.
+SdbWalkStatus = Literal[
+    "idle", "queued", "running", "completed", "failed"
+]
+
+# Phase θ.D.B WindowsSdbEntry.sdb_kind — Rule #33 .c Pydantic
+# Literal typo-gate. The DB CHECK constraint
+# ``ck_windows_sdb_entries_sdb_kind`` (alembic revision
+# ab1c2d3e4f5a) is the durable safety floor.
+SdbKind = Literal[
+    "microsoft",
+    "custom",
+    "unknown",
+]
+
+# Phase θ.D.B WindowsSdbEntry.shim_class — Rule #33 .c Pydantic
+# Literal typo-gate. The DB CHECK constraint
+# ``ck_windows_sdb_entries_shim_class`` (alembic revision
+# ab1c2d3e4f5a) is the durable safety floor. The 4 known-bad shim
+# primitives (RedirectEXE / InjectDll / GetCommandLineW /
+# RedirectShortcut) are the canonical T1546.011 Application
+# Shimming attacker tradecraft (DLL injection, EXE replacement,
+# argument-injection, shortcut hijack).
+SdbShimClass = Literal[
+    "RedirectEXE",
+    "InjectDll",
+    "GetCommandLineW",
+    "RedirectShortcut",
+    "Custom",
+    "Patch",
+    "Other",
+]
+
 
 class FirmwareUploadResponse(BaseModel):
     model_config = {"from_attributes": True}

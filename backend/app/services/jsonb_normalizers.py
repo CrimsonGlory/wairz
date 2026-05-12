@@ -2639,3 +2639,52 @@ def _stamp_windows_sdb_entries_anomaly_flags(payload: dict) -> dict:
         WINDOWS_SDB_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION
     )
     return payload
+
+
+# ── firmware.sdb_walk_result (Phase θ.D.C) ──────────────────────────────────
+#
+# Per-firmware aggregate from a single SDB shim walk.
+# Mirrors the mbr_vbr_walk_result / esp_walk_result / wmi_walk_result /
+# bcd_walk_result shape.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,
+#     "files_scanned": int,
+#     "entries_persisted": int,
+#     "shim_count": int,
+#     "patch_count": int,
+#     "custom_path_count": int,
+#     "inject_dll_count": int,
+#     "redirect_exe_count": int,
+#     "get_command_line_count": int,
+#     "redirect_shortcut_count": int,
+#     "anomaly_count": int,
+#     "errors": list[str],
+#     "per_file": list[dict],
+#   }
+
+FIRMWARE_SDB_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_sdb_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.sdb_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_sdb_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.sdb_walk_result``. Idempotent."""
+    payload["schema_version"] = (
+        FIRMWARE_SDB_WALK_RESULT_SCHEMA_VERSION
+    )
+    return payload
