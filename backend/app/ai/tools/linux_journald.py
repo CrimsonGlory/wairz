@@ -1,4 +1,4 @@
-"""Linux systemd journald MCP tools — Phase ι.A.E (FIRST LINUX MCP category).
+"""Linux systemd journald MCP tools — Phase ι.A.E + κ.A backfill.
 
 Surfaces the Phase ι.A.C journald walk results to the MCP layer:
 
@@ -13,10 +13,20 @@ Surfaces the Phase ι.A.C journald walk results to the MCP layer:
   row journald_walk_* state machine.
 - ``trigger_journald_walk`` — trigger the 202+polling journald walk
   background runner (Rule #33 .a idempotent POST + 409-on-conflict).
+- ``lookup_journald_entry_across_firmwares`` — **CROSS-FIRMWARE
+  AGGREGATION** (κ.A backfill — closes the ι.A.E gap; ι.B/C/D/E
+  shipped their cross-firmware tool in the .E commits, journald
+  deferred). Given a message substring (+ optional unit / transport
+  / priority filters), return all firmware images that have matching
+  journald entries. Adversary lens — T1070.002 (Clear Linux/Mac
+  System Logs) and T1543.002 (Systemd Service) markers recurring
+  across firmware captures surface supply-chain or threat-actor
+  cohort indicators.
 
 FIRST LINUX MCP tool category in wairz's portfolio (Phases η + θ
 shipped 16 MCP tools across 6 Windows categories; this is the first
-non-Windows one).
+non-Windows one). κ.A matures Rule #44 cross-firmware-aggregation to
+Rule-of-Five (systemd / ETL / EFS / container / journald).
 
 Output truncation (Rule #29): tool outputs ≤ 30 KB.
 """
@@ -33,6 +43,7 @@ from sqlalchemy import select
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.models.firmware import Firmware
 from app.models.linux_journald_entry import LinuxJournaldEntry
+from app.models.project import Project
 from app.services.jsonb_normalizers import (
     _normalize_firmware_journald_walk_result,
     _normalize_linux_journald_entries_anomaly_flags,
@@ -395,12 +406,185 @@ async def _handle_trigger_journald_walk(
     )
 
 
+# ── lookup_journald_entry_across_firmwares (CROSS-FIRMWARE AGG) ──────────────
+
+
+async def _handle_lookup_journald_entry_across_firmwares(
+    input: dict, context: ToolContext
+) -> str:
+    """**CROSS-FIRMWARE AGGREGATION** — given a message substring
+    (+ optional unit / transport / priority_at_most filters), return
+    ALL firmware images in the active project (or globally, if
+    requested) that have matching journald entries.
+
+    κ.A backfill — closes the ι.A.E gap (journald shipped the
+    per-firmware MCP tools but deferred the cross-firmware
+    aggregation that ι.B/C/D/E added at their .E commits). Brings
+    Rule #44 cross-firmware-aggregation to Rule-of-Five (systemd /
+    ETL / EFS / container / journald).
+
+    Adversary lens: T1070.002 (Clear Linux/Mac System Logs) — same
+    journalctl-vacuum marker phrase across firmware corpus is a
+    strong supply-chain or threat-actor cohort indicator.
+    T1543.002 (Systemd Service) — same suspicious-unit message
+    across firmwares hints at vendor-pushed unit OR shared infection.
+    T1562.001 (SELinux denial) / T1562.012 (audit-system failure) —
+    same denial/failure phrase across firmwares may indicate
+    common-control-bypass tooling.
+
+    Returns one row per matching firmware (deduplicated by
+    firmware_id), with project + firmware metadata + sample entry
+    detail + per-firmware match count. Anomaly-flag agreement across
+    matches is a strong adversary-signal indicator.
+    """
+    query = input.get("query")
+    if not query:
+        return json.dumps(
+            {"error": "query (message substring) is required"}
+        )
+
+    unit_filter = input.get("unit")
+    transport_filter = input.get("transport")
+    priority_at_most = input.get("priority_at_most")
+    anomaly_only = bool(input.get("anomaly_only", False))
+
+    scope = input.get("scope", "project")
+    if scope not in ("project", "global"):
+        scope = "project"
+    limit = int(input.get("limit", 100))
+    if limit > 500:
+        limit = 500
+    if limit < 1:
+        limit = 1
+
+    where_clauses = [LinuxJournaldEntry.message.ilike(f"%{query}%")]
+    if unit_filter:
+        where_clauses.append(
+            LinuxJournaldEntry.unit.like(f"%{unit_filter}%")
+        )
+    if transport_filter:
+        where_clauses.append(
+            LinuxJournaldEntry.transport == transport_filter
+        )
+    if priority_at_most is not None:
+        try:
+            where_clauses.append(
+                LinuxJournaldEntry.priority <= int(priority_at_most)
+            )
+        except (TypeError, ValueError):
+            pass
+
+    if scope == "project":
+        project_id = (
+            uuid.UUID(context.project_id)
+            if isinstance(context.project_id, str)
+            else context.project_id
+        )
+        stmt = (
+            select(LinuxJournaldEntry, Firmware, Project)
+            .join(Firmware, LinuxJournaldEntry.firmware_id == Firmware.id)
+            .join(Project, Firmware.project_id == Project.id)
+            .where(Project.id == project_id, *where_clauses)
+            .order_by(Firmware.created_at)
+        )
+    else:
+        stmt = (
+            select(LinuxJournaldEntry, Firmware, Project)
+            .join(Firmware, LinuxJournaldEntry.firmware_id == Firmware.id)
+            .join(Project, Firmware.project_id == Project.id)
+            .where(*where_clauses)
+            .order_by(Firmware.created_at)
+        )
+
+    rows = (await context.db.execute(stmt)).all()
+
+    # Group matches by firmware_id (dedupe — the same message phrase
+    # may appear in many entries per firmware, and we want a
+    # one-row-per-firmware summary).
+    per_firmware: dict[uuid.UUID, dict] = {}
+
+    for entry, firmware, project in rows:
+        if anomaly_only and not _row_has_substantive_anomaly(entry):
+            continue
+        bucket = per_firmware.setdefault(
+            firmware.id,
+            {
+                "project_id": str(project.id),
+                "project_name": project.name,
+                "firmware_id": str(firmware.id),
+                "firmware_sha256": firmware.sha256,
+                "firmware_original_filename": firmware.original_filename,
+                "firmware_version_label": firmware.version_label,
+                "match_count": 0,
+                "sample_entry": {
+                    "entry_id": str(entry.id),
+                    "journal_file_path": entry.journal_file_path,
+                    "realtime_timestamp_us": entry.realtime_timestamp_us,
+                    "priority": entry.priority,
+                    "transport": entry.transport,
+                    "unit": entry.unit,
+                    "comm": entry.comm,
+                    "exe_path": entry.exe_path,
+                    "hostname": entry.hostname,
+                    "message": entry.message,
+                    "anomaly_flags": (
+                        _normalize_linux_journald_entries_anomaly_flags(
+                            entry.anomaly_flags
+                        )
+                    ),
+                    "has_anomaly": _row_has_substantive_anomaly(entry),
+                },
+            },
+        )
+        bucket["match_count"] += 1
+
+    matches = list(per_firmware.values())[:limit]
+
+    out: dict = {
+        "query": query,
+        "unit": unit_filter,
+        "transport": transport_filter,
+        "priority_at_most": priority_at_most,
+        "anomaly_only": anomaly_only,
+        "scope": scope,
+        "match_count": len(matches),
+        "matches": matches,
+    }
+    if not matches:
+        out["message"] = (
+            f"No firmware in scope '{scope}' has a journald entry "
+            f"matching query {query!r}. Run the walker against more "
+            "firmwares (call trigger_journald_walk on each), then "
+            "re-query — or widen the filters."
+        )
+    elif len(matches) >= 2:
+        out["supply_chain_signal"] = (
+            f"Message substring {query!r} present in "
+            f"{len(matches)} firmware images — possible "
+            "vendor-pushed log marker (legitimate) OR shared "
+            "infection / common-tooling indicator. Compare unit + "
+            "transport + anomaly_flags across matches to "
+            "distinguish. Anomaly-flag agreement across matches is "
+            "a strong adversary-signal indicator (e.g. "
+            "log_clear_marker recurring across firmwares = "
+            "T1070.002 cohort)."
+        )
+    return _truncate(json.dumps(out, indent=2))
+
+
 # ── Registration ─────────────────────────────────────────────────────────────
 
 
 def register_linux_journald_tools(registry: ToolRegistry) -> None:
-    """Register all Phase ι.A.E Linux journald MCP tools. FIRST LINUX
-    MCP tool category in wairz."""
+    """Register all Phase ι.A.E Linux journald MCP tools (+ κ.A
+    cross-firmware backfill). FIRST LINUX MCP tool category in wairz.
+
+    κ.A adds ``lookup_journald_entry_across_firmwares`` — the
+    cross-firmware aggregation tool that ι.A.E originally deferred
+    while ι.B/C/D/E shipped their cross-firmware variant in the .E
+    commits. Matures Rule #44 cross-firmware-aggregation pattern to
+    Rule-of-Five.
+    """
 
     registry.register(
         name="list_journald_entries",
@@ -614,4 +798,109 @@ def register_linux_journald_tools(registry: ToolRegistry) -> None:
             "additionalProperties": False,
         },
         handler=_handle_trigger_journald_walk,
+    )
+
+    registry.register(
+        name="lookup_journald_entry_across_firmwares",
+        description=(
+            "**CROSS-FIRMWARE AGGREGATION** — given a message "
+            "substring (+ optional unit / transport / "
+            "priority_at_most / anomaly_only filters), return ALL "
+            "firmware images in the active project (default) OR "
+            "globally that have a journald entry matching the "
+            "filters. κ.A backfill closes the ι.A.E gap (journald "
+            "deferred this; ι.B systemd / ι.C ETL / ι.D EFS / ι.E "
+            "container all shipped their cross-firmware tool at .E). "
+            "Matures Rule #44 cross-firmware-aggregation to "
+            "Rule-of-Five. Wairz competitive differentiator — "
+            "surfaces supply-chain signal: the same log marker "
+            "phrase recurring across multiple firmware images is "
+            "either a vendor-pushed log line (legitimate baseline) "
+            "OR a shared-tooling / shared-infection indicator. "
+            "Adversary lens: T1070.002 (Clear Linux/Mac System Logs) "
+            "— same journalctl-vacuum marker across firmwares is a "
+            "strong cohort indicator. T1543.002 (Systemd Service) — "
+            "same suspicious-unit message hints at vendor-pushed unit "
+            "OR shared infection. T1562.001 / T1562.012 — same "
+            "SELinux-denial / audit-failure phrase indicates "
+            "common control-bypass tooling. Anomaly-flag agreement "
+            "across matches is a strong adversary-signal indicator. "
+            "The match_count >=2 case is flagged with "
+            "supply_chain_signal in the output. scope='project' "
+            "(default) restricts to the active project's firmwares; "
+            "scope='global' searches every project in the database."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Case-insensitive substring to match against "
+                        "the journald MESSAGE body. E.g. "
+                        "'journalctl --vacuum' to find log-clear "
+                        "markers across the corpus, or 'avc: denied' "
+                        "to surface SELinux denials."
+                    ),
+                },
+                "unit": {
+                    "type": "string",
+                    "description": (
+                        "Optional substring match on _SYSTEMD_UNIT "
+                        "(e.g. 'ssh' or 'cron') to scope to a "
+                        "particular service across firmwares."
+                    ),
+                },
+                "transport": {
+                    "type": "string",
+                    "description": (
+                        "Optional exact match on _TRANSPORT "
+                        "('kernel' / 'journal' / 'audit' / 'stdout' / "
+                        "'syslog' / 'driver')."
+                    ),
+                },
+                "priority_at_most": {
+                    "type": "integer",
+                    "description": (
+                        "Optional filter to entries with syslog "
+                        "priority <= N (0=emerg, 7=debug). Use "
+                        "priority_at_most=2 to scope to crit-and-"
+                        "above across the corpus."
+                    ),
+                    "minimum": 0,
+                    "maximum": 7,
+                },
+                "anomaly_only": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, only count entries with at least "
+                        "one substantive anomaly flag raised "
+                        "(oom_killer / audit_failure / "
+                        "selinux_denied / segfault / "
+                        "suspicious_unit / log_clear_marker)."
+                    ),
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["project", "global"],
+                    "description": (
+                        "'project' (default) restricts to the active "
+                        "project's firmwares; 'global' searches every "
+                        "project."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": (
+                        "Max per-firmware buckets to return (default "
+                        "100, min 1, max 500)."
+                    ),
+                    "minimum": 1,
+                    "maximum": 500,
+                },
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+        handler=_handle_lookup_journald_entry_across_firmwares,
     )
