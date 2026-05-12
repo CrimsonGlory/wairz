@@ -380,6 +380,35 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # Phase θ.C.B ESP `.efi` PE chain walker columns (CLAUDE.md Rule #33
+    # contract). Background runner ``run_esp_walk_background`` walks for
+    # `.efi` PE32+ files under each detection root (Rule #16 — the EFI
+    # System Partition surfaces as a FAT32 mount OR a top-level ``EFI/``
+    # directory depending on the unpacker), validates each PE against
+    # the β.4 signify Authenticode chain + β.10 DBX revocation list +
+    # pefile COFF metadata (all pure-Python parsers reading the file
+    # as DATA per Rule #36 — never invoked via wine / mono / qemu-system /
+    # chainloader), persists per-`.efi` rows into ``windows_esp_entries``
+    # (table from θ.C.A), and stamps an aggregate JSONB result onto
+    # ``esp_walk_result``. Rule #33 .c CHECK enforces the 5-state
+    # machine; Rule #33 .d — asyncio.create_task dispatch (in-process
+    # pure-Python validators; no Docker spawn).
+    esp_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    esp_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    esp_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    esp_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    esp_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

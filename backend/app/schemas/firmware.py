@@ -69,6 +69,29 @@ WmiWalkStatus = Literal[
     "idle", "queued", "running", "completed", "failed"
 ]
 
+# Phase θ.C.B Windows ESP `.efi` PE chain walker — Rule #33 .c Pydantic
+# Literal typo-gate at the trigger MCP tool / status reader boundary.
+# The DB CHECK constraint ``ck_firmware_esp_walk_status`` (alembic
+# revision 8b9c0d1e2f3a) is the durable safety floor; this Literal
+# adds compile-time typo detection for new callers. Mirrors the
+# ScheduledTaskWalkStatus / LnkWalkStatus / MftWalkStatus /
+# BcdWalkStatus / WmiWalkStatus shapes.
+EspWalkStatus = Literal[
+    "idle", "queued", "running", "completed", "failed"
+]
+
+# Phase θ.C.A WindowsEspEntry.authenticode_state — Rule #33 .c Pydantic
+# Literal typo-gate. The DB CHECK constraint
+# ``ck_windows_esp_entries_authenticode_state`` (alembic revision
+# 7a8b9c0d1e2f) is the durable safety floor.
+EspAuthenticodeState = Literal[
+    "signed_valid",
+    "signed_expired",
+    "signed_revoked",
+    "unsigned",
+    "parse_failed",
+]
+
 
 class FirmwareUploadResponse(BaseModel):
     model_config = {"from_attributes": True}
