@@ -888,7 +888,36 @@ async def run_mft_walk_background(firmware_id: uuid.UUID) -> None:
                 row.mft_walk_result = (
                     _stamp_firmware_mft_walk_result(result)
                 )
+                project_id = row.project_id
                 await db.commit()
+
+                # η.A.E — emit windows_mft_* Finding rows alongside the
+                # status transition. Lazy import per Rule #30 to avoid
+                # mft_walker ↔ finding_service circular at module load.
+                if result["records_persisted"] > 0:
+                    try:
+                        from app.services.finding_service import FindingService
+
+                        service = FindingService(db=db)
+                        emitted = (
+                            await service.emit_mft_findings_from_walk(
+                                project_id, firmware_id
+                            )
+                        )
+                        await db.commit()
+                        logger.info(
+                            "mft_walk: firmware %s emitted %d Finding rows",
+                            firmware_id,
+                            len(emitted),
+                        )
+                    except Exception:
+                        await db.rollback()
+                        logger.warning(
+                            "mft_walk: firmware %s Finding emit failed",
+                            firmware_id,
+                            exc_info=True,
+                        )
+
                 logger.info(
                     "mft_walk: firmware %s completed in %.2fs (%d "
                     "images, %d records walked, %d persisted, %d ADS, "
@@ -962,11 +991,47 @@ async def auto_mft_walk_firmware_safe(firmware_id: uuid.UUID) -> None:
                     select(Firmware).where(Firmware.id == firmware_id)
                 )
             ).scalar_one_or_none()
+            project_id: uuid.UUID | None = None
             if row is not None:
                 row.mft_walk_result = _stamp_firmware_mft_walk_result(
                     result
                 )
+                project_id = row.project_id
                 await db.commit()
+
+            # η.A.E — emit windows_mft_* Finding rows for each
+            # WindowsMftRecord persisted by the inner runner. Lazy
+            # import per Rule #30 to avoid mft_walker ↔ finding_service
+            # circular at module load (and to keep the cold-import
+            # cost off the unpack worker's critical path when no MFT
+            # is actually present in the firmware).
+            if project_id is not None and result["records_persisted"] > 0:
+                try:
+                    from app.services.finding_service import FindingService
+
+                    service = FindingService(db=db)
+                    emitted = await service.emit_mft_findings_from_walk(
+                        project_id, firmware_id
+                    )
+                    await db.commit()
+                    logger.info(
+                        "mft_walk auto: firmware %s emitted %d Finding rows",
+                        firmware_id,
+                        len(emitted),
+                    )
+                except Exception:
+                    # Emit failure must NOT roll back the walk-result
+                    # persistence — leave the windows_mft_records rows
+                    # + mft_walk_result aggregate in place even if the
+                    # downstream Finding emit raises. Operators can
+                    # re-run via the trigger MCP tool to retry.
+                    await db.rollback()
+                    logger.warning(
+                        "mft_walk auto: firmware %s Finding emit failed",
+                        firmware_id,
+                        exc_info=True,
+                    )
+
             logger.info(
                 "mft_walk auto: firmware %s walked %d images / %d "
                 "records in %.2fs",

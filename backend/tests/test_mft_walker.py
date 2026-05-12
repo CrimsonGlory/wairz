@@ -768,6 +768,98 @@ async def test_do_mft_run_orphan_records_persist_with_null_path():
 
 
 @pytest.mark.asyncio
+async def test_do_mft_run_emits_findings_via_auto_walk_wiring():
+    """Rule #35b live canary — confirm the η.A.E wiring inside the
+    inner runner's caller (here we simulate the auto-walk-safe wrapper
+    by calling _do_mft_run + the emit hook directly with the SAME
+    session). Persisted Finding row's confidence MUST equal HIGH —
+    this is the Rule #35b live canary specifically called out by
+    the η.A.E sub-task description.
+
+    We can't call auto_mft_walk_firmware_safe directly in tier-1
+    tests because it opens its own async_session_factory(); the wired
+    sequence below mirrors what that wrapper does internally."""
+    from app.models import Finding
+    from app.services.finding_service import FindingService
+    from app.services.jsonb_normalizers import (
+        _stamp_firmware_mft_walk_result,
+    )
+
+    async with make_live_db() as db:
+        project = Project(name="η.A.E wired canary")
+        db.add(project)
+        await db.flush()
+
+        firmware = _make_firmware(project.id, "canary-wired.bin", "w")
+        db.add(firmware)
+        await db.flush()
+
+        # One record: HIGH-tier timestomp + hidden ADS.
+        rec_evil = _make_fake_mft_record(
+            segment=200,
+            full_path="Users\\victim\\Downloads\\evil.exe",
+            filename="evil.exe",
+            si=_make_fake_attribute_collection_si(
+                creation_ns=131_500_000_000_000_000,
+                mod_ns=131_500_000_000_000_000,
+                change_ns=131_500_000_000_000_000,
+                access_ns=131_500_000_000_000_000,
+            ),
+            fn=_make_fake_attribute_collection_fn(
+                creation_ns=132_900_000_000_000_000,
+                mod_ns=132_900_000_000_000_000,
+                change_ns=132_900_000_000_000_000,
+                access_ns=132_900_000_000_000_000,
+            ),
+            data=_make_fake_attribute_collection_data(
+                primary_size=51200,
+                ads=[("hidden", 64 * 1024)],
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as root:
+            img_path = os.path.join(root, "disk.raw")
+            with open(img_path, "wb") as fp:
+                fp.write(_make_ntfs_boot_sector())
+
+            with patch(
+                "app.services.mft_walker.get_detection_roots",
+                return_value=[root],
+            ), _patch_ntfs_factory([rec_evil]):
+                # Step 1 (inner runner): walk + persist landing-zone rows.
+                result = await _do_mft_run(db, firmware.id)
+                # Step 2 (auto-walk-safe sequence): stamp aggregate.
+                firmware.mft_walk_result = _stamp_firmware_mft_walk_result(
+                    result
+                )
+                await db.commit()
+                # Step 3 (η.A.E wire): emit Finding rows.
+                service = FindingService(db=db)
+                emitted = await service.emit_mft_findings_from_walk(
+                    project.id, firmware.id
+                )
+                await db.commit()
+
+        assert result["records_persisted"] == 1
+        # 2 emitted: ADS-hidden HIGH + timestomp HIGH.
+        assert len(emitted) == 2
+        for f in emitted:
+            assert f.confidence == "high"
+
+        # Rule #35b live canary — SELECT + inspect confidence.
+        persisted = (
+            await db.execute(
+                select(Finding).where(Finding.firmware_id == firmware.id)
+            )
+        ).scalars().all()
+        assert len(persisted) == 2
+        for f in persisted:
+            assert f.confidence == "high", (
+                f"finding {f.source} confidence not HIGH (got {f.confidence})"
+            )
+
+
+@pytest.mark.asyncio
 async def test_do_mft_run_deleted_records_persist_with_in_use_false():
     """Deleted records (FILE_RECORD_SEGMENT_IN_USE clear) persist with
     in_use=False — they hold recovered file metadata."""
