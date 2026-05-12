@@ -345,6 +345,12 @@
         "pattern": "docker\\s+compose\\s+exec\\s+(?:-T\\s+)?(?:backend|worker|migrator)\\s+python\\b(?!\\s+-)",
         "filePattern": "**/*.{md,sh,yml,yaml,json}",
         "message": "Learned from windows-coverage-godmode-eta-2026-05-12 antipattern #10: `docker compose exec backend python -c '...'` resolves `python` to the BASE IMAGE's system Python (no wairz deps installed) — emits `ModuleNotFoundError: No module named 'sqlalchemy'` on the first import even though `/app/.venv` has the dep. Use `/app/.venv/bin/python` explicitly. Already codified in CLAUDE.md Rule #20 caveat (`docker compose exec -T -w /app -e PYTHONPATH=/app backend /app/.venv/bin/<tool>`) — this rule enforces the discipline mechanically across docs / scripts / agent prompts."
+      },
+      {
+        "name": "auto-local-dev-env-no-auth-2026-05-12-rebuild-without-restartcount-probe",
+        "pattern": "docker\\s+compose\\s+up\\s+(?:-d\\s+)?--build\\s+(?:backend|worker|migrator)\\b",
+        "filePattern": "{.planning/**/*.md,.mex/**/*.md}",
+        "message": "Learned from local-dev-env-no-auth-2026-05-12 (`wairz-backend-1` restart-looped 118 cycles across 5+ sessions because rebuild success was declared without probing `RestartCount`): after ANY `docker compose up -d --build backend|worker|migrator`, also probe `docker inspect wairz-backend-1 --format '{{.RestartCount}}'` AND `docker compose ps backend` AND `docker compose logs --tail 20 backend` BEFORE trusting the rebuild. The backend container's lifespan check at `app/main.py:68-76` exits **78 (EX_CONFIG)** if neither `API_KEY` nor `WAIRZ_ALLOW_NO_AUTH=true` is in `.env` — and the worker stays healthy regardless, so worker-uptime is NOT evidence backend is up. See `.mex/patterns/post-rebuild-health-check.md` for the full discipline and CLAUDE.md Rule #8 for the rebuild scope."
       }
     ]
   },
@@ -407,7 +413,7 @@
     "sessions": 0,
     "campaigns": 0,
     "override": null,
-    "sessions_completed": 185
+    "sessions_completed": 186
   },
   "consent": {
     "externalActions": "session-allow"
