@@ -65,13 +65,15 @@ async def lifespan(app: FastAPI):
     # Refuse to start if auth is not configured (B.1.a).
     # Set API_KEY in .env (or environment) for production.
     # Set WAIRZ_ALLOW_NO_AUTH=true only for local-only single-user deployments.
+    # Exit code 78 is EX_CONFIG from /usr/include/sysexits.h so docker compose
+    # ps and operators can distinguish config-loop failures from generic exits.
     if not settings.api_key and not settings.allow_no_auth:
         print(
             "ERROR: api_key is required. Set API_KEY in .env or "
             "WAIRZ_ALLOW_NO_AUTH=true for local-only deployments.",
             file=sys.stderr,
         )
-        sys.exit(1)
+        sys.exit(78)
 
     # Connect Redis event bus
     try:
