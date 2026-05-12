@@ -441,6 +441,24 @@ _SOURCE_APPCOMPAT_RECENT_BASELINE: WindowsFindingSource = (
     "windows_appcompat_recent_baseline"
 )
 
+# Phase κ.D.D — Windows DPAPI master-key PARSE-ONLY METADATA source-tag
+# constants. Typed via WindowsFindingSource so a typo in the source
+# string fails at module import (per Rule #33 .c narrow-Literal-at-
+# helper-boundary discipline). Emitted by emit_dpapi_findings_from_walk
+# over rows produced by the κ.D.C walker (pure-Python struct parser
+# over DPAPI master-key files' headers + body preambles). The walker
+# NEVER decrypts master keys, NEVER invokes CryptUnprotectData; these
+# findings flag METADATA anomalies only (creator_sid + per-file metadata).
+_SOURCE_DPAPI_ORPHANED_MASTERKEY: WindowsFindingSource = (
+    "windows_dpapi_orphaned_masterkey"
+)
+_SOURCE_DPAPI_ADMIN_CREATOR_SID: WindowsFindingSource = (
+    "windows_dpapi_admin_creator_sid"
+)
+_SOURCE_DPAPI_LARGE_MASTERKEY: WindowsFindingSource = (
+    "windows_dpapi_large_masterkey"
+)
+
 # Phase κ.C.D — Linux persistence-triplet (bash_history + crontab +
 # ld.so.preload) source-tag constants. Typed via LinuxFindingSource so
 # a typo in the source string fails at module import (per Rule #33 .c
@@ -4122,6 +4140,241 @@ def classify_appcompat_findings(
     return drafts
 
 
+# ── Phase κ.D.D — Windows DPAPI master-key PARSE-ONLY classifier ─────────────
+
+
+@dataclass(frozen=True)
+class _DpapiFindingDraft:
+    """Tier-bearing draft for one DPAPI master-key Finding row.
+
+    PARSE-ONLY DISCIPLINE (Rule #36 + Rule #45 — Rule-of-Two DURABLE).
+    The walker (κ.D.C) parses the master-key file's HEADER + body
+    PREAMBLE AS DATA via pure-Python ``struct`` unpacking. This draft
+    surfaces METADATA anomalies only — creator_sid + file size +
+    iteration counts. NEVER decrypts master keys.
+    """
+    source: WindowsFindingSource
+    severity: Severity
+    title: str
+    description: str
+    evidence: str
+    confidence: Confidence
+
+
+def _dpapi_evidence_lines(
+    *,
+    master_key_guid: str | None,
+    creator_sid: str | None,
+    file_size_bytes: int | None,
+    hmac_iterations: int | None,
+    salt_size: int | None,
+    last_modified_ts: datetime | None,
+    source_file_path: str | None,
+    anomaly_flags: dict,
+    tier_label: str,
+) -> list[str]:
+    return [
+        f"Tier: {tier_label}",
+        f"Master-key GUID: {master_key_guid or '(unresolved)'}",
+        f"Creator SID: {creator_sid or '(unresolved)'}",
+        f"Source path: {source_file_path or '(unknown)'}",
+        f"File size: {file_size_bytes if file_size_bytes is not None else '(unknown)'} bytes",
+        (
+            f"HMAC iterations (PBKDF2): {hmac_iterations}"
+            if hmac_iterations is not None
+            else "HMAC iterations: (body preamble absent or unparseable)"
+        ),
+        (
+            f"Salt size: {salt_size} bytes (PARSE-ONLY — bytes NEVER recorded)"
+            if salt_size is not None
+            else "Salt size: (body preamble absent)"
+        ),
+        (
+            f"Last modified: {last_modified_ts.isoformat()}"
+            if last_modified_ts is not None
+            else "Last modified: (stat unavailable)"
+        ),
+        f"Anomaly flags: {dict(anomaly_flags)}",
+    ]
+
+
+def classify_dpapi_findings(
+    *,
+    master_key_guid: str | None,
+    creator_sid: str | None,
+    file_size_bytes: int | None,
+    hmac_iterations: int | None,
+    salt_size: int | None,
+    last_modified_ts: datetime | None,
+    source_file_path: str | None,
+    anomaly_flags: dict,
+) -> list[_DpapiFindingDraft]:
+    """Phase κ.D.D — map one WindowsDpapiMasterKey row to 0+ Finding
+    drafts.
+
+    Pure function — no DB access. Each row may yield 0 (no anomaly bit
+    fires) or up to 3 drafts (each emitted source is independent).
+
+    Tier mapping (Persona-E driven):
+
+    - windows_dpapi_orphaned_masterkey — HIGH (creator_sid no match in
+      firmware user list — backdoor key stash indicator).
+    - windows_dpapi_admin_creator_sid — MEDIUM (RID 500 / 512 / 519 OR
+      Local System — admin service-account use OR compromise).
+    - windows_dpapi_large_masterkey — LOW (file_size > 2048 — baseline
+      review for unusual DPAPI configuration).
+
+    PARSE-ONLY DISCIPLINE REMINDER (Rule #36 + Rule #45): the walker
+    NEVER decrypts master keys, NEVER invokes CryptUnprotectData.
+    These drafts flag METADATA anomalies only.
+    """
+    drafts: list[_DpapiFindingDraft] = []
+
+    # ── windows_dpapi_orphaned_masterkey ─────────────────────────────────────
+    if anomaly_flags.get("orphaned_masterkey"):
+        tier_label = (
+            "HIGH (T1552 Unsecured Credentials / T1136 Create Account — "
+            "DPAPI master-key creator_sid doesn't match any user SID "
+            "discovered elsewhere in the firmware extraction. Could be "
+            "a backdoor key stash (attacker pre-staged keys for later "
+            "credential decryption when victim password is recovered) "
+            "OR legacy artefact from a deleted user. Either way, the "
+            "orphaned key warrants operator review.)"
+        )
+        drafts.append(_DpapiFindingDraft(
+            source=_SOURCE_DPAPI_ORPHANED_MASTERKEY,
+            severity=Severity.high,
+            title=(
+                f"DPAPI orphaned master-key: "
+                f"{master_key_guid or '(unknown GUID)'}"
+            ),
+            description=(
+                "Windows DPAPI master-key file references a creator "
+                "SID that doesn't match any user SID discovered "
+                "elsewhere in the firmware extraction. DPAPI master-"
+                "keys are the gateway to Windows credential vaults — "
+                "Outlook profiles, browser passwords, certificate "
+                "private keys, WinSCP profiles, Wi-Fi credentials. An "
+                "orphaned master-key suggests either a backdoor key "
+                "stash (attacker pre-staged keys for later credential "
+                "decryption — they decrypt offline when the victim "
+                "password is recovered via other means) OR a legacy "
+                "artefact from a deleted user account. PARSE-ONLY: "
+                "wairz NEVER decrypts master keys; this finding flags "
+                "METADATA only. Operator should correlate creator_sid "
+                "against the SAM hive's user database and confirm "
+                "whether the SID was ever a legitimate account."
+            ),
+            evidence="\n".join(_dpapi_evidence_lines(
+                master_key_guid=master_key_guid,
+                creator_sid=creator_sid,
+                file_size_bytes=file_size_bytes,
+                hmac_iterations=hmac_iterations,
+                salt_size=salt_size,
+                last_modified_ts=last_modified_ts,
+                source_file_path=source_file_path,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.high,
+        ))
+
+    # ── windows_dpapi_admin_creator_sid ──────────────────────────────────────
+    if anomaly_flags.get("admin_creator_sid"):
+        tier_label = (
+            "MEDIUM (T1078.002 Domain Accounts / T1078.003 Local "
+            "Accounts — DPAPI master-key's creator_sid matches a "
+            "Windows admin RID pattern (RID 500 Built-in Administrator, "
+            "RID 512 Domain Admins, RID 519 Enterprise Admins) OR the "
+            "Local System SID (S-1-5-18). Admin-created DPAPI master "
+            "keys can be legitimate (admin service-account use) OR "
+            "compromise indicator (attacker created keys under admin "
+            "identity to access protected data).)"
+        )
+        drafts.append(_DpapiFindingDraft(
+            source=_SOURCE_DPAPI_ADMIN_CREATOR_SID,
+            severity=Severity.medium,
+            title=(
+                f"DPAPI admin-creator master-key: "
+                f"{master_key_guid or '(unknown GUID)'}"
+            ),
+            description=(
+                "Windows DPAPI master-key file's creator SID matches "
+                "a Windows admin RID pattern (RID 500 Built-in "
+                "Administrator, RID 512 Domain Admins, RID 519 "
+                "Enterprise Admins) OR the Local System SID "
+                "(S-1-5-18). Admin-account DPAPI usage is uncommon in "
+                "well-managed estates — service accounts typically "
+                "have dedicated managed identities. This finding "
+                "flags the master-key for baseline review; if the "
+                "creator_sid is unexpected for the host's role, "
+                "investigate whether the admin account was compromised "
+                "OR whether a service was misconfigured to run under "
+                "an admin identity. PARSE-ONLY: wairz NEVER decrypts "
+                "the master key; surfaces METADATA only."
+            ),
+            evidence="\n".join(_dpapi_evidence_lines(
+                master_key_guid=master_key_guid,
+                creator_sid=creator_sid,
+                file_size_bytes=file_size_bytes,
+                hmac_iterations=hmac_iterations,
+                salt_size=salt_size,
+                last_modified_ts=last_modified_ts,
+                source_file_path=source_file_path,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.medium,
+        ))
+
+    # ── windows_dpapi_large_masterkey ────────────────────────────────────────
+    if anomaly_flags.get("large_masterkey"):
+        tier_label = (
+            "LOW (baseline review — DPAPI master-key file size exceeds "
+            "the typical 740-1024 byte range. Real Windows master-key "
+            "files have a well-bounded size; oversized files may "
+            "indicate unusual DPAPI configuration, multiple chained "
+            "backup keys, or attacker-planted artefacts. Operator "
+            "should confirm against expected DPAPI configuration for "
+            "the firmware.)"
+        )
+        drafts.append(_DpapiFindingDraft(
+            source=_SOURCE_DPAPI_LARGE_MASTERKEY,
+            severity=Severity.low,
+            title=(
+                f"DPAPI oversized master-key: "
+                f"{master_key_guid or '(unknown GUID)'}"
+            ),
+            description=(
+                "Windows DPAPI master-key file size exceeds the "
+                "typical 740-1024 byte range (>2048 bytes). Real "
+                "master-key files are tightly-bounded in size; "
+                "oversized files may indicate unusual DPAPI "
+                "configuration (multiple chained backup keys, "
+                "unusual credential-history retention), or "
+                "attacker-planted artefacts (e.g. master-key file "
+                "augmented with attacker-controlled credential "
+                "history). PARSE-ONLY: wairz NEVER decrypts the "
+                "master key; surfaces METADATA only. Operator should "
+                "confirm against expected DPAPI configuration."
+            ),
+            evidence="\n".join(_dpapi_evidence_lines(
+                master_key_guid=master_key_guid,
+                creator_sid=creator_sid,
+                file_size_bytes=file_size_bytes,
+                hmac_iterations=hmac_iterations,
+                salt_size=salt_size,
+                last_modified_ts=last_modified_ts,
+                source_file_path=source_file_path,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.low,
+        ))
+
+    return drafts
+
+
 # ── Phase κ.C.D — Linux persistence-triplet classifier (FOURTH LINUX) ────────
 
 
@@ -6516,6 +6769,82 @@ class FindingService:
                     evidence=draft.evidence,
                     file_path=record.file_path,
                     # Tier-bearing draft per κ.B.D classifier —
+                    # preserve heuristic tier confidence map.
+                    confidence=draft.confidence,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_dpapi_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Phase κ.D.D — emit windows_dpapi_* Finding rows for one
+        firmware.
+
+        Reads every persisted ``WindowsDpapiMasterKey`` row for the
+        firmware (rows produced by the κ.D.C walker) and projects each
+        row through :func:`classify_dpapi_findings` which may emit
+        0-3 drafts (each anomaly bit is independent — a single
+        master-key file could fire orphaned_masterkey +
+        admin_creator_sid + large_masterkey simultaneously).
+
+        Confidence tier is heuristic-driven by the classifier:
+
+        - HIGH — windows_dpapi_orphaned_masterkey (creator_sid no
+          match in firmware user list — backdoor key stash indicator).
+        - MEDIUM — windows_dpapi_admin_creator_sid (RID 500/512/519 OR
+          Local System — admin service-account use OR compromise).
+        - LOW — windows_dpapi_large_masterkey (file_size > 2048 —
+          baseline review).
+
+        Idempotency is the caller's responsibility — same shape as
+        emit_appcompat_findings_from_walk; callers DELETE prior
+        windows_dpapi_* findings for the firmware before re-emitting.
+
+        Per Rule #36 + Rule #45 — the walker (κ.D.C) NEVER decrypts
+        master keys, NEVER invokes CryptUnprotectData, NEVER records
+        the salt bytes (only the salt SIZE constant). These findings
+        flag METADATA anomalies only.
+        """
+        from app.models.windows_dpapi_master_keys import (
+            WindowsDpapiMasterKey,
+        )
+        from app.services.jsonb_normalizers import (
+            _normalize_windows_dpapi_anomaly_flags,
+        )
+
+        stmt = select(WindowsDpapiMasterKey).where(
+            WindowsDpapiMasterKey.firmware_id == firmware_id
+        )
+        rows = (await self.db.execute(stmt)).scalars().all()
+
+        emitted: list[Finding] = []
+        for record in rows:
+            anomaly_flags = _normalize_windows_dpapi_anomaly_flags(
+                record.anomaly_flags
+            )
+            drafts = classify_dpapi_findings(
+                master_key_guid=record.master_key_guid,
+                creator_sid=record.creator_sid,
+                file_size_bytes=record.file_size_bytes,
+                hmac_iterations=record.hmac_iterations,
+                salt_size=record.salt_size,
+                last_modified_ts=record.last_modified_ts,
+                source_file_path=record.source_file_path,
+                anomaly_flags=anomaly_flags,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.source_file_path,
+                    # Tier-bearing draft per κ.D.D classifier —
                     # preserve heuristic tier confidence map.
                     confidence=draft.confidence,
                     firmware_id=firmware_id,

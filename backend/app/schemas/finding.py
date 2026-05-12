@@ -374,6 +374,31 @@ WindowsFindingSource = Literal[
     "windows_appcompat_suspicious_path",
     "windows_appcompat_temp_execution",
     "windows_appcompat_recent_baseline",
+    # Phase κ.D.D — alignment slice with frontend FindingSource union +
+    # FINDING_SOURCE_CONFIG entries. Emitted by the DPAPI finding-emit
+    # hook (``finding_service.emit_dpapi_findings_from_walk``) for the
+    # κ.D.C walker output. NINTH κ-era cross-stack alignment commit.
+    # PARSE-ONLY surface — the walker NEVER decrypts master keys; these
+    # findings flag METADATA anomalies only.
+    #
+    # windows_dpapi_orphaned_masterkey — creator_sid (extracted from
+    #   master-key file path) doesn't match any user SID discovered
+    #   elsewhere in the firmware. Backdoor key stash indicator
+    #   (attacker pre-staged keys for later credential decryption) OR
+    #   legacy artefact. Persona-E HIGH.
+    #
+    # windows_dpapi_admin_creator_sid — creator_sid matches Windows
+    #   admin RID pattern (RID 500 / 512 / 519 — Built-in Administrator,
+    #   Domain Admins, Enterprise Admins) OR Local System SID
+    #   (S-1-5-18). Could be legitimate (admin service-account use) or
+    #   compromise indicator. Persona-E MEDIUM.
+    #
+    # windows_dpapi_large_masterkey — file_size_bytes > 2048. Typical
+    #   master-key files are 740-1024 bytes; oversized files may
+    #   indicate unusual DPAPI configuration. Persona-E LOW baseline.
+    "windows_dpapi_orphaned_masterkey",
+    "windows_dpapi_admin_creator_sid",
+    "windows_dpapi_large_masterkey",
 ]
 
 

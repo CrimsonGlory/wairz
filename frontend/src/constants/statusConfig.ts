@@ -157,6 +157,9 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   linux_bash_history_clear: { icon: Skull, label: 'Bash History Clear', className: 'border-red-800/70 text-red-800 dark:text-red-200' },
   linux_cron_suspicious_command: { icon: AlertTriangle, label: 'Cron Suspicious', className: 'border-orange-600/50 text-orange-700 dark:text-orange-300' },
   linux_ld_preload_hijack: { icon: ShieldAlert, label: 'ld.so.preload Hijack', className: 'border-red-800/70 text-red-800 dark:text-red-200' },
+  windows_dpapi_orphaned_masterkey: { icon: KeyRound, label: 'DPAPI Orphaned Key', className: 'border-red-800/70 text-red-800 dark:text-red-200' },
+  windows_dpapi_admin_creator_sid: { icon: ShieldAlert, label: 'DPAPI Admin Creator', className: 'border-orange-600/50 text-orange-700 dark:text-orange-300' },
+  windows_dpapi_large_masterkey: { icon: Info, label: 'DPAPI Large Master-Key', className: 'border-blue-500/50 text-blue-600 dark:text-blue-400' },
 }
 
 // ── Finding confidence ──
