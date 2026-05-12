@@ -361,10 +361,144 @@ async def test_diff_driver_matrix_requires_param(tmp_path) -> None:
         assert "Error" in out
 
 
+# ── Phase η.D.F — lookup_byovd_driver MCP tool tests ─────────────────────────
+
+
+async def test_lookup_byovd_driver_happy_path(tmp_path, monkeypatch) -> None:
+    """Pass a SHA256 that matches the tiny fixture bundle's first
+    record (cbb8239…); tool returns match=True + canonical verdict
+    fields."""
+    from pathlib import Path
+
+    from app.ai.tools.windows_driver import _handle_lookup_byovd_driver
+    from app.services.loldrivers_lookup_service import reset_index_cache
+
+    fixture = Path(__file__).parent / "fixtures" / "byovd" / "tiny.loldrivers.json"
+    monkeypatch.setenv("LOLDRIVERS_BUNDLE_PATH", str(fixture))
+    reset_index_cache()
+
+    async with make_live_db() as db:
+        fw, _ = await _seed_firmware_with_drivers(db)
+        await db.commit()
+        ctx = _StubContext(extracted_path=str(tmp_path), db=db, firmware_id=fw.id)
+        out = await _handle_lookup_byovd_driver(
+            {
+                "blob_sha256": "cbb8239a765bf5b2c1b6a5c8832d2cab8fef5deacadfb65d8ed43ef56d291ab6",
+            },
+            ctx,
+        )
+    payload = json.loads(out)
+    assert payload["match"] is True
+    assert payload["verdict"]["category"] == "vulnerable driver"
+    assert payload["verdict"]["loldrivers_id"] == "00000000-0000-0000-0000-000000000001"
+    assert payload["verdict"]["cve_ids"] == ["CVE-2026-00001", "CVE-2026-00002"]
+    assert payload["reference_url"] == "https://www.loldrivers.io/drivers/00000000-0000-0000-0000-000000000001/"
+
+    reset_index_cache()
+
+
+async def test_lookup_byovd_driver_no_match_returns_match_false(tmp_path, monkeypatch) -> None:
+    """SHA256 not in the fixture bundle — tool returns match=False with
+    a clear "no record" message."""
+    from pathlib import Path
+
+    from app.ai.tools.windows_driver import _handle_lookup_byovd_driver
+    from app.services.loldrivers_lookup_service import reset_index_cache
+
+    fixture = Path(__file__).parent / "fixtures" / "byovd" / "tiny.loldrivers.json"
+    monkeypatch.setenv("LOLDRIVERS_BUNDLE_PATH", str(fixture))
+    reset_index_cache()
+
+    async with make_live_db() as db:
+        fw, _ = await _seed_firmware_with_drivers(db)
+        await db.commit()
+        ctx = _StubContext(extracted_path=str(tmp_path), db=db, firmware_id=fw.id)
+        out = await _handle_lookup_byovd_driver(
+            {"blob_sha256": "0" * 64},
+            ctx,
+        )
+    payload = json.loads(out)
+    assert payload["match"] is False
+    assert "No LOLDrivers BYOVD record matched" in payload["message"]
+
+    reset_index_cache()
+
+
+async def test_lookup_byovd_driver_resolves_blob_id(tmp_path, monkeypatch) -> None:
+    """When blob_id is provided (and blob_sha256 isn't), the handler
+    resolves blob_id → HardwareFirmwareBlob.blob_sha256 server-side
+    and performs the lookup."""
+    from pathlib import Path
+
+    from app.ai.tools.windows_driver import _handle_lookup_byovd_driver
+    from app.services.loldrivers_lookup_service import reset_index_cache
+
+    fixture = Path(__file__).parent / "fixtures" / "byovd" / "tiny.loldrivers.json"
+    monkeypatch.setenv("LOLDRIVERS_BUNDLE_PATH", str(fixture))
+    reset_index_cache()
+
+    async with make_live_db() as db:
+        # Use a fresh blob whose sha256 matches a fixture record.
+        project = Project(name="η.D.F-test")
+        db.add(project)
+        await db.flush()
+        fw = Firmware(
+            project_id=project.id,
+            sha256="0" * 64,
+            extracted_path="/tmp/test-extracted",
+        )
+        db.add(fw)
+        await db.flush()
+        byovd_blob = HardwareFirmwareBlob(
+            firmware_id=fw.id,
+            blob_path="Windows/System32/drivers/amp.sys",
+            blob_sha256="cbb8239a765bf5b2c1b6a5c8832d2cab8fef5deacadfb65d8ed43ef56d291ab6",
+            file_size=1024,
+            category="driver_package",
+            format="windows_inf",
+            detection_source="driver_extractor",
+        )
+        db.add(byovd_blob)
+        await db.commit()
+
+        ctx = _StubContext(extracted_path=str(tmp_path), db=db, firmware_id=fw.id)
+        out = await _handle_lookup_byovd_driver(
+            {"blob_id": str(byovd_blob.id)},
+            ctx,
+        )
+    payload = json.loads(out)
+    assert payload["match"] is True
+    assert payload["verdict"]["filename"] == "amp.sys"
+
+    reset_index_cache()
+
+
+async def test_lookup_byovd_driver_missing_inputs_errors(tmp_path, monkeypatch) -> None:
+    """Neither blob_sha256 nor blob_id supplied — error message returned."""
+    from pathlib import Path
+
+    from app.ai.tools.windows_driver import _handle_lookup_byovd_driver
+    from app.services.loldrivers_lookup_service import reset_index_cache
+
+    fixture = Path(__file__).parent / "fixtures" / "byovd" / "tiny.loldrivers.json"
+    monkeypatch.setenv("LOLDRIVERS_BUNDLE_PATH", str(fixture))
+    reset_index_cache()
+
+    async with make_live_db() as db:
+        fw, _ = await _seed_firmware_with_drivers(db)
+        await db.commit()
+        ctx = _StubContext(extracted_path=str(tmp_path), db=db, firmware_id=fw.id)
+        out = await _handle_lookup_byovd_driver({}, ctx)
+    assert "Error" in out
+    assert "blob_sha256" in out
+
+    reset_index_cache()
+
+
 # ── Registration smoke ──────────────────────────────────────────────────────
 
 
-def test_register_adds_six_tools() -> None:
+def test_register_adds_seven_tools() -> None:
     reg = ToolRegistry()
     register_windows_driver_tools(reg)
     names = {t["name"] for t in reg.get_anthropic_tools()}
@@ -375,4 +509,5 @@ def test_register_adds_six_tools() -> None:
         "get_signing_tier_histogram",
         "scan_inf_imports",
         "diff_driver_matrix",
+        "lookup_byovd_driver",
     }

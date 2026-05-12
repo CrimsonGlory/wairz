@@ -1,6 +1,7 @@
-"""Windows driver MCP tools — Phase γ.6.
+"""Windows driver MCP tools — Phase γ.6 + Phase η.D.F.
 
-Surfaces the Phase γ.5 driver-extractor verdicts to the MCP layer:
+Surfaces the Phase γ.5 driver-extractor verdicts and the η.D BYOVD
+LOLDrivers fingerprinting lookup to the MCP layer:
 
 - ``list_drivers`` — list every WindowsDriver row for the active firmware
   (compact summary: class_guid + manufacturer + signing_tier).
@@ -16,6 +17,11 @@ Surfaces the Phase γ.5 driver-extractor verdicts to the MCP layer:
   rollup view).
 - ``diff_driver_matrix`` — diff two firmware images' driver matrices
   by class_guid + PnP ID overlap.
+- ``lookup_byovd_driver`` — η.D.F: look up a Windows driver blob's
+  SHA256 against the magicsword-io/LOLDrivers BYOVD data set
+  (bundled per Rule #37 at backend/ms-anchors/loldrivers.json).
+  Returns the canonical :class:`BYOVDVerdict` shape or
+  "no BYOVD record found" on a miss / unavailable bundle.
 
 Sandbox discipline (Rule #1): the few tools that read disk paths
 resolve them via ``context.resolve_path()``.
@@ -267,6 +273,101 @@ async def _handle_scan_inf_imports(input: dict, context: ToolContext) -> str:  #
     )
 
 
+async def _handle_lookup_byovd_driver(input: dict, context: ToolContext) -> str:
+    """Phase η.D.F — look up a Windows driver blob's SHA256 against the
+    LOLDrivers BYOVD data set.
+
+    Accepts either ``blob_sha256`` directly OR ``blob_id`` (UUID of a
+    HardwareFirmwareBlob row, resolved to its blob_sha256 via the
+    active firmware). Returns the canonical :class:`BYOVDVerdict` shape
+    on hit, or "no BYOVD record found" on miss / unavailable bundle.
+
+    Rule #36 no-execute: this tool reads the LOLDrivers JSON bundle AS
+    DATA. Driver content is not invoked.
+
+    Rule #37 graceful-degrade: when the bundle is missing or empty, the
+    tool returns a clear "bundle unavailable" message rather than a
+    fabricated verdict.
+    """
+    from app.services.loldrivers_lookup_service import (
+        is_loldrivers_available,
+        lookup_driver_byovd,
+        reference_url,
+    )
+
+    if not is_loldrivers_available():
+        return (
+            "LOLDrivers BYOVD bundle unavailable — no fingerprint data to "
+            "match against. Rebuild the worker image (CLAUDE.md Rule #8) "
+            "or run scripts/refresh-loldrivers.sh; see /opt/wairz/loldrivers.json."
+        )
+
+    blob_sha256 = input.get("blob_sha256")
+    blob_id_str = input.get("blob_id")
+
+    # If blob_id is provided, resolve it to the SHA256 via the active firmware.
+    if not blob_sha256 and blob_id_str:
+        try:
+            blob_uuid = uuid.UUID(str(blob_id_str))
+        except ValueError:
+            return f"Error: blob_id={blob_id_str!r} is not a valid UUID"
+        stmt = (
+            select(HardwareFirmwareBlob)
+            .where(
+                HardwareFirmwareBlob.firmware_id == context.firmware_id,
+                HardwareFirmwareBlob.id == blob_uuid,
+            )
+        )
+        blob = (await context.db.execute(stmt)).scalar_one_or_none()
+        if blob is None:
+            return (
+                f"Error: no HardwareFirmwareBlob row id={blob_id_str!r} "
+                "for the active firmware"
+            )
+        blob_sha256 = blob.blob_sha256
+
+    if not blob_sha256:
+        return (
+            "Error: provide either 'blob_sha256' (lowercase hex) or "
+            "'blob_id' (HardwareFirmwareBlob UUID) — neither was supplied"
+        )
+
+    verdict = lookup_driver_byovd(str(blob_sha256))
+    if verdict is None:
+        return _dump_json(
+            {
+                "blob_sha256": str(blob_sha256).lower(),
+                "match": False,
+                "verdict": None,
+                "message": (
+                    "No LOLDrivers BYOVD record matched this driver blob. "
+                    "Absence of a match does NOT imply the driver is safe — "
+                    "only that the LOLDrivers data set does not currently "
+                    "catalogue it."
+                ),
+            }
+        )
+
+    return _dump_json(
+        {
+            "blob_sha256": verdict.sha256,
+            "match": True,
+            "verdict": {
+                "sha256": verdict.sha256,
+                "authentihash_sha256": verdict.authentihash_sha256,
+                "filename": verdict.filename,
+                "category": verdict.category,
+                "cve_ids": verdict.cve_ids,
+                "mitre_id": verdict.mitre_id,
+                "loldrivers_id": verdict.loldrivers_id,
+                "loads_despite_hvci": verdict.loads_despite_hvci,
+                "sha256_match_kind": verdict.sha256_match_kind,
+            },
+            "reference_url": reference_url(verdict.loldrivers_id),
+        }
+    )
+
+
 async def _handle_diff_driver_matrix(input: dict, context: ToolContext) -> str:
     """Diff two firmwares' driver matrices by class_guid + PnP ID
     overlap.
@@ -452,4 +553,37 @@ def register_windows_driver_tools(registry: ToolRegistry) -> None:
             "additionalProperties": False,
         },
         handler=_handle_diff_driver_matrix,
+    )
+
+    registry.register(
+        name="lookup_byovd_driver",
+        description=(
+            "Phase η.D.F — Look up a Windows driver blob SHA256 against "
+            "the magicsword-io/LOLDrivers BYOVD ('Bring-Your-Own-"
+            "Vulnerable-Driver') data set, bundled per CLAUDE.md Rule "
+            "#37 at /opt/wairz/loldrivers.json. Returns canonical verdict "
+            "fields (category, CVE list, MitreID, LOLDrivers reference "
+            "URL, HVCI-bypass flag) on hit, or 'no match found' on miss. "
+            "Accepts either ``blob_sha256`` (lowercase hex, fastest path) "
+            "OR ``blob_id`` (UUID of an existing HardwareFirmwareBlob row "
+            "for the active firmware — convenient when the operator has "
+            "the blob UUID but not the hash). Absence of a match does "
+            "NOT imply the driver is safe — only that LOLDrivers does "
+            "not currently catalogue it."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "blob_sha256": {
+                    "type": "string",
+                    "description": "Lowercase hex SHA256 of the driver blob (typically the .sys PE hash). Mutually exclusive with blob_id.",
+                },
+                "blob_id": {
+                    "type": "string",
+                    "description": "UUID of a HardwareFirmwareBlob row for the active firmware; the tool resolves the sha256 server-side. Mutually exclusive with blob_sha256.",
+                },
+            },
+            "additionalProperties": False,
+        },
+        handler=_handle_lookup_byovd_driver,
     )
