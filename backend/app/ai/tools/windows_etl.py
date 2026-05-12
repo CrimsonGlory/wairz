@@ -32,8 +32,8 @@ import json
 import logging
 import uuid
 
-from sqlalchemy import Text, cast, func as sa_func
-from sqlalchemy import select
+from sqlalchemy import Text, cast, select
+from sqlalchemy import func as sa_func
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.models.firmware import Firmware

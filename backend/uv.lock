@@ -710,6 +710,20 @@ wheels = [
 ]
 
 [[package]]
+name = "dissect-etl"
+version = "3.14"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "defusedxml" },
+    { name = "dissect-cstruct" },
+    { name = "dissect-util" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/16/a7/e28aca21d7ac5b1d1984b29588e58f6b8410958a3b2e6cbc3d89d5e5c27e/dissect_etl-3.14.tar.gz", hash = "sha256:4c71365a1cc2c9e400f8bf5562df6d6494a870b4d88f003b36154558be37100f", size = 2018849, upload-time = "2025-11-20T12:44:22.111Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/67/9d/c6dbb38211c5435a5eafc85daf136c4b3216804dd69b5f5756955b8eb66d/dissect_etl-3.14-py3-none-any.whl", hash = "sha256:9487d8a4bae31a48fb1311f2df6bc1d245bca532049fd7403c82992ea35058d9", size = 2533970, upload-time = "2025-11-20T12:44:20.339Z" },
+]
+
+[[package]]
 name = "dissect-ntfs"
 version = "3.16"
 source = { registry = "https://pypi.org/simple" }
@@ -3693,6 +3707,7 @@ dependencies = [
     { name = "clamd" },
     { name = "cryptography" },
     { name = "defusedxml" },
+    { name = "dissect-etl" },
     { name = "dissect-ntfs" },
     { name = "dncil" },
     { name = "dnfile" },
@@ -3754,6 +3769,7 @@ requires-dist = [
     { name = "clamd", specifier = ">=1.0.2" },
     { name = "cryptography", specifier = ">=43.0.0" },
     { name = "defusedxml", specifier = ">=0.7.1" },
+    { name = "dissect-etl", specifier = ">=3.14" },
     { name = "dissect-ntfs", specifier = ">=3.10" },
     { name = "dncil", specifier = ">=1.0" },
     { name = "dnfile", specifier = ">=0.18" },

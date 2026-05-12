@@ -247,8 +247,8 @@ def datetime_to_filetime(dt: _dt.datetime | None) -> int:
         return 0
     try:
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=_dt.timezone.utc)
-        epoch = _dt.datetime(1601, 1, 1, tzinfo=_dt.timezone.utc)
+            dt = dt.replace(tzinfo=_dt.UTC)
+        epoch = _dt.datetime(1601, 1, 1, tzinfo=_dt.UTC)
         delta = dt - epoch
         # 1 second = 10_000_000 100-ns ticks.
         return int(delta.total_seconds() * 10_000_000)
