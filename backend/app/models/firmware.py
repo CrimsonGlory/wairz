@@ -679,6 +679,50 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # Phase κ.E Windows NTFS $UsnJrnl:$J change-log walker columns
+    # (CLAUDE.md Rule #33 contract). TENTH κ-era walker. Background
+    # runner ``run_usnjrnl_walk_background`` walks each detection root
+    # per Rule #16, locates raw NTFS image candidates via the η.A MFT-
+    # walker precedent (boot-sector magic check), opens each via
+    # ``dissect.ntfs.NTFS``, reads the ``$Extend/$UsnJrnl:$J`` ADS via
+    # ``dissect.ntfs.usnjrnl.UsnJrnl.records()``, decodes per-record
+    # reason flags via the USN_REASON_* bit table, persists per-record
+    # rows into ``windows_usnjrnl_entries`` (table from κ.E.A), and
+    # stamps an aggregate JSONB result onto ``usnjrnl_walk_result``.
+    #
+    # **USN journal is FILE-SYSTEM CHANGE evidence** (T1070.004 anti-
+    # forensics) — Windows NTFS records every create / delete / rename
+    # / modify event against tracked files. Adversaries who delete
+    # payloads cannot delete the $J record of the create+delete pair —
+    # forensic gold for "what files did the adversary touch."
+    #
+    # **Rule #36 no-execute discipline.** The walker parses NTFS bytes
+    # via ``dissect.ntfs`` (pure-Python). NEVER invokes any binary
+    # referenced by the journal entries, NEVER mounts the image, NEVER
+    # shells out to ntfs-3g / losetup / qemu-system. Test gate
+    # ``test_usnjrnl_walker.py::test_walker_no_execute`` plus a canary
+    # test that confirms the gate ACTUALLY fires on synthetic
+    # violations.
+    #
+    # Rule #33 .c CHECK enforces the 5-state machine; Rule #33 .d —
+    # asyncio.create_task dispatch (in-process pure-Python parser; no
+    # Docker spawn; zero new deps).
+    usnjrnl_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    usnjrnl_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    usnjrnl_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    usnjrnl_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    usnjrnl_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     # Phase θ.B.C WMI persistence walker columns (CLAUDE.md Rule #33 contract).
     # Background runner ``run_wmi_walk_background`` opens each WMI
     # OBJECTS.DATA file (typically under ``Windows/System32/wbem/Repository/``

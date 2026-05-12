@@ -3941,3 +3941,50 @@ def _stamp_windows_usnjrnl_reason_flags(payload: dict) -> dict:
         WINDOWS_USNJRNL_ENTRIES_REASON_FLAGS_SCHEMA_VERSION
     )
     return payload
+
+
+# ── firmware.usnjrnl_walk_result (Phase κ.E.B) ───────────────────────────────
+#
+# Per-firmware aggregate from a single $UsnJrnl:$J change-log walk.
+# Mirrors appcompat_walk_result / dpapi_walk_result / persistence_walk_result.
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,
+#     "images_scanned": int,
+#     "records_walked": int,
+#     "records_persisted": int,
+#     "records_capped": int,
+#     "parse_errors": int,
+#     "file_deletion_count": int,
+#     "temp_create_delete_pair_count": int,
+#     "renamed_executable_count": int,
+#     "anomaly_total": int,
+#     "errors": list[str],
+#     "per_image": list[dict],
+#   }
+#
+# Rule #36 no-execute discipline: the walker NEVER invokes any binary
+# referenced by the journal; this JSONB carries METADATA aggregates only.
+
+FIRMWARE_USNJRNL_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_usnjrnl_walk_result(value: object) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.usnjrnl_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_usnjrnl_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.usnjrnl_walk_result``. Idempotent."""
+    payload["schema_version"] = FIRMWARE_USNJRNL_WALK_RESULT_SCHEMA_VERSION
+    return payload

@@ -47,6 +47,7 @@ from app.services.jsonb_normalizers import (
     FIRMWARE_REGISTRY_HIVE_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_SRUM_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_SYSTEMD_WALK_RESULT_SCHEMA_VERSION,
+    FIRMWARE_USNJRNL_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_WINDOWS_ARTIFACTS_SCHEMA_VERSION,
     FIRMWARE_WINDOWS_UPDATE_DIFF_RESULT_SCHEMA_VERSION,
     FIRMWARE_WMI_WALK_RESULT_SCHEMA_VERSION,
@@ -121,6 +122,7 @@ from app.services.jsonb_normalizers import (
     _normalize_firmware_registry_hive_walk_result,
     _normalize_firmware_srum_walk_result,
     _normalize_firmware_systemd_walk_result,
+    _normalize_firmware_usnjrnl_walk_result,
     _normalize_firmware_windows_artifacts,
     _normalize_firmware_windows_update_diff_result,
     _normalize_firmware_wmi_walk_result,
@@ -194,6 +196,7 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_registry_hive_walk_result,
     _stamp_firmware_srum_walk_result,
     _stamp_firmware_systemd_walk_result,
+    _stamp_firmware_usnjrnl_walk_result,
     _stamp_firmware_windows_artifacts,
     _stamp_firmware_windows_update_diff_result,
     _stamp_firmware_wmi_walk_result,
@@ -4823,3 +4826,52 @@ def test_stamp_windows_usnjrnl_reason_flags_idempotent():
 
 def test_windows_usnjrnl_entries_reason_flags_schema_version_constant():
     assert WINDOWS_USNJRNL_ENTRIES_REASON_FLAGS_SCHEMA_VERSION == 1
+
+
+# ── firmware.usnjrnl_walk_result (Phase κ.E.B) ───────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {
+                "schema_version": 1,
+                "images_scanned": 1,
+                "records_persisted": 42,
+                "anomaly_total": 2,
+            },
+            {
+                "schema_version": 1,
+                "images_scanned": 1,
+                "records_persisted": 42,
+                "anomaly_total": 2,
+            },
+        ),
+        ({}, {}),
+        (None, None),
+        ([{"a": 1}], None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_usnjrnl_walk_result(value, expected):
+    assert _normalize_firmware_usnjrnl_walk_result(value) == expected
+
+
+def test_stamp_firmware_usnjrnl_walk_result_adds_version():
+    out = _stamp_firmware_usnjrnl_walk_result({"images_scanned": 0})
+    assert (
+        out["schema_version"]
+        == FIRMWARE_USNJRNL_WALK_RESULT_SCHEMA_VERSION
+    )
+
+
+def test_stamp_firmware_usnjrnl_walk_result_idempotent():
+    once = _stamp_firmware_usnjrnl_walk_result({"images_scanned": 0})
+    twice = _stamp_firmware_usnjrnl_walk_result(once)
+    assert once == twice
+
+
+def test_firmware_usnjrnl_walk_result_schema_version_constant():
+    assert FIRMWARE_USNJRNL_WALK_RESULT_SCHEMA_VERSION == 1
