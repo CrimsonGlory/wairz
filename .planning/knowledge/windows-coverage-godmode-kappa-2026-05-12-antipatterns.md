@@ -76,6 +76,79 @@ mode caught itself.
 **Status:** Single instance in κ.E. Caught immediately by the canary discipline.
 Rule #35a + Rule #46 are durable partners.
 
+### A12 (NEW — Rule-of-One, POST-CAMPAIGN-CLOSE FINDING): Sub-agent smoke gap on service-module imports — finding_service `from datetime import datetime` missing for ~3 hours
+
+**Surface:** Backend container entered a 53-restart loop ~3 hours after κ.B.D
+shipped (commit `a8496f7`). Root cause: κ.B.D's `_appcompat_evidence_lines`
+helper introduced `last_modified_ts: datetime | None` parameter typing in
+`backend/app/services/finding_service.py:3970` without adding `from datetime
+import datetime` at module top. κ.D + κ.E inherited the same pattern in their
+emit helpers (7 total `datetime | None` references at lines 3970, 3995, 4118,
+4188, 4225, 4421, 4457).
+
+In Python without `from __future__ import annotations`, function-SIGNATURE
+type annotations are evaluated at function-definition time = module-load
+time. So importing `finding_service` raised `NameError: name 'datetime' is
+not defined` immediately — but only when something imported `finding_service`.
+The startup chain `routers/apk_scan.py → ai/__init__.py → ai/tools/reporting.py
+→ services/finding_service.py` hit the bug at backend uvicorn startup.
+
+**Why caught LATE (3-hour gap between κ.B.D ship and user-observed 502):**
+- Sub-agent smoke tests imported the WALKER module + MCP tools cleanly (those
+  imports don't transitively pull `finding_service`).
+- `test_finding_source_alignment.py` tests verify pairwise enum agreement
+  (DB CHECK ↔ schemas Literal ↔ frontend types ↔ FINDING_SOURCE_CONFIG) and
+  import `app.schemas.finding` ONLY — never `app.services.finding_service`.
+- Orchestrator-side Pattern P7 verification also didn't import
+  `finding_service` (verified MCP count, alembic head, FindingSource Literal
+  count, ruff, CI Lint — none load the service module).
+- Backend container was NOT rebuilt mid-stream (Rule #8 deferred to κ close
+  per dispatch prompt). The κ-close rebuild loaded the broken module and the
+  container started restart-looping silently — operator noticed at HTTP 502.
+
+**Mitigation (Rule #11 reinforcement for future sub-agent prompts):**
+When a stream's .D commit ADDS a function/method to `app/services/finding_service.py`
+(or any other service module that backend imports eagerly at startup), the
+sub-agent prompt MUST include a smoke import step:
+
+```python
+( cd backend && uv run python -c "
+from app.services.finding_service import FindingService
+fs_methods = sorted(k for k in FindingService.__dict__ if k.startswith('emit_'))
+print('FindingService emit_* methods:', fs_methods)
+assert 'emit_<new>_findings_from_walk' in fs_methods, 'new emit method missing'
+" )
+```
+
+And the orchestrator-side Pattern P7 verification MUST include a backend
+container health probe (`docker compose ps backend; docker inspect
+wairz-backend-1 --format '{{.RestartCount}}'`) IF the stream's .D modified
+`finding_service.py` OR any service that backend imports eagerly at startup.
+
+**Codified into CLAUDE.md Rule #11 (post-split runtime smoke) — extension:**
+the smoke applies not only to FILE SPLITS but also to FUNCTION ADDITIONS to
+existing eagerly-imported service modules. A passing `pytest <specific-tests>`
+is INSUFFICIENT — the smoke must explicitly import the module that was
+modified.
+
+**Fix:** added `from datetime import datetime` to `finding_service.py` top
+imports (commit `b284ba8`); applied via `docker cp` + `docker compose
+restart backend` per Rule #20 fast-iteration. Backend confirmed healthy.
+
+**Status:** Rule-of-One; if a similar regression surfaces in λ.α or later,
+promote to Rule-of-Two formal codification.
+
+**Surface:** Rule #24 mandatory tsc canary invoked with pipe (`tsc 2>&1 | tail
+-10`) — the pipe hid the real tsc exit code (Rule #35a). The canary's failure
+mode caught itself.
+
+**Mitigation (already established as Rule #35a — reinforced by κ.E):**
+- For canary invocations, NEVER use pipes when exit code matters
+- Pattern: `cmd; ec=$?` (capture exit BEFORE pipe), OR `set -o pipefail` explicitly, OR `${PIPESTATUS[0]}`
+
+**Status:** Single instance in κ.E. Caught immediately by the canary discipline.
+Rule #35a + Rule #46 are durable partners.
+
 ## Walker-test-gate weakness backfill action items
 
 1. **ι.D EFS `test_walker_no_decrypt` regex** — apply κ.D's whitespace-tolerant
