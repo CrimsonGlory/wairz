@@ -629,6 +629,56 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # Phase κ.D Windows DPAPI master-key PARSE-ONLY METADATA walker
+    # columns (CLAUDE.md Rule #33 contract). NINTH κ-era walker.
+    # Background runner ``run_dpapi_walk_background`` walks each
+    # detection root per Rule #16, locates Windows DPAPI master-key
+    # files via the canonical path pattern
+    # ``Users\<user>\AppData\Roaming\Microsoft\Protect\<sid>\<guid>``,
+    # parses each file's header via a pure-Python ``struct``-based
+    # parser, classifies per-file anomalies (orphaned_masterkey /
+    # admin_creator_sid / large_masterkey / parse_error), persists
+    # per-file rows into ``windows_dpapi_master_keys`` (table from
+    # κ.D.A), and stamps an aggregate JSONB result onto
+    # ``dpapi_walk_result``.
+    #
+    # **DPAPI master-keys are the gateway** to Windows credential vaults
+    # — Outlook profiles, browser passwords, certificate private keys,
+    # WinSCP profiles, Wi-Fi credentials. Orphaned master-keys (creator
+    # SID with no matching user account elsewhere in the firmware) can
+    # indicate backdoor key stashes. Admin / SYSTEM-creator master-keys
+    # are baseline-review candidates for privileged-account compromise.
+    #
+    # **PARSE-ONLY DISCIPLINE — Rule #36 + Rule #45 (parse-only-metadata
+    # walker, Rule-of-Two — DURABLE BEYOND DEBATE).** The walker parses
+    # the master-key file's HEADER + body PREAMBLE AS DATA via pure-
+    # Python ``struct`` unpacking. The walker NEVER decrypts master
+    # keys, NEVER invokes ``CryptUnprotectData``, NEVER imports
+    # cryptographic decryption modules, NEVER records the salt bytes
+    # (only the SIZE — exposing the salt would aid offline cracking).
+    # Test gate ``test_dpapi_walker.py::test_walker_no_decrypt`` plus a
+    # canary test that confirms the gate ACTUALLY fires on synthetic
+    # violations.
+    #
+    # Rule #33 .c CHECK enforces the 5-state machine; Rule #33 .d —
+    # asyncio.create_task dispatch (in-process pure-Python struct
+    # parser; no Docker spawn; zero new deps).
+    dpapi_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    dpapi_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    dpapi_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    dpapi_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    dpapi_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     # Phase θ.B.C WMI persistence walker columns (CLAUDE.md Rule #33 contract).
     # Background runner ``run_wmi_walk_background`` opens each WMI
     # OBJECTS.DATA file (typically under ``Windows/System32/wbem/Repository/``
