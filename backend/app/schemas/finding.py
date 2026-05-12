@@ -206,6 +206,35 @@ WindowsFindingSource = Literal[
     # metadata into the finding's confidence + evidence rather than
     # separate Literal values per tier).
     "windows_wmi_persistence",
+    # Phase θ.C.D — alignment slice with frontend FindingSource union +
+    # FINDING_SOURCE_CONFIG entries. Emitted by
+    # ``emit_esp_findings_from_walk`` for every ``WindowsEspEntry``
+    # row produced by the θ.C.C walker whose authenticode_state
+    # matches T1542.003 Pre-OS Boot: Bootkit indicators (BlackLotus,
+    # MoonBounce, CosmicStrand, Bootkitty).
+    #
+    # windows_esp_unsigned — `.efi` file with authenticode_state=
+    # unsigned. Confidence tier mapping is heuristic-driven:
+    # - HIGH (Confidence.high) — unsigned `.efi` AND
+    #   is_known_bootloader_path (EFI/Boot/bootx64.efi,
+    #   EFI/Microsoft/Boot/bootmgfw.efi, etc.). Strong bootkit
+    #   signal — replacing a canonical OS bootloader with an
+    #   unsigned binary is the BlackLotus / Bootkitty canonical
+    #   shape.
+    # - MEDIUM (Confidence.medium) — unsigned `.efi` AND
+    #   is_vendor_path (EFI/<vendor>/...). Could be non-standard
+    #   signed-via-shim layout OR legitimate vendor utility;
+    #   operator triages.
+    #
+    # windows_esp_dbx_revoked — `.efi` file with authenticode_state=
+    # signed_revoked (chain validates but β.10 DBX revocation list
+    # carries the leaf certificate / file hash). Confidence tier:
+    # - HIGH (Confidence.high) — DBX-revoked. Microsoft has
+    #   explicitly revoked this bootloader; under Secure Boot
+    #   enforcement the binary would fail at load time. The
+    #   revocation is the authoritative signal regardless of path.
+    "windows_esp_unsigned",
+    "windows_esp_dbx_revoked",
 ]
 
 

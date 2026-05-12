@@ -247,6 +247,26 @@ _SOURCE_BCD_TESTSIGNING_ENABLED: WindowsFindingSource = (
 #   non-benign FilterToConsumerBinding deserves operator attention).
 _SOURCE_WMI_PERSISTENCE: WindowsFindingSource = "windows_wmi_persistence"
 
+# Phase θ.C.D — ESP `.efi` PE chain walker emit sources. Emitted by
+# ``emit_esp_findings_from_walk`` for every ``WindowsEspEntry`` row
+# produced by the θ.C.C walker whose authenticode_state matches
+# T1542.003 Pre-OS Boot: Bootkit indicators (BlackLotus, MoonBounce,
+# CosmicStrand, Bootkitty).
+#
+# windows_esp_unsigned — `.efi` with authenticode_state=unsigned.
+# Confidence tier is heuristic-driven by the classifier:
+# - HIGH (Confidence.high) — unsigned `.efi` AND
+#   is_known_bootloader_path (EFI/Boot/bootx64.efi,
+#   EFI/Microsoft/Boot/bootmgfw.efi). Strong T1542.003 signal.
+# - MEDIUM (Confidence.medium) — unsigned `.efi` AND is_vendor_path
+#   (EFI/<vendor>/...). Operator triages.
+#
+# windows_esp_dbx_revoked — `.efi` with authenticode_state=
+# signed_revoked (β.10 DBX revocation list hit). Confidence: HIGH
+# always — Microsoft has explicitly revoked this bootloader.
+_SOURCE_ESP_UNSIGNED: WindowsFindingSource = "windows_esp_unsigned"
+_SOURCE_ESP_DBX_REVOKED: WindowsFindingSource = "windows_esp_dbx_revoked"
+
 
 # ── Phase η.E — PowerShell EID classifier helper ──
 #
@@ -1867,6 +1887,193 @@ def classify_wmi_findings(
     ]
 
 
+# ── Phase θ.C.D — ESP `.efi` PE chain classifier ────────────────────────────
+
+
+@dataclass(frozen=True)
+class _ESPFindingDraft:
+    """One ESP `.efi` Finding row to emit. Carries an explicit
+    confidence tier alongside the standard fields so the emit hook can
+    preserve the tier-mapping derived from the entry's
+    authenticode_state + anomaly_flags shape.
+
+    Mirrors _WMIFindingDraft / _BCDFindingDraft — tier-bearing draft
+    preserved through the emit boundary so the FindingCreate.confidence
+    is heuristic-driven, not fixed at low.
+    """
+    source: WindowsFindingSource
+    severity: Severity
+    title: str
+    description: str
+    evidence: str
+    confidence: Confidence
+
+
+def classify_esp_findings(
+    *,
+    file_path: str,
+    file_sha256: str,
+    file_size: int,
+    authenticode_state: str,
+    anomaly_flags: dict,
+    chain_dict: dict | None,
+    dbx_match_dict: dict | None,
+) -> list[_ESPFindingDraft]:
+    """Phase θ.C.D — map one WindowsEspEntry row to 0, 1, or 2
+    Finding drafts.
+
+    Pure function — no DB access. Returns:
+
+    - 0 drafts on signed_valid `.efi` files (no anomaly to surface).
+    - 1 draft (``windows_esp_unsigned``) on unsigned `.efi` whose
+      path matches known-bootloader OR vendor paths. Tier:
+      - HIGH — unsigned AND is_known_bootloader_path (BlackLotus
+        canonical shape).
+      - MEDIUM — unsigned AND is_vendor_path.
+      - (Skipped if is_unsigned but NOT under EFI/ canonical OR
+        vendor paths — generic .efi utility, not a bootkit signal.)
+    - 1 draft (``windows_esp_dbx_revoked``) on signed_revoked `.efi`.
+      Tier: HIGH always — DBX revocation is the authoritative signal.
+    - 2 drafts possible if a `.efi` is BOTH unsigned AND DBX-revoked
+      (rare — DBX matches need a signature to match against; but the
+      classifier is conservative and emits both if both states fire).
+
+    Mirrors classify_lnk_abnormal_target_findings / classify_bcd_findings
+    shape — tier-bearing drafts, one per detection pattern.
+    """
+    drafts: list[_ESPFindingDraft] = []
+
+    is_unsigned = bool(anomaly_flags.get("is_unsigned"))
+    is_known_bootloader = bool(anomaly_flags.get("is_known_bootloader_path"))
+    is_vendor = bool(anomaly_flags.get("is_vendor_path"))
+    is_suspiciously_small = bool(anomaly_flags.get("is_suspiciously_small"))
+    is_non_ms_signer = bool(anomaly_flags.get("is_non_microsoft_signer"))
+
+    # ── windows_esp_unsigned draft ─────────────────────────────────────────
+    if is_unsigned and (is_known_bootloader or is_vendor):
+        if is_known_bootloader:
+            confidence = Confidence.high
+            severity = Severity.high
+            tier_label = (
+                "HIGH (unsigned `.efi` in canonical OS-bootloader path "
+                "— BlackLotus / Bootkitty bootkit canonical shape)"
+            )
+        else:
+            confidence = Confidence.medium
+            severity = Severity.medium
+            tier_label = (
+                "MEDIUM (unsigned `.efi` in vendor EFI/<vendor>/ path "
+                "— non-standard signed-via-shim layout or vendor "
+                "utility; operator triages)"
+            )
+
+        evidence_lines = [
+            f"Tier: {tier_label}",
+            f"File path: {file_path}",
+            f"File SHA256: {file_sha256}",
+            f"File size: {file_size} bytes",
+            f"Authenticode state: {authenticode_state}",
+            f"Known-bootloader path: {is_known_bootloader}",
+            f"Vendor path: {is_vendor}",
+            f"Suspiciously small (<4 KB): {is_suspiciously_small}",
+        ]
+        if chain_dict and chain_dict.get("error"):
+            evidence_lines.append(
+                f"Authenticode parse note: {chain_dict['error']}"
+            )
+
+        drafts.append(_ESPFindingDraft(
+            source=_SOURCE_ESP_UNSIGNED,
+            severity=severity,
+            title=(
+                f"Unsigned ESP bootloader: "
+                f"{file_path.rsplit('/', 1)[-1]}"
+            ),
+            description=(
+                "An EFI binary in the EFI System Partition (ESP) "
+                "carries no Authenticode signature. The ESP is "
+                "mounted by the UEFI firmware BEFORE any OS code "
+                "runs; an unsigned bootloader at a canonical path "
+                "(EFI/Boot/bootx64.efi, EFI/Microsoft/Boot/"
+                "bootmgfw.efi, etc.) is the canonical T1542.003 "
+                "Pre-OS Boot: Bootkit signal. Adversary tradecraft: "
+                "BlackLotus (CVE-2022-21894 ESP bootkit), Bootkitty "
+                "(ESET Nov 2024 Linux UEFI bootkit), CosmicStrand "
+                "(Kaspersky 2022 ESP-resident UEFI implant), "
+                "MoonBounce (Kaspersky 2021 ESP modification). The "
+                "PE is surfaced as DATA in WindowsEspEntry."
+                "authenticode_chain + this evidence field; wairz "
+                "NEVER invokes the `.efi` binary (Rule #36 no-"
+                "execute discipline)."
+            ),
+            evidence="\n".join(evidence_lines),
+            confidence=confidence,
+        ))
+
+    # ── windows_esp_dbx_revoked draft ──────────────────────────────────────
+    if authenticode_state == "signed_revoked":
+        confidence = Confidence.high
+        severity = Severity.high
+
+        revocation_kb: str | None = None
+        match_kind: str = "x509_serial"
+        if isinstance(dbx_match_dict, dict):
+            revocation_kb = dbx_match_dict.get("revocation_kb")
+            match_kind = dbx_match_dict.get("match_kind", "x509_serial")
+
+        chain_status: str | None = None
+        signer_subject: str | None = None
+        leaf_serial: str | None = None
+        if isinstance(chain_dict, dict):
+            chain_status = chain_dict.get("chain_status")
+            signer_subject = chain_dict.get("signer_subject")
+            leaf_serial = chain_dict.get("leaf_serial")
+
+        evidence_lines = [
+            "Tier: HIGH (DBX revocation hit — Microsoft has explicitly "
+            "revoked this bootloader; on Secure Boot enforcement it "
+            "fails at load time)",
+            f"File path: {file_path}",
+            f"File SHA256: {file_sha256}",
+            f"File size: {file_size} bytes",
+            f"Authenticode state: {authenticode_state}",
+            f"Chain status: {chain_status or '(unset)'}",
+            f"Signer subject: {signer_subject or '(unset)'}",
+            f"Leaf serial: {leaf_serial or '(unset)'}",
+            f"DBX match kind: {match_kind}",
+            f"DBX revocation KB: {revocation_kb or '(unset)'}",
+            f"Non-Microsoft signer: {is_non_ms_signer}",
+        ]
+
+        drafts.append(_ESPFindingDraft(
+            source=_SOURCE_ESP_DBX_REVOKED,
+            severity=severity,
+            title=(
+                f"DBX-revoked ESP bootloader: "
+                f"{file_path.rsplit('/', 1)[-1]}"
+            ),
+            description=(
+                "An EFI binary in the EFI System Partition (ESP) is "
+                "Authenticode-signed, but its leaf certificate (or "
+                "file hash) appears in Microsoft's UEFI Secure Boot "
+                "revocation list (dbxupdate.bin — β.10 offline trust "
+                "anchor). Under Secure Boot enforcement on a current-"
+                "patch UEFI install, this binary would FAIL at load "
+                "time. Notable known-revoked classes: BlackLotus "
+                "(Microsoft revocation Aug 2023), GRUB2 BootHole "
+                "(CVE-2020-10713 revocation), older boot-shim "
+                "binaries pre-2022. The PE is surfaced as DATA in "
+                "WindowsEspEntry.authenticode_chain + dbx_revocation_"
+                "match + this evidence field; wairz NEVER invokes "
+                "the `.efi` binary (Rule #36 no-execute discipline)."
+            ),
+            evidence="\n".join(evidence_lines),
+            confidence=confidence,
+        ))
+
+    return drafts
+
+
 # ── Phase η.D.D — LOLDrivers BYOVD fingerprint classifier ──────────────────
 
 
@@ -2913,6 +3120,88 @@ class FindingService:
                     # the heuristic 3-tier confidence map (HIGH on
                     # ActiveScript OR encoded-PS, MEDIUM on
                     # CommandLine + script-host, LOW baseline).
+                    confidence=draft.confidence,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_esp_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Phase θ.C.D — emit windows_esp_unsigned +
+        windows_esp_dbx_revoked Finding rows for one firmware.
+
+        Reads every persisted ``WindowsEspEntry`` row for the firmware
+        (rows are produced by the θ.C.C walker) and projects each row
+        through :func:`classify_esp_findings` which may emit 0, 1, or 2
+        drafts (unsigned + dbx_revoked are independent detection
+        patterns; a single entry can in rare cases fire on both).
+
+        Confidence tier is heuristic-driven by the classifier:
+
+        - HIGH — unsigned `.efi` AND is_known_bootloader_path
+          (BlackLotus canonical shape); OR signed_revoked
+          (DBX-revoked, authoritative).
+        - MEDIUM — unsigned `.efi` AND is_vendor_path.
+
+        Mirrors emit_bcd_findings_from_walk / emit_wmi_findings_from_walk
+        shape — tier-bearing drafts preserved through the boundary.
+
+        Idempotency is the caller's responsibility — callers DELETE
+        prior windows_esp_* findings for the firmware before
+        re-emitting.
+
+        Per Rule #36 — the classifier never invokes the `.efi` PEs;
+        the file_path + sha256 + state are surfaced as DATA in the
+        Finding's evidence field for operator review only.
+        """
+        from app.models.windows_esp_entry import WindowsEspEntry
+        from app.services.jsonb_normalizers import (
+            _normalize_windows_esp_entries_anomaly_flags,
+            _normalize_windows_esp_entries_authenticode_chain,
+            _normalize_windows_esp_entries_dbx_revocation_match,
+        )
+
+        stmt = select(WindowsEspEntry).where(
+            WindowsEspEntry.firmware_id == firmware_id
+        )
+        rows = (await self.db.execute(stmt)).scalars().all()
+
+        emitted: list[Finding] = []
+        for record in rows:
+            anomaly_flags = _normalize_windows_esp_entries_anomaly_flags(
+                record.anomaly_flags
+            )
+            chain_dict = _normalize_windows_esp_entries_authenticode_chain(
+                record.authenticode_chain
+            )
+            dbx_match_dict = (
+                _normalize_windows_esp_entries_dbx_revocation_match(
+                    record.dbx_revocation_match
+                )
+            )
+            drafts = classify_esp_findings(
+                file_path=record.file_path,
+                file_sha256=record.file_sha256,
+                file_size=record.file_size,
+                authenticode_state=record.authenticode_state,
+                anomaly_flags=anomaly_flags,
+                chain_dict=chain_dict if chain_dict else None,
+                dbx_match_dict=dbx_match_dict,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.file_path,
+                    # Tier-bearing draft per θ.C.D classifier —
+                    # preserve heuristic tier confidence map.
                     confidence=draft.confidence,
                     firmware_id=firmware_id,
                     source=draft.source,
