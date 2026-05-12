@@ -790,26 +790,30 @@ def test_efs_walker_no_execute_no_decrypt_attempt():
         )
 
     # Rule #36 EXTENSION — no decryption / DPAPI / FEK-handling tokens
-    # in EXECUTABLE CODE.
+    # in EXECUTABLE CODE. Patterns are WHITESPACE-TOLERANT (\s* between
+    # syntactic elements) because _strip_docstrings_and_comments joins
+    # tokens with single spaces — `obj.decrypt(` becomes `obj . decrypt (`
+    # in the stripped output. Backfill from κ.D DPAPI walker canary
+    # discovery (postmortem-windows-coverage-godmode-kappa-D-dpapi-walker-2026-05-12.md).
     forbidden_decrypt = (
         # DPAPI primitives.
         r"\bCryptUnprotectData\b",
         r"\bCryptProtectData\b",
         # cryptography.fernet imports / usage.
-        r"from cryptography\.fernet",
-        r"cryptography\.fernet\.",
+        r"from cryptography\s*\.\s*fernet",
+        r"cryptography\s*\.\s*fernet\s*\.",
         # asn1crypto cryptographic primitives (parsing is fine; the lib
         # is allowed as DATA parser per the docstring).
-        r"asn1crypto\.cms\.",
-        r"asn1crypto\.algos\.",
+        r"asn1crypto\s*\.\s*cms\s*\.",
+        r"asn1crypto\s*\.\s*algos\s*\.",
         # Common decrypt API call patterns.
-        r"\.decrypt\s*\(",
+        r"\.\s*decrypt\s*\(",
         r"\bdecrypt_fek\b",
         # FEK extraction — we explicitly avoid touching the encrypted FEK.
         r"\bextract_fek\b",
         r"\bdecode_fek\b",
         # DPAPI shim / wrapper packages.
-        r"\bimpacket\.dpapi\b",
+        r"\bimpacket\s*\.\s*dpapi\b",
         r"\bdpapick\b",
     )
     for pattern in forbidden_decrypt:
@@ -835,3 +839,49 @@ def test_efs_walker_no_execute_no_decrypt_attempt():
             f"{matches} matching {pattern!r}; the walker MUST NOT "
             "persist the encrypted FEK anywhere."
         )
+
+
+_FORBIDDEN_CANARY = "decrypt"
+
+
+def test_efs_walker_no_decrypt_gate_actually_fires():
+    """Rule #46 canary — verify the test gate ACTUALLY fires on a
+    synthetic violation. Backfilled per κ.D DPAPI walker discovery
+    (without this canary, ``test_efs_walker_no_execute_no_decrypt_attempt``
+    silently passes because tokenize joins tokens with spaces and the
+    naive regex `\\.decrypt\\(` doesn't match `obj . decrypt (`).
+    Whitespace-tolerant patterns + this canary together close the gap.
+
+    The synthetic source is constructed via concatenation rather than an
+    f-string so the forbidden CODE token survives
+    ``_strip_docstrings_and_comments`` (f-strings become single STRING
+    tokens that the stripper drops entirely).
+    """
+    # Construct synthetic source as concatenated code lines.
+    line_a = "def bad_walker():\n"
+    line_b = "    obj = SomeClass()\n"
+    line_c = "    obj." + _FORBIDDEN_CANARY + '(b"x")\n'
+    line_d = "    return None\n"
+    synthetic_source = line_a + line_b + line_c + line_d
+
+    # Strip docstrings/comments — the canary call SHOULD survive
+    # because `obj.decrypt(b"x")` is CODE tokens, not a string literal.
+    stripped = _strip_docstrings_and_comments(synthetic_source)
+
+    # The gate scans for `\.\s*decrypt\s*\(` (whitespace-tolerant for
+    # the tokenize-join space-pad). Verify the synthetic WOULD match.
+    pattern = r"\.\s*decrypt\s*\("
+    matches = re.findall(pattern, stripped)
+    assert matches, (
+        f"Test-gate canary FAILED — the synthetic violation "
+        f"'{_FORBIDDEN_CANARY}' did NOT trigger the forbidden-token "
+        f"regex {pattern!r}. stripped={stripped!r}. The gate is broken "
+        "or the canary is miscalibrated. Without a working canary, "
+        "test_efs_walker_no_execute_no_decrypt_attempt could silently "
+        "pass on real violations."
+    )
+    # Sanity: the canary constant is the forbidden token.
+    assert _FORBIDDEN_CANARY == "decrypt", (
+        "The canary constant must equal 'decrypt' so the .decrypt( "
+        "regex catches it."
+    )
