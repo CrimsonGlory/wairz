@@ -85,6 +85,7 @@ from app.services.jsonb_normalizers import (
     WINDOWS_REGISTRY_EXTRACTS_PARSED_TREE_SCHEMA_VERSION,
     WINDOWS_SRUM_RECORDS_EXTRA_METADATA_SCHEMA_VERSION,
     WINDOWS_UPDATE_PACKAGES_UPDATE_METADATA_SCHEMA_VERSION,
+    WINDOWS_USNJRNL_ENTRIES_REASON_FLAGS_SCHEMA_VERSION,
     WINDOWS_WMI_EVENTS_ANOMALY_FLAGS_SCHEMA_VERSION,
     WINDOWS_WMI_EVENTS_CONSUMER_PAYLOAD_SCHEMA_VERSION,
     _normalize_analysis_cache_result,
@@ -169,6 +170,7 @@ from app.services.jsonb_normalizers import (
     _normalize_windows_registry_extracts_parsed_tree,
     _normalize_windows_srum_records_extra_metadata,
     _normalize_windows_update_packages_update_metadata,
+    _normalize_windows_usnjrnl_reason_flags,
     _normalize_windows_wmi_events_anomaly_flags,
     _normalize_windows_wmi_events_consumer_payload,
     _stamp_analysis_cache_result,
@@ -229,6 +231,7 @@ from app.services.jsonb_normalizers import (
     _stamp_windows_registry_extracts_parsed_tree,
     _stamp_windows_srum_records_extra_metadata,
     _stamp_windows_update_packages_update_metadata,
+    _stamp_windows_usnjrnl_reason_flags,
     _stamp_windows_wmi_events_anomaly_flags,
     _stamp_windows_wmi_events_consumer_payload,
 )
@@ -4743,3 +4746,80 @@ def test_stamp_firmware_dpapi_walk_result_idempotent():
 
 def test_firmware_dpapi_walk_result_schema_version_constant():
     assert FIRMWARE_DPAPI_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+# ── windows_usnjrnl_entries.reason_flags (Phase κ.E.A) ───────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical dict pass-through (already-stamped payload).
+        (
+            {
+                "schema_version": 1,
+                "file_create": True,
+                "file_delete": False,
+                "_raw": 0x00000100,
+            },
+            {
+                "schema_version": 1,
+                "file_create": True,
+                "file_delete": False,
+                "_raw": 0x00000100,
+            },
+        ),
+        # Empty dict — preserved as "no decoded flags".
+        ({}, {}),
+        # None / wrong-typed values → empty dict (no signal).
+        (None, {}),
+        ([{"a": 1}], {}),
+        ("not a dict", {}),
+        (4.2, {}),
+    ],
+)
+def test_normalize_windows_usnjrnl_reason_flags(value, expected):
+    assert _normalize_windows_usnjrnl_reason_flags(value) == expected
+
+
+def test_normalize_windows_usnjrnl_reason_flags_legacy_int_bitmask():
+    """Legacy production shape — raw int bitmask decodes to canonical
+    dict per Rule #35c boundary-normalisation discipline."""
+    # USN_REASON_FILE_CREATE (0x100) | USN_REASON_FILE_DELETE (0x200)
+    # | USN_REASON_CLOSE (0x80000000).
+    raw = 0x00000100 | 0x00000200 | 0x80000000
+    out = _normalize_windows_usnjrnl_reason_flags(raw)
+    assert out["file_create"] is True
+    assert out["file_delete"] is True
+    assert out["close"] is True
+    assert out["data_overwrite"] is False  # bit NOT set in our mask
+    assert out["_raw"] == raw
+
+
+def test_normalize_windows_usnjrnl_reason_flags_idempotent():
+    canonical = {
+        "schema_version": 1,
+        "file_create": True,
+        "_raw": 0x100,
+    }
+    once = _normalize_windows_usnjrnl_reason_flags(canonical)
+    twice = _normalize_windows_usnjrnl_reason_flags(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_usnjrnl_reason_flags_adds_version():
+    out = _stamp_windows_usnjrnl_reason_flags({"file_create": True})
+    assert (
+        out["schema_version"]
+        == WINDOWS_USNJRNL_ENTRIES_REASON_FLAGS_SCHEMA_VERSION
+    )
+
+
+def test_stamp_windows_usnjrnl_reason_flags_idempotent():
+    once = _stamp_windows_usnjrnl_reason_flags({"file_create": True})
+    twice = _stamp_windows_usnjrnl_reason_flags(once)
+    assert once == twice
+
+
+def test_windows_usnjrnl_entries_reason_flags_schema_version_constant():
+    assert WINDOWS_USNJRNL_ENTRIES_REASON_FLAGS_SCHEMA_VERSION == 1

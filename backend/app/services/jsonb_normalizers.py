@@ -3849,3 +3849,95 @@ def _stamp_firmware_dpapi_walk_result(payload: dict) -> dict:
     ``Firmware.dpapi_walk_result``. Idempotent."""
     payload["schema_version"] = FIRMWARE_DPAPI_WALK_RESULT_SCHEMA_VERSION
     return payload
+
+
+# ── windows_usnjrnl_entries.reason_flags (Phase κ.E.A) ───────────────────────
+#
+# Decoded USN_REASON_* bitmask from one $UsnJrnl:$J record. The wire
+# format is a single DWORD bitmask (USN_REASON in dissect.ntfs.c_ntfs);
+# the canonical wairz shape is a bool dict per bit so consumers don't
+# need to know the wire offsets. Two production shapes are accepted:
+#
+#   (a) canonical: ``{"file_create": True, "file_delete": False, ..., "_raw": 0x301}``
+#   (b) legacy: ``int`` bitmask (the raw DWORD).
+#
+# The normalizer accepts both and emits the canonical shape. Legacy
+# integers are decoded against the same bit table the κ.E.C walker
+# uses at parse time.
+#
+# Consumers (≥3 — Rule #35c stamped envelope discipline applies):
+# - app/services/usnjrnl_walker.py (read sites — anomaly classifiers)
+# - app/services/finding_service.py (emit_usnjrnl_findings_from_walk —
+#   κ.E.D classifier)
+# - app/ai/tools/windows_usnjrnl.py (MCP tools — surfaces reason_flags
+#   in the row summary)
+
+WINDOWS_USNJRNL_ENTRIES_REASON_FLAGS_SCHEMA_VERSION = 1
+
+
+# Canonical USN_REASON_* bit table — mirrors dissect.ntfs.c_ntfs
+# USN_REASON flag values. Ordered low-to-high so the canonical dict
+# carries a stable iteration order.
+_USN_REASON_BITS: tuple[tuple[str, int], ...] = (
+    ("data_overwrite", 0x00000001),
+    ("data_extend", 0x00000002),
+    ("data_truncation", 0x00000004),
+    ("named_data_overwrite", 0x00000010),
+    ("named_data_extend", 0x00000020),
+    ("named_data_truncation", 0x00000040),
+    ("file_create", 0x00000100),
+    ("file_delete", 0x00000200),
+    ("ea_change", 0x00000400),
+    ("security_change", 0x00000800),
+    ("rename_old_name", 0x00001000),
+    ("rename_new_name", 0x00002000),
+    ("indexable_change", 0x00004000),
+    ("basic_info_change", 0x00008000),
+    ("hard_link_change", 0x00010000),
+    ("compression_change", 0x00020000),
+    ("encryption_change", 0x00040000),
+    ("object_id_change", 0x00080000),
+    ("reparse_point_change", 0x00100000),
+    ("stream_change", 0x00200000),
+    ("transacted_change", 0x00400000),
+    ("integrity_change", 0x00800000),
+    ("close", 0x80000000),
+)
+
+
+def _decode_usn_reason_bitmask(raw: int) -> dict[str, object]:
+    """Decode a USN_REASON DWORD bitmask into the canonical bool dict.
+
+    Pure function — same inputs always produce the same output. Caller
+    stamps the schema_version via ``_stamp_windows_usnjrnl_reason_flags``.
+    """
+    raw_int = int(raw) & 0xFFFFFFFF
+    out: dict[str, object] = {
+        name: bool(raw_int & mask) for name, mask in _USN_REASON_BITS
+    }
+    out["_raw"] = raw_int
+    return out
+
+
+def _normalize_windows_usnjrnl_reason_flags(value: object) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``WindowsUsnJrnlEntry.reason_flags``.
+
+    Defensive: ``None`` / wrong-typed → empty dict. Empty dict means
+    "no reason flags were decoded" (e.g. parse_error path). ``int``
+    legacy bitmask → decoded canonical dict per Rule #35c.
+    """
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, int):
+        return _decode_usn_reason_bitmask(value)
+    return {}
+
+
+def _stamp_windows_usnjrnl_reason_flags(payload: dict) -> dict:
+    """Stamp the schema_version inline onto a ``reason_flags`` payload
+    for ``WindowsUsnJrnlEntry.reason_flags``. Idempotent."""
+    payload["schema_version"] = (
+        WINDOWS_USNJRNL_ENTRIES_REASON_FLAGS_SCHEMA_VERSION
+    )
+    return payload
