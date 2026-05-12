@@ -488,9 +488,19 @@ async def auto_extract_drivers(
        classify CAT (run_in_executor for Rule #5), get/create
        HardwareFirmwareBlob (category="driver_package"), get/create
        WindowsDriver row.
-    4. Return aggregate dict with run_seconds, driver_count,
-       by_signing_tier histogram, by_class_guid histogram.
+    4. **Phase η.D.E** — for each triplet with a SYS path, compute the
+       SYS SHA256 and look it up against the LOLDrivers BYOVD data set
+       (η.D.C ``loldrivers_lookup_service.lookup_driver_byovd``). When
+       a verdict comes back non-None, emit a ``windows_byovd_driver``
+       Finding row via
+       :func:`FindingService.emit_byovd_findings_from_driver`. Lookup
+       gracefully degrades on missing bundle (Rule #37).
+    5. Return aggregate dict with run_seconds, driver_count,
+       by_signing_tier histogram, by_class_guid histogram +
+       ``byovd_match_count`` (η.D.E).
     """
+    # Rule #40: top-of-function imports + loop acquisition.
+    loop = asyncio.get_running_loop()
     started = time.monotonic()
 
     firmware = (
@@ -516,6 +526,11 @@ async def auto_extract_drivers(
     }
     by_class_guid: dict[str, int] = {}
     errors: list[str] = []
+    byovd_match_count = 0  # Phase η.D.E — LOLDrivers fingerprint hit count.
+
+    # η.D.E — resolve the firmware's project_id once per call (needed to
+    # persist Finding rows via FindingService.emit_byovd_findings_from_driver).
+    project_id = firmware.project_id
 
     for triplet in triplets:
         inf_path = triplet.get("inf_path")
@@ -590,6 +605,46 @@ async def auto_extract_drivers(
             )
             continue
 
+        # ── Phase η.D.E — BYOVD fingerprint lookup ───────────────────────
+        #
+        # Hash the SYS (kernel-mode driver PE) and look it up against the
+        # LOLDrivers data set. The lookup gracefully degrades when the
+        # bundle is not available (Rule #37) — we just skip emit.
+        if sys_path:
+            try:
+                sys_sha256 = await loop.run_in_executor(
+                    None, _sha256_hex, sys_path,
+                )
+            except Exception:  # noqa: BLE001 — defensive boundary
+                sys_sha256 = ""
+
+            if sys_sha256:
+                try:
+                    from app.services.loldrivers_lookup_service import (
+                        lookup_driver_byovd,
+                    )
+                    verdict = lookup_driver_byovd(sys_sha256)
+                except Exception:  # noqa: BLE001 — defensive boundary
+                    verdict = None
+
+                if verdict is not None:
+                    try:
+                        from app.services.finding_service import FindingService
+                        finding_service = FindingService(db)
+                        await finding_service.emit_byovd_findings_from_driver(
+                            project_id=project_id,
+                            firmware_id=firmware_id,
+                            driver_path=relative_inf,
+                            blob_sha256=sys_sha256,
+                            verdict=verdict,
+                        )
+                        byovd_match_count += 1
+                    except Exception as exc:  # noqa: BLE001 — defensive boundary
+                        errors.append(
+                            f"byovd emit failed for {sys_path}: "
+                            f"{type(exc).__name__}: {str(exc)[:200]}"
+                        )
+
         by_signing_tier[signing_tier] = by_signing_tier.get(signing_tier, 0) + 1
         class_guid = (inf_metadata.get("version_block") or {}).get("ClassGuid")
         if class_guid:
@@ -600,6 +655,7 @@ async def auto_extract_drivers(
         "driver_count": len(triplets),
         "by_signing_tier": by_signing_tier,
         "by_class_guid": by_class_guid,
+        "byovd_match_count": byovd_match_count,  # Phase η.D.E
         "errors": errors,
     }
 
@@ -616,6 +672,7 @@ def _empty_extract_result(run_seconds: float) -> dict[str, Any]:
             "unknown": 0,
         },
         "by_class_guid": {},
+        "byovd_match_count": 0,  # Phase η.D.E
         "errors": [],
     }
 
@@ -634,7 +691,7 @@ async def auto_extract_drivers_safe(firmware_id: uuid.UUID) -> None:
             logger.info(
                 "driver_extractor auto: firmware %s extracted %d drivers in "
                 "%.2fs (whql=%d, attestation=%d, cross_signed=%d, "
-                "unsigned=%d, unknown=%d)",
+                "unsigned=%d, unknown=%d, byovd_matches=%d)",
                 firmware_id,
                 result["driver_count"],
                 result["run_seconds"],
@@ -643,6 +700,7 @@ async def auto_extract_drivers_safe(firmware_id: uuid.UUID) -> None:
                 result["by_signing_tier"]["cross_signed"],
                 result["by_signing_tier"]["unsigned"],
                 result["by_signing_tier"]["unknown"],
+                result.get("byovd_match_count", 0),
             )
     except Exception:
         logger.warning(

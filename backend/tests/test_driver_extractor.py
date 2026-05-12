@@ -382,3 +382,123 @@ async def test_auto_extract_drivers_no_drivers_returns_empty_aggregate(
             )
         ).scalars().all()
         assert blobs == []
+
+
+# ── Phase η.D.E — BYOVD lookup hook integration test ─────────────────────────
+
+
+async def test_auto_extract_drivers_emits_byovd_finding(tmp_path, monkeypatch) -> None:
+    """η.D.E live canary: laying a SYS file whose SHA256 matches a fixture
+    LOLDrivers record causes the extractor to emit a Finding row with
+    source=windows_byovd_driver. Exercises the full hook:
+
+      INF detect → SYS hash → lookup_driver_byovd → emit_byovd_findings_from_driver
+                            → Finding row persisted
+
+    The fixture bundle at tests/fixtures/byovd/tiny.loldrivers.json has a
+    record whose KVS SHA256 matches the synthetic PE the helper writes
+    (MZ + 32 NUL bytes → cf6e0f2b…).
+    """
+    from pathlib import Path
+
+    from app.models.finding import Finding
+    from app.services.loldrivers_lookup_service import reset_index_cache
+
+    # Point the lookup service at our tiny fixture bundle for this test.
+    fixture_bundle = (
+        Path(__file__).parent / "fixtures" / "byovd" / "tiny.loldrivers.json"
+    )
+    monkeypatch.setenv("LOLDRIVERS_BUNDLE_PATH", str(fixture_bundle))
+    reset_index_cache()  # fresh load from the test bundle
+
+    triplet_dir = str(tmp_path / "rootfs" / "Windows" / "INF")
+    _write_inf_triplet(triplet_dir, stem="test")
+
+    async with make_live_db() as db:
+        project_id, firmware_id = await _seed_firmware(
+            db, extracted_path=str(tmp_path / "rootfs")
+        )
+        await db.commit()
+
+        async def _fake_roots(_firmware, db=None):  # noqa: ARG001
+            return [str(tmp_path / "rootfs")]
+
+        with patch(
+            "app.services.driver_extractor.get_detection_roots",
+            new=_fake_roots,
+        ):
+            result = await auto_extract_drivers(firmware_id, db)
+        await db.commit()
+
+        # ── Aggregate result includes the BYOVD count ──
+        assert result["driver_count"] == 1
+        assert result["byovd_match_count"] == 1
+        assert result["errors"] == []
+
+        # ── Live SELECT — Finding row persisted with the right shape ──
+        from sqlalchemy import select as _sel
+
+        findings = (
+            await db.execute(
+                _sel(Finding).where(Finding.firmware_id == firmware_id)
+            )
+        ).scalars().all()
+        # Match-fixture entry has Category=malicious → HIGH severity + confidence.
+        byovd_findings = [f for f in findings if f.source == "windows_byovd_driver"]
+        assert len(byovd_findings) == 1
+        finding = byovd_findings[0]
+        assert finding.severity == "high"
+        assert finding.confidence == "high"
+        assert finding.project_id == project_id
+        assert "test.sys" in (finding.title or "")
+        assert finding.cve_ids == ["CVE-2026-00099"]
+        # Reference URL is in the evidence text.
+        assert "loldrivers.io/drivers/00000000-0000-0000-0000-000000000004" in (
+            finding.evidence or ""
+        )
+
+    reset_index_cache()
+
+
+async def test_auto_extract_drivers_no_byovd_match_when_bundle_missing(
+    tmp_path, monkeypatch,
+) -> None:
+    """η.D.E graceful-degrade: with no bundle available, the hook silently
+    skips emit; driver extraction itself still succeeds."""
+    from app.models.finding import Finding
+    from app.services.loldrivers_lookup_service import reset_index_cache
+
+    monkeypatch.setenv("LOLDRIVERS_BUNDLE_PATH", "/nonexistent/loldrivers.json")
+    reset_index_cache()
+
+    triplet_dir = str(tmp_path / "rootfs" / "Windows" / "INF")
+    _write_inf_triplet(triplet_dir, stem="test")
+
+    async with make_live_db() as db:
+        _project_id, firmware_id = await _seed_firmware(
+            db, extracted_path=str(tmp_path / "rootfs")
+        )
+        await db.commit()
+
+        async def _fake_roots(_firmware, db=None):  # noqa: ARG001
+            return [str(tmp_path / "rootfs")]
+
+        with patch(
+            "app.services.driver_extractor.get_detection_roots",
+            new=_fake_roots,
+        ):
+            result = await auto_extract_drivers(firmware_id, db)
+        await db.commit()
+
+        assert result["driver_count"] == 1
+        assert result["byovd_match_count"] == 0
+        assert result["errors"] == []
+
+        from sqlalchemy import select as _sel
+
+        findings = (
+            await db.execute(_sel(Finding).where(Finding.firmware_id == firmware_id))
+        ).scalars().all()
+        assert [f for f in findings if f.source == "windows_byovd_driver"] == []
+
+    reset_index_cache()

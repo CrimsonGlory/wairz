@@ -71,5 +71,26 @@
         "Description": "Test fixture with mixed-case hash + CVE dedup + empty-string drop"
       }
     ]
+  },
+  {
+    "Id": "00000000-0000-0000-0000-000000000004",
+    "Tags": [],
+    "Verified": "TRUE",
+    "Author": "Test fixture",
+    "Created": "2026-05-11",
+    "MitreID": "T1068",
+    "Category": "malicious",
+    "CVE": ["CVE-2026-00099"],
+    "Commands": {},
+    "Resources": [],
+    "Acknowledgement": [],
+    "Detection": [],
+    "KnownVulnerableSamples": [
+      {
+        "Filename": "test.sys",
+        "SHA256": "cf6e0f2be3cf6ce8a35746e51688f4b6e4e78e1c3e9b0492de37d0f4cce1bf44",
+        "Description": "η.D.E integration test fixture — matches synthetic PE shape from _write_inf_triplet (MZ + 32 NUL bytes)"
+      }
+    ]
   }
 ]
