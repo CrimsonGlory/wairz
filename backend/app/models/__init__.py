@@ -26,6 +26,7 @@ from app.models.windows_scheduled_task import WindowsScheduledTask
 from app.models.windows_srum_record import WindowsSrumRecord
 from app.models.windows_update_dll_diff import WindowsUpdateDllDiff
 from app.models.windows_update_package import WindowsUpdatePackage
+from app.models.windows_wmi_event import WindowsWmiEvent
 
 __all__ = [
     "Project", "Firmware", "Conversation", "AnalysisCache",
@@ -38,4 +39,5 @@ __all__ = [
     "WindowsDriver", "WindowsUpdatePackage", "WindowsUpdateDllDiff",
     "WindowsBcdEntry", "WindowsEventRecord", "WindowsLnkRecord", "WindowsMftRecord",
     "WindowsPrefetchRecord", "WindowsScheduledTask", "WindowsSrumRecord",
+    "WindowsWmiEvent",
 ]

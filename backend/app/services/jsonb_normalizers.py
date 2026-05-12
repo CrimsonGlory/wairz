@@ -2120,3 +2120,130 @@ def _stamp_firmware_bcd_walk_result(payload: dict) -> dict:
     ``Firmware.bcd_walk_result``. Idempotent."""
     payload["schema_version"] = FIRMWARE_BCD_WALK_RESULT_SCHEMA_VERSION
     return payload
+
+
+# ── windows_wmi_events.consumer_payload (Phase θ.B.B) ────────────────────────
+#
+# Per-binding roster of EventConsumer payload details surfaced by the
+# vendored PyWMIPersistenceFinder. List-shape because the vendor
+# parser may emit multiple distinct payloads from the same consumer
+# name across allocated + unallocated repository regions (each
+# detail-record is preserved verbatim for forensic visibility).
+#
+# Canonical shape:
+#
+#   [
+#     {
+#       "schema_version": 1,
+#       "consumer_type": str,    # e.g. "CommandLineEventConsumer"
+#       "arguments": str,        # printable-filtered command line / payload
+#       "other": str,            # secondary field per upstream regex
+#     },
+#     ...
+#   ]
+#
+# Empty list when no payload details extracted (the binding pass
+# fired but the consumer details pass didn't match — partial corrupt
+# repository, etc.). NULL only on defensive parser failure.
+#
+# Per Rule #36: this is DATA, never passed as argv to any
+# process-spawn primitive.
+
+WINDOWS_WMI_EVENTS_CONSUMER_PAYLOAD_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_wmi_events_consumer_payload(value: Any) -> list[dict]:
+    """Return the canonical ``list[dict]`` shape for
+    ``WindowsWmiEvent.consumer_payload``.
+
+    Defensive boundary:
+    - canonical list[dict] passes through unchanged
+    - bare list with non-dict items: coerce each to a minimal dict
+      with consumer_type=str(item)
+    - None / wrong-typed inputs collapse to empty list
+    - dict input (legacy single-record shape) coerces to a
+      single-element list
+
+    Idempotent. Empty list means "no payload details extracted"
+    (binding pass fired but consumer-details regex didn't match).
+    """
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        return [{
+            "consumer_type": str(value.get("consumer_type", "")),
+            "arguments": str(value.get("arguments", "")),
+            "other": str(value.get("other", "")),
+        }]
+    if isinstance(value, list):
+        out: list[dict] = []
+        for item in value:
+            if isinstance(item, dict):
+                out.append(item)
+            elif item is not None:
+                out.append({
+                    "consumer_type": str(item),
+                    "arguments": "",
+                    "other": "",
+                })
+        return out
+    return []
+
+
+def _stamp_windows_wmi_events_consumer_payload(
+    payload: list[dict],
+) -> list[dict]:
+    """Stamp each list entry with the schema_version onto a writer
+    payload for ``WindowsWmiEvent.consumer_payload``. Idempotent.
+
+    List-shaped column: each dict carries its own schema_version key,
+    not a single top-level envelope.
+    """
+    for entry in payload:
+        entry["schema_version"] = (
+            WINDOWS_WMI_EVENTS_CONSUMER_PAYLOAD_SCHEMA_VERSION
+        )
+    return payload
+
+
+# ── windows_wmi_events.anomaly_flags (Phase θ.B.B) ──────────────────────────
+#
+# Per-binding heuristic detection aggregate for the θ.B.E classifier.
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "encoded_powershell": bool,
+#     "script_host_invocation": bool,
+#     "active_script_consumer": bool,
+#     "non_benign_binding": bool,
+#     "high_severity": bool,
+#   }
+#
+# NULL when no anomaly evaluation was performed (rare — defensive
+# shape; the walker stamps this on every emit).
+
+WINDOWS_WMI_EVENTS_ANOMALY_FLAGS_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_wmi_events_anomaly_flags(value: Any) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``WindowsWmiEvent.anomaly_flags``.
+
+    Inline-stamped (no envelope wrapper — single per-binding dict).
+    Returns empty dict for None / wrong-typed inputs (defensive
+    boundary). Empty-dict semantics means "no anomaly evaluation"
+    (e.g. parser-failure path).
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_windows_wmi_events_anomaly_flags(payload: dict) -> dict:
+    """Stamp the schema_version inline onto an ``anomaly_flags``
+    payload for ``WindowsWmiEvent.anomaly_flags``. Idempotent."""
+    payload["schema_version"] = (
+        WINDOWS_WMI_EVENTS_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+    return payload

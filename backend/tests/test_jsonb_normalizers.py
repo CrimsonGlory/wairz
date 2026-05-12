@@ -57,6 +57,8 @@ from app.services.jsonb_normalizers import (
     WINDOWS_REGISTRY_EXTRACTS_PARSED_TREE_SCHEMA_VERSION,
     WINDOWS_SRUM_RECORDS_EXTRA_METADATA_SCHEMA_VERSION,
     WINDOWS_UPDATE_PACKAGES_UPDATE_METADATA_SCHEMA_VERSION,
+    WINDOWS_WMI_EVENTS_ANOMALY_FLAGS_SCHEMA_VERSION,
+    WINDOWS_WMI_EVENTS_CONSUMER_PAYLOAD_SCHEMA_VERSION,
     _normalize_analysis_cache_result,
     _normalize_attack_surface_entries_dangerous_imports,
     _normalize_attack_surface_entries_input_categories,
@@ -100,6 +102,8 @@ from app.services.jsonb_normalizers import (
     _normalize_windows_registry_extracts_parsed_tree,
     _normalize_windows_srum_records_extra_metadata,
     _normalize_windows_update_packages_update_metadata,
+    _normalize_windows_wmi_events_anomaly_flags,
+    _normalize_windows_wmi_events_consumer_payload,
     _stamp_analysis_cache_result,
     _stamp_attack_surface_entries_score_breakdown,
     _stamp_firmware_authenticode_chain_result,
@@ -130,6 +134,8 @@ from app.services.jsonb_normalizers import (
     _stamp_windows_registry_extracts_parsed_tree,
     _stamp_windows_srum_records_extra_metadata,
     _stamp_windows_update_packages_update_metadata,
+    _stamp_windows_wmi_events_anomaly_flags,
+    _stamp_windows_wmi_events_consumer_payload,
 )
 
 # ── _normalize_firmware_device_metadata ──────────────────────────────────────
@@ -2618,3 +2624,136 @@ def test_stamp_firmware_bcd_walk_result_idempotent():
 
 def test_firmware_bcd_walk_result_schema_version_constant():
     assert FIRMWARE_BCD_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp_windows_wmi_events_consumer_payload (Phase θ.B.B) ──────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical list[dict] passes through unchanged.
+        (
+            [{"consumer_type": "CommandLineEventConsumer", "arguments": "x"}],
+            [{"consumer_type": "CommandLineEventConsumer", "arguments": "x"}],
+        ),
+        # Empty list — preserved.
+        ([], []),
+        # None — coerced to empty list.
+        (None, []),
+        # Wrong type — string — coerced to empty list.
+        ("garbage", []),
+        # Wrong type — int — coerced to empty list.
+        (42, []),
+        # Dict input (legacy single-record) → list-wrapped.
+        (
+            {"consumer_type": "Active", "arguments": "vbs", "other": ""},
+            [{"consumer_type": "Active", "arguments": "vbs", "other": ""}],
+        ),
+        # List with non-dict items — coerced.
+        (
+            ["bareconsumer"],
+            [{"consumer_type": "bareconsumer", "arguments": "", "other": ""}],
+        ),
+    ],
+)
+def test_normalize_windows_wmi_events_consumer_payload(value, expected):
+    assert _normalize_windows_wmi_events_consumer_payload(value) == expected
+
+
+def test_normalize_windows_wmi_events_consumer_payload_idempotent():
+    canonical = [
+        {
+            "schema_version": 1,
+            "consumer_type": "CommandLineEventConsumer",
+            "arguments": "powershell -enc x",
+            "other": "%COMSPEC%",
+        },
+    ]
+    once = _normalize_windows_wmi_events_consumer_payload(canonical)
+    twice = _normalize_windows_wmi_events_consumer_payload(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_wmi_events_consumer_payload_adds_version_per_entry():
+    payload = [
+        {"consumer_type": "A", "arguments": "a", "other": ""},
+        {"consumer_type": "B", "arguments": "b", "other": ""},
+    ]
+    out = _stamp_windows_wmi_events_consumer_payload(payload)
+    assert len(out) == 2
+    for entry in out:
+        assert entry["schema_version"] == (
+            WINDOWS_WMI_EVENTS_CONSUMER_PAYLOAD_SCHEMA_VERSION
+        )
+
+
+def test_stamp_windows_wmi_events_consumer_payload_idempotent():
+    payload = [{"consumer_type": "A", "arguments": "a", "other": ""}]
+    once = _stamp_windows_wmi_events_consumer_payload(payload)
+    twice = _stamp_windows_wmi_events_consumer_payload(once)
+    assert once == twice
+
+
+def test_windows_wmi_events_consumer_payload_schema_version_constant():
+    assert WINDOWS_WMI_EVENTS_CONSUMER_PAYLOAD_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp_windows_wmi_events_anomaly_flags (Phase θ.B.B) ────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical dict passes through.
+        (
+            {"encoded_powershell": True, "high_severity": True},
+            {"encoded_powershell": True, "high_severity": True},
+        ),
+        # Empty dict — preserved.
+        ({}, {}),
+        # None — coerced to empty dict.
+        (None, {}),
+        # Wrong-type — list — coerced to empty dict.
+        ([1, 2, 3], {}),
+        # Wrong-type — string — coerced to empty dict.
+        ("not a dict", {}),
+        # Wrong-type — int — coerced to empty dict.
+        (42, {}),
+    ],
+)
+def test_normalize_windows_wmi_events_anomaly_flags(value, expected):
+    assert _normalize_windows_wmi_events_anomaly_flags(value) == expected
+
+
+def test_normalize_windows_wmi_events_anomaly_flags_idempotent():
+    canonical = {
+        "schema_version": 1,
+        "encoded_powershell": True,
+        "script_host_invocation": False,
+        "active_script_consumer": False,
+        "non_benign_binding": True,
+        "high_severity": True,
+    }
+    once = _normalize_windows_wmi_events_anomaly_flags(canonical)
+    twice = _normalize_windows_wmi_events_anomaly_flags(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_wmi_events_anomaly_flags_adds_version():
+    payload = {"encoded_powershell": True, "high_severity": True}
+    out = _stamp_windows_wmi_events_anomaly_flags(payload)
+    assert out["schema_version"] == (
+        WINDOWS_WMI_EVENTS_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+
+
+def test_stamp_windows_wmi_events_anomaly_flags_idempotent():
+    payload = {"encoded_powershell": True}
+    once = _stamp_windows_wmi_events_anomaly_flags(payload)
+    twice = _stamp_windows_wmi_events_anomaly_flags(once)
+    assert once == twice
+
+
+def test_windows_wmi_events_anomaly_flags_schema_version_constant():
+    assert WINDOWS_WMI_EVENTS_ANOMALY_FLAGS_SCHEMA_VERSION == 1
