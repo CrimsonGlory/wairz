@@ -2073,3 +2073,50 @@ def _stamp_windows_bcd_entries_anomaly_flags(payload: dict) -> dict:
         WINDOWS_BCD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION
     )
     return payload
+
+
+# ── firmware.bcd_walk_result (Phase θ.A.B) ───────────────────────────────────
+#
+# Per-firmware aggregate from a single BCD store walk. Mirrors the
+# lnk_walk_result / scheduled_task_walk_result / evtx_walk_result /
+# prefetch_walk_result / srum_walk_result / mft_walk_result shape — a
+# flat dict with top-level summary fields. The runner stamps this once
+# at completion.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,
+#     "stores_scanned": int,                # BCD files opened
+#     "entries_walked": int,                # \Objects\{guid} subkeys iterated
+#     "entries_persisted": int,             # rows written
+#     "testsigning_count": int,             # entries with TestSigning=True
+#     "suspicious_path_count": int,         # path-heuristic hits
+#     "non_microsoft_description_count": int,
+#     "anomaly_total": int,                 # entries flagged by ≥1 anomaly
+#     "errors": list[str],                  # session-level errors
+#     "per_store": list[dict],              # [{"path": str, "entries": int,
+#                                              "status": str, "error": str|None}]
+#   }
+
+FIRMWARE_BCD_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_bcd_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.bcd_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_bcd_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.bcd_walk_result``. Idempotent."""
+    payload["schema_version"] = FIRMWARE_BCD_WALK_RESULT_SCHEMA_VERSION
+    return payload

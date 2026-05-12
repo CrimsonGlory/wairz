@@ -48,6 +48,16 @@ MftWalkStatus = Literal[
     "idle", "queued", "running", "completed", "failed"
 ]
 
+# Phase θ.A.B Windows Boot Configuration Data (BCD) walker — Rule #33 .c
+# Pydantic Literal typo-gate at the trigger MCP tool / status reader
+# boundary. The DB CHECK constraint ``ck_firmware_bcd_walk_status``
+# (alembic revision 2a5b3c4d5e6f) is the durable safety floor; this
+# Literal adds compile-time typo detection for new callers. Mirrors the
+# ScheduledTaskWalkStatus / LnkWalkStatus / MftWalkStatus shapes.
+BcdWalkStatus = Literal[
+    "idle", "queued", "running", "completed", "failed"
+]
+
 
 class FirmwareUploadResponse(BaseModel):
     model_config = {"from_attributes": True}

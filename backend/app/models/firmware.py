@@ -323,6 +323,35 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # Phase θ.A.B BCD store walker columns (CLAUDE.md Rule #33 contract).
+    # Background runner ``run_bcd_walk_background`` opens each BCD store
+    # candidate (files named ``BCD`` under any detection root per
+    # Rule #16) via regipy's ``RegistryHive`` (BCD is REGF format —
+    # the same parser handles all standard hives plus BCD via
+    # ``BCD_HIVE_TYPE``; pure-Python parser per Rule #36 — DATA only,
+    # never invoked via bcdedit / reg.exe / boot manager), iterates
+    # every ``\Objects\{guid}`` subkey via the regipy NKRecord
+    # iter_subkeys() API, persists per-entry rows into
+    # ``windows_bcd_entries`` (table from θ.A.A), and stamps an
+    # aggregate JSONB result onto ``bcd_walk_result``. Rule #33 .c CHECK
+    # enforces the 5-state machine; Rule #33 .d — asyncio.create_task
+    # dispatch (in-process pure-Python parser; no Docker spawn).
+    bcd_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    bcd_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    bcd_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    bcd_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    bcd_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
