@@ -31,6 +31,7 @@ from app.services.jsonb_normalizers import (
     FIRMWARE_AUTHENTICODE_CHAIN_RESULT_SCHEMA_VERSION,
     FIRMWARE_BCD_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_BINARY_INFO_SCHEMA_VERSION,
+    FIRMWARE_CONTAINER_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_DEVICE_METADATA_SCHEMA_VERSION,
     FIRMWARE_DOTNET_DECOMPILE_RESULT_SCHEMA_VERSION,
     FIRMWARE_EFS_WALK_RESULT_SCHEMA_VERSION,
@@ -49,6 +50,7 @@ from app.services.jsonb_normalizers import (
     FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
     HARDWARE_FIRMWARE_BLOBS_METADATA_SCHEMA_VERSION,
+    LINUX_CONTAINER_ARTIFACTS_ANOMALY_FLAGS_SCHEMA_VERSION,
     LINUX_JOURNALD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION,
     LINUX_SYSTEMD_UNITS_ANOMALY_FLAGS_SCHEMA_VERSION,
     SBOM_COMPONENTS_METADATA_SCHEMA_VERSION,
@@ -93,6 +95,7 @@ from app.services.jsonb_normalizers import (
     _normalize_firmware_authenticode_chain_result,
     _normalize_firmware_bcd_walk_result,
     _normalize_firmware_binary_info,
+    _normalize_firmware_container_walk_result,
     _normalize_firmware_cve_match_result,
     _normalize_firmware_device_metadata,
     _normalize_firmware_dotnet_decompile_result,
@@ -112,6 +115,11 @@ from app.services.jsonb_normalizers import (
     _normalize_fuzzing_campaigns_config,
     _normalize_fuzzing_campaigns_stats,
     _normalize_hardware_firmware_blobs_metadata,
+    _normalize_linux_container_artifacts_anomaly_flags,
+    _normalize_linux_container_artifacts_capabilities_add,
+    _normalize_linux_container_artifacts_capabilities_drop,
+    _normalize_linux_container_artifacts_env_vars,
+    _normalize_linux_container_artifacts_mounts,
     _normalize_linux_journald_entries_anomaly_flags,
     _normalize_linux_systemd_units_after,
     _normalize_linux_systemd_units_anomaly_flags,
@@ -152,6 +160,7 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_authenticode_chain_result,
     _stamp_firmware_bcd_walk_result,
     _stamp_firmware_binary_info,
+    _stamp_firmware_container_walk_result,
     _stamp_firmware_device_metadata,
     _stamp_firmware_dotnet_decompile_result,
     _stamp_firmware_efs_walk_result,
@@ -170,6 +179,7 @@ from app.services.jsonb_normalizers import (
     _stamp_fuzzing_campaigns_config,
     _stamp_fuzzing_campaigns_stats,
     _stamp_hardware_firmware_blobs_metadata,
+    _stamp_linux_container_artifacts_anomaly_flags,
     _stamp_linux_journald_entries_anomaly_flags,
     _stamp_linux_systemd_units_anomaly_flags,
     _stamp_windows_bcd_entries_anomaly_flags,
@@ -4008,3 +4018,239 @@ def test_stamp_firmware_efs_walk_result_idempotent():
 
 def test_firmware_efs_walk_result_schema_version_constant():
     assert FIRMWARE_EFS_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+# ── _normalize linux_container_artifacts list-shape columns (Phase ι.E.A) ────
+
+
+@pytest.mark.parametrize(
+    "normalizer",
+    [
+        _normalize_linux_container_artifacts_capabilities_add,
+        _normalize_linux_container_artifacts_capabilities_drop,
+        _normalize_linux_container_artifacts_env_vars,
+    ],
+)
+def test_normalize_linux_container_artifacts_str_list_columns_canonical_passthrough(
+    normalizer,
+):
+    canonical = ["CAP_SYS_ADMIN", "CAP_NET_BIND_SERVICE"]
+    assert normalizer(canonical) == canonical
+
+
+@pytest.mark.parametrize(
+    "normalizer",
+    [
+        _normalize_linux_container_artifacts_capabilities_add,
+        _normalize_linux_container_artifacts_capabilities_drop,
+        _normalize_linux_container_artifacts_env_vars,
+    ],
+)
+@pytest.mark.parametrize("bad", [None, {}, "string", 42, 0.5])
+def test_normalize_linux_container_artifacts_str_list_columns_defensive(
+    normalizer, bad
+):
+    """None / wrong-typed → empty list."""
+    assert normalizer(bad) == []
+
+
+@pytest.mark.parametrize(
+    "normalizer",
+    [
+        _normalize_linux_container_artifacts_capabilities_add,
+        _normalize_linux_container_artifacts_capabilities_drop,
+        _normalize_linux_container_artifacts_env_vars,
+    ],
+)
+def test_normalize_linux_container_artifacts_str_list_columns_idempotent(
+    normalizer,
+):
+    canonical = ["FOO"]
+    once = normalizer(canonical)
+    twice = normalizer(once)
+    assert once == twice == canonical
+
+
+def test_normalize_linux_container_artifacts_capabilities_coerce_non_string():
+    """Non-string list elements coerce via str(); None elements dropped."""
+    raw = ["CAP_SYS_ADMIN", None, 42]
+    out = _normalize_linux_container_artifacts_capabilities_add(raw)
+    assert out == ["CAP_SYS_ADMIN", "42"]
+
+
+def test_normalize_linux_container_artifacts_env_vars_keys_only():
+    """env_vars surfaces KEYS only — string list, never key=value pairs."""
+    raw = ["PATH", "HOME", "DEBUG"]
+    assert _normalize_linux_container_artifacts_env_vars(raw) == raw
+
+
+# ── _normalize linux_container_artifacts.mounts (list[dict] shape) ──────────
+
+
+def test_normalize_linux_container_artifacts_mounts_canonical_passthrough():
+    canonical = [
+        {
+            "source": "/var/log",
+            "destination": "/host_logs",
+            "mode": "ro",
+            "type": "bind",
+        },
+    ]
+    assert _normalize_linux_container_artifacts_mounts(canonical) == canonical
+
+
+@pytest.mark.parametrize("bad", [None, {}, "string", 42, 0.5])
+def test_normalize_linux_container_artifacts_mounts_defensive(bad):
+    """None / wrong-typed → empty list."""
+    assert _normalize_linux_container_artifacts_mounts(bad) == []
+
+
+def test_normalize_linux_container_artifacts_mounts_idempotent():
+    canonical = [{"source": "/x", "destination": "/y"}]
+    once = _normalize_linux_container_artifacts_mounts(canonical)
+    twice = _normalize_linux_container_artifacts_mounts(once)
+    assert once == twice == canonical
+
+
+def test_normalize_linux_container_artifacts_mounts_drops_non_dict():
+    """Non-dict list elements silently dropped."""
+    raw = [{"source": "/a", "destination": "/b"}, "not a dict", 42]
+    out = _normalize_linux_container_artifacts_mounts(raw)
+    assert out == [{"source": "/a", "destination": "/b"}]
+
+
+# ── _normalize/_stamp linux_container_artifacts.anomaly_flags (Phase ι.E.A) ──
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical pass-through.
+        (
+            {
+                "schema_version": 1,
+                "privileged_mode": True,
+                "host_pid_namespace": False,
+                "host_network_namespace": True,
+                "host_ipc_namespace": False,
+                "dangerous_capability": True,
+                "unconfined_seccomp": False,
+                "unconfined_apparmor": False,
+                "unsafe_mount": True,
+                "unknown_registry": False,
+            },
+            {
+                "schema_version": 1,
+                "privileged_mode": True,
+                "host_pid_namespace": False,
+                "host_network_namespace": True,
+                "host_ipc_namespace": False,
+                "dangerous_capability": True,
+                "unconfined_seccomp": False,
+                "unconfined_apparmor": False,
+                "unsafe_mount": True,
+                "unknown_registry": False,
+            },
+        ),
+        # Empty dict pass-through.
+        ({}, {}),
+        # None collapses to empty dict.
+        (None, {}),
+        # Wrong type — list — collapses to empty dict.
+        ([{"a": 1}], {}),
+        # Wrong type — string — collapses to empty dict.
+        ("not a dict", {}),
+        # Wrong type — int — collapses to empty dict.
+        (42, {}),
+    ],
+)
+def test_normalize_linux_container_artifacts_anomaly_flags(value, expected):
+    assert (
+        _normalize_linux_container_artifacts_anomaly_flags(value) == expected
+    )
+
+
+def test_normalize_linux_container_artifacts_anomaly_flags_idempotent():
+    canonical = {
+        "schema_version": 1,
+        "privileged_mode": True,
+        "dangerous_capability": True,
+    }
+    once = _normalize_linux_container_artifacts_anomaly_flags(canonical)
+    twice = _normalize_linux_container_artifacts_anomaly_flags(once)
+    assert once == twice == canonical
+
+
+def test_stamp_linux_container_artifacts_anomaly_flags_adds_version():
+    out = _stamp_linux_container_artifacts_anomaly_flags(
+        {"privileged_mode": True}
+    )
+    assert (
+        out["schema_version"]
+        == LINUX_CONTAINER_ARTIFACTS_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+
+
+def test_stamp_linux_container_artifacts_anomaly_flags_idempotent():
+    once = _stamp_linux_container_artifacts_anomaly_flags(
+        {"privileged_mode": True}
+    )
+    twice = _stamp_linux_container_artifacts_anomaly_flags(once)
+    assert once == twice
+
+
+def test_linux_container_artifacts_anomaly_flags_schema_version_constant():
+    assert LINUX_CONTAINER_ARTIFACTS_ANOMALY_FLAGS_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp firmware.container_walk_result (Phase ι.E.B) ───────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {
+                "schema_version": 1,
+                "artifacts_scanned": 8,
+                "artifacts_persisted": 8,
+                "containers_count": 3,
+                "privileged_count": 1,
+                "anomaly_total": 4,
+            },
+            {
+                "schema_version": 1,
+                "artifacts_scanned": 8,
+                "artifacts_persisted": 8,
+                "containers_count": 3,
+                "privileged_count": 1,
+                "anomaly_total": 4,
+            },
+        ),
+        # None preserved.
+        (None, None),
+        # Wrong types collapse to None.
+        ([], None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_container_walk_result(value, expected):
+    assert _normalize_firmware_container_walk_result(value) == expected
+
+
+def test_stamp_firmware_container_walk_result_adds_version():
+    out = _stamp_firmware_container_walk_result({"artifacts_scanned": 0})
+    assert (
+        out["schema_version"] == FIRMWARE_CONTAINER_WALK_RESULT_SCHEMA_VERSION
+    )
+
+
+def test_stamp_firmware_container_walk_result_idempotent():
+    once = _stamp_firmware_container_walk_result({"artifacts_scanned": 0})
+    twice = _stamp_firmware_container_walk_result(once)
+    assert once == twice
+
+
+def test_firmware_container_walk_result_schema_version_constant():
+    assert FIRMWARE_CONTAINER_WALK_RESULT_SCHEMA_VERSION == 1

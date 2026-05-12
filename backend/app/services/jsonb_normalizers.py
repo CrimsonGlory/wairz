@@ -3338,3 +3338,167 @@ def _stamp_windows_efs_encrypted_files_anomaly_flags(payload: dict) -> dict:
         WINDOWS_EFS_ENCRYPTED_FILES_ANOMALY_FLAGS_SCHEMA_VERSION
     )
     return payload
+
+
+# ── linux_container_artifacts.* (Phase ι.E.A — FIFTH ι, THIRD LINUX WALKER) ──
+#
+# 5 JSONB columns on the linux_container_artifacts table — each gets its
+# own normalizer per CLAUDE.md Rule #35c. The list-shape columns
+# (mounts / capabilities_add / capabilities_drop / env_vars) canonicalize
+# to list[str] (or list[dict] for mounts which has structured per-entry
+# shape). The dict-shape anomaly_flags column carries the heuristic
+# detection aggregate.
+#
+# Consumers (≥3 — Rule #35c stamp helpers required for any field whose
+# read sites span 3+ files):
+# - app/services/container_walker.py (writer — populates from JSON state
+#   files parsed via stdlib json)
+# - app/services/finding_service.py (emit_container_findings_from_walk —
+#   ι.E.D classifier)
+# - app/ai/tools/linux_container.py (MCP tools — surface fields in tool
+#   output JSON + cross-firmware aggregation)
+
+
+def _normalize_linux_container_artifacts_mounts(value: object) -> list[dict]:
+    """Return the canonical ``list[dict]`` shape for
+    ``LinuxContainerArtifact.mounts``.
+
+    Canonical: list of dicts, each with at minimum ``source`` (str) +
+    ``destination`` (str) + optional ``mode`` (str) + ``type`` (str).
+    Defensive: None / wrong-typed / non-list → empty list; non-dict
+    elements dropped.
+    """
+    if not isinstance(value, list):
+        return []
+    return [entry for entry in value if isinstance(entry, dict)]
+
+
+def _normalize_linux_container_artifacts_capabilities_add(
+    value: object,
+) -> list[str]:
+    """Return the canonical ``list[str]`` shape for
+    ``LinuxContainerArtifact.capabilities_add``.
+
+    Canonical: list of strings (each a Linux capability name such as
+    ``CAP_SYS_ADMIN``). Defensive: None / wrong-typed → empty list;
+    non-string list elements coerced via ``str()``; None elements
+    dropped.
+    """
+    if isinstance(value, list):
+        return [str(v) for v in value if v is not None]
+    return []
+
+
+def _normalize_linux_container_artifacts_capabilities_drop(
+    value: object,
+) -> list[str]:
+    """Return the canonical ``list[str]`` shape for
+    ``LinuxContainerArtifact.capabilities_drop``. Same shape as
+    capabilities_add."""
+    if isinstance(value, list):
+        return [str(v) for v in value if v is not None]
+    return []
+
+
+def _normalize_linux_container_artifacts_env_vars(value: object) -> list[str]:
+    """Return the canonical ``list[str]`` shape for
+    ``LinuxContainerArtifact.env_vars``.
+
+    Canonical: list of strings — environment variable KEYS only
+    (values are dropped at the writer boundary for security since
+    secrets often live in env vars). Defensive: None / wrong-typed →
+    empty list.
+    """
+    if isinstance(value, list):
+        return [str(v) for v in value if v is not None]
+    return []
+
+
+# Schema version for the inline-stamped anomaly_flags column.
+LINUX_CONTAINER_ARTIFACTS_ANOMALY_FLAGS_SCHEMA_VERSION = 1
+
+
+def _normalize_linux_container_artifacts_anomaly_flags(
+    value: object,
+) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``LinuxContainerArtifact.anomaly_flags``.
+
+    Canonical shape (all 9 bits inline-stamped with schema_version):
+
+      {
+        "schema_version": 1,
+        "privileged_mode": bool,            # --privileged flag
+        "host_pid_namespace": bool,         # PidMode=host
+        "host_network_namespace": bool,     # NetworkMode=host
+        "host_ipc_namespace": bool,         # IpcMode=host
+        "dangerous_capability": bool,       # CAP_SYS_ADMIN / etc
+        "unconfined_seccomp": bool,         # seccomp=unconfined
+        "unconfined_apparmor": bool,        # apparmor=unconfined
+        "unsafe_mount": bool,               # host-sensitive bind mount
+        "unknown_registry": bool,           # image from non-major registry
+      }
+
+    Defensive: None / wrong-typed → empty dict. Empty dict means "no
+    anomaly evaluation was performed" (e.g. parser-failure path).
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_linux_container_artifacts_anomaly_flags(payload: dict) -> dict:
+    """Stamp the schema_version inline onto an ``anomaly_flags`` payload
+    for ``LinuxContainerArtifact.anomaly_flags``. Idempotent."""
+    payload["schema_version"] = (
+        LINUX_CONTAINER_ARTIFACTS_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+    return payload
+
+
+# ── firmware.container_walk_result (Phase ι.E.B) ──────────────────────────────
+#
+# Per-firmware aggregate from a single container-runtime artefact walk.
+# Mirrors etl_walk_result / systemd_walk_result / efs_walk_result.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,
+#     "artifacts_scanned": int,
+#     "artifacts_persisted": int,
+#     "containers_count": int,                # docker/containerd/podman states
+#     "images_count": int,                    # oci_manifest + repositories
+#     "configs_count": int,                   # daemon/runtime configs
+#     "privileged_count": int,
+#     "host_namespace_count": int,
+#     "dangerous_capability_count": int,
+#     "unsafe_mount_count": int,
+#     "unconfined_security_count": int,
+#     "unknown_registry_count": int,
+#     "anomaly_total": int,
+#     "errors": list[str],
+#     "per_root": list[dict],
+#   }
+
+FIRMWARE_CONTAINER_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_container_walk_result(value: object) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.container_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_container_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.container_walk_result``. Idempotent."""
+    payload["schema_version"] = FIRMWARE_CONTAINER_WALK_RESULT_SCHEMA_VERSION
+    return payload
