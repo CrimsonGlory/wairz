@@ -151,6 +151,9 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   linux_container_unsafe_host_mount: { icon: HardDrive, label: 'Container Unsafe Mount', className: 'border-red-700/70 text-red-700 dark:text-red-200' },
   linux_container_unconfined_security: { icon: ShieldX, label: 'Container Unconfined', className: 'border-orange-600/50 text-orange-700 dark:text-orange-300' },
   linux_container_unknown_registry_image: { icon: Package, label: 'Container Unknown Registry', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
+  windows_appcompat_suspicious_path: { icon: Skull, label: 'AppCompat Suspicious Path', className: 'border-red-800/70 text-red-800 dark:text-red-200' },
+  windows_appcompat_temp_execution: { icon: AlertTriangle, label: 'AppCompat Temp Execution', className: 'border-orange-600/50 text-orange-700 dark:text-orange-300' },
+  windows_appcompat_recent_baseline: { icon: Clock, label: 'AppCompat Recent Baseline', className: 'border-blue-500/50 text-blue-600 dark:text-blue-400' },
 }
 
 // ── Finding confidence ──

@@ -423,6 +423,24 @@ _SOURCE_EFS_LARGE_DRF: WindowsFindingSource = (
     "windows_efs_large_drf"
 )
 
+# Phase κ.B.D — Windows AppCompat / Shimcache execution-evidence
+# source-tag constants. Typed via WindowsFindingSource so a typo in
+# the source string fails at module import (per Rule #33 .c
+# narrow-Literal-at-helper-boundary discipline). Emitted by
+# emit_appcompat_findings_from_walk over rows produced by the κ.B.C
+# walker (pure-Python struct parser over SYSTEM hive AppCompatCache
+# REG_BINARY values). The walker NEVER invokes any extracted binary;
+# these findings flag METADATA anomalies only.
+_SOURCE_APPCOMPAT_SUSPICIOUS_PATH: WindowsFindingSource = (
+    "windows_appcompat_suspicious_path"
+)
+_SOURCE_APPCOMPAT_TEMP_EXECUTION: WindowsFindingSource = (
+    "windows_appcompat_temp_execution"
+)
+_SOURCE_APPCOMPAT_RECENT_BASELINE: WindowsFindingSource = (
+    "windows_appcompat_recent_baseline"
+)
+
 
 # ── Phase η.E — PowerShell EID classifier helper ──
 #
@@ -3871,6 +3889,221 @@ def classify_efs_findings(
     return drafts
 
 
+# ── Phase κ.B.D — Windows AppCompat / Shimcache classifier ──────────────────
+
+
+@dataclass(frozen=True)
+class _AppCompatFindingDraft:
+    """One Windows AppCompat Finding row to emit. Sibling of
+    _EfsFindingDraft (ι.D.D) / _EtlFindingDraft (ι.C.D).
+
+    PARSE-ONLY discipline reminder: the κ.B.C walker parses the
+    SYSTEM hive's AppCompatCache REG_BINARY value AS DATA via
+    pure-Python ``struct`` unpacking. This draft surfaces execution-
+    evidence METADATA (file paths + FILETIME) anomalies only.
+    """
+    source: WindowsFindingSource
+    severity: Severity
+    title: str
+    description: str
+    evidence: str
+    confidence: Confidence
+
+
+def _appcompat_evidence_lines(
+    *,
+    file_path: str | None,
+    insertion_position: int,
+    last_modified_ts: datetime | None,
+    source_hive_path: str | None,
+    control_set: int | None,
+    anomaly_flags: dict,
+    tier_label: str,
+) -> list[str]:
+    return [
+        f"Tier: {tier_label}",
+        f"File path: {file_path or '(unresolved)'}",
+        f"Insertion position: {insertion_position}",
+        (
+            f"Last modified: {last_modified_ts.isoformat()}"
+            if last_modified_ts is not None
+            else "Last modified: (zero / unknown FILETIME)"
+        ),
+        f"Source hive: {source_hive_path or '(unknown)'}",
+        f"ControlSet: {control_set if control_set is not None else '(unknown)'}",
+        f"Anomaly flags: {dict(anomaly_flags)}",
+    ]
+
+
+def classify_appcompat_findings(
+    *,
+    file_path: str | None,
+    insertion_position: int,
+    last_modified_ts: datetime | None,
+    source_hive_path: str | None,
+    control_set: int | None,
+    anomaly_flags: dict,
+    mru_threshold: int = 16,
+) -> list[_AppCompatFindingDraft]:
+    """Phase κ.B.D — map one WindowsAppCompatEntry row to 0+ Finding
+    drafts.
+
+    Pure function — no DB access. Each row may yield 0 (no anomaly bit
+    fires) or up to 3 drafts (each emitted source is independent).
+
+    Tier mapping (Persona-E driven):
+
+    - windows_appcompat_suspicious_path — HIGH (T1106 / T1059 —
+      executable under a canonical adversary-staging directory).
+    - windows_appcompat_temp_execution — MEDIUM (T1036 Masquerading
+      — .tmp / .dat extension hiding).
+    - windows_appcompat_recent_baseline — LOW (entry near MRU end
+      AND has a recent last_modified_ts — baseline review only).
+
+    ``mru_threshold`` controls when recent_baseline fires (default:
+    top-16 most-recent entries).
+    """
+    drafts: list[_AppCompatFindingDraft] = []
+
+    # ── windows_appcompat_suspicious_path ────────────────────────────────────
+    if anomaly_flags.get("suspicious_path"):
+        tier_label = (
+            "HIGH (T1106 Native API / T1059 Command and Scripting "
+            "Interpreter — AppCompat entry's file_path resolves under a "
+            "canonical adversary-staging directory. AppCompat captures "
+            "EVERY executable the system has seen, regardless of whether "
+            "it ran; an entry under \\Users\\Public\\, \\Windows\\Temp\\, "
+            "\\AppData\\Local\\Temp\\, etc. means SOMEONE either ran the "
+            "binary or it was loaded as a DLL.)"
+        )
+        drafts.append(_AppCompatFindingDraft(
+            source=_SOURCE_APPCOMPAT_SUSPICIOUS_PATH,
+            severity=Severity.high,
+            title=(
+                f"AppCompat suspicious path: "
+                f"{file_path or '(MRU#' + str(insertion_position) + ')'}"
+            ),
+            description=(
+                "Windows AppCompatCache (Shimcache) entry references an "
+                "executable located under a canonical adversary-staging "
+                "directory: \\Users\\Public\\, \\Windows\\Temp\\, "
+                "\\AppData\\Local\\Temp\\, \\ProgramData\\Microsoft\\"
+                "Windows\\Caches\\, or C:\\Temp\\. AppCompat is execution "
+                "evidence — the Application Compatibility Engine records "
+                "every executable the system has seen, regardless of "
+                "whether it actually ran. Healthy estates rarely have "
+                "user-writable paths in AppCompat; an exec there means "
+                "either SOMEONE invoked the binary or the OS loaded it "
+                "as a DLL via DLL hijacking / search-order abuse. "
+                "PARSE-ONLY: wairz NEVER invokes the referenced binary; "
+                "this finding flags METADATA only. Operator should "
+                "correlate file_path with available filesystem artifacts "
+                "and confirm whether the binary is still present."
+            ),
+            evidence="\n".join(_appcompat_evidence_lines(
+                file_path=file_path,
+                insertion_position=insertion_position,
+                last_modified_ts=last_modified_ts,
+                source_hive_path=source_hive_path,
+                control_set=control_set,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.high,
+        ))
+
+    # ── windows_appcompat_temp_execution ─────────────────────────────────────
+    if anomaly_flags.get("temp_execution"):
+        tier_label = (
+            "MEDIUM (T1036 Masquerading — file_path ends in .tmp / .dat "
+            "but AppCompat captured the entry, meaning the OS either "
+            "executed it or loaded it as a DLL. Extension hiding shape.)"
+        )
+        drafts.append(_AppCompatFindingDraft(
+            source=_SOURCE_APPCOMPAT_TEMP_EXECUTION,
+            severity=Severity.medium,
+            title=(
+                f"AppCompat temp-extension execution: "
+                f"{file_path or '(MRU#' + str(insertion_position) + ')'}"
+            ),
+            description=(
+                "Windows AppCompatCache (Shimcache) entry references a "
+                "file ending in .tmp or .dat. These extensions are not "
+                "normally executable; their appearance in AppCompat "
+                "indicates the OS either executed the file or loaded it "
+                "as a DLL via search-order abuse. Common adversary "
+                "shape: drop ``thing.tmp`` to disk → rename to "
+                "``thing.exe`` at runtime → run → delete. AppCompat "
+                "captures the rename source as the canonical path. "
+                "PARSE-ONLY: wairz NEVER invokes the referenced file; "
+                "this finding flags METADATA only. Operator should "
+                "search filesystem artifacts for the rename target."
+            ),
+            evidence="\n".join(_appcompat_evidence_lines(
+                file_path=file_path,
+                insertion_position=insertion_position,
+                last_modified_ts=last_modified_ts,
+                source_hive_path=source_hive_path,
+                control_set=control_set,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.medium,
+        ))
+
+    # ── windows_appcompat_recent_baseline ────────────────────────────────────
+    # Fires when the entry is near the MRU (low insertion_position) AND has
+    # a recent last_modified_ts (within ~30 days of "now" — heuristic for
+    # firmware captures, where we don't know the exact capture time).
+    if (
+        insertion_position <= mru_threshold
+        and last_modified_ts is not None
+    ):
+        # Heuristic recency: entry's last_modified_ts within 30 days
+        # of the most-recent-FILETIME-in-the-cache (caller can re-rank
+        # if they want stricter recency).
+        now = datetime.utcnow().replace(tzinfo=last_modified_ts.tzinfo)
+        age = now - last_modified_ts
+        if age.total_seconds() <= 30 * 24 * 3600:
+            tier_label = (
+                "LOW (baseline review — entry is near MRU end of "
+                "AppCompat AND last_modified_ts is within 30 days. "
+                "Operator should confirm whether the binary is expected "
+                "for the firmware's release window.)"
+            )
+            drafts.append(_AppCompatFindingDraft(
+                source=_SOURCE_APPCOMPAT_RECENT_BASELINE,
+                severity=Severity.low,
+                title=(
+                    f"AppCompat MRU recent baseline: "
+                    f"{file_path or '(MRU#' + str(insertion_position) + ')'}"
+                ),
+                description=(
+                    "Windows AppCompatCache (Shimcache) entry sits near "
+                    "the MRU end of the cache AND has a recent "
+                    "last_modified_ts (within 30 days). For firmware "
+                    "captures, this baseline-review tier surfaces "
+                    "binaries that may correspond to recent activity "
+                    "near the time of capture. PARSE-ONLY: wairz NEVER "
+                    "invokes the referenced binary; surfaces METADATA "
+                    "only. Operator should confirm whether the binary "
+                    "is expected for the firmware's release window."
+                ),
+                evidence="\n".join(_appcompat_evidence_lines(
+                    file_path=file_path,
+                    insertion_position=insertion_position,
+                    last_modified_ts=last_modified_ts,
+                    source_hive_path=source_hive_path,
+                    control_set=control_set,
+                    anomaly_flags=anomaly_flags,
+                    tier_label=tier_label,
+                )),
+                confidence=Confidence.low,
+            ))
+
+    return drafts
+
+
 # ── Phase ι.E.D — Linux container runtime classifier (THIRD LINUX) ──────────
 
 
@@ -5908,6 +6141,80 @@ class FindingService:
                     evidence=draft.evidence,
                     file_path=record.file_path,
                     # Tier-bearing draft per ι.D.D classifier —
+                    # preserve heuristic tier confidence map.
+                    confidence=draft.confidence,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_appcompat_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Phase κ.B.D — emit windows_appcompat_* Finding rows for one
+        firmware.
+
+        Reads every persisted ``WindowsAppCompatEntry`` row for the
+        firmware (rows produced by the κ.B.C walker) and projects each
+        row through :func:`classify_appcompat_findings` which may emit
+        0-3 drafts (each anomaly bit is independent — a single entry
+        could fire suspicious_path + temp_execution simultaneously).
+
+        Confidence tier is heuristic-driven by the classifier:
+
+        - HIGH — windows_appcompat_suspicious_path (T1106 / T1059 —
+          executable under canonical adversary-staging directory).
+        - MEDIUM — windows_appcompat_temp_execution (T1036 Masquerading
+          — .tmp/.dat extension on executed file).
+        - LOW — windows_appcompat_recent_baseline (entry near MRU AND
+          recent last_modified_ts; operator baseline review).
+
+        Idempotency is the caller's responsibility — same shape as
+        emit_efs_findings_from_walk; callers DELETE prior
+        windows_appcompat_* findings for the firmware before re-emitting.
+
+        Per Rule #36 — the walker (κ.B.C) NEVER invokes any extracted
+        binary, NEVER spawns subprocess, NEVER calls Windows APIs.
+        These findings flag execution-evidence METADATA anomalies only.
+        """
+        from app.models.windows_appcompat_entries import (
+            WindowsAppCompatEntry,
+        )
+        from app.services.jsonb_normalizers import (
+            _normalize_windows_appcompat_entries_anomaly_flags,
+        )
+
+        stmt = select(WindowsAppCompatEntry).where(
+            WindowsAppCompatEntry.firmware_id == firmware_id
+        )
+        rows = (await self.db.execute(stmt)).scalars().all()
+
+        emitted: list[Finding] = []
+        for record in rows:
+            anomaly_flags = (
+                _normalize_windows_appcompat_entries_anomaly_flags(
+                    record.anomaly_flags
+                )
+            )
+            drafts = classify_appcompat_findings(
+                file_path=record.file_path,
+                insertion_position=record.insertion_position,
+                last_modified_ts=record.last_modified_ts,
+                source_hive_path=record.source_hive_path,
+                control_set=record.control_set,
+                anomaly_flags=anomaly_flags,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.file_path,
+                    # Tier-bearing draft per κ.B.D classifier —
                     # preserve heuristic tier confidence map.
                     confidence=draft.confidence,
                     firmware_id=firmware_id,

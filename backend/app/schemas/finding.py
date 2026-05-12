@@ -352,6 +352,28 @@ WindowsFindingSource = Literal[
     "windows_efs_unusual_recovery_agent",
     "windows_efs_domain_admin_in_ddf",
     "windows_efs_large_drf",
+    # Phase κ.B.D — alignment slice with frontend FindingSource union +
+    # FINDING_SOURCE_CONFIG entries. Emitted by the AppCompat finding-
+    # emit hook (``finding_service.emit_appcompat_findings_from_walk``)
+    # for the κ.B.C walker output. PARSE-ONLY surface — the walker
+    # NEVER invokes any extracted binary; these findings flag
+    # EXECUTION-EVIDENCE METADATA anomalies only.
+    #
+    # windows_appcompat_suspicious_path — file_path under canonical
+    #   adversary-staging directories (\Users\Public\, \Windows\Temp\,
+    #   \AppData\Local\Temp\, \ProgramData\Microsoft\Windows\Caches\,
+    #   C:\Temp\). T1106 (Native API) / T1059 (Command and Scripting
+    #   Interpreter) — Persona-E HIGH.
+    #
+    # windows_appcompat_temp_execution — file_path ends in .tmp or
+    #   .dat (extension hiding). T1036 Masquerading — Persona-E MEDIUM.
+    #
+    # windows_appcompat_recent_baseline — entry near MRU end of
+    #   AppCompat (insertion_position low) AND recent last_modified_ts.
+    #   Baseline-anomaly review — Persona-E LOW.
+    "windows_appcompat_suspicious_path",
+    "windows_appcompat_temp_execution",
+    "windows_appcompat_recent_baseline",
 ]
 
 
