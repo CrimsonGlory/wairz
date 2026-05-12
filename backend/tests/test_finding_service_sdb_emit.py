@@ -21,6 +21,7 @@ file_path mapping.
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select
@@ -490,13 +491,27 @@ async def test_emit_sdb_no_entries_returns_empty_list():
 # ── Cross-stack alignment test (Rule #25 single-slice #2) ──────────────────
 
 
+@pytest.mark.skipif(
+    not (
+        Path(__file__).parent.parent.parent
+        / "frontend"
+        / "src"
+        / "types"
+        / "index.ts"
+    ).exists(),
+    reason=(
+        "cross-stack alignment requires the frontend/ source tree — "
+        "skip when running inside the backend container (CI's "
+        "backend-tests.yml has no /frontend mount). Pairwise-agreement "
+        "coverage lives in test_finding_source_alignment.py which has "
+        "its own module-level skipif guard for the same reason."
+    ),
+)
 def test_finding_source_alignment_includes_sdb_sources():
     """Confirm the new windows_sdb_* sources appear in BOTH the
     DB CHECK allowlist (via the in-tree alembic migration) AND the
     frontend FindingSource union — the alignment test will fire
     structurally if either drifts."""
-    from pathlib import Path
-
     backend_dir = Path(__file__).parent.parent
     repo_root = backend_dir.parent
 
