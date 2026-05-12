@@ -42,6 +42,8 @@ from app.services.jsonb_normalizers import (
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
     HARDWARE_FIRMWARE_BLOBS_METADATA_SCHEMA_VERSION,
     SBOM_COMPONENTS_METADATA_SCHEMA_VERSION,
+    WINDOWS_BCD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION,
+    WINDOWS_BCD_ENTRIES_CUSTOM_ELEMENTS_SCHEMA_VERSION,
     WINDOWS_DRIVERS_INF_METADATA_SCHEMA_VERSION,
     WINDOWS_EVENT_RECORDS_MESSAGE_XML_SCHEMA_VERSION,
     WINDOWS_MFT_RECORDS_ADS_STREAMS_SCHEMA_VERSION,
@@ -82,6 +84,8 @@ from app.services.jsonb_normalizers import (
     _normalize_fuzzing_campaigns_stats,
     _normalize_hardware_firmware_blobs_metadata,
     _normalize_sbom_components_metadata,
+    _normalize_windows_bcd_entries_anomaly_flags,
+    _normalize_windows_bcd_entries_custom_elements,
     _normalize_windows_drivers_inf_metadata,
     _normalize_windows_event_records_message_xml,
     _normalize_windows_mft_records_ads_streams,
@@ -109,6 +113,8 @@ from app.services.jsonb_normalizers import (
     _stamp_fuzzing_campaigns_config,
     _stamp_fuzzing_campaigns_stats,
     _stamp_hardware_firmware_blobs_metadata,
+    _stamp_windows_bcd_entries_anomaly_flags,
+    _stamp_windows_bcd_entries_custom_elements,
     _stamp_windows_drivers_inf_metadata,
     _stamp_windows_event_records_message_xml,
     _stamp_windows_mft_records_ads_streams,
@@ -2420,3 +2426,145 @@ def test_stamp_firmware_mft_walk_result_idempotent():
 
 def test_firmware_mft_walk_result_schema_version_constant():
     assert FIRMWARE_MFT_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp_windows_bcd_entries_custom_elements (Phase θ.A.A) ──────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical pass-through (list of dicts).
+        (
+            [
+                {"element_type": "0x14000006", "element_value": ["{a}", "{b}"]},
+                {"element_type": "0x16000010", "element_value": True},
+            ],
+            [
+                {"element_type": "0x14000006", "element_value": ["{a}", "{b}"]},
+                {"element_type": "0x16000010", "element_value": True},
+            ],
+        ),
+        # Empty list pass-through.
+        ([], []),
+        # None collapses to empty list.
+        (None, []),
+        # Wrong type — int — collapses to empty list.
+        (42, []),
+        # Wrong type — string — collapses to empty list.
+        ("not a list", []),
+        # Legacy single-element dict shape coerces to single-element list.
+        (
+            {"element_type": "0x12000004", "element_value": "Windows 10"},
+            [{"element_type": "0x12000004", "element_value": "Windows 10"}],
+        ),
+        # List with non-dict items coerces each item to a defensive dict.
+        (
+            ["0x14000006"],
+            [{"element_type": "0x14000006", "element_value": None}],
+        ),
+    ],
+)
+def test_normalize_windows_bcd_entries_custom_elements(value, expected):
+    assert _normalize_windows_bcd_entries_custom_elements(value) == expected
+
+
+def test_normalize_windows_bcd_entries_custom_elements_idempotent():
+    canonical = [
+        {"element_type": "0x14000006", "element_value": ["{a}"]},
+    ]
+    once = _normalize_windows_bcd_entries_custom_elements(canonical)
+    twice = _normalize_windows_bcd_entries_custom_elements(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_bcd_entries_custom_elements_adds_version_per_entry():
+    payload = [
+        {"element_type": "0x14000006", "element_value": ["{a}"]},
+        {"element_type": "0x16000010", "element_value": True},
+    ]
+    out = _stamp_windows_bcd_entries_custom_elements(payload)
+    for entry in out:
+        assert (
+            entry["schema_version"]
+            == WINDOWS_BCD_ENTRIES_CUSTOM_ELEMENTS_SCHEMA_VERSION
+        )
+
+
+def test_stamp_windows_bcd_entries_custom_elements_idempotent():
+    payload = [{"element_type": "0x14000006", "element_value": ["{a}"]}]
+    once = _stamp_windows_bcd_entries_custom_elements(payload)
+    twice = _stamp_windows_bcd_entries_custom_elements(once)
+    assert once == twice
+
+
+def test_windows_bcd_entries_custom_elements_schema_version_constant():
+    assert WINDOWS_BCD_ENTRIES_CUSTOM_ELEMENTS_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp_windows_bcd_entries_anomaly_flags (Phase θ.A.A) ────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical pass-through.
+        (
+            {
+                "schema_version": 1,
+                "suspicious_path": True,
+                "testsigning_enabled": False,
+                "no_integrity_checks": False,
+            },
+            {
+                "schema_version": 1,
+                "suspicious_path": True,
+                "testsigning_enabled": False,
+                "no_integrity_checks": False,
+            },
+        ),
+        # Empty dict pass-through.
+        ({}, {}),
+        # None collapses to empty dict.
+        (None, {}),
+        # Wrong type — list — collapses to empty dict.
+        ([{"a": 1}], {}),
+        # Wrong type — string — collapses to empty dict.
+        ("not a dict", {}),
+        # Wrong type — int — collapses to empty dict.
+        (42, {}),
+    ],
+)
+def test_normalize_windows_bcd_entries_anomaly_flags(value, expected):
+    assert _normalize_windows_bcd_entries_anomaly_flags(value) == expected
+
+
+def test_normalize_windows_bcd_entries_anomaly_flags_idempotent():
+    canonical = {
+        "schema_version": 1,
+        "suspicious_path": True,
+        "testsigning_enabled": False,
+    }
+    once = _normalize_windows_bcd_entries_anomaly_flags(canonical)
+    twice = _normalize_windows_bcd_entries_anomaly_flags(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_bcd_entries_anomaly_flags_adds_version():
+    out = _stamp_windows_bcd_entries_anomaly_flags(
+        {"suspicious_path": True}
+    )
+    assert (
+        out["schema_version"]
+        == WINDOWS_BCD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+
+
+def test_stamp_windows_bcd_entries_anomaly_flags_idempotent():
+    once = _stamp_windows_bcd_entries_anomaly_flags({"a": 1})
+    twice = _stamp_windows_bcd_entries_anomaly_flags(once)
+    assert once == twice
+
+
+def test_windows_bcd_entries_anomaly_flags_schema_version_constant():
+    assert WINDOWS_BCD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION == 1

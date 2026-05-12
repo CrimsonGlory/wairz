@@ -1958,3 +1958,118 @@ def _stamp_firmware_mft_walk_result(payload: dict) -> dict:
     ``Firmware.mft_walk_result``. Idempotent."""
     payload["schema_version"] = FIRMWARE_MFT_WALK_RESULT_SCHEMA_VERSION
     return payload
+
+
+# ── windows_bcd_entries.custom_elements (Phase θ.A.A) ────────────────────────
+#
+# Per-entry roster of BCD elements not promoted to flat columns
+# (DisplayOrder 0x14000006, DefaultObject 0x23000003, vendor- or
+# attacker-planted elements). Canonical shape:
+#
+#   [
+#     {
+#       "schema_version": 1,
+#       "element_type": str,   # hex string like "0x14000006"
+#       "element_value": str | int | bool | list[str] | None,
+#     },
+#     ...
+#   ]
+#
+# Empty list means "no extra elements surfaced beyond the flat
+# columns" (the common case). List-shaped so each entry carries its
+# own schema_version stamp — a downstream consumer reading one entry
+# doesn't need the parent list context to discriminate.
+
+WINDOWS_BCD_ENTRIES_CUSTOM_ELEMENTS_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_bcd_entries_custom_elements(value: Any) -> list[dict]:
+    """Return the canonical ``list[dict]`` shape for
+    ``WindowsBcdEntry.custom_elements``.
+
+    Defensive boundary:
+    - canonical list[dict] passes through unchanged
+    - bare list with non-dict items: coerce each to ``{"element_type": str(item)}``
+    - None / wrong-typed inputs collapse to empty list
+    - dict input (legacy single-element shape) coerces to a single-element list
+
+    Idempotent. Empty list means "no extra elements" (the common case
+    for entries whose elements are fully captured by flat columns).
+    """
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        return [{
+            "element_type": str(value.get("element_type", "")),
+            "element_value": value.get("element_value"),
+        }]
+    if isinstance(value, list):
+        out: list[dict] = []
+        for item in value:
+            if isinstance(item, dict):
+                out.append(item)
+            elif item is not None:
+                out.append({"element_type": str(item), "element_value": None})
+        return out
+    return []
+
+
+def _stamp_windows_bcd_entries_custom_elements(
+    payload: list[dict],
+) -> list[dict]:
+    """Stamp each list entry with the schema_version onto a writer
+    payload for ``WindowsBcdEntry.custom_elements``. Idempotent.
+
+    List-shaped column: each dict carries its own schema_version key,
+    not a single top-level envelope (so a downstream consumer reading
+    one entry doesn't need the parent list context to discriminate).
+    """
+    for entry in payload:
+        entry["schema_version"] = (
+            WINDOWS_BCD_ENTRIES_CUSTOM_ELEMENTS_SCHEMA_VERSION
+        )
+    return payload
+
+
+# ── windows_bcd_entries.anomaly_flags (Phase θ.A.A) ──────────────────────────
+#
+# Per-entry heuristic detection aggregate for the θ.A.D classifier.
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "suspicious_path": bool,
+#     "non_microsoft_description": bool,
+#     "testsigning_enabled": bool,
+#     "no_integrity_checks": bool,
+#     "nx_disabled": bool,
+#     "is_default_boot": bool,
+#   }
+#
+# NULL when no anomaly evaluation was performed (rare — defensive
+# shape; the walker stamps this on every emit).
+
+WINDOWS_BCD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_bcd_entries_anomaly_flags(value: Any) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``WindowsBcdEntry.anomaly_flags``.
+
+    Inline-stamped (no envelope wrapper — single per-entry dict).
+    Returns empty dict for None / wrong-typed inputs (defensive
+    boundary). Empty-dict semantics means "no anomaly evaluation"
+    (e.g. parser-failure path).
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_windows_bcd_entries_anomaly_flags(payload: dict) -> dict:
+    """Stamp the schema_version inline onto an ``anomaly_flags``
+    payload for ``WindowsBcdEntry.anomaly_flags``. Idempotent."""
+    payload["schema_version"] = (
+        WINDOWS_BCD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+    return payload

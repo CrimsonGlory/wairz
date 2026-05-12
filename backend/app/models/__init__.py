@@ -14,6 +14,7 @@ from app.models.project import Project
 from app.models.sbom import SbomComponent, SbomVulnerability
 from app.models.security_review import ReviewAgent, SecurityReview  # kept for DB/relationship integrity
 from app.models.uart_session import UARTSession
+from app.models.windows_bcd_entry import WindowsBcdEntry
 from app.models.windows_driver import WindowsDriver
 from app.models.windows_event_record import WindowsEventRecord
 from app.models.windows_lnk_record import WindowsLnkRecord
@@ -35,6 +36,6 @@ __all__ = [
     "CraAssessment", "CraRequirementResult", "HardwareFirmwareBlob",
     "DeviceDumpSession", "WindowsPESignature", "WindowsRegistryExtract",
     "WindowsDriver", "WindowsUpdatePackage", "WindowsUpdateDllDiff",
-    "WindowsEventRecord", "WindowsLnkRecord", "WindowsMftRecord",
+    "WindowsBcdEntry", "WindowsEventRecord", "WindowsLnkRecord", "WindowsMftRecord",
     "WindowsPrefetchRecord", "WindowsScheduledTask", "WindowsSrumRecord",
 ]
