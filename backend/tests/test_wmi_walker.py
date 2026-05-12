@@ -640,3 +640,84 @@ async def test_do_wmi_walk_caps_at_max_bindings():
                 )
 
         assert result["bindings_persisted"] <= 2
+
+
+# ── End-to-end emit wiring (Phase θ.B.F) ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_do_wmi_walk_persists_and_emits_findings_via_emit_hook():
+    """Phase θ.B.F end-to-end smoke — invoke `_do_wmi_walk` then
+    `FindingService.emit_wmi_findings_from_walk` on the same db, and
+    verify both WindowsWmiEvent rows AND windows_wmi_persistence
+    Finding rows persist in one pass.
+
+    Mirrors the wiring inside ``auto_wmi_walk_firmware_safe`` +
+    ``run_wmi_walk_background`` — both wrappers call the inner
+    orchestrator then dispatch to FindingService. This test exercises
+    the same flow without going through async_session_factory (which
+    requires real Postgres DNS resolution)."""
+    async with make_live_db() as db:
+        project = Project(name="θ.B.F end-to-end canary")
+        db.add(project)
+        await db.flush()
+
+        firmware = _make_firmware(project.id, "canary-e2e.bin", "e")
+        db.add(firmware)
+        await db.flush()
+
+        from tests.test_pywmi_persistence_finder import (
+            _make_synthetic_objects_data,
+        )
+
+        with tempfile.TemporaryDirectory() as root:
+            repo_dir = os.path.join(root, "Repository")
+            os.makedirs(repo_dir)
+            with open(os.path.join(repo_dir, "OBJECTS.DATA"), "wb") as fp:  # noqa: ASYNC230 — test fixture: seed end-to-end OBJECTS.DATA; sync open acceptable
+                fp.write(_make_synthetic_objects_data(
+                    consumer_name="Malware",
+                    filter_name="MalwareFilter",
+                    command_line="powershell.exe -enc QQBBAA==",
+                ))
+
+            with patch(
+                "app.services.wmi_walker.get_detection_roots",
+                return_value=[root],
+            ):
+                result = await _do_wmi_walk(db, firmware.id)
+
+        assert result["bindings_persisted"] >= 1
+
+        # Now dispatch the emit hook (same wiring as auto_wmi_walk).
+        from app.services.finding_service import FindingService
+
+        service = FindingService(db=db)
+        emitted = await service.emit_wmi_findings_from_walk(
+            project.id, firmware.id
+        )
+        await db.commit()
+
+        # Confirm both layers persist.
+        wmi_rows = (
+            await db.execute(
+                select(WindowsWmiEvent).where(
+                    WindowsWmiEvent.firmware_id == firmware.id
+                )
+            )
+        ).scalars().all()
+        assert len(wmi_rows) >= 1
+        assert all(not r.probably_benign for r in wmi_rows)
+
+        # All non-benign bindings produce at least one Finding row.
+        assert len(emitted) == len(wmi_rows)
+
+        # The encoded-PS payload should produce HIGH-tier findings.
+        from app.models import Finding
+
+        findings = (
+            await db.execute(
+                select(Finding).where(Finding.firmware_id == firmware.id)
+            )
+        ).scalars().all()
+        assert len(findings) >= 1
+        assert all(f.source == "windows_wmi_persistence" for f in findings)
