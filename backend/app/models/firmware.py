@@ -385,6 +385,37 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # Phase ι.B.B Linux systemd unit-file walker columns (CLAUDE.md Rule #33
+    # contract). SECOND LINUX walker (ι.A shipped journald). Background runner
+    # ``run_systemd_walk_background`` walks each detection root (``etc/systemd/
+    # system/`` / ``usr/lib/systemd/system/`` / ``lib/systemd/system/`` /
+    # ``run/systemd/system/`` / ``etc/systemd/user/`` per Rule #16), parses
+    # every .service/.timer/.socket/.target/.path/.mount/.swap file via
+    # Python's stdlib ``configparser`` (NO new dependency — INI text), merges
+    # drop-in overrides (``<unit>.<type>.d/*.conf``), detects enabled-symlinks
+    # (``*.wants/`` and ``*.requires/`` directories), iterates every unit,
+    # persists per-unit rows into ``linux_systemd_units`` (table from ι.B.A),
+    # and stamps an aggregate JSONB result onto ``systemd_walk_result``.
+    # Pure-Python parser per Rule #36 — DATA only, never invoked via
+    # systemctl / runuser / systemd-run. Rule #33 .c CHECK enforces the
+    # 5-state machine; Rule #33 .d — asyncio.create_task dispatch (in-process;
+    # no Docker spawn).
+    systemd_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    systemd_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    systemd_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    systemd_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    systemd_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     # Phase θ.B.C WMI persistence walker columns (CLAUDE.md Rule #33 contract).
     # Background runner ``run_wmi_walk_background`` opens each WMI
     # OBJECTS.DATA file (typically under ``Windows/System32/wbem/Repository/``
