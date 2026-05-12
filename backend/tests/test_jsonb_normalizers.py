@@ -35,6 +35,7 @@ from app.services.jsonb_normalizers import (
     FIRMWARE_DOTNET_DECOMPILE_RESULT_SCHEMA_VERSION,
     FIRMWARE_ESP_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_EVTX_WALK_RESULT_SCHEMA_VERSION,
+    FIRMWARE_JOURNALD_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_MBR_VBR_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_MFT_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_REGISTRY_HIVE_WALK_RESULT_SCHEMA_VERSION,
@@ -45,6 +46,7 @@ from app.services.jsonb_normalizers import (
     FUZZING_CAMPAIGNS_CONFIG_SCHEMA_VERSION,
     FUZZING_CAMPAIGNS_STATS_SCHEMA_VERSION,
     HARDWARE_FIRMWARE_BLOBS_METADATA_SCHEMA_VERSION,
+    LINUX_JOURNALD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION,
     SBOM_COMPONENTS_METADATA_SCHEMA_VERSION,
     WINDOWS_BCD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION,
     WINDOWS_BCD_ENTRIES_CUSTOM_ELEMENTS_SCHEMA_VERSION,
@@ -87,6 +89,7 @@ from app.services.jsonb_normalizers import (
     _normalize_firmware_dotnet_decompile_result,
     _normalize_firmware_esp_walk_result,
     _normalize_firmware_evtx_walk_result,
+    _normalize_firmware_journald_walk_result,
     _normalize_firmware_mbr_vbr_walk_result,
     _normalize_firmware_mft_walk_result,
     _normalize_firmware_registry_hive_walk_result,
@@ -97,6 +100,7 @@ from app.services.jsonb_normalizers import (
     _normalize_fuzzing_campaigns_config,
     _normalize_fuzzing_campaigns_stats,
     _normalize_hardware_firmware_blobs_metadata,
+    _normalize_linux_journald_entries_anomaly_flags,
     _normalize_sbom_components_metadata,
     _normalize_windows_bcd_entries_anomaly_flags,
     _normalize_windows_bcd_entries_custom_elements,
@@ -127,6 +131,7 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_dotnet_decompile_result,
     _stamp_firmware_esp_walk_result,
     _stamp_firmware_evtx_walk_result,
+    _stamp_firmware_journald_walk_result,
     _stamp_firmware_mbr_vbr_walk_result,
     _stamp_firmware_mft_walk_result,
     _stamp_firmware_registry_hive_walk_result,
@@ -137,6 +142,7 @@ from app.services.jsonb_normalizers import (
     _stamp_fuzzing_campaigns_config,
     _stamp_fuzzing_campaigns_stats,
     _stamp_hardware_firmware_blobs_metadata,
+    _stamp_linux_journald_entries_anomaly_flags,
     _stamp_windows_bcd_entries_anomaly_flags,
     _stamp_windows_bcd_entries_custom_elements,
     _stamp_windows_drivers_inf_metadata,
@@ -3158,3 +3164,128 @@ def test_stamp_firmware_mbr_vbr_walk_result_idempotent():
 
 def test_firmware_mbr_vbr_walk_result_schema_version_constant():
     assert FIRMWARE_MBR_VBR_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp_linux_journald_entries_anomaly_flags (Phase ι.A.A) ─────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical pass-through.
+        (
+            {
+                "schema_version": 1,
+                "priority_critical": True,
+                "oom_killer": False,
+                "audit_failure": False,
+                "selinux_denied": False,
+                "segfault": False,
+                "suspicious_unit": True,
+                "log_clear_marker": False,
+            },
+            {
+                "schema_version": 1,
+                "priority_critical": True,
+                "oom_killer": False,
+                "audit_failure": False,
+                "selinux_denied": False,
+                "segfault": False,
+                "suspicious_unit": True,
+                "log_clear_marker": False,
+            },
+        ),
+        # Empty dict pass-through.
+        ({}, {}),
+        # None collapses to empty dict.
+        (None, {}),
+        # Wrong type — list — collapses to empty dict.
+        ([{"a": 1}], {}),
+        # Wrong type — string — collapses to empty dict.
+        ("not a dict", {}),
+        # Wrong type — int — collapses to empty dict.
+        (42, {}),
+    ],
+)
+def test_normalize_linux_journald_entries_anomaly_flags(value, expected):
+    assert _normalize_linux_journald_entries_anomaly_flags(value) == expected
+
+
+def test_normalize_linux_journald_entries_anomaly_flags_idempotent():
+    canonical = {
+        "schema_version": 1,
+        "priority_critical": True,
+        "oom_killer": True,
+    }
+    once = _normalize_linux_journald_entries_anomaly_flags(canonical)
+    twice = _normalize_linux_journald_entries_anomaly_flags(once)
+    assert once == twice == canonical
+
+
+def test_stamp_linux_journald_entries_anomaly_flags_adds_version():
+    out = _stamp_linux_journald_entries_anomaly_flags(
+        {"priority_critical": True}
+    )
+    assert (
+        out["schema_version"]
+        == LINUX_JOURNALD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+
+
+def test_stamp_linux_journald_entries_anomaly_flags_idempotent():
+    once = _stamp_linux_journald_entries_anomaly_flags({"a": 1})
+    twice = _stamp_linux_journald_entries_anomaly_flags(once)
+    assert once == twice
+
+
+def test_linux_journald_entries_anomaly_flags_schema_version_constant():
+    assert LINUX_JOURNALD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp_firmware_journald_walk_result (Phase ι.A.B) ────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {
+                "schema_version": 1,
+                "files_scanned": 1,
+                "entries_walked": 100,
+                "entries_persisted": 100,
+                "priority_critical_count": 3,
+                "anomaly_total": 5,
+            },
+            {
+                "schema_version": 1,
+                "files_scanned": 1,
+                "entries_walked": 100,
+                "entries_persisted": 100,
+                "priority_critical_count": 3,
+                "anomaly_total": 5,
+            },
+        ),
+        ({}, {}),
+        (None, None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_journald_walk_result(value, expected):
+    assert _normalize_firmware_journald_walk_result(value) == expected
+
+
+def test_stamp_firmware_journald_walk_result_adds_version():
+    out = _stamp_firmware_journald_walk_result({"files_scanned": 0})
+    assert out["schema_version"] == FIRMWARE_JOURNALD_WALK_RESULT_SCHEMA_VERSION
+
+
+def test_stamp_firmware_journald_walk_result_idempotent():
+    once = _stamp_firmware_journald_walk_result({"files_scanned": 0})
+    twice = _stamp_firmware_journald_walk_result(once)
+    assert once == twice
+
+
+def test_firmware_journald_walk_result_schema_version_constant():
+    assert FIRMWARE_JOURNALD_WALK_RESULT_SCHEMA_VERSION == 1

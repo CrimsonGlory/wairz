@@ -2688,3 +2688,102 @@ def _stamp_firmware_sdb_walk_result(payload: dict) -> dict:
         FIRMWARE_SDB_WALK_RESULT_SCHEMA_VERSION
     )
     return payload
+
+
+# ── linux_journald_entries.anomaly_flags (Phase ι.A.A — FIRST LINUX) ─────────
+#
+# Per-entry heuristic detection aggregate for the ι.A.D classifier.
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "priority_critical": bool,   # priority <= 2 (emerg/alert/crit)
+#     "oom_killer": bool,          # message matches kernel oom-killer
+#     "audit_failure": bool,       # transport=audit AND failure marker
+#     "selinux_denied": bool,      # message matches SELinux denial
+#     "segfault": bool,            # message matches segfault pattern
+#     "suspicious_unit": bool,     # unit path under writable directory
+#     "log_clear_marker": bool,    # message matches journalctl vacuum
+#   }
+#
+# NULL when no anomaly evaluation was performed (rare — defensive
+# shape; the walker stamps this on every emit).
+#
+# Consumers (≥3 — Rule #35c stamp helper required):
+# - app/services/journald_walker.py (writer)
+# - app/services/finding_service.py (emit_journald_findings_from_walk)
+# - app/ai/tools/linux_journald.py (MCP tools surface flags in JSON)
+
+LINUX_JOURNALD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION = 1
+
+
+def _normalize_linux_journald_entries_anomaly_flags(value: Any) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``LinuxJournaldEntry.anomaly_flags``.
+
+    Inline-stamped (no envelope wrapper — single per-entry dict).
+    Returns empty dict for None / wrong-typed inputs (defensive
+    boundary). Empty-dict semantics means "no anomaly evaluation"
+    (e.g. parser-failure path).
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_linux_journald_entries_anomaly_flags(payload: dict) -> dict:
+    """Stamp the schema_version inline onto an ``anomaly_flags``
+    payload for ``LinuxJournaldEntry.anomaly_flags``. Idempotent."""
+    payload["schema_version"] = (
+        LINUX_JOURNALD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+    return payload
+
+
+# ── firmware.journald_walk_result (Phase ι.A.B) ──────────────────────────────
+#
+# Per-firmware aggregate from a single journald walk. Mirrors the
+# bcd_walk_result / esp_walk_result / sdb_walk_result shape — a
+# flat dict with top-level summary fields. The runner stamps this
+# once at completion.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,
+#     "files_scanned": int,                # .journal files opened
+#     "entries_walked": int,               # total entries iterated
+#     "entries_persisted": int,            # rows written
+#     "priority_critical_count": int,      # priority <= 2 entries
+#     "oom_killer_count": int,
+#     "audit_failure_count": int,
+#     "selinux_denied_count": int,
+#     "suspicious_unit_count": int,
+#     "log_clear_marker_count": int,
+#     "anomaly_total": int,                # entries flagged by ≥1 anomaly
+#     "oversize_skipped": int,             # files >500 MB skipped
+#     "errors": list[str],                 # session-level errors
+#     "per_file": list[dict],              # per-journal-file aggregates
+#   }
+
+FIRMWARE_JOURNALD_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_journald_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.journald_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_journald_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.journald_walk_result``. Idempotent."""
+    payload["schema_version"] = FIRMWARE_JOURNALD_WALK_RESULT_SCHEMA_VERSION
+    return payload

@@ -10,6 +10,7 @@ from app.models.finding import Finding
 from app.models.firmware import Firmware
 from app.models.fuzzing import FuzzingCampaign, FuzzingCrash
 from app.models.hardware_firmware import HardwareFirmwareBlob
+from app.models.linux_journald_entry import LinuxJournaldEntry
 from app.models.project import Project
 from app.models.sbom import SbomComponent, SbomVulnerability
 from app.models.security_review import ReviewAgent, SecurityReview  # kept for DB/relationship integrity
@@ -38,7 +39,8 @@ __all__ = [
     "EmulationPreset", "FuzzingCampaign", "FuzzingCrash",
     "AttackSurfaceEntry", "UARTSession",
     "CraAssessment", "CraRequirementResult", "HardwareFirmwareBlob",
-    "DeviceDumpSession", "WindowsPESignature", "WindowsRegistryExtract",
+    "DeviceDumpSession", "LinuxJournaldEntry",
+    "WindowsPESignature", "WindowsRegistryExtract",
     "WindowsDriver", "WindowsUpdatePackage", "WindowsUpdateDllDiff",
     "WindowsBcdEntry", "WindowsEspEntry", "WindowsEventRecord", "WindowsLnkRecord", "WindowsMbrVbrSector", "WindowsMftRecord",
     "WindowsPrefetchRecord", "WindowsScheduledTask", "WindowsSdbEntry",
