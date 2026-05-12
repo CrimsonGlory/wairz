@@ -374,6 +374,33 @@ _SOURCE_ETL_NON_MICROSOFT_IN_DIAGTRACK: WindowsFindingSource = (
 )
 
 
+# Phase ι.D.D Windows EFS DDF/DRF source-name constants. Typed as
+# WindowsFindingSource so compile-time typo detection fires at code-load
+# time. The DB CHECK (ck_findings_source from ι.D.D alembic aabbccddee09)
+# is the durable safety floor enforcing the full allowlist. FOURTH ι
+# cross-stack alignment commit and the SECOND ι Windows extension (ι.A
+# + ι.B both extended LinuxFindingSource; ι.C was the FIRST ι Windows);
+# Rule #25 single-slice exception #2, Rule-of-Twenty-Two.
+#
+# PARSE-ONLY discipline reminder: these Finding rows are emitted from
+# the EFS walker's METADATA parsing (DDF/DRF SID + thumbprint extraction
+# from $EFS LOGGED_UTILITY_STREAM blobs). The walker NEVER decrypts the
+# FEK, NEVER invokes DPAPI; these findings flag METADATA anomalies that
+# operators triage as data, not decryption attempts.
+_SOURCE_EFS_ORPHANED_DRF: WindowsFindingSource = (
+    "windows_efs_orphaned_drf"
+)
+_SOURCE_EFS_UNUSUAL_RECOVERY_AGENT: WindowsFindingSource = (
+    "windows_efs_unusual_recovery_agent"
+)
+_SOURCE_EFS_DOMAIN_ADMIN_IN_DDF: WindowsFindingSource = (
+    "windows_efs_domain_admin_in_ddf"
+)
+_SOURCE_EFS_LARGE_DRF: WindowsFindingSource = (
+    "windows_efs_large_drf"
+)
+
+
 # ── Phase η.E — PowerShell EID classifier helper ──
 #
 # Heuristic detection for obfuscated/encoded PowerShell content. The
@@ -3514,6 +3541,313 @@ def classify_etl_findings(
     return drafts
 
 
+# ── Phase ι.D.D — Windows EFS DDF/DRF metadata classifier ──────────────────
+
+
+@dataclass(frozen=True)
+class _EfsFindingDraft:
+    """One Windows EFS Finding row to emit. Sibling of _EtlFindingDraft
+    (ι.C.D) / _SystemdUnitFindingDraft (ι.B.D). source typed as
+    WindowsFindingSource (SECOND ι Windows extension after ETL);
+    confidence tier carried at the draft so emit_efs_findings_from_walk
+    preserves the heuristic-driven map (HIGH for orphaned_drf;
+    MEDIUM for unusual_recovery_agent / domain_admin_in_ddf; LOW for
+    large_drf baseline review).
+
+    PARSE-ONLY discipline reminder: this draft surfaces METADATA
+    anomalies parsed from the $EFS LOGGED_UTILITY_STREAM blob. The
+    walker NEVER decrypts the FEK, NEVER invokes DPAPI.
+    """
+    source: WindowsFindingSource
+    severity: Severity
+    title: str
+    description: str
+    evidence: str
+    confidence: Confidence
+
+
+def _efs_evidence_lines(
+    *,
+    file_path: str | None,
+    file_size: int | None,
+    mft_record_number: int,
+    efs_attribute_size: int,
+    ddf_user_count: int,
+    drf_recovery_agent_count: int,
+    ddf_users: list[dict],
+    drf_recovery_agents: list[dict],
+    anomaly_flags: dict,
+    tier_label: str,
+) -> list[str]:
+    """Build evidence body shared by all 4 EFS classifiers."""
+    # Trim user/agent lists for evidence display (cap at 5 each).
+    ddf_preview = []
+    for user in ddf_users[:5]:
+        if not isinstance(user, dict):
+            continue
+        ddf_preview.append(
+            f"  - SID={user.get('sid', '?')!r} "
+            f"thumbprint={user.get('cert_thumbprint', '')[:40]} "
+            f"name={user.get('friendly_name', '')!r}"
+        )
+    drf_preview = []
+    for agent in drf_recovery_agents[:5]:
+        if not isinstance(agent, dict):
+            continue
+        drf_preview.append(
+            f"  - SID={agent.get('sid', '?')!r} "
+            f"thumbprint={agent.get('cert_thumbprint', '')[:40]} "
+            f"name={agent.get('friendly_name', '')!r}"
+        )
+    return [
+        f"Tier: {tier_label}",
+        f"File path: {file_path or '(unresolved orphan)'}",
+        f"File size: {file_size if file_size is not None else '(unknown)'}",
+        f"MFT record: {mft_record_number}",
+        f"$EFS attribute size: {efs_attribute_size} bytes",
+        f"DDF user count: {ddf_user_count}",
+        f"DRF recovery agent count: {drf_recovery_agent_count}",
+        f"DDF users (top 5):" if ddf_preview else "DDF users: (none)",
+        *ddf_preview,
+        f"DRF recovery agents (top 5):" if drf_preview else (
+            "DRF recovery agents: (none)"
+        ),
+        *drf_preview,
+        f"Anomaly flags: {dict(anomaly_flags)}",
+    ]
+
+
+def classify_efs_findings(
+    *,
+    file_path: str | None,
+    file_size: int | None,
+    mft_record_number: int,
+    efs_attribute_size: int,
+    ddf_user_count: int,
+    drf_recovery_agent_count: int,
+    ddf_users: list[dict],
+    drf_recovery_agents: list[dict],
+    anomaly_flags: dict,
+) -> list[_EfsFindingDraft]:
+    """Phase ι.D.D — map one WindowsEfsEncryptedFile row to 0+ Finding
+    drafts.
+
+    Pure function — no DB access. Each row may yield 0 (no anomaly bit
+    fires) or up to 4 drafts (each emitted source is independent).
+
+    Tier mapping (Persona-E driven):
+
+    - windows_efs_orphaned_drf — HIGH (T1564.001 — file has DRF but no
+      DDF; encrypted-via-recovery-only; insider stealth indicator).
+    - windows_efs_unusual_recovery_agent — MEDIUM (T1564.001 supporting
+      — DRF SID outside standard EFS Recovery family; baseline review).
+    - windows_efs_domain_admin_in_ddf — MEDIUM (T1078.002 — admin RID
+      in DDF; could be legitimate pre-staging or privileged compromise).
+    - windows_efs_large_drf — LOW (>2 recovery agents; unusual config
+      baseline review).
+
+    Note: cert_thumbprint_anomaly and parse_error bits are NOT emitted
+    as Finding rows — they're surfaced via the per-row anomaly_flags
+    JSONB for operators to query via MCP, but they're INFORMATIONAL
+    only (not actionable security findings on their own).
+
+    Mirrors classify_etl_findings (ι.C.D precedent) shape.
+    """
+    drafts: list[_EfsFindingDraft] = []
+
+    # Strip the schema_version sentinel from ddf_users / drf_recovery_agents
+    # if present so evidence display doesn't surface it (the sentinel is
+    # an internal stamping artefact, not a real user).
+    ddf_clean = [
+        entry for entry in ddf_users
+        if isinstance(entry, dict) and "schema_version" not in entry
+    ]
+    drf_clean = [
+        entry for entry in drf_recovery_agents
+        if isinstance(entry, dict) and "schema_version" not in entry
+    ]
+
+    # ── windows_efs_orphaned_drf ─────────────────────────────────────────────
+    if anomaly_flags.get("orphaned_drf"):
+        tier_label = (
+            "HIGH (T1564.001 Hidden Files and Directories — file has DRF "
+            "recovery agents but no DDF user entries; the file owner can't "
+            "decrypt their own file, only the recovery agent can. Insider-"
+            "stealth indicator OR ransomware-via-EFS variant.)"
+        )
+        drafts.append(_EfsFindingDraft(
+            source=_SOURCE_EFS_ORPHANED_DRF,
+            severity=Severity.high,
+            title=(
+                f"EFS file encrypted-via-recovery-only "
+                f"(orphaned DRF): {file_path or 'MFT#' + str(mft_record_number)}"
+            ),
+            description=(
+                "Windows EFS-encrypted file has DRF recovery-agent entries "
+                "but ZERO DDF user entries. Under normal EFS operation the "
+                "file owner is always in DDF — they're the primary "
+                "decryptor. A file with DRF but no DDF means the file "
+                "owner CANNOT decrypt their own data, but a recovery agent "
+                "can. This is the canonical SafeBreach 2020 PoC ransomware-"
+                "via-EFS shape (encrypt victim files with attacker-"
+                "controlled recovery agent, lock the legitimate user OUT). "
+                "It's ALSO an insider-stealth pattern when an authorized "
+                "recovery agent has been added without the file owner's "
+                "knowledge. PARSE-ONLY: wairz NEVER decrypts the FEK; this "
+                "finding flags METADATA only. Operator should review the "
+                "DRF SIDs + cert thumbprints + correlate with the system's "
+                "EFS recovery agent policy (HKLM\\SOFTWARE\\Policies\\"
+                "Microsoft\\SystemCertificates\\EFS\\)."
+            ),
+            evidence="\n".join(_efs_evidence_lines(
+                file_path=file_path,
+                file_size=file_size,
+                mft_record_number=mft_record_number,
+                efs_attribute_size=efs_attribute_size,
+                ddf_user_count=ddf_user_count,
+                drf_recovery_agent_count=drf_recovery_agent_count,
+                ddf_users=ddf_clean,
+                drf_recovery_agents=drf_clean,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.high,
+        ))
+
+    # ── windows_efs_unusual_recovery_agent ───────────────────────────────────
+    if anomaly_flags.get("unusual_recovery_agent"):
+        tier_label = (
+            "MEDIUM (T1564.001 supporting — DRF entry has a SID outside the "
+            "standard Windows EFS Recovery family; non-standard recovery "
+            "agents may be backdoor keys or vendor defaults.)"
+        )
+        drafts.append(_EfsFindingDraft(
+            source=_SOURCE_EFS_UNUSUAL_RECOVERY_AGENT,
+            severity=Severity.medium,
+            title=(
+                f"EFS unusual recovery agent: "
+                f"{file_path or 'MFT#' + str(mft_record_number)}"
+            ),
+            description=(
+                "Windows EFS-encrypted file has a DRF recovery-agent entry "
+                "with a SID outside the standard Windows EFS Recovery "
+                "family (S-1-5-21-* local/domain accounts, S-1-5-32-544 "
+                "Built-in Administrators, S-1-5-18 Local System). Non-"
+                "standard recovery agents may be: (a) custom corporate "
+                "EFS recovery configuration (legitimate but worth "
+                "verifying), (b) un-rekeyed vendor default recovery "
+                "agent (medium-severity baseline — same DRF thumbprint "
+                "across firmwares suggests supply-chain), (c) malicious "
+                "recovery agent planted to enable insider decryption. "
+                "PARSE-ONLY: wairz NEVER decrypts; this finding flags "
+                "METADATA only. Operator should cross-reference the SID + "
+                "cert thumbprint against the lookup_efs_recovery_agent_"
+                "across_firmwares MCP tool to detect supply-chain spread."
+            ),
+            evidence="\n".join(_efs_evidence_lines(
+                file_path=file_path,
+                file_size=file_size,
+                mft_record_number=mft_record_number,
+                efs_attribute_size=efs_attribute_size,
+                ddf_user_count=ddf_user_count,
+                drf_recovery_agent_count=drf_recovery_agent_count,
+                ddf_users=ddf_clean,
+                drf_recovery_agents=drf_clean,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.medium,
+        ))
+
+    # ── windows_efs_domain_admin_in_ddf ──────────────────────────────────────
+    if anomaly_flags.get("domain_admin_in_ddf"):
+        tier_label = (
+            "MEDIUM (T1078.002 Domain Accounts — DDF user entry has a "
+            "Windows admin RID (500/512/519); could be legitimate admin "
+            "pre-staging OR privileged-compromise indicator.)"
+        )
+        drafts.append(_EfsFindingDraft(
+            source=_SOURCE_EFS_DOMAIN_ADMIN_IN_DDF,
+            severity=Severity.medium,
+            title=(
+                f"EFS domain admin in DDF: "
+                f"{file_path or 'MFT#' + str(mft_record_number)}"
+            ),
+            description=(
+                "Windows EFS-encrypted file has a DDF user entry with a "
+                "SID matching a Windows admin RID pattern (RID 500 = "
+                "Built-in Administrator, RID 512 = Domain Admins, RID "
+                "519 = Enterprise Admins). This could be: (a) legitimate "
+                "admin pre-staging — the admin account is explicitly "
+                "configured to access this encrypted file, (b) a "
+                "privileged compromise indicator — adversary added their "
+                "elevated session's SID to the DDF to retain decryption "
+                "access. PARSE-ONLY: wairz NEVER decrypts the FEK; this "
+                "flags METADATA only. Operator should review the AD "
+                "audit log for the responsible admin account and "
+                "cross-reference with the file's creation/modification "
+                "timestamps via the η.A MFT walker output."
+            ),
+            evidence="\n".join(_efs_evidence_lines(
+                file_path=file_path,
+                file_size=file_size,
+                mft_record_number=mft_record_number,
+                efs_attribute_size=efs_attribute_size,
+                ddf_user_count=ddf_user_count,
+                drf_recovery_agent_count=drf_recovery_agent_count,
+                ddf_users=ddf_clean,
+                drf_recovery_agents=drf_clean,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.medium,
+        ))
+
+    # ── windows_efs_large_drf ────────────────────────────────────────────────
+    if anomaly_flags.get("large_drf"):
+        tier_label = (
+            "LOW (baseline review — file has >2 recovery agents in DRF; "
+            "unusual EFS configuration that may indicate supply-chain or "
+            "un-rekeyed vendor default.)"
+        )
+        drafts.append(_EfsFindingDraft(
+            source=_SOURCE_EFS_LARGE_DRF,
+            severity=Severity.low,
+            title=(
+                f"EFS large DRF ({drf_recovery_agent_count} agents): "
+                f"{file_path or 'MFT#' + str(mft_record_number)}"
+            ),
+            description=(
+                "Windows EFS-encrypted file has more than 2 recovery "
+                "agents in its DRF. Standard EFS configuration has 0-2 "
+                "recovery agents (a single local EFS Recovery Agent OR a "
+                "domain DRA pushed via Group Policy plus possibly a local "
+                "fallback). >2 recovery agents may indicate: (a) layered "
+                "supply-chain — multiple vendors each have their own "
+                "recovery key, (b) corporate configuration drift over "
+                "time without re-keying, (c) malicious recovery agent "
+                "addition. PARSE-ONLY: wairz NEVER decrypts the FEK. "
+                "Operator should cross-reference the DRF cert "
+                "thumbprints against documented vendor recovery policies."
+            ),
+            evidence="\n".join(_efs_evidence_lines(
+                file_path=file_path,
+                file_size=file_size,
+                mft_record_number=mft_record_number,
+                efs_attribute_size=efs_attribute_size,
+                ddf_user_count=ddf_user_count,
+                drf_recovery_agent_count=drf_recovery_agent_count,
+                ddf_users=ddf_clean,
+                drf_recovery_agents=drf_clean,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.low,
+        ))
+
+    return drafts
+
+
 # ── Phase η.D.D — LOLDrivers BYOVD fingerprint classifier ──────────────────
 
 
@@ -5081,6 +5415,97 @@ class FindingService:
                     evidence=draft.evidence,
                     file_path=record.etl_file_path,
                     # Tier-bearing draft per ι.C.D classifier —
+                    # preserve heuristic tier confidence map.
+                    confidence=draft.confidence,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_efs_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Phase ι.D.D — emit windows_efs_* Finding rows for one firmware
+        (SECOND ι Windows emit hook after ι.C.D ETL).
+
+        Reads every persisted ``WindowsEfsEncryptedFile`` row for the
+        firmware (rows produced by the ι.D.C walker) and projects each
+        row through :func:`classify_efs_findings` which may emit 0-4
+        drafts (each anomaly bit is independent — a single file can
+        fire orphaned_drf + domain_admin_in_ddf simultaneously).
+
+        Confidence tier is heuristic-driven by the classifier:
+
+        - HIGH — windows_efs_orphaned_drf (T1564.001 — encrypted-via-
+          recovery-only insider stealth OR ransomware-via-EFS).
+        - MEDIUM — windows_efs_unusual_recovery_agent (T1564.001
+          supporting — non-standard recovery SID).
+        - MEDIUM — windows_efs_domain_admin_in_ddf (T1078.002 — admin
+          RID in DDF; legitimate pre-staging or privileged compromise).
+        - LOW — windows_efs_large_drf (baseline review — unusual
+          configuration).
+
+        Idempotency is the caller's responsibility — same shape as
+        emit_etl_findings_from_walk; callers DELETE prior windows_efs_*
+        findings for the firmware before re-emitting.
+
+        Per Rule #36 + Rule #36 EXTENSION — the walker (ι.D.C) NEVER
+        decrypts the FEK, NEVER invokes DPAPI, NEVER attempts plaintext
+        recovery; these findings flag METADATA anomalies only. The
+        ``evidence`` field surfaces SID + cert thumbprint values as DATA
+        for operator triage.
+        """
+        from app.models.windows_efs_encrypted_files import (
+            WindowsEfsEncryptedFile,
+        )
+        from app.services.jsonb_normalizers import (
+            _normalize_windows_efs_encrypted_files_anomaly_flags,
+            _normalize_windows_efs_encrypted_files_ddf_users,
+            _normalize_windows_efs_encrypted_files_drf_recovery_agents,
+        )
+
+        stmt = select(WindowsEfsEncryptedFile).where(
+            WindowsEfsEncryptedFile.firmware_id == firmware_id
+        )
+        rows = (await self.db.execute(stmt)).scalars().all()
+
+        emitted: list[Finding] = []
+        for record in rows:
+            anomaly_flags = (
+                _normalize_windows_efs_encrypted_files_anomaly_flags(
+                    record.anomaly_flags
+                )
+            )
+            ddf_users = _normalize_windows_efs_encrypted_files_ddf_users(
+                record.ddf_users
+            )
+            drf_agents = (
+                _normalize_windows_efs_encrypted_files_drf_recovery_agents(
+                    record.drf_recovery_agents
+                )
+            )
+            drafts = classify_efs_findings(
+                file_path=record.file_path,
+                file_size=record.file_size,
+                mft_record_number=record.mft_record_number,
+                efs_attribute_size=record.efs_attribute_size,
+                ddf_user_count=record.ddf_user_count,
+                drf_recovery_agent_count=record.drf_recovery_agent_count,
+                ddf_users=ddf_users,
+                drf_recovery_agents=drf_agents,
+                anomaly_flags=anomaly_flags,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.file_path,
+                    # Tier-bearing draft per ι.D.D classifier —
                     # preserve heuristic tier confidence map.
                     confidence=draft.confidence,
                     firmware_id=firmware_id,

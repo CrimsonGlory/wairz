@@ -142,6 +142,10 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   windows_etl_provider_disabled: { icon: ShieldX, label: 'ETL Provider Disabled', className: 'border-red-700/70 text-red-700 dark:text-red-200' },
   windows_etl_unusual_provider: { icon: AlertTriangle, label: 'ETL Unusual Provider', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
   windows_etl_non_microsoft_in_diagtrack: { icon: Workflow, label: 'ETL 3P in Diagtrack', className: 'border-red-700/70 text-red-700 dark:text-red-200' },
+  windows_efs_orphaned_drf: { icon: Lock, label: 'EFS Orphaned DRF', className: 'border-red-800/70 text-red-800 dark:text-red-200' },
+  windows_efs_unusual_recovery_agent: { icon: KeyRound, label: 'EFS Unusual Recovery', className: 'border-amber-600/50 text-amber-700 dark:text-amber-300' },
+  windows_efs_domain_admin_in_ddf: { icon: ShieldAlert, label: 'EFS Admin in DDF', className: 'border-orange-600/50 text-orange-700 dark:text-orange-300' },
+  windows_efs_large_drf: { icon: Network, label: 'EFS Large DRF', className: 'border-blue-500/50 text-blue-600 dark:text-blue-400' },
 }
 
 // ── Finding confidence ──

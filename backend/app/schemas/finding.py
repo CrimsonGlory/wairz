@@ -319,6 +319,39 @@ WindowsFindingSource = Literal[
     "windows_etl_provider_disabled",
     "windows_etl_unusual_provider",
     "windows_etl_non_microsoft_in_diagtrack",
+    # Phase ι.D.D — alignment slice with frontend FindingSource union +
+    # FINDING_SOURCE_CONFIG entries. Emitted by the EFS finding-emit
+    # hook (``finding_service.emit_efs_findings_from_walk``) for the
+    # ι.D.C walker output. SECOND ι Windows source-family extension
+    # (FIRST was ι.C.D ETL). PARSE-ONLY surface — the walker NEVER
+    # decrypts the FEK, NEVER invokes DPAPI; these findings flag
+    # METADATA anomalies only.
+    #
+    # windows_efs_orphaned_drf — file has DRF recovery agents but no
+    #   DDF user entries (encrypted-via-recovery-only). T1564.001
+    #   (Hidden Files and Directories — insider stealth) — the file
+    #   owner can't decrypt their own file, but the recovery agent can.
+    #   Persona-E HIGH.
+    #
+    # windows_efs_unusual_recovery_agent — DRF entry has a SID outside
+    #   the standard Windows EFS Recovery family (S-1-5-21-*,
+    #   S-1-5-32-544, S-1-5-18). T1564.001 supporting indicator —
+    #   non-standard recovery agents may be backdoor keys. Persona-E
+    #   MEDIUM.
+    #
+    # windows_efs_domain_admin_in_ddf — DDF user entry has a SID
+    #   matching a Windows admin RID pattern (RID 500/512/519 — Built-in
+    #   Administrator, Domain Admins, Enterprise Admins). T1078.002
+    #   (Domain Accounts) — could be legitimate admin pre-staging OR
+    #   privileged compromise indicator. Persona-E MEDIUM.
+    #
+    # windows_efs_large_drf — file has >2 recovery agents in DRF.
+    #   Unusual EFS configuration; supply-chain or vendor-default
+    #   indicator. Persona-E LOW baseline review.
+    "windows_efs_orphaned_drf",
+    "windows_efs_unusual_recovery_agent",
+    "windows_efs_domain_admin_in_ddf",
+    "windows_efs_large_drf",
 ]
 
 
