@@ -2292,3 +2292,177 @@ def _stamp_firmware_wmi_walk_result(payload: dict) -> dict:
     ``Firmware.wmi_walk_result``. Idempotent."""
     payload["schema_version"] = FIRMWARE_WMI_WALK_RESULT_SCHEMA_VERSION
     return payload
+
+
+# ── windows_esp_entries.authenticode_chain (Phase θ.C.A) ───────────────────
+#
+# Per-`.efi` Authenticode chain summary, sourced verbatim from the β.4
+# verify_pe_file pipeline (signify). Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "signed": bool,
+#     "chain_status": str,         # signify ChainStatus literal
+#     "signer_subject": str | None,
+#     "signer_issuer": str | None,
+#     "leaf_serial": str | None,
+#     "sig_hash_algo": str | None,
+#     "signed_at": str | None,     # ISO-8601 from countersigner
+#     "signatures_count": int,
+#     "error": str | None,
+#   }
+
+WINDOWS_ESP_ENTRIES_AUTHENTICODE_CHAIN_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_esp_entries_authenticode_chain(value: Any) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``WindowsEspEntry.authenticode_chain``.
+
+    Inline-stamped (no envelope wrapper — single per-entry dict).
+    Returns empty dict for None / wrong-typed inputs (defensive
+    boundary). Empty-dict semantics means "no chain extracted"
+    (parse_failed path).
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_windows_esp_entries_authenticode_chain(payload: dict) -> dict:
+    """Stamp the schema_version inline onto an ``authenticode_chain``
+    payload for ``WindowsEspEntry.authenticode_chain``. Idempotent."""
+    payload["schema_version"] = (
+        WINDOWS_ESP_ENTRIES_AUTHENTICODE_CHAIN_SCHEMA_VERSION
+    )
+    return payload
+
+
+# ── windows_esp_entries.dbx_revocation_match (Phase θ.C.A) ─────────────────
+#
+# Per-`.efi` DBX revocation match, sourced verbatim from the β.10
+# match_dbx_revocation pipeline. NULL when no match was made (either
+# bundle wasn't provisioned OR leaf-serial wasn't revoked).
+# Canonical shape on a hit:
+#
+#   {
+#     "schema_version": 1,
+#     "revoked": bool,
+#     "revocation_kb": str | None,
+#     "leaf_serial_normalized": str,
+#     "match_kind": str,           # "x509_serial" | "sha256"
+#     "bundle_entries": int,
+#     "bundle_path": str,
+#   }
+
+WINDOWS_ESP_ENTRIES_DBX_REVOCATION_MATCH_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_esp_entries_dbx_revocation_match(
+    value: Any,
+) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``WindowsEspEntry.dbx_revocation_match``.
+
+    ``None`` preserved — semantic load is "no DBX match".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_windows_esp_entries_dbx_revocation_match(
+    payload: dict,
+) -> dict:
+    """Stamp the schema_version inline onto a
+    ``dbx_revocation_match`` payload. Idempotent."""
+    payload["schema_version"] = (
+        WINDOWS_ESP_ENTRIES_DBX_REVOCATION_MATCH_SCHEMA_VERSION
+    )
+    return payload
+
+
+# ── windows_esp_entries.anomaly_flags (Phase θ.C.A) ────────────────────────
+#
+# Per-`.efi` heuristic detection aggregate for the θ.C.D classifier.
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "is_unsigned": bool,
+#     "is_expired": bool,
+#     "is_revoked": bool,
+#     "is_non_microsoft_signer": bool,
+#     "is_known_bootloader_path": bool,
+#     "is_vendor_path": bool,
+#     "is_suspiciously_small": bool,
+#   }
+
+WINDOWS_ESP_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_esp_entries_anomaly_flags(value: Any) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``WindowsEspEntry.anomaly_flags``.
+
+    Inline-stamped. Returns empty dict for None / wrong-typed inputs
+    (defensive boundary)."""
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_windows_esp_entries_anomaly_flags(payload: dict) -> dict:
+    """Stamp the schema_version inline onto an ``anomaly_flags``
+    payload for ``WindowsEspEntry.anomaly_flags``. Idempotent."""
+    payload["schema_version"] = (
+        WINDOWS_ESP_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+    return payload
+
+
+# ── firmware.esp_walk_result (Phase θ.C.B) ─────────────────────────────────
+#
+# Per-firmware aggregate from a single ESP `.efi` chain walk. Mirrors
+# the wmi_walk_result / bcd_walk_result shape.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,
+#     "efi_files_scanned": int,
+#     "efi_files_persisted": int,
+#     "signed_valid_count": int,
+#     "signed_expired_count": int,
+#     "signed_revoked_count": int,
+#     "unsigned_count": int,
+#     "parse_failed_count": int,
+#     "dbx_revoked_count": int,
+#     "non_microsoft_signer_count": int,
+#     "known_bootloader_anomaly_count": int,
+#     "errors": list[str],
+#     "per_root": list[dict],
+#   }
+
+FIRMWARE_ESP_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_esp_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.esp_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_esp_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.esp_walk_result``. Idempotent."""
+    payload["schema_version"] = FIRMWARE_ESP_WALK_RESULT_SCHEMA_VERSION
+    return payload

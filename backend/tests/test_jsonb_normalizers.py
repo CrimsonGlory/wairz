@@ -33,6 +33,7 @@ from app.services.jsonb_normalizers import (
     FIRMWARE_BINARY_INFO_SCHEMA_VERSION,
     FIRMWARE_DEVICE_METADATA_SCHEMA_VERSION,
     FIRMWARE_DOTNET_DECOMPILE_RESULT_SCHEMA_VERSION,
+    FIRMWARE_ESP_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_EVTX_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_MFT_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_REGISTRY_HIVE_WALK_RESULT_SCHEMA_VERSION,
@@ -47,6 +48,9 @@ from app.services.jsonb_normalizers import (
     WINDOWS_BCD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION,
     WINDOWS_BCD_ENTRIES_CUSTOM_ELEMENTS_SCHEMA_VERSION,
     WINDOWS_DRIVERS_INF_METADATA_SCHEMA_VERSION,
+    WINDOWS_ESP_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION,
+    WINDOWS_ESP_ENTRIES_AUTHENTICODE_CHAIN_SCHEMA_VERSION,
+    WINDOWS_ESP_ENTRIES_DBX_REVOCATION_MATCH_SCHEMA_VERSION,
     WINDOWS_EVENT_RECORDS_MESSAGE_XML_SCHEMA_VERSION,
     WINDOWS_MFT_RECORDS_ADS_STREAMS_SCHEMA_VERSION,
     WINDOWS_MFT_RECORDS_TARGET_METADATA_SCHEMA_VERSION,
@@ -79,6 +83,7 @@ from app.services.jsonb_normalizers import (
     _normalize_firmware_cve_match_result,
     _normalize_firmware_device_metadata,
     _normalize_firmware_dotnet_decompile_result,
+    _normalize_firmware_esp_walk_result,
     _normalize_firmware_evtx_walk_result,
     _normalize_firmware_mft_walk_result,
     _normalize_firmware_registry_hive_walk_result,
@@ -93,6 +98,9 @@ from app.services.jsonb_normalizers import (
     _normalize_windows_bcd_entries_anomaly_flags,
     _normalize_windows_bcd_entries_custom_elements,
     _normalize_windows_drivers_inf_metadata,
+    _normalize_windows_esp_entries_anomaly_flags,
+    _normalize_windows_esp_entries_authenticode_chain,
+    _normalize_windows_esp_entries_dbx_revocation_match,
     _normalize_windows_event_records_message_xml,
     _normalize_windows_mft_records_ads_streams,
     _normalize_windows_mft_records_target_metadata,
@@ -113,6 +121,7 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
     _stamp_firmware_dotnet_decompile_result,
+    _stamp_firmware_esp_walk_result,
     _stamp_firmware_evtx_walk_result,
     _stamp_firmware_mft_walk_result,
     _stamp_firmware_registry_hive_walk_result,
@@ -126,6 +135,9 @@ from app.services.jsonb_normalizers import (
     _stamp_windows_bcd_entries_anomaly_flags,
     _stamp_windows_bcd_entries_custom_elements,
     _stamp_windows_drivers_inf_metadata,
+    _stamp_windows_esp_entries_anomaly_flags,
+    _stamp_windows_esp_entries_authenticode_chain,
+    _stamp_windows_esp_entries_dbx_revocation_match,
     _stamp_windows_event_records_message_xml,
     _stamp_windows_mft_records_ads_streams,
     _stamp_windows_mft_records_target_metadata,
@@ -2807,3 +2819,225 @@ def test_stamp_firmware_wmi_walk_result_idempotent():
 
 def test_firmware_wmi_walk_result_schema_version_constant():
     assert FIRMWARE_WMI_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp_windows_esp_entries_authenticode_chain (θ.C.A) ────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical dict passes through.
+        (
+            {"signed": True, "chain_status": "valid_now"},
+            {"signed": True, "chain_status": "valid_now"},
+        ),
+        # Empty dict — preserved.
+        ({}, {}),
+        # None — coerced to empty dict.
+        (None, {}),
+        # Wrong-type — list — coerced to empty dict.
+        ([1, 2, 3], {}),
+        # Wrong-type — string — coerced to empty dict.
+        ("not a dict", {}),
+        # Wrong-type — int — coerced to empty dict.
+        (42, {}),
+    ],
+)
+def test_normalize_windows_esp_entries_authenticode_chain(value, expected):
+    assert _normalize_windows_esp_entries_authenticode_chain(value) == expected
+
+
+def test_normalize_windows_esp_entries_authenticode_chain_idempotent():
+    canonical = {
+        "schema_version": 1,
+        "signed": True,
+        "chain_status": "valid_now",
+        "signer_subject": "CN=Microsoft Corporation UEFI CA 2011",
+        "signatures_count": 1,
+    }
+    once = _normalize_windows_esp_entries_authenticode_chain(canonical)
+    twice = _normalize_windows_esp_entries_authenticode_chain(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_esp_entries_authenticode_chain_adds_version():
+    payload = {"signed": True, "chain_status": "valid_now"}
+    out = _stamp_windows_esp_entries_authenticode_chain(payload)
+    assert out["schema_version"] == (
+        WINDOWS_ESP_ENTRIES_AUTHENTICODE_CHAIN_SCHEMA_VERSION
+    )
+
+
+def test_stamp_windows_esp_entries_authenticode_chain_idempotent():
+    payload = {"signed": True, "chain_status": "valid_now"}
+    once = _stamp_windows_esp_entries_authenticode_chain(payload)
+    twice = _stamp_windows_esp_entries_authenticode_chain(once)
+    assert once == twice
+
+
+def test_windows_esp_entries_authenticode_chain_schema_version_constant():
+    assert WINDOWS_ESP_ENTRIES_AUTHENTICODE_CHAIN_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp_windows_esp_entries_dbx_revocation_match (θ.C.A) ──────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical dict passes through.
+        (
+            {"revoked": True, "match_kind": "x509_serial"},
+            {"revoked": True, "match_kind": "x509_serial"},
+        ),
+        # Empty dict — preserved.
+        ({}, {}),
+        # None — preserved (no match semantic).
+        (None, None),
+        # Wrong-type — list — coerced to None.
+        ([1, 2, 3], None),
+        # Wrong-type — string — coerced to None.
+        ("not a dict", None),
+        # Wrong-type — int — coerced to None.
+        (42, None),
+    ],
+)
+def test_normalize_windows_esp_entries_dbx_revocation_match(value, expected):
+    assert (
+        _normalize_windows_esp_entries_dbx_revocation_match(value) == expected
+    )
+
+
+def test_normalize_windows_esp_entries_dbx_revocation_match_idempotent():
+    canonical = {
+        "schema_version": 1,
+        "revoked": True,
+        "match_kind": "x509_serial",
+        "bundle_entries": 5000,
+    }
+    once = _normalize_windows_esp_entries_dbx_revocation_match(canonical)
+    twice = _normalize_windows_esp_entries_dbx_revocation_match(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_esp_entries_dbx_revocation_match_adds_version():
+    payload = {"revoked": True, "match_kind": "x509_serial"}
+    out = _stamp_windows_esp_entries_dbx_revocation_match(payload)
+    assert out["schema_version"] == (
+        WINDOWS_ESP_ENTRIES_DBX_REVOCATION_MATCH_SCHEMA_VERSION
+    )
+
+
+def test_stamp_windows_esp_entries_dbx_revocation_match_idempotent():
+    payload = {"revoked": True, "match_kind": "x509_serial"}
+    once = _stamp_windows_esp_entries_dbx_revocation_match(payload)
+    twice = _stamp_windows_esp_entries_dbx_revocation_match(once)
+    assert once == twice
+
+
+def test_windows_esp_entries_dbx_revocation_match_schema_version_constant():
+    assert WINDOWS_ESP_ENTRIES_DBX_REVOCATION_MATCH_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp_windows_esp_entries_anomaly_flags (θ.C.A) ─────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical dict passes through.
+        (
+            {"is_unsigned": True, "is_revoked": False},
+            {"is_unsigned": True, "is_revoked": False},
+        ),
+        # Empty dict — preserved.
+        ({}, {}),
+        # None — coerced to empty dict.
+        (None, {}),
+        # Wrong-type — list — coerced to empty dict.
+        ([1, 2, 3], {}),
+        # Wrong-type — string — coerced to empty dict.
+        ("not a dict", {}),
+        # Wrong-type — int — coerced to empty dict.
+        (42, {}),
+    ],
+)
+def test_normalize_windows_esp_entries_anomaly_flags(value, expected):
+    assert _normalize_windows_esp_entries_anomaly_flags(value) == expected
+
+
+def test_normalize_windows_esp_entries_anomaly_flags_idempotent():
+    canonical = {
+        "schema_version": 1,
+        "is_unsigned": True,
+        "is_known_bootloader_path": True,
+        "is_suspiciously_small": False,
+    }
+    once = _normalize_windows_esp_entries_anomaly_flags(canonical)
+    twice = _normalize_windows_esp_entries_anomaly_flags(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_esp_entries_anomaly_flags_adds_version():
+    payload = {"is_unsigned": True}
+    out = _stamp_windows_esp_entries_anomaly_flags(payload)
+    assert out["schema_version"] == (
+        WINDOWS_ESP_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+
+
+def test_stamp_windows_esp_entries_anomaly_flags_idempotent():
+    payload = {"is_unsigned": True}
+    once = _stamp_windows_esp_entries_anomaly_flags(payload)
+    twice = _stamp_windows_esp_entries_anomaly_flags(once)
+    assert once == twice
+
+
+def test_windows_esp_entries_anomaly_flags_schema_version_constant():
+    assert WINDOWS_ESP_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION == 1
+
+
+# ── _normalize/_stamp_firmware_esp_walk_result (Phase θ.C.B) ────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {
+                "schema_version": 1,
+                "efi_files_scanned": 5,
+                "efi_files_persisted": 5,
+                "unsigned_count": 1,
+            },
+            {
+                "schema_version": 1,
+                "efi_files_scanned": 5,
+                "efi_files_persisted": 5,
+                "unsigned_count": 1,
+            },
+        ),
+        ({}, {}),
+        (None, None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_esp_walk_result(value, expected):
+    assert _normalize_firmware_esp_walk_result(value) == expected
+
+
+def test_stamp_firmware_esp_walk_result_adds_version():
+    out = _stamp_firmware_esp_walk_result({"efi_files_scanned": 0})
+    assert out["schema_version"] == FIRMWARE_ESP_WALK_RESULT_SCHEMA_VERSION
+
+
+def test_stamp_firmware_esp_walk_result_idempotent():
+    once = _stamp_firmware_esp_walk_result({"efi_files_scanned": 0})
+    twice = _stamp_firmware_esp_walk_result(once)
+    assert once == twice
+
+
+def test_firmware_esp_walk_result_schema_version_constant():
+    assert FIRMWARE_ESP_WALK_RESULT_SCHEMA_VERSION == 1
