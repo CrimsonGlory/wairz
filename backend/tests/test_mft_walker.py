@@ -52,7 +52,6 @@ from app.services.mft_walker import (
 )
 from tests._live_db import make_live_db
 
-
 # ── NTFS boot sector / image fixture helpers ─────────────────────────────────
 
 
@@ -481,7 +480,7 @@ async def test_do_mft_run_no_image_candidates():
 
         with tempfile.TemporaryDirectory() as root:
             # No matching files
-            with open(os.path.join(root, "notes.txt"), "wb") as fp:
+            with open(os.path.join(root, "notes.txt"), "wb") as fp:  # noqa: ASYNC230 — test fixture: seed non-NTFS-extension file to verify 0-image walk; sync open acceptable
                 fp.write(b"hello")
 
             with patch(
@@ -508,7 +507,7 @@ async def test_do_mft_run_image_not_ntfs():
 
         with tempfile.TemporaryDirectory() as root:
             path = os.path.join(root, "garbage.raw")
-            with open(path, "wb") as fp:
+            with open(path, "wb") as fp:  # noqa: ASYNC230 — test fixture: seed raw bytes missing NTFS magic to verify not_ntfs path; sync open acceptable
                 fp.write(b"\x00" * 4096)  # No NTFS magic
 
             with patch(
@@ -605,7 +604,7 @@ async def test_do_mft_run_persists_records_for_synthetic_image():
 
         with tempfile.TemporaryDirectory() as root:
             img_path = os.path.join(root, "disk.raw")
-            with open(img_path, "wb") as fp:
+            with open(img_path, "wb") as fp:  # noqa: ASYNC230 — test fixture: seed minimal NTFS boot sector for walker test; sync open acceptable
                 fp.write(_make_ntfs_boot_sector())
 
             with patch(
@@ -695,7 +694,7 @@ async def test_do_mft_run_caps_persisted_records():
 
         with tempfile.TemporaryDirectory() as root:
             img_path = os.path.join(root, "disk.raw")
-            with open(img_path, "wb") as fp:
+            with open(img_path, "wb") as fp:  # noqa: ASYNC230 — test fixture: seed minimal NTFS boot sector for walker test; sync open acceptable
                 fp.write(_make_ntfs_boot_sector())
 
             with patch(
@@ -744,7 +743,7 @@ async def test_do_mft_run_orphan_records_persist_with_null_path():
 
         with tempfile.TemporaryDirectory() as root:
             img_path = os.path.join(root, "disk.raw")
-            with open(img_path, "wb") as fp:
+            with open(img_path, "wb") as fp:  # noqa: ASYNC230 — test fixture: seed minimal NTFS boot sector for walker test; sync open acceptable
                 fp.write(_make_ntfs_boot_sector())
 
             with patch(
@@ -819,7 +818,7 @@ async def test_do_mft_run_emits_findings_via_auto_walk_wiring():
 
         with tempfile.TemporaryDirectory() as root:
             img_path = os.path.join(root, "disk.raw")
-            with open(img_path, "wb") as fp:
+            with open(img_path, "wb") as fp:  # noqa: ASYNC230 — test fixture: seed minimal NTFS boot sector for walker test; sync open acceptable
                 fp.write(_make_ntfs_boot_sector())
 
             with patch(
@@ -897,7 +896,7 @@ async def test_do_mft_run_deleted_records_persist_with_in_use_false():
 
         with tempfile.TemporaryDirectory() as root:
             img_path = os.path.join(root, "disk.raw")
-            with open(img_path, "wb") as fp:
+            with open(img_path, "wb") as fp:  # noqa: ASYNC230 — test fixture: seed minimal NTFS boot sector for walker test; sync open acceptable
                 fp.write(_make_ntfs_boot_sector())
 
             with patch(

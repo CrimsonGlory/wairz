@@ -38,7 +38,6 @@ from app.services.jsonb_normalizers import (
 )
 from tests._live_db import make_live_db
 
-
 # ── Pure classifier tests (no DB) ────────────────────────────────────────────
 
 

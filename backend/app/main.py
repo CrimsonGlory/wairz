@@ -225,6 +225,7 @@ async def lifespan(app: FastAPI):
         import logging
         from datetime import datetime
         from pathlib import Path
+
         from app.services.loldrivers_lookup_service import is_loldrivers_available
         bundle_path_str = os.environ.get(
             "LOLDRIVERS_BUNDLE_PATH", "/opt/wairz/loldrivers.json",
