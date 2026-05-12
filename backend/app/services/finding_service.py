@@ -285,6 +285,20 @@ _SOURCE_ESP_DBX_REVOKED: WindowsFindingSource = "windows_esp_dbx_revoked"
 _SOURCE_MBR_BOOTKIT: WindowsFindingSource = "windows_mbr_bootkit"
 _SOURCE_VBR_ANOMALY: WindowsFindingSource = "windows_vbr_anomaly"
 
+# Phase θ.D.E — SDB shim walker emit sources. The 3 sources distinguish
+# the canonical T1546.011 attacker primitives by shim_class:
+# - windows_sdb_inject_dll — custom-path .sdb with shim_class=InjectDll.
+#   HIGH always (direct DLL-injection primitive in attacker-controlled
+#   directory).
+# - windows_sdb_redirect_exe — custom-path .sdb with shim_class=
+#   RedirectEXE. HIGH always (replaces executed binary entirely).
+# - windows_sdb_custom_shim — any other custom-path .sdb. MEDIUM if
+#   shim_class in (GetCommandLineW, RedirectShortcut) OR
+#   has_command_line; LOW otherwise (Custom-path baseline).
+_SOURCE_SDB_INJECT_DLL: WindowsFindingSource = "windows_sdb_inject_dll"
+_SOURCE_SDB_REDIRECT_EXE: WindowsFindingSource = "windows_sdb_redirect_exe"
+_SOURCE_SDB_CUSTOM_SHIM: WindowsFindingSource = "windows_sdb_custom_shim"
+
 
 # ── Phase η.E — PowerShell EID classifier helper ──
 #
@@ -2306,6 +2320,256 @@ def classify_mbr_vbr_findings(
     return drafts
 
 
+# ── Phase θ.D.E — SDB shim classifier ──────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class _SDBFindingDraft:
+    """One SDB shim Finding row to emit. Carries an explicit
+    confidence tier alongside the standard fields so the emit hook
+    can preserve the tier-mapping derived from sdb_kind + shim_class +
+    anomaly_flags shape.
+
+    Mirrors _MBRVBRFindingDraft / _ESPFindingDraft — tier-bearing
+    draft preserved through the emit boundary so the
+    FindingCreate.confidence is heuristic-driven, not fixed at low.
+    """
+    source: WindowsFindingSource
+    severity: Severity
+    title: str
+    description: str
+    evidence: str
+    confidence: Confidence
+
+
+def classify_sdb_findings(
+    *,
+    file_path: str,
+    file_sha256: str,
+    sdb_kind: str,
+    app_name: str | None,
+    app_exe: str | None,
+    shim_class: str,
+    shim_payload: dict,
+    anomaly_flags: dict,
+) -> list[_SDBFindingDraft]:
+    """Phase θ.D.E — map one WindowsSdbEntry row to 0 or 1 Finding
+    drafts.
+
+    Pure function — no DB access. Returns:
+
+    - 0 drafts for a microsoft-path shim (no attacker signal at the
+      path; Microsoft-shipped shims always loaded, the path itself
+      is benign).
+    - 1 draft (``windows_sdb_inject_dll``) for sdb_kind=custom AND
+      shim_class=InjectDll. Tier: HIGH always.
+    - 1 draft (``windows_sdb_redirect_exe``) for sdb_kind=custom AND
+      shim_class=RedirectEXE. Tier: HIGH always.
+    - 1 draft (``windows_sdb_custom_shim``) for any other sdb_kind=
+      custom entry. Tier: MEDIUM if shim_class in (GetCommandLineW,
+      RedirectShortcut) OR has_command_line; LOW otherwise.
+    - 0 drafts for sdb_kind=unknown (operator review via
+      list_sdb_entries; not auto-emitted to avoid noise from non-
+      AppPatch .sdb files).
+
+    Mirrors classify_mbr_vbr_findings / classify_esp_findings shape —
+    tier-bearing drafts, one per detection pattern, mutually
+    exclusive sources per row.
+    """
+    drafts: list[_SDBFindingDraft] = []
+
+    # Only emit for custom-path .sdb files. Microsoft-shipped shims
+    # under Windows/AppPatch/ are benign by location. unknown-path
+    # entries are surfaced via the MCP listing only (too noisy to
+    # auto-emit Findings).
+    if sdb_kind != "custom":
+        return drafts
+
+    shim_name = shim_payload.get("shim_name") or shim_payload.get(
+        "patch_name"
+    ) or "(unnamed)"
+    module = shim_payload.get("module", "")
+    command_line = shim_payload.get("command_line", "")
+    description_text = shim_payload.get("description", "")
+    app_label = app_name or app_exe or "(unknown app)"
+    display_path = file_path
+
+    # ── windows_sdb_inject_dll (HIGH) ─────────────────────────────────────
+    if shim_class == "InjectDll":
+        tier_label = (
+            "HIGH (custom-path .sdb with InjectDll shim — direct "
+            "DLL-injection primitive in attacker-controlled directory; "
+            "T1546.011 Application Shimming signal)"
+        )
+        evidence_lines = [
+            f"Tier: {tier_label}",
+            f"File path: {display_path}",
+            f"File SHA256: {file_sha256}",
+            f"SDB kind: {sdb_kind}",
+            f"App name: {app_label}",
+            f"App EXE: {app_exe or '(none)'}",
+            f"Shim class: {shim_class}",
+            f"Shim name: {shim_name}",
+            f"Module (injected DLL): {module or '(empty)'}",
+            "Anomaly flags:",
+            f"  is_custom_path: {bool(anomaly_flags.get('is_custom_path'))}",
+            f"  has_inject_dll: {bool(anomaly_flags.get('has_inject_dll'))}",
+            f"  has_dll_outside_appdir: "
+            f"{bool(anomaly_flags.get('has_dll_outside_appdir'))}",
+        ]
+        drafts.append(_SDBFindingDraft(
+            source=_SOURCE_SDB_INJECT_DLL,
+            severity=Severity.high,
+            title=(
+                f"SDB InjectDll shim: {module or shim_name} → "
+                f"{app_exe or app_label}"
+            ),
+            description=(
+                "An Application Compatibility Shim Database (.sdb) "
+                "file under Windows/AppPatch/Custom/ (or Custom64/) "
+                "carries an InjectDll shim. Windows loads this shim "
+                "on every launch of the target application via the "
+                "AppHelp infrastructure, which DIRECTLY loads the "
+                "referenced DLL into the target process address "
+                "space. Attacker tradecraft: T1546.011 Application "
+                "Shimming persistence (APT41, FIN7, Carbanak, "
+                "various ransomware affiliates). The .sdb is "
+                "registered by sdbinst.exe and persists across "
+                "reboots until removed. The shim payload is "
+                "surfaced as DATA in WindowsSdbEntry.shim_payload "
+                "+ this evidence field; wairz NEVER invokes the "
+                "shim (Rule #36 no-execute discipline)."
+            ),
+            evidence="\n".join(evidence_lines),
+            confidence=Confidence.high,
+        ))
+        return drafts
+
+    # ── windows_sdb_redirect_exe (HIGH) ───────────────────────────────────
+    if shim_class == "RedirectEXE":
+        tier_label = (
+            "HIGH (custom-path .sdb with RedirectEXE shim — replaces "
+            "executed binary entirely; T1546.011 signal)"
+        )
+        evidence_lines = [
+            f"Tier: {tier_label}",
+            f"File path: {display_path}",
+            f"File SHA256: {file_sha256}",
+            f"SDB kind: {sdb_kind}",
+            f"App name: {app_label}",
+            f"App EXE: {app_exe or '(none)'}",
+            f"Shim class: {shim_class}",
+            f"Shim name: {shim_name}",
+            f"Module: {module or '(empty)'}",
+            f"Command line: {command_line or '(empty)'}",
+            "Anomaly flags:",
+            f"  is_custom_path: {bool(anomaly_flags.get('is_custom_path'))}",
+            f"  has_redirect_exe: "
+            f"{bool(anomaly_flags.get('has_redirect_exe'))}",
+        ]
+        drafts.append(_SDBFindingDraft(
+            source=_SOURCE_SDB_REDIRECT_EXE,
+            severity=Severity.high,
+            title=(
+                f"SDB RedirectEXE shim: {app_exe or app_label} → "
+                f"{command_line or module or '(unknown target)'}"
+            ),
+            description=(
+                "An Application Compatibility Shim Database (.sdb) "
+                "file under Windows/AppPatch/Custom/ (or Custom64/) "
+                "carries a RedirectEXE shim. Windows AppHelp resolves "
+                "the target executable launch through this shim, "
+                "REPLACING the executed binary with the attacker's "
+                "redirect target. T1546.011 Application Shimming — "
+                "the operator launches the legitimate app and the "
+                "attacker's binary runs instead, with the legitimate "
+                "app's command-line context preserved. The shim "
+                "payload is surfaced as DATA only (Rule #36)."
+            ),
+            evidence="\n".join(evidence_lines),
+            confidence=Confidence.high,
+        ))
+        return drafts
+
+    # ── windows_sdb_custom_shim (MEDIUM / LOW) ────────────────────────────
+    has_argument_class = shim_class in (
+        "GetCommandLineW", "RedirectShortcut"
+    )
+    has_command_line = bool(anomaly_flags.get("has_command_line"))
+    is_medium = has_argument_class or has_command_line
+
+    if is_medium:
+        confidence = Confidence.medium
+        severity = Severity.medium
+        tier_label = (
+            f"MEDIUM (custom-path .sdb with shim_class={shim_class} "
+            f"AND has_command_line={has_command_line} — "
+            "argument-injection / shortcut-hijack tradecraft "
+            "candidate)"
+        )
+    else:
+        confidence = Confidence.low
+        severity = Severity.low
+        tier_label = (
+            f"LOW (custom-path .sdb with shim_class={shim_class} — "
+            "operator review baseline; not all custom shims are "
+            "malicious, but the Custom/ path itself is suspicious)"
+        )
+
+    evidence_lines = [
+        f"Tier: {tier_label}",
+        f"File path: {display_path}",
+        f"File SHA256: {file_sha256}",
+        f"SDB kind: {sdb_kind}",
+        f"App name: {app_label}",
+        f"App EXE: {app_exe or '(none)'}",
+        f"Shim class: {shim_class}",
+        f"Shim name: {shim_name}",
+        f"Module: {module or '(empty)'}",
+        f"Command line: {command_line or '(empty)'}",
+        f"Description: {description_text or '(empty)'}",
+        "Anomaly flags:",
+        f"  is_custom_path: {bool(anomaly_flags.get('is_custom_path'))}",
+        f"  has_inject_dll: {bool(anomaly_flags.get('has_inject_dll'))}",
+        f"  has_redirect_exe: "
+        f"{bool(anomaly_flags.get('has_redirect_exe'))}",
+        f"  has_get_command_line: "
+        f"{bool(anomaly_flags.get('has_get_command_line'))}",
+        f"  has_redirect_shortcut: "
+        f"{bool(anomaly_flags.get('has_redirect_shortcut'))}",
+        f"  has_dll_outside_appdir: "
+        f"{bool(anomaly_flags.get('has_dll_outside_appdir'))}",
+        f"  has_command_line: {has_command_line}",
+    ]
+
+    drafts.append(_SDBFindingDraft(
+        source=_SOURCE_SDB_CUSTOM_SHIM,
+        severity=severity,
+        title=(
+            f"SDB custom shim: {shim_class} '{shim_name}' "
+            f"on {app_exe or app_label}"
+        ),
+        description=(
+            "An Application Compatibility Shim Database (.sdb) file "
+            "under Windows/AppPatch/Custom/ (or Custom64/) carries a "
+            "shim that doesn't match the well-known InjectDll / "
+            "RedirectEXE attacker primitives but still warrants "
+            "operator review. Microsoft-shipped shims live ONLY "
+            "under Windows/AppPatch/ proper; shims under Custom/ are "
+            "application-author-shipped at best, attacker-shipped at "
+            "worst. T1546.011 Application Shimming persistence does "
+            "not require a known-bad shim_class — adversaries can "
+            "register custom shim DLLs via the AppHelp registry and "
+            "achieve the same persistence shape. The shim payload is "
+            "surfaced as DATA only (Rule #36)."
+        ),
+        evidence="\n".join(evidence_lines),
+        confidence=confidence,
+    ))
+
+    return drafts
+
+
 # ── Phase η.D.D — LOLDrivers BYOVD fingerprint classifier ──────────────────
 
 
@@ -3510,6 +3774,94 @@ class FindingService:
                     evidence=draft.evidence,
                     file_path=record.file_path,
                     # Tier-bearing draft per θ.E.D classifier —
+                    # preserve heuristic tier confidence map.
+                    confidence=draft.confidence,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_sdb_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Phase θ.D.E — emit windows_sdb_inject_dll +
+        windows_sdb_redirect_exe + windows_sdb_custom_shim Finding
+        rows for one firmware.
+
+        Reads every persisted ``WindowsSdbEntry`` row for the
+        firmware (rows are produced by the θ.D.D walker) and projects
+        each row through :func:`classify_sdb_findings` which may
+        emit 0 or 1 drafts per row (mbr_inject_dll / redirect_exe /
+        custom_shim are mutually exclusive per shim_class).
+
+        Confidence tier is heuristic-driven by the classifier:
+
+        - HIGH — windows_sdb_inject_dll AND windows_sdb_redirect_exe
+          always HIGH (direct attacker primitive in custom path).
+        - MEDIUM — windows_sdb_custom_shim with shim_class in
+          (GetCommandLineW, RedirectShortcut) OR has_command_line.
+        - LOW — windows_sdb_custom_shim baseline (Custom-path with
+          unknown shim_name).
+        - 0 drafts — microsoft-path entries (Microsoft-shipped shims
+          are benign by location) AND unknown-path entries (operator
+          review via list_sdb_entries; not auto-emitted to avoid
+          noise).
+
+        Mirrors emit_mbr_vbr_findings_from_walk / emit_esp_findings_
+        from_walk shape — tier-bearing drafts preserved through the
+        boundary.
+
+        Idempotency is the caller's responsibility — callers DELETE
+        prior windows_sdb_* findings for the firmware before
+        re-emitting.
+
+        Per Rule #36 — the classifier never invokes the shim
+        infrastructure; the file_path + file_sha256 + shim_payload
+        + anomaly_flags are surfaced as DATA in the Finding's
+        evidence field for operator review only.
+        """
+        from app.models.windows_sdb_entry import WindowsSdbEntry
+        from app.services.jsonb_normalizers import (
+            _normalize_windows_sdb_entries_anomaly_flags,
+            _normalize_windows_sdb_entries_shim_payload,
+        )
+
+        stmt = select(WindowsSdbEntry).where(
+            WindowsSdbEntry.firmware_id == firmware_id
+        )
+        rows = (await self.db.execute(stmt)).scalars().all()
+
+        emitted: list[Finding] = []
+        for record in rows:
+            shim_payload = _normalize_windows_sdb_entries_shim_payload(
+                record.shim_payload
+            )
+            anomaly_flags = (
+                _normalize_windows_sdb_entries_anomaly_flags(
+                    record.anomaly_flags
+                )
+            )
+            drafts = classify_sdb_findings(
+                file_path=record.file_path,
+                file_sha256=record.file_sha256,
+                sdb_kind=record.sdb_kind,
+                app_name=record.app_name,
+                app_exe=record.app_exe,
+                shim_class=record.shim_class,
+                shim_payload=shim_payload,
+                anomaly_flags=anomaly_flags,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.file_path,
+                    # Tier-bearing draft per θ.D.E classifier —
                     # preserve heuristic tier confidence map.
                     confidence=draft.confidence,
                     firmware_id=firmware_id,

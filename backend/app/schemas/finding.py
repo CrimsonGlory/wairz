@@ -259,6 +259,36 @@ WindowsFindingSource = Literal[
     #   >=2 anomaly flags raised (modified VBR; supply-chain candidate).
     "windows_mbr_bootkit",
     "windows_vbr_anomaly",
+    # Phase θ.D.E — alignment slice with frontend FindingSource union +
+    # FINDING_SOURCE_CONFIG entries. Emitted by
+    # ``emit_sdb_findings_from_walk`` for every ``WindowsSdbEntry``
+    # row produced by the θ.D.D walker whose sdb_kind/shim_class
+    # combination matches T1546.011 Application Shimming indicators
+    # (APT41 / FIN7 / Carbanak / ransomware affiliates plant custom
+    # .sdb shims under Windows/AppPatch/Custom/<exe>.sdb).
+    # Closes the windows-coverage-godmode θ campaign at 5-of-5
+    # walker streams (θ.A BCD + θ.B WMI + θ.C ESP + θ.E MBR/VBR +
+    # θ.D SDB).
+    #
+    # windows_sdb_inject_dll — custom-path .sdb with shim_class=
+    # InjectDll. Confidence tier mapping:
+    # - HIGH (Confidence.high) — direct DLL-injection primitive in
+    #   attacker-controllable directory; T1546.011 signal.
+    #
+    # windows_sdb_redirect_exe — custom-path .sdb with shim_class=
+    # RedirectEXE. Confidence tier:
+    # - HIGH (Confidence.high) — replaces executed binary entirely.
+    #
+    # windows_sdb_custom_shim — any custom-path .sdb that doesn't
+    # match the two HIGH classifiers but still warrants review.
+    # Confidence tier:
+    # - MEDIUM (Confidence.medium) — Custom-path AND
+    #   (shim_class=GetCommandLineW OR RedirectShortcut OR
+    #   has_command_line).
+    # - LOW (Confidence.low) — Custom-path baseline.
+    "windows_sdb_inject_dll",
+    "windows_sdb_redirect_exe",
+    "windows_sdb_custom_shim",
 ]
 
 
