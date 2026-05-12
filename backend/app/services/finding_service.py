@@ -348,6 +348,31 @@ _SOURCE_SYSTEMD_ENABLED_OUTSIDE_STANDARD: LinuxFindingSource = (
     "linux_systemd_enabled_outside_standard"
 )
 
+# ── Phase ι.C.D — Windows ETL source constants (FIRST ι WINDOWS-SIDE) ─────────
+#
+# Sibling family to the Windows source constants above. Same Rule #33 .c
+# discipline — narrow Literal at the helper boundary catches typos at
+# code-load time without disturbing the legacy FindingCreate.source:
+# str contract. The DB CHECK (ck_findings_source from ι.C.D alembic
+# aabbccddee06) is the durable safety floor enforcing the full
+# allowlist (61 sources total at ι.C.D shipping time = 57 prior + 4
+# new windows_etl_* sources). THIRD ι cross-stack alignment commit and
+# the FIRST ι Windows extension (ι.A + ι.B both extended
+# LinuxFindingSource); Rule #25 single-slice exception #2, Rule-of-
+# Twenty-One.
+_SOURCE_ETL_KERNEL_PROC_AFTER_CLEAR: WindowsFindingSource = (
+    "windows_etl_kernel_proc_after_clear"
+)
+_SOURCE_ETL_PROVIDER_DISABLED: WindowsFindingSource = (
+    "windows_etl_provider_disabled"
+)
+_SOURCE_ETL_UNUSUAL_PROVIDER: WindowsFindingSource = (
+    "windows_etl_unusual_provider"
+)
+_SOURCE_ETL_NON_MICROSOFT_IN_DIAGTRACK: WindowsFindingSource = (
+    "windows_etl_non_microsoft_in_diagtrack"
+)
+
 
 # ── Phase η.E — PowerShell EID classifier helper ──
 #
@@ -3229,6 +3254,266 @@ def classify_systemd_findings(
     return drafts
 
 
+# ── Phase ι.C.D — Windows ETL classifier (FIRST ι WINDOWS-SIDE) ──────────────
+
+
+@dataclass(frozen=True)
+class _EtlFindingDraft:
+    """One Windows ETL Finding row to emit. Sibling of
+    _SystemdUnitFindingDraft (ι.B.D) / _JournaldFindingDraft (ι.A.D).
+    source typed as WindowsFindingSource (FIRST ι Windows extension);
+    confidence tier carried at the draft so emit_etl_findings_from_walk
+    preserves the heuristic-driven map (HIGH for kernel_proc_after_clear
+    / provider_disabled / non_microsoft_in_diagtrack; MEDIUM for
+    unusual_provider).
+    """
+    source: WindowsFindingSource
+    severity: Severity
+    title: str
+    description: str
+    evidence: str
+    confidence: Confidence
+
+
+def _etl_evidence_lines(
+    *,
+    etl_file_path: str,
+    etl_session_name: str | None,
+    provider_guid: str | None,
+    provider_name: str | None,
+    event_id: int | None,
+    event_opcode: int | None,
+    timestamp_ft: int,
+    process_id: int | None,
+    thread_id: int | None,
+    anomaly_flags: dict,
+    tier_label: str,
+) -> list[str]:
+    """Build evidence body shared by all 4 ETL-event classifiers."""
+    return [
+        f"Tier: {tier_label}",
+        f"ETL file: {etl_file_path}",
+        f"Session name: {etl_session_name or '(unknown)'}",
+        f"Provider GUID: {provider_guid or '(unknown)'}",
+        f"Provider name: {provider_name or '(unknown — no manifest match)'}",
+        f"Event ID: {event_id if event_id is not None else '(unknown)'}",
+        f"Event opcode: 0x{event_opcode:02x}" if event_opcode is not None else "Event opcode: (unknown)",
+        f"Timestamp (FILETIME): {timestamp_ft}",
+        f"Process ID: {process_id if process_id is not None else '(unknown)'}",
+        f"Thread ID: {thread_id if thread_id is not None else '(unknown)'}",
+        f"Anomaly flags: {dict(anomaly_flags)}",
+    ]
+
+
+def classify_etl_findings(
+    *,
+    etl_file_path: str,
+    etl_session_name: str | None,
+    provider_guid: str | None,
+    provider_name: str | None,
+    event_id: int | None,
+    event_opcode: int | None,
+    timestamp_ft: int,
+    process_id: int | None,
+    thread_id: int | None,
+    anomaly_flags: dict,
+) -> list[_EtlFindingDraft]:
+    """Phase ι.C.D — map one WindowsEtlEvent row to 0+ Finding drafts.
+
+    Pure function — no DB access. Each row may yield 0 (no anomaly
+    fires) or up to 4 drafts (each anomaly bit is independent — a
+    single event can fire kernel_proc_after_clear + non_microsoft_in_
+    diagtrack simultaneously).
+
+    Tier mapping (Persona-E driven):
+
+    - windows_etl_kernel_proc_after_clear — HIGH (T1070.001 — kernel
+      process events retained in ETL after Security.evtx clear;
+      adversary's canonical missed-the-ETL trail).
+    - windows_etl_provider_disabled — HIGH (T1562.002 — logger-session-
+      end event from session-control provider).
+    - windows_etl_non_microsoft_in_diagtrack — HIGH (T1574 — third-
+      party provider inside Microsoft-only Diagtrack session).
+    - windows_etl_unusual_provider — MEDIUM (T1574 candidate — provider
+      not in known Microsoft set; review-worthy baseline).
+
+    Mirrors classify_systemd_findings (ι.B.D precedent) shape.
+    """
+    drafts: list[_EtlFindingDraft] = []
+
+    # ── windows_etl_kernel_proc_after_clear ──────────────────────────────────
+    if anomaly_flags.get("kernel_proc_after_evtx_clear"):
+        tier_label = (
+            "HIGH (T1070.001 Clear Windows Event Logs — kernel process "
+            "events retained in ETL after Security.evtx was cleared; "
+            "FortiGuard 2024 IR canonical tradecraft)"
+        )
+        drafts.append(_EtlFindingDraft(
+            source=_SOURCE_ETL_KERNEL_PROC_AFTER_CLEAR,
+            severity=Severity.high,
+            title=(
+                f"ETL kernel process event retained after EVTX clear: "
+                f"PID {process_id if process_id is not None else '?'}"
+            ),
+            description=(
+                "Windows ETL trace log contains a kernel process event "
+                "(NT Kernel Logger / Microsoft-Windows-Kernel-Process) "
+                "from a session whose firmware extract ALSO carries "
+                "evidence of a Security.evtx clear. Adversaries who "
+                "clear EVTX frequently forget to clear ETL — the kernel "
+                "ETL retains the post-clear process tree. FortiGuard "
+                "2024 IR documented AutoLogger-Diagtrack-Listener.etl "
+                "preserving the entire post-clear process tree after "
+                "Security.evtx was cleared. T1070.001 Clear Windows "
+                "Event Logs."
+            ),
+            evidence="\n".join(_etl_evidence_lines(
+                etl_file_path=etl_file_path,
+                etl_session_name=etl_session_name,
+                provider_guid=provider_guid,
+                provider_name=provider_name,
+                event_id=event_id,
+                event_opcode=event_opcode,
+                timestamp_ft=timestamp_ft,
+                process_id=process_id,
+                thread_id=thread_id,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.high,
+        ))
+
+    # ── windows_etl_provider_disabled ────────────────────────────────────────
+    if anomaly_flags.get("provider_disable_evidence"):
+        tier_label = (
+            "HIGH (T1562.002 Disable Windows Event Logging — logger-"
+            "session-end event from session-control provider)"
+        )
+        drafts.append(_EtlFindingDraft(
+            source=_SOURCE_ETL_PROVIDER_DISABLED,
+            severity=Severity.high,
+            title=(
+                f"ETL provider/session disable evidence: "
+                f"{provider_name or 'unknown provider'}"
+            ),
+            description=(
+                "Windows ETL trace log contains a logger-session-end "
+                "event (opcode 0x02 or 0x06) from a session-control "
+                "provider (EventLog / Logger / Trace-Control). This is "
+                "the residue of an adversary explicitly stopping an "
+                "ETW logger session — T1562.002 Disable Windows Event "
+                "Logging. Cross-reference against operator's ETW "
+                "configuration baseline; legitimate logger-stop events "
+                "occur at shutdown/reboot but should match the system's "
+                "documented ETW lifecycle."
+            ),
+            evidence="\n".join(_etl_evidence_lines(
+                etl_file_path=etl_file_path,
+                etl_session_name=etl_session_name,
+                provider_guid=provider_guid,
+                provider_name=provider_name,
+                event_id=event_id,
+                event_opcode=event_opcode,
+                timestamp_ft=timestamp_ft,
+                process_id=process_id,
+                thread_id=thread_id,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.high,
+        ))
+
+    # ── windows_etl_non_microsoft_in_diagtrack ───────────────────────────────
+    if anomaly_flags.get("non_microsoft_in_diagtrack"):
+        tier_label = (
+            "HIGH (T1574 Hijack Execution Flow — third-party provider "
+            "inside Microsoft-only Diagtrack-Listener session)"
+        )
+        drafts.append(_EtlFindingDraft(
+            source=_SOURCE_ETL_NON_MICROSOFT_IN_DIAGTRACK,
+            severity=Severity.high,
+            title=(
+                f"ETL third-party provider in Microsoft Diagtrack: "
+                f"{provider_name or provider_guid or 'unknown'}"
+            ),
+            description=(
+                "Windows ETL trace log shows a third-party provider "
+                "(non-Microsoft GUID and non-Microsoft name prefix) "
+                "emitting events inside the AutoLogger-Diagtrack-"
+                "Listener session. The Diagtrack-Listener session is "
+                "a Microsoft-only diagnostics surface by design. Any "
+                "third-party provider appearing inside it is a strong "
+                "T1574 (Hijack Execution Flow) indicator — adversaries "
+                "use the legitimate Diagtrack session to mask their "
+                "telemetry. Cross-reference against the firmware's "
+                "ETW logger configuration (Registry HKLM\\SYSTEM\\"
+                "CurrentControlSet\\Control\\WMI\\Autologger\\)."
+            ),
+            evidence="\n".join(_etl_evidence_lines(
+                etl_file_path=etl_file_path,
+                etl_session_name=etl_session_name,
+                provider_guid=provider_guid,
+                provider_name=provider_name,
+                event_id=event_id,
+                event_opcode=event_opcode,
+                timestamp_ft=timestamp_ft,
+                process_id=process_id,
+                thread_id=thread_id,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.high,
+        ))
+
+    # ── windows_etl_unusual_provider ─────────────────────────────────────────
+    if anomaly_flags.get("unusual_provider") and not anomaly_flags.get(
+        "non_microsoft_in_diagtrack"
+    ):
+        # Skip if also non_microsoft_in_diagtrack — that finding subsumes
+        # the unusual_provider signal AND adds the Diagtrack context.
+        tier_label = (
+            "MEDIUM (T1574 candidate — provider GUID not in known "
+            "Microsoft set; baseline review)"
+        )
+        drafts.append(_EtlFindingDraft(
+            source=_SOURCE_ETL_UNUSUAL_PROVIDER,
+            severity=Severity.medium,
+            title=(
+                f"ETL unusual provider: "
+                f"{provider_name or provider_guid or 'unknown'}"
+            ),
+            description=(
+                "Windows ETL trace log contains events from a provider "
+                "whose GUID is not in the known Microsoft set AND whose "
+                "name doesn't match the Microsoft-* / Windows-* vendor "
+                "prefix. Third-party ETW providers DO exist legitimately "
+                "(antivirus / endpoint protection / vendor-shipped "
+                "drivers), so this is a baseline-review indicator rather "
+                "than a HIGH-confidence adversary signal. Cross-"
+                "reference the provider GUID against the system's "
+                "manifest catalog (HKLM\\SOFTWARE\\Microsoft\\Windows\\"
+                "CurrentVersion\\WINEVT\\Publishers\\) and any "
+                "documented EDR baseline."
+            ),
+            evidence="\n".join(_etl_evidence_lines(
+                etl_file_path=etl_file_path,
+                etl_session_name=etl_session_name,
+                provider_guid=provider_guid,
+                provider_name=provider_name,
+                event_id=event_id,
+                event_opcode=event_opcode,
+                timestamp_ft=timestamp_ft,
+                process_id=process_id,
+                thread_id=thread_id,
+                anomaly_flags=anomaly_flags,
+                tier_label=tier_label,
+            )),
+            confidence=Confidence.medium,
+        ))
+
+    return drafts
+
+
 # ── Phase η.D.D — LOLDrivers BYOVD fingerprint classifier ──────────────────
 
 
@@ -4712,6 +4997,90 @@ class FindingService:
                     evidence=draft.evidence,
                     file_path=record.unit_path,
                     # Tier-bearing draft per ι.B.D classifier —
+                    # preserve heuristic tier confidence map.
+                    confidence=draft.confidence,
+                    firmware_id=firmware_id,
+                    source=draft.source,
+                )
+                emitted.append(await self.create(project_id, data))
+        return emitted
+
+    async def emit_etl_findings_from_walk(
+        self,
+        project_id: uuid.UUID,
+        firmware_id: uuid.UUID,
+    ) -> list[Finding]:
+        """Phase ι.C.D — emit windows_etl_* Finding rows for one firmware
+        (FIRST ι Windows emit hook; ι.A.D shipped journald, ι.B.D
+        shipped systemd — both extended LinuxFindingSource).
+
+        Reads every persisted ``WindowsEtlEvent`` row for the firmware
+        (rows produced by the ι.C.C walker) and projects each row
+        through :func:`classify_etl_findings` which may emit 0-4
+        drafts (each anomaly bit is independent — a single event can
+        fire kernel_proc_after_evtx_clear + non_microsoft_in_diagtrack
+        simultaneously).
+
+        Confidence tier is heuristic-driven by the classifier:
+
+        - HIGH — windows_etl_kernel_proc_after_clear (T1070.001 — kernel
+          process events retained in ETL after Security.evtx clear).
+        - HIGH — windows_etl_provider_disabled (T1562.002 — logger-
+          session-end event from session-control provider).
+        - HIGH — windows_etl_non_microsoft_in_diagtrack (T1574 — third-
+          party provider in Microsoft-only Diagtrack-Listener).
+        - MEDIUM — windows_etl_unusual_provider (T1574 candidate —
+          provider not in known Microsoft set; baseline review).
+
+        Mirrors emit_systemd_findings_from_walk shape — tier-bearing
+        drafts preserved through the boundary so FindingCreate.confidence
+        reflects the heuristic map.
+
+        Idempotency is the caller's responsibility — same shape as
+        emit_systemd_findings_from_walk; callers DELETE prior
+        windows_etl_* findings for the firmware before re-emitting.
+
+        Per Rule #36 — the classifier never starts a kernel trace
+        session, registers an ETW logger, invokes any process referenced
+        in event payloads, or loads any embedded provider manifest as
+        code. Provider GUIDs / event IDs / payloads are surfaced as
+        DATA in the Finding's evidence field for operator review only.
+        """
+        from app.models.windows_etl_events import WindowsEtlEvent
+        from app.services.jsonb_normalizers import (
+            _normalize_windows_etl_events_anomaly_flags,
+        )
+
+        stmt = select(WindowsEtlEvent).where(
+            WindowsEtlEvent.firmware_id == firmware_id
+        )
+        rows = (await self.db.execute(stmt)).scalars().all()
+
+        emitted: list[Finding] = []
+        for record in rows:
+            anomaly_flags = _normalize_windows_etl_events_anomaly_flags(
+                record.anomaly_flags
+            )
+            drafts = classify_etl_findings(
+                etl_file_path=record.etl_file_path,
+                etl_session_name=record.etl_session_name,
+                provider_guid=record.provider_guid,
+                provider_name=record.provider_name,
+                event_id=record.event_id,
+                event_opcode=record.event_opcode,
+                timestamp_ft=record.timestamp_ft,
+                process_id=record.process_id,
+                thread_id=record.thread_id,
+                anomaly_flags=anomaly_flags,
+            )
+            for draft in drafts:
+                data = FindingCreate(
+                    title=draft.title,
+                    severity=draft.severity,
+                    description=draft.description,
+                    evidence=draft.evidence,
+                    file_path=record.etl_file_path,
+                    # Tier-bearing draft per ι.C.D classifier —
                     # preserve heuristic tier confidence map.
                     confidence=draft.confidence,
                     firmware_id=firmware_id,

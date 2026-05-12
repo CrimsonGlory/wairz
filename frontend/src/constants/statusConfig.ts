@@ -138,6 +138,10 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   linux_systemd_socket_unusual_port: { icon: Network, label: 'Systemd Unusual Port', className: 'border-orange-500/50 text-orange-600 dark:text-orange-400' },
   linux_systemd_root_minimal_deps: { icon: KeyRound, label: 'Systemd Root No-Deps', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
   linux_systemd_enabled_outside_standard: { icon: Workflow, label: 'Systemd Non-Standard Target', className: 'border-orange-600/50 text-orange-700 dark:text-orange-300' },
+  windows_etl_kernel_proc_after_clear: { icon: Skull, label: 'ETL Kernel after Clear', className: 'border-red-800/70 text-red-800 dark:text-red-200' },
+  windows_etl_provider_disabled: { icon: ShieldX, label: 'ETL Provider Disabled', className: 'border-red-700/70 text-red-700 dark:text-red-200' },
+  windows_etl_unusual_provider: { icon: AlertTriangle, label: 'ETL Unusual Provider', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
+  windows_etl_non_microsoft_in_diagtrack: { icon: Workflow, label: 'ETL 3P in Diagtrack', className: 'border-red-700/70 text-red-700 dark:text-red-200' },
 }
 
 // ── Finding confidence ──

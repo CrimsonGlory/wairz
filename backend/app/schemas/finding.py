@@ -289,6 +289,36 @@ WindowsFindingSource = Literal[
     "windows_sdb_inject_dll",
     "windows_sdb_redirect_exe",
     "windows_sdb_custom_shim",
+    # Phase ι.C.D — alignment slice with frontend FindingSource union +
+    # FINDING_SOURCE_CONFIG entries. Emitted by the ETL walk emit hook
+    # (``finding_service.emit_etl_findings_from_walk``) per Persona-E
+    # ETW post-compromise surface — adversaries who clear EVTX often
+    # forget to clear ETL (FortiGuard 2024 IR case; Microsoft DART
+    # disclosures; Russinovich ProcMon-author blog).
+    #
+    # windows_etl_kernel_proc_after_clear — Kernel process events
+    #   retained in ETL after Security.evtx clear marker (correlated
+    #   via firmware.evtx_walk_result.log_clear_count). T1070.001
+    #   (Clear Windows Event Logs) post-clear evidence trail. Persona-E
+    #   HIGH — the canonical "adversary missed the ETL" tradecraft.
+    #
+    # windows_etl_provider_disabled — Logger-session-end event from a
+    #   session-control provider (EventLog / Logger / Trace-Control).
+    #   T1562.002 (Disable Windows Event Logging) supporting indicator.
+    #   Persona-E HIGH.
+    #
+    # windows_etl_unusual_provider — Provider GUID not in known
+    #   Microsoft set AND name doesn't match Microsoft-* / Windows-*
+    #   prefix. T1574 (Hijack Execution Flow — providers) candidate.
+    #   Persona-E MEDIUM.
+    #
+    # windows_etl_non_microsoft_in_diagtrack — Third-party provider
+    #   inside AutoLogger-Diagtrack-Listener session (Microsoft-only
+    #   by design). Strong T1574 indicator. Persona-E HIGH.
+    "windows_etl_kernel_proc_after_clear",
+    "windows_etl_provider_disabled",
+    "windows_etl_unusual_provider",
+    "windows_etl_non_microsoft_in_diagtrack",
 ]
 
 
