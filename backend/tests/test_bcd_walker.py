@@ -863,6 +863,89 @@ async def test_do_bcd_walk_handles_parser_exception():
 
 
 @pytest.mark.asyncio
+async def test_do_bcd_walk_emits_findings_via_auto_walk_wiring():
+    """Rule #35b live canary — confirm the θ.A.E wiring inside the
+    inner runner's caller (here we simulate the auto-walk-safe wrapper
+    by calling _do_bcd_walk + the emit hook directly with the SAME
+    session). Persisted Finding row's confidence MUST equal HIGH —
+    this is the Rule #35b live canary specifically called out by
+    the θ.A.E sub-task description.
+
+    We can't call auto_bcd_walk_firmware_safe directly in tier-1
+    tests because it opens its own async_session_factory(); the wired
+    sequence below mirrors what that wrapper does internally."""
+    from app.models import Finding
+    from app.services.finding_service import FindingService
+    from app.services.jsonb_normalizers import (
+        _stamp_firmware_bcd_walk_result,
+    )
+
+    async with make_live_db() as db:
+        project = Project(name="θ.A.E wired canary")
+        db.add(project)
+        await db.flush()
+
+        firmware = _make_firmware(project.id, "canary-wired.bin", "w")
+        db.add(firmware)
+        await db.flush()
+
+        # Build a bootkit entry — all anomaly flags raised so emit
+        # tier should be HIGH on both sources.
+        bootkit_obj = _make_fake_bcd_object(
+            guid="{deadbeef-1234-5678-9abc-def012345678}",
+            description_type=0x10200003,
+            elements={
+                ELEM_DESCRIPTION: "Adversary Bootkit",
+                ELEM_APPLICATION_PATH: "\\Users\\Public\\evil.efi",
+                ELEM_TESTSIGNING: b"\x01",
+                ELEM_NO_INTEGRITY_CHECKS: b"\x01",
+                ELEM_NX_POLICY: b"\x02\x00\x00\x00",
+            },
+        )
+
+        with tempfile.TemporaryDirectory() as root:
+            store_path = os.path.join(root, "BCD")
+            with open(store_path, "wb") as fp:  # noqa: ASYNC230 — test fixture: seed minimal REGF header for walker test; sync open acceptable
+                fp.write(_make_regf_magic())
+
+            with patch(
+                "app.services.bcd_walker.get_detection_roots",
+                return_value=[root],
+            ), _patch_registry_hive([bootkit_obj]):
+                # Step 1 (inner runner): walk + persist landing-zone rows.
+                result = await _do_bcd_walk(db, firmware.id)
+                # Step 2 (auto-walk-safe sequence): stamp aggregate.
+                firmware.bcd_walk_result = _stamp_firmware_bcd_walk_result(
+                    result
+                )
+                await db.commit()
+                # Step 3 (θ.A.E wire): emit Finding rows.
+                service = FindingService(db=db)
+                emitted = await service.emit_bcd_findings_from_walk(
+                    project.id, firmware.id
+                )
+                await db.commit()
+
+        assert result["entries_persisted"] == 1
+        # 2 emitted: suspicious_path HIGH + testsigning HIGH.
+        assert len(emitted) == 2
+        for f in emitted:
+            assert f.confidence == "high"
+
+        # Rule #35b live canary — SELECT + inspect confidence.
+        persisted = (
+            await db.execute(
+                select(Finding).where(Finding.firmware_id == firmware.id)
+            )
+        ).scalars().all()
+        assert len(persisted) == 2
+        for f in persisted:
+            assert f.confidence == "high", (
+                f"finding {f.source} confidence not HIGH (got {f.confidence})"
+            )
+
+
+@pytest.mark.asyncio
 async def test_do_bcd_walk_skips_objects_with_no_guid():
     """An object whose .name is None / empty is skipped (no row written)."""
     async with make_live_db() as db:

@@ -1105,7 +1105,39 @@ async def run_bcd_walk_background(firmware_id: uuid.UUID) -> None:
                 row.bcd_walk_status = "completed"
                 row.bcd_walk_finished_at = _dt.datetime.now(_dt.UTC)
                 row.bcd_walk_result = _stamp_firmware_bcd_walk_result(result)
+                project_id = row.project_id
                 await db.commit()
+
+                # θ.A.E — emit windows_bcd_* Finding rows alongside
+                # the status transition. Lazy import per Rule #30 to
+                # avoid bcd_walker ↔ finding_service circular at
+                # module load.
+                if result["entries_persisted"] > 0:
+                    try:
+                        from app.services.finding_service import (
+                            FindingService,
+                        )
+
+                        service = FindingService(db=db)
+                        emitted = (
+                            await service.emit_bcd_findings_from_walk(
+                                project_id, firmware_id
+                            )
+                        )
+                        await db.commit()
+                        logger.info(
+                            "bcd_walk: firmware %s emitted %d Finding rows",
+                            firmware_id,
+                            len(emitted),
+                        )
+                    except Exception:
+                        await db.rollback()
+                        logger.warning(
+                            "bcd_walk: firmware %s Finding emit failed",
+                            firmware_id,
+                            exc_info=True,
+                        )
+
                 logger.info(
                     "bcd_walk: firmware %s completed in %.2fs (%d "
                     "stores, %d entries walked, %d persisted, %d "
@@ -1167,8 +1199,9 @@ async def auto_bcd_walk_firmware_safe(firmware_id: uuid.UUID) -> None:
     triggers a re-walk via the trigger MCP tool, which resets and
     runs again.
 
-    Will be extended in θ.A.E to wire the finding emit hook
-    after _do_bcd_walk returns.
+    Wired to FindingService.emit_bcd_findings_from_walk in θ.A.E so
+    auto-walks produce both the per-entry landing-zone rows AND the
+    bootkit-precursor Finding rows in a single pass.
     """
     try:
         async with async_session_factory() as db:
@@ -1178,9 +1211,45 @@ async def auto_bcd_walk_firmware_safe(firmware_id: uuid.UUID) -> None:
                     select(Firmware).where(Firmware.id == firmware_id)
                 )
             ).scalar_one_or_none()
+            project_id: uuid.UUID | None = None
             if row is not None:
                 row.bcd_walk_result = _stamp_firmware_bcd_walk_result(result)
+                project_id = row.project_id
                 await db.commit()
+
+            # θ.A.E — emit windows_bcd_* Finding rows for each
+            # WindowsBcdEntry persisted by the inner runner. Lazy
+            # import per Rule #30 to avoid bcd_walker ↔ finding_service
+            # circular at module load (and to keep the cold-import
+            # cost off the unpack worker's critical path when no BCD
+            # is actually present in the firmware).
+            if project_id is not None and result["entries_persisted"] > 0:
+                try:
+                    from app.services.finding_service import FindingService
+
+                    service = FindingService(db=db)
+                    emitted = await service.emit_bcd_findings_from_walk(
+                        project_id, firmware_id
+                    )
+                    await db.commit()
+                    logger.info(
+                        "bcd_walk auto: firmware %s emitted %d Finding rows",
+                        firmware_id,
+                        len(emitted),
+                    )
+                except Exception:
+                    # Emit failure must NOT roll back the walk-result
+                    # persistence — leave the windows_bcd_entries rows
+                    # + bcd_walk_result aggregate in place even if the
+                    # downstream Finding emit raises. Operators can
+                    # re-run via the trigger MCP tool to retry.
+                    await db.rollback()
+                    logger.warning(
+                        "bcd_walk auto: firmware %s Finding emit failed",
+                        firmware_id,
+                        exc_info=True,
+                    )
+
             logger.info(
                 "bcd_walk auto: firmware %s walked %d stores / %d "
                 "entries in %.2fs",
