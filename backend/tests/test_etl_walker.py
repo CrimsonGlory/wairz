@@ -51,7 +51,6 @@ from app.services.etl_walker import (
 )
 from tests._live_db import make_live_db
 
-
 # ── normalize_provider_guid ───────────────────────────────────────────────────
 
 
@@ -106,7 +105,7 @@ def test_normalize_provider_guid_bad_byte_length():
 
 def test_datetime_to_filetime_unix_epoch_boundary():
     """1970-01-01 00:00:00 UTC is FILETIME 116444736000000000."""
-    dt = _dt.datetime(1970, 1, 1, tzinfo=_dt.timezone.utc)
+    dt = _dt.datetime(1970, 1, 1, tzinfo=_dt.UTC)
     assert datetime_to_filetime(dt) == 116444736000000000
 
 
@@ -117,7 +116,7 @@ def test_datetime_to_filetime_naive_treated_as_utc():
 
 def test_datetime_to_filetime_filetime_zero_is_1601():
     """The FILETIME zero epoch (1601-01-01) → 0."""
-    dt = _dt.datetime(1601, 1, 1, tzinfo=_dt.timezone.utc)
+    dt = _dt.datetime(1601, 1, 1, tzinfo=_dt.UTC)
     assert datetime_to_filetime(dt) == 0
 
 
@@ -173,7 +172,7 @@ def test_serialise_event_values_bytes_to_b64_preview():
 
 
 def test_serialise_event_values_datetime_iso():
-    dt = _dt.datetime(2024, 1, 1, 12, 0, tzinfo=_dt.timezone.utc)
+    dt = _dt.datetime(2024, 1, 1, 12, 0, tzinfo=_dt.UTC)
     out = serialise_event_values({"Timestamp": dt})
     assert out["Timestamp"].startswith("2024-01-01T12:00:00")
 

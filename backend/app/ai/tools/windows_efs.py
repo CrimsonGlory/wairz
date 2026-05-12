@@ -38,7 +38,8 @@ import json
 import logging
 import uuid
 
-from sqlalchemy import select, func as sa_func
+from sqlalchemy import func as sa_func
+from sqlalchemy import select
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.models.firmware import Firmware
@@ -630,7 +631,7 @@ async def _handle_lookup_efs_recovery_agent_across_firmwares(
         )
     elif len(matches) >= 2:
         out["supply_chain_signal"] = (
-            f"Recovery agent matching "
+            "Recovery agent matching "
             + (
                 f"SID {sid_filter!r}" if sid_filter else ""
             )

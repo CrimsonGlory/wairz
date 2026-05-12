@@ -3607,9 +3607,9 @@ def _efs_evidence_lines(
         f"$EFS attribute size: {efs_attribute_size} bytes",
         f"DDF user count: {ddf_user_count}",
         f"DRF recovery agent count: {drf_recovery_agent_count}",
-        f"DDF users (top 5):" if ddf_preview else "DDF users: (none)",
+        "DDF users (top 5):" if ddf_preview else "DDF users: (none)",
         *ddf_preview,
-        f"DRF recovery agents (top 5):" if drf_preview else (
+        "DRF recovery agents (top 5):" if drf_preview else (
             "DRF recovery agents: (none)"
         ),
         *drf_preview,

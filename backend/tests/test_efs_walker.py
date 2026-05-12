@@ -43,7 +43,6 @@ from app.services.efs_walker import (
 )
 from tests._live_db import make_live_db
 
-
 # ── parse_sid_binary ─────────────────────────────────────────────────────────
 
 
@@ -728,8 +727,8 @@ def _strip_docstrings_and_comments(source: str) -> str:
     line string literals), every `# ...` line comment, and every single-
     line string literal. The remaining text is the executable code.
     """
-    import tokenize
     import io
+    import tokenize
 
     out_tokens = []
     try:
