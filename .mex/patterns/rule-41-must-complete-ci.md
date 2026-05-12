@@ -157,6 +157,30 @@ Acceptable for the defect class (integration / test regressions are
 typically less time-sensitive than syntactic-lint regressions like
 F823 which need ~1-commit latency).
 
+**Empirical validation status (as of 2026-05-12T00:52Z):** PENDING.
+The first scheduled `pytest-must-complete` cron run fires
+**2026-05-13 06:00 UTC** (~29h from this writeup).  After that fire
+window passes, run:
+
+```bash
+gh run list --workflow=backend-tests.yml --limit 10 --json \
+  event,conclusion,createdAt,headSha \
+  | jq '.[] | select(.event=="schedule")'
+```
+
+Outcomes:
+- `conclusion: "success"` → declare mechanism (b) validated; replace
+  this section with the observed run-id + a final empirical-cost note.
+- `conclusion: "failure"` AND failure precedes the pytest step (setup
+  fail, missing secret, env mismatch) → tune the setup steps in
+  `.github/workflows/backend-tests.yml` to match the `pytest` job's
+  setup exactly (mirror env vars, postgres init, redis init, uv lock
+  cadence).  Then re-trigger via `gh workflow run backend-tests.yml`
+  and re-verify.
+- `conclusion: "failure"` AND failure is in pytest itself → real test
+  regression introduced between commit `d8a075b` and now.  Triage as a
+  normal red-test debugging task; mechanism (b) is working as intended.
+
 ## Mechanism (d) — Accept-the-gap (document, don't mitigate)
 
 **Use when:** workflow is PR-only (no push trigger).  The Rule #41
