@@ -157,10 +157,43 @@ Acceptable for the defect class (integration / test regressions are
 typically less time-sensitive than syntactic-lint regressions like
 F823 which need ~1-commit latency).
 
-**Empirical validation status (as of 2026-05-12T00:52Z):** PENDING.
-The first scheduled `pytest-must-complete` cron run fires
-**2026-05-13 06:00 UTC** (~29h from this writeup).  After that fire
-window passes, run:
+**Empirical validation status (as of 2026-05-12T14:00Z): VALIDATED
+(outcome path 3 — failure-in-pytest).**
+
+The first scheduled `pytest-must-complete` cron run fired
+**2026-05-12T07:04:44Z** (run 25719032335 on commit 0f21c41) —
+conclusion `failure` at the "Run pytest" step.  The failure was in
+pytest itself (not setup), so outcome path 3 of the decision tree
+below was followed: triaged as a real regression and fixed in commit
+2aaacb1 (2026-05-12T14:00Z).
+
+The regression: `test_finding_source_alignment_includes_sdb_sources`
+in `backend/tests/test_finding_service_sdb_emit.py` (added in commit
+66cd1bf, θ.D.E SDB cross-stack alignment + emit) read
+`/frontend/src/types/index.ts` at runtime, but the backend container
+at `/app/` has no `/frontend` mount.  Fix: per-test
+`pytest.mark.skipif` decorator mirroring the canonical
+`test_finding_source_alignment.py` module-level guard.
+
+**Defect latency:** ~3 hours from regression introduction (66cd1bf
+push at 2026-05-12T03:55Z) to surfacing (cron fire at 07:04Z).  Within
+the documented "≤24h" target for mechanism (b).
+
+**Empirical cost:** run 25719032335 ran 8m25s of runner time.  At
+~$0.008/min commercial runner = ~$0.07/run × 30 nights/month =
+~$2.10/month.  Matches the projected $0.07/day at the time of
+mechanism selection.
+
+**Concurrency-cancel masking confirmed at the data layer:** every
+push-side `pytest` job between c9c73fa (introduction-of-66cd1bf
+sibling push) and 50f8a35 showed `conclusion: cancelled` in run
+history — none reached the failing test before being preempted by
+the next push.  Worked-example reinforcement of CLAUDE.md Rule #41
+(joint with the original `emulation.py:2627` F823 incident from
+2026-05-11 — that was a Lint surface; this is a pytest surface).
+
+To check future cron outcomes (decision tree below applies to every
+future cron fire, not just the first):
 
 ```bash
 gh run list --workflow=backend-tests.yml --limit 10 --json \
@@ -169,8 +202,7 @@ gh run list --workflow=backend-tests.yml --limit 10 --json \
 ```
 
 Outcomes:
-- `conclusion: "success"` → declare mechanism (b) validated; replace
-  this section with the observed run-id + a final empirical-cost note.
+- `conclusion: "success"` → no action; mechanism continues to operate.
 - `conclusion: "failure"` AND failure precedes the pytest step (setup
   fail, missing secret, env mismatch) → tune the setup steps in
   `.github/workflows/backend-tests.yml` to match the `pytest` job's
@@ -178,8 +210,9 @@ Outcomes:
   cadence).  Then re-trigger via `gh workflow run backend-tests.yml`
   and re-verify.
 - `conclusion: "failure"` AND failure is in pytest itself → real test
-  regression introduced between commit `d8a075b` and now.  Triage as a
-  normal red-test debugging task; mechanism (b) is working as intended.
+  regression.  Triage as a normal red-test debugging task; mechanism
+  (b) is working as intended.  (Worked example: run 25719032335,
+  fix commit 2aaacb1.)
 
 ## Mechanism (d) — Accept-the-gap (document, don't mitigate)
 
