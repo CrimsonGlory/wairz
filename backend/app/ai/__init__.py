@@ -13,6 +13,7 @@ from app.ai.tools.fuzzing import register_fuzzing_tools
 from app.ai.tools.hardware_firmware import register_hardware_firmware_tools
 from app.ai.tools.linux_container import register_linux_container_tools
 from app.ai.tools.linux_journald import register_linux_journald_tools
+from app.ai.tools.linux_persistence import register_linux_persistence_tools
 from app.ai.tools.linux_systemd import register_linux_systemd_tools
 from app.ai.tools.network import register_network_tools
 from app.ai.tools.reporting import register_reporting_tools
@@ -96,4 +97,5 @@ def create_tool_registry() -> ToolRegistry:
     register_windows_efs_tools(registry)
     register_linux_container_tools(registry)
     register_windows_appcompat_tools(registry)
+    register_linux_persistence_tools(registry)
     return registry
