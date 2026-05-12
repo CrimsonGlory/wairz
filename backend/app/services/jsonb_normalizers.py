@@ -3756,3 +3756,96 @@ def _stamp_firmware_persistence_walk_result(payload: dict) -> dict:
         FIRMWARE_PERSISTENCE_WALK_RESULT_SCHEMA_VERSION
     )
     return payload
+
+
+# ── windows_dpapi_master_keys.anomaly_flags (Phase κ.D.A) ─────────────────────
+#
+# Per-file anomaly aggregate computed by the κ.D.D classifier. Canonical
+# shape:
+#
+#   {
+#     "schema_version": 1,
+#     "orphaned_masterkey": bool,    # creator_sid no match elsewhere
+#     "admin_creator_sid": bool,     # creator_sid matches RID 500/512/519/18
+#     "large_masterkey": bool,       # file_size_bytes > 2048
+#     "parse_error": bool,           # file header parse failed
+#   }
+#
+# PARSE-ONLY DISCIPLINE (Rule #36 + Rule #45): the κ.D.C walker NEVER
+# decrypts any master-key data and NEVER stamps anything cryptographic
+# in this JSONB.
+#
+# Consumers (≥3 — Rule #35c stamp helper required):
+# - app/services/dpapi_walker.py (writer — populates from classifier)
+# - app/services/finding_service.py (emit_dpapi_findings_from_walk —
+#   κ.D.D classifier)
+# - app/ai/tools/windows_dpapi.py (MCP tools — exposes anomaly_only filter)
+
+WINDOWS_DPAPI_MASTER_KEYS_ANOMALY_FLAGS_SCHEMA_VERSION = 1
+
+
+def _normalize_windows_dpapi_anomaly_flags(value: object) -> dict:
+    """Return the canonical ``dict`` shape for
+    ``WindowsDpapiMasterKey.anomaly_flags``.
+
+    Defensive: None / wrong-typed → empty dict. Empty dict means "no
+    anomaly evaluation was performed" (e.g. early-init path).
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_windows_dpapi_anomaly_flags(payload: dict) -> dict:
+    """Stamp the schema_version inline onto an ``anomaly_flags`` payload
+    for ``WindowsDpapiMasterKey.anomaly_flags``. Idempotent."""
+    payload["schema_version"] = (
+        WINDOWS_DPAPI_MASTER_KEYS_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+    return payload
+
+
+# ── firmware.dpapi_walk_result (Phase κ.D.B) ──────────────────────────────────
+#
+# Per-firmware aggregate from a single DPAPI master-key METADATA walk.
+# Mirrors appcompat_walk_result / efs_walk_result / persistence_walk_result.
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "run_seconds": float,
+#     "files_scanned": int,
+#     "files_persisted": int,
+#     "files_capped": int,
+#     "parse_errors": int,
+#     "orphaned_masterkey_count": int,
+#     "admin_creator_sid_count": int,
+#     "large_masterkey_count": int,
+#     "anomaly_total": int,
+#     "errors": list[str],
+#     "per_file": list[dict],
+#   }
+#
+# PARSE-ONLY DISCIPLINE (Rule #36 + Rule #45): the walker NEVER
+# decrypts; this JSONB carries METADATA aggregates only.
+
+FIRMWARE_DPAPI_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_dpapi_walk_result(value: object) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.dpapi_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_dpapi_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.dpapi_walk_result``. Idempotent."""
+    payload["schema_version"] = FIRMWARE_DPAPI_WALK_RESULT_SCHEMA_VERSION
+    return payload

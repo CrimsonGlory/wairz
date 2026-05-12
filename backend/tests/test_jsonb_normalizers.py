@@ -35,6 +35,7 @@ from app.services.jsonb_normalizers import (
     FIRMWARE_CONTAINER_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_DEVICE_METADATA_SCHEMA_VERSION,
     FIRMWARE_DOTNET_DECOMPILE_RESULT_SCHEMA_VERSION,
+    FIRMWARE_DPAPI_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_EFS_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_ESP_WALK_RESULT_SCHEMA_VERSION,
     FIRMWARE_ETL_WALK_RESULT_SCHEMA_VERSION,
@@ -62,6 +63,7 @@ from app.services.jsonb_normalizers import (
     WINDOWS_APPCOMPAT_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION,
     WINDOWS_BCD_ENTRIES_ANOMALY_FLAGS_SCHEMA_VERSION,
     WINDOWS_BCD_ENTRIES_CUSTOM_ELEMENTS_SCHEMA_VERSION,
+    WINDOWS_DPAPI_MASTER_KEYS_ANOMALY_FLAGS_SCHEMA_VERSION,
     WINDOWS_DRIVERS_INF_METADATA_SCHEMA_VERSION,
     WINDOWS_EFS_ENCRYPTED_FILES_ANOMALY_FLAGS_SCHEMA_VERSION,
     WINDOWS_EFS_ENCRYPTED_FILES_DDF_USERS_SCHEMA_VERSION,
@@ -106,6 +108,7 @@ from app.services.jsonb_normalizers import (
     _normalize_firmware_cve_match_result,
     _normalize_firmware_device_metadata,
     _normalize_firmware_dotnet_decompile_result,
+    _normalize_firmware_dpapi_walk_result,
     _normalize_firmware_efs_walk_result,
     _normalize_firmware_esp_walk_result,
     _normalize_firmware_etl_walk_result,
@@ -144,6 +147,7 @@ from app.services.jsonb_normalizers import (
     _normalize_windows_appcompat_entries_anomaly_flags,
     _normalize_windows_bcd_entries_anomaly_flags,
     _normalize_windows_bcd_entries_custom_elements,
+    _normalize_windows_dpapi_anomaly_flags,
     _normalize_windows_drivers_inf_metadata,
     _normalize_windows_efs_encrypted_files_anomaly_flags,
     _normalize_windows_efs_encrypted_files_ddf_users,
@@ -176,6 +180,7 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_container_walk_result,
     _stamp_firmware_device_metadata,
     _stamp_firmware_dotnet_decompile_result,
+    _stamp_firmware_dpapi_walk_result,
     _stamp_firmware_efs_walk_result,
     _stamp_firmware_esp_walk_result,
     _stamp_firmware_etl_walk_result,
@@ -202,6 +207,7 @@ from app.services.jsonb_normalizers import (
     _stamp_windows_appcompat_entries_anomaly_flags,
     _stamp_windows_bcd_entries_anomaly_flags,
     _stamp_windows_bcd_entries_custom_elements,
+    _stamp_windows_dpapi_anomaly_flags,
     _stamp_windows_drivers_inf_metadata,
     _stamp_windows_efs_encrypted_files_anomaly_flags,
     _stamp_windows_efs_encrypted_files_ddf_users,
@@ -4626,3 +4632,114 @@ def test_stamp_firmware_persistence_walk_result_idempotent():
 
 def test_firmware_persistence_walk_result_schema_version_constant():
     assert FIRMWARE_PERSISTENCE_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+# ── windows_dpapi_master_keys.anomaly_flags (Phase κ.D.A) ─────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {
+                "schema_version": 1,
+                "orphaned_masterkey": True,
+                "admin_creator_sid": False,
+                "large_masterkey": False,
+                "parse_error": False,
+            },
+            {
+                "schema_version": 1,
+                "orphaned_masterkey": True,
+                "admin_creator_sid": False,
+                "large_masterkey": False,
+                "parse_error": False,
+            },
+        ),
+        ({}, {}),
+        (None, {}),
+        ([{"a": 1}], {}),
+        ("not a dict", {}),
+        (42, {}),
+    ],
+)
+def test_normalize_windows_dpapi_anomaly_flags(value, expected):
+    assert _normalize_windows_dpapi_anomaly_flags(value) == expected
+
+
+def test_normalize_windows_dpapi_anomaly_flags_idempotent():
+    canonical = {"schema_version": 1, "orphaned_masterkey": True}
+    once = _normalize_windows_dpapi_anomaly_flags(canonical)
+    twice = _normalize_windows_dpapi_anomaly_flags(once)
+    assert once == twice == canonical
+
+
+def test_stamp_windows_dpapi_anomaly_flags_adds_version():
+    out = _stamp_windows_dpapi_anomaly_flags(
+        {"orphaned_masterkey": True}
+    )
+    assert (
+        out["schema_version"]
+        == WINDOWS_DPAPI_MASTER_KEYS_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+
+
+def test_stamp_windows_dpapi_anomaly_flags_idempotent():
+    once = _stamp_windows_dpapi_anomaly_flags(
+        {"orphaned_masterkey": True}
+    )
+    twice = _stamp_windows_dpapi_anomaly_flags(once)
+    assert once == twice
+
+
+def test_windows_dpapi_master_keys_anomaly_flags_schema_version_constant():
+    assert WINDOWS_DPAPI_MASTER_KEYS_ANOMALY_FLAGS_SCHEMA_VERSION == 1
+
+
+# ── firmware.dpapi_walk_result (Phase κ.D.B) ──────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {
+                "schema_version": 1,
+                "files_scanned": 3,
+                "files_persisted": 3,
+                "anomaly_total": 1,
+            },
+            {
+                "schema_version": 1,
+                "files_scanned": 3,
+                "files_persisted": 3,
+                "anomaly_total": 1,
+            },
+        ),
+        ({}, {}),
+        (None, None),
+        ([{"a": 1}], None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_dpapi_walk_result(value, expected):
+    assert _normalize_firmware_dpapi_walk_result(value) == expected
+
+
+def test_stamp_firmware_dpapi_walk_result_adds_version():
+    out = _stamp_firmware_dpapi_walk_result({"files_scanned": 0})
+    assert (
+        out["schema_version"]
+        == FIRMWARE_DPAPI_WALK_RESULT_SCHEMA_VERSION
+    )
+
+
+def test_stamp_firmware_dpapi_walk_result_idempotent():
+    once = _stamp_firmware_dpapi_walk_result({"files_scanned": 0})
+    twice = _stamp_firmware_dpapi_walk_result(once)
+    assert once == twice
+
+
+def test_firmware_dpapi_walk_result_schema_version_constant():
+    assert FIRMWARE_DPAPI_WALK_RESULT_SCHEMA_VERSION == 1
