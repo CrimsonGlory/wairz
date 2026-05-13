@@ -841,6 +841,31 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # ── λ.α.B — Memory-dump-image enumerator state machine ──────────
+    # Phase λ.α.B walker — enumerates memory-image candidates
+    # (``.raw|.dmp|.vmem|.lime|.mem|.crash`` files above 100 MB) under
+    # the firmware's detection roots and populates ``memory_dump_image``
+    # rows (table from λ.α.A). The enumerator does NOT invoke
+    # Volatility 3 — that's λ.α.D's vol3_runner. Pure-Python filesystem
+    # walk + magic-byte head probe; no subprocess. Rule #33 .d —
+    # ``asyncio.create_task`` dispatch (in-process pure-Python; no
+    # Docker spawn). Rule #33 .c CHECK enforces the 5-state machine.
+    memory_dump_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    memory_dump_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    memory_dump_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    memory_dump_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    memory_dump_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

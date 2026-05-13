@@ -69,6 +69,9 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
     )
     from app.services.lnk_walker import auto_lnk_walk_firmware_safe
     from app.services.mbr_vbr_walker import auto_mbr_vbr_walk_firmware_safe
+    from app.services.memory_image_enumerator import (
+        auto_memory_image_enumeration_safe,
+    )
     from app.services.mft_walker import auto_mft_walk_firmware_safe
     from app.services.prefetch_walker import (
         auto_walk_firmware_safe as prefetch_auto_walk,
@@ -99,6 +102,9 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
         auto_etl_walk_firmware_safe,
         auto_lnk_walk_firmware_safe,
         auto_mbr_vbr_walk_firmware_safe,
+        # λ.α.B — memory-dump-image enumerator (metadata only; no Vol3
+        # invocation here — λ.α.D's vol3_runner is the Vol3 entry point).
+        auto_memory_image_enumeration_safe,
         auto_mft_walk_firmware_safe,
         prefetch_auto_walk,
         auto_scheduled_task_walk_firmware_safe,
