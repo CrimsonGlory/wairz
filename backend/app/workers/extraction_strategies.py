@@ -36,6 +36,7 @@ from app.workers.unpack_msu import unpack_msu
 from app.workers.unpack_no_handler import unpack_no_handler
 from app.workers.unpack_psf import unpack_psf
 from app.workers.unpack_qnx_ifs import unpack_qnx_ifs
+from app.workers.unpack_tibx import unpack_tibx
 from app.workers.unpack_vhdx import unpack_vhdx
 from app.workers.unpack_wim import unpack_wim
 from app.workers.unpack_windows_installer_iso import unpack_windows_installer_iso
@@ -80,7 +81,14 @@ STRATEGIES: dict[DetectedFormat, Strategy] = {
     DetectedFormat.WINDOWS_DRIVER_PACKAGE: unpack_driver_package,     # α handler 6 — cabextract + INF/SYS/CAT class (FULL)
     DetectedFormat.WINDOWS_VHDX: unpack_vhdx,                         # α handler 7 — qemu-img convert vhdx → raw (FULL)
     DetectedFormat.UNKNOWN: _DEFAULT,                 # let unblob have a try
-    DetectedFormat.ACRONIS_BACKUP: unpack_no_handler,
+    # Phase λ.μ handler — Acronis tibx-extractor side-container (BYOB-SC)
+    # spawns wairz-tibx-extractor via Docker SDK; tibxread (operator-
+    # installed Acronis Cyber Protection Agent for Linux) writes
+    # disk.raw into tibx_work named volume; worker copies into
+    # extraction_dir/disk.raw. Capability is PARTIAL because it
+    # requires operator setup (WAIRZ_TIBX_AGENT_PATH); single-disk
+    # default (multi-disk follow-up).
+    DetectedFormat.ACRONIS_BACKUP: unpack_tibx,
 }
 
 
