@@ -684,6 +684,21 @@ async def _post_process_pipeline(
                                 "Archive diagnostic scan failed",
                                 exc_info=True,
                             )
+                        # Walker-bridge fix: surface the zip_contents/
+                        # directory as the firmware's extracted_path so
+                        # downstream consumers (populate_detection_roots,
+                        # _run_hardware_firmware_detection_safe, and the
+                        # 22-walker registry it iterates via
+                        # walker_registry.WALKER_AUTO_TRIGGERS) can find
+                        # work to do. Before this assignment, generic-ZIP
+                        # firmware (Windows boot CDs / multi-file medical
+                        # firmware bundles / etc.) extracted successfully
+                        # but extracted_path stayed NULL — so detection
+                        # never fired and every *_walk_status column
+                        # remained 'idle'. Tar + rootfs-ZIP shortcuts
+                        # above already set extracted_path; this brings
+                        # the generic-ZIP path in line.
+                        firmware.extracted_path = zip_root
                 except (zipfile.BadZipFile, EOFError, OSError) as exc:
                     logger.warning(
                         "Generic ZIP extraction failed (%s); raw zip preserved on disk",
@@ -733,11 +748,52 @@ async def _post_process_pipeline(
         await db.commit()
 
         # Fire HW detection post-commit if extraction succeeded.
+        # The HW detection runner itself dispatches the walker
+        # auto-trigger registry (see app.workers.walker_registry +
+        # _run_hardware_firmware_detection_safe), so this single
+        # create_task covers BOTH HW-blob discovery AND every walker
+        # registered in WALKER_AUTO_TRIGGERS.
         if firmware.extracted_path:
             asyncio.create_task(
                 _run_hardware_firmware_detection_safe(
                     firmware.id, firmware.extracted_path,
                 ),
+            )
+
+
+async def _fire_walker_auto_triggers(firmware_id: uuid.UUID) -> None:
+    """Dispatch every walker safe-runner in WALKER_AUTO_TRIGGERS sequentially.
+
+    Thin orchestrator that iterates ``walker_registry.get_walker_auto_triggers()``
+    and invokes each ``auto_*_walk_firmware_safe(firmware_id)`` with an
+    outer try/except so one walker's crash doesn't block the rest. Each
+    safe-runner owns its own ``async_session_factory()`` session and is
+    fire-and-forget per Rule #39.
+
+    Sequential rather than ``asyncio.gather`` per Rule #7 — even though
+    each safe-runner owns its own AsyncSession, the worker container's
+    PostgreSQL pool is finite and a 22-way gather would starve other
+    requests. Sequential matches the shape
+    ``_run_hardware_firmware_detection_safe`` uses (one walker at a
+    time after detection + graph build).
+
+    Used by the Shape A walker-bridge: ``_post_process_pipeline`` calls
+    ``_run_hardware_firmware_detection_safe`` which calls this helper.
+    Also called directly by tests (Rule #35b live canary against the
+    full walker chain) and by any future operator-triggered "fire all
+    walkers" maintenance endpoint.
+    """
+    from app.workers.walker_registry import get_walker_auto_triggers
+
+    for safe_runner in get_walker_auto_triggers():
+        try:
+            await safe_runner(firmware_id)
+        except Exception:
+            logger.warning(
+                "walker auto-trigger %s failed for firmware %s",
+                getattr(safe_runner, "__qualname__", repr(safe_runner)),
+                firmware_id,
+                exc_info=True,
             )
 
 
