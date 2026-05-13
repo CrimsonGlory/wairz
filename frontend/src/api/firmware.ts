@@ -15,7 +15,16 @@ import type {
 //
 // Applies to POST /firmware (now returns 202 with FirmwareUploadStatus)
 // and POST /firmware/{id}/upload-rootfs (rootfs can be similarly large).
-const UPLOAD_TIMEOUT = 600_000
+// 1.8M ms = 30 min. Empirical 2026-05-12: a 15.57 GB Medtronic ILLUMISITE
+// upload timed out at the prior 600_000 (10 min) ceiling — Rule #29 math
+// requires `frontend_ms ≥ backend_s × 1200`; for a 16 GB transfer at 100
+// Mbps LAN + inline SHA256 the wall is ~22 min transit + ~3 min hash =
+// ~25 min, which exceeds 600_000. Bumped to 1_800_000 for headroom. The
+// proper fix (referenced in intake walker-auto-trigger-gap-after-upload-
+// pipeline-refactor-2026-05-13.md "deeper proper fix") is a 202-fast
+// refactor — return 202 immediately on raw-bytes-received and move hash
+// + dedup + INSERT to a background task per Rule #33 .a discipline.
+const UPLOAD_TIMEOUT = 1_800_000
 
 export async function uploadFirmware(
   projectId: string,
