@@ -138,6 +138,58 @@ restart backend` per Rule #20 fast-iteration. Backend confirmed healthy.
 **Status:** Rule-of-One; if a similar regression surfaces in λ.α or later,
 promote to Rule-of-Two formal codification.
 
+### A13 (NEW — Rule-of-One, EXTENDS Rule #46 to shell-script gates): `grep -q -` silently broken on ugrep-aliased systems
+
+**Surface:** Orchestrator-side until-loop watcher set up to fire when a firmware
+DB row appears for the active upload monitoring use case (2026-05-12 ILLUMISITE
+upload test post-κ):
+
+```bash
+until docker compose exec -T postgres psql -U wairz -d wairz -tAc \
+    "SELECT id FROM firmware WHERE project_id = '<pid>'" 2>/dev/null \
+    | grep -q -; do sleep 10; done
+```
+
+The watcher NEVER FIRED despite the firmware row appearing in the DB ~minutes
+after the row's INSERT. Operator waited 10+ minutes before pinging.
+
+**Root cause:** on this system `grep` is aliased to `ugrep` (per system shell
+config). ugrep does NOT accept bare `-` as a "match anything" pattern — it
+emits `ugrep: no PATTERN specified: specify --match or an empty "" pattern to
+match all input` and exits NON-ZERO. The `until` loop reads "until command
+exits 0" — with ugrep always exiting non-zero, the loop ran forever (until
+hitting the 600s timeout) silently.
+
+**This is a Rule #46 violation by the orchestrator.** I (the orchestrator)
+introduced a verification mechanism (the until-loop watcher) that asserts
+ABSENCE of a row → presence of a row, without canary-verifying the gate
+actually fires on a synthetic positive. The first 2 watchers I dispatched
+in this incident had the same bug; both silently never fired.
+
+**Mitigation (codified for future shell-script gates):**
+1. NEVER use `grep -q -` as "is there any output" — use `grep -q .` (match
+   any character) OR `grep -q ""` (empty pattern matches all input on standard
+   grep; check ugrep docs for the equivalent — `ugrep --empty` or `--match` flag).
+2. Better: use `[ -n "$(cmd)" ]` for "is the output non-empty" — POSIX-portable,
+   no grep dependency, works regardless of which `grep` impl is installed.
+3. **Rule #46 partner — canary the watcher.** Before trusting an until-loop,
+   force-fire it once against a synthetic positive: e.g. inject a fake row,
+   verify the loop exits, remove the fake row. ~10 sec discipline; saves
+   10+ minutes of wasted-wait per real incident.
+
+**Lessons for Rule #46 codification:** Rule #46 currently lists 4 instances
+(Rule #17 base, Rule #24, κ.D test-gate, κ.E pipe-induced). This incident is
+the FIFTH and FIRST in the ORCHESTRATOR'S shell-script polling layer (not the
+sub-agent's Python). Pattern extends beyond Python test gates to ANY
+absence-asserting verification mechanism the orchestrator writes — including
+ad-hoc bash watchers. Rule #46 holds at Rule-of-Five; the ORCHESTRATOR-LAYER
+extension is documented here as Rule-of-One within that subclass.
+
+**Status:** Caught + recovered same-session. Watcher fixed to use
+`grep -qE "^(ready|failed)$"` (real regex pattern). Recommend future watcher
+prompts use `[ -n "$()" ]` form unconditionally to eliminate the ugrep risk
+class entirely.
+
 **Surface:** Rule #24 mandatory tsc canary invoked with pipe (`tsc 2>&1 | tail
 -10`) — the pipe hid the real tsc exit code (Rule #35a). The canary's failure
 mode caught itself.
