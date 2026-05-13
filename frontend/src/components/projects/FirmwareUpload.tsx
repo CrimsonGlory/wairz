@@ -14,7 +14,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import type { FirmwareUploadStatus, UploadStage } from '@/types'
 
-type Phase = 'idle' | 'uploading' | 'processing' | 'done' | 'error'
+// Phase 'finalizing' added 2026-05-12 per intake ux-upload-progress-multistage-2026-05-12.md
+// (Scout-fleet Shape 1, ~15 LOC frontend-only). Closes the operator-visible
+// gap between onUploadProgress=100% and the 202 ack — for multi-GB
+// uploads that gap can be 5-25+ min (nginx forwarding + backend streaming
+// SHA256 + dedup + INSERT) and the prior "Uploading firmware..." at 100%
+// looked indefinitely stuck.
+type Phase = 'idle' | 'uploading' | 'finalizing' | 'processing' | 'done' | 'error'
 
 interface FirmwareUploadProps {
   projectId: string
@@ -61,6 +67,17 @@ export default function FirmwareUpload({ projectId, onComplete, showVersionLabel
       }
     }
   }, [])
+
+  // Transition uploading → finalizing the moment the browser→nginx leg hits
+  // 100%. The post-100% gap (nginx→backend forwarding + streaming SHA256 +
+  // dedup + INSERT) takes seconds for typical uploads and 5-25+ min for
+  // multi-GB firmware — without this transition the "Uploading firmware..."
+  // copy + bar at 100% looks indefinitely stuck.
+  useEffect(() => {
+    if (phase === 'uploading' && uploadProgress >= 100) {
+      setPhase('finalizing')
+    }
+  }, [phase, uploadProgress])
 
   const finishWithSuccess = useCallback(
     async (firmwareId: string) => {
@@ -191,11 +208,36 @@ export default function FirmwareUpload({ projectId, onComplete, showVersionLabel
 
   if (phase === 'uploading') {
     return (
-      <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed p-8">
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="flex flex-col items-center gap-3 rounded-lg border border-dashed p-8"
+      >
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        <p className="text-sm font-medium">Uploading firmware...</p>
+        <p className="text-sm font-medium">Uploading firmware to server...</p>
         <Progress value={uploadProgress} className="w-full max-w-xs" />
         <p className="text-xs text-muted-foreground">{uploadProgress}%</p>
+      </div>
+    )
+  }
+
+  if (phase === 'finalizing') {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="flex flex-col items-center gap-3 rounded-lg border border-dashed p-8"
+      >
+        <CheckCircle className="h-6 w-6 text-green-500" />
+        <p className="text-xs text-muted-foreground">Upload bytes received ✓</p>
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <p className="text-sm font-medium">Server is finalizing (hashing + deduplicating)...</p>
+        <p className="text-xs text-muted-foreground">
+          This can take several minutes for multi-GB firmware. Feel free to navigate away;
+          the upload will continue processing on the server.
+        </p>
       </div>
     )
   }
