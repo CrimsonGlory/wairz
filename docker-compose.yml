@@ -204,6 +204,14 @@ services:
       # set, same bake-at-build discipline as DBX_BUNDLE_PATH. Read by
       # app.services.loldrivers_lookup_service at lifespan startup.
       LOLDRIVERS_BUNDLE_PATH: /opt/wairz/loldrivers.json
+      # Phase λ.α.C (Rule #37): offline Volatility 3 ISF symbol bundle root.
+      # Bake-at-build discipline behind ARG INCLUDE_VOL3=1 in backend/Dockerfile.
+      # Read by app.services.vol3_runner (λ.α.D) — when the directory is
+      # missing OR empty, the runner detects + surfaces a clear "rebuild
+      # with INCLUDE_VOL3=1" failure rather than reaching out at scan time.
+      # The λ.α.B memory-image enumerator is unaffected — it never needs
+      # the symbol bundle.
+      VOL3_SYMBOLS_PATH: /opt/wairz/vol3-symbols
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -271,6 +279,9 @@ services:
       # Phase η.D: see backend service block above for the offline LOLDrivers
       # BYOVD bundle rationale.
       LOLDRIVERS_BUNDLE_PATH: /opt/wairz/loldrivers.json
+      # Phase λ.α.C: see backend service block above for the offline Vol3
+      # ISF symbol bundle rationale.
+      VOL3_SYMBOLS_PATH: /opt/wairz/vol3-symbols
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

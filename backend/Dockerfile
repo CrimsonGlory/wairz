@@ -411,6 +411,81 @@ RUN if [ "$INCLUDE_DOTNET" = "1" ]; then \
         echo "INCLUDE_DOTNET=0 — skipping dotnet-sdk + ilspycmd install (default)" ; \
     fi
 
+# ---------------------------------------------------------------------------
+# Phase λ.α.C: gated Volatility 3 + ISF symbol-bundle bake-in for memory
+# forensics. Disabled by default — image size impact under INCLUDE_VOL3=1 is
+# +~50 MB for the pip install + up to ~885 MiB compressed (~2.6-4.3 GiB
+# extracted) for the bundles, so the gate keeps the slim image slim.
+#
+# Per CLAUDE.md Rule #36 (no-execute discipline): vol3 PARSES memory images
+# AS DATA — pure-Python framework + layer walking + struct.unpack. wairz
+# NEVER invokes a binary embedded in a memory image, NEVER ``qemu-system
+# -hda <dump>`` an image, NEVER ``insmod`` a Linux memory-driver capture.
+# λ.α.D's vol3_runner.py enforces argv discipline: argv[0] must resolve to
+# the trusted /app/.venv/bin/vol binary; memory images are DATA arguments
+# only (-f).
+#
+# Per CLAUDE.md Rule #37 (offline-trust-anchor): ISF symbol bundles are
+# baked in at IMAGE BUILD TIME from ``backend/vol3-symbols/`` (canonical
+# source: github.com/volatilityfoundation/volatility3-test-data release
+# v0.0.1; mirror at downloads.volatilityfoundation.org is stale per λ Scout
+# 2's 2026-05-13 audit). NO scan-time network fetch — the runner passes
+# ``--offline`` to vol unconditionally so vol3 never reaches out to
+# msdl.microsoft.com or downloads.volatilityfoundation.org at scan time.
+# Companion script ``scripts/refresh-vol3-symbols.sh`` runs quarterly +
+# alerts on drift (matching DBX/LOLDrivers refresh cadence).
+#
+# Pin: ``volatility3==2.28.0[full]``. [full] brings yara-python + capstone
+# + pycryptodome + leechcorepyc-non-macos. pycryptodome is required by
+# windows.{hashdump,lsadump,cachedump} — without it 13 plugins silently
+# fail to load. wairz DEFERS those credential-extraction plugins beyond
+# λ.δ pending Rule #45 metadata-walker sign-off, but the pip extra is
+# kept consistent so the bundle install matches Vol3's canonical shape.
+#
+# Layout note (per λ Scout 2's empirical extraction):
+#   windows.zip → /opt/wairz/vol3-symbols/windows/<...>.json.xz
+#   linux.zip   → already wraps in linux/; unzip target is ../vol3-symbols/
+#   mac.zip     → no wrapping dir; unzip target is .../mac/
+#
+# Operator usage:
+#   docker compose build --build-arg INCLUDE_VOL3=1 worker
+#
+# Default behaviour (INCLUDE_VOL3=0): the λ.α.B memory-image enumerator
+# (metadata-only) runs regardless. λ.α.D's vol3_runner detects the missing
+# ``vol`` binary at trigger time and the firmware row transitions to
+# ``failed`` with a clear "vol3 not available — rebuild with
+# INCLUDE_VOL3=1" message in the error column. Backend image stays slim
+# regardless. λ.α.B enumerator output is unaffected.
+ARG INCLUDE_VOL3=0
+RUN if [ "$INCLUDE_VOL3" = "1" ]; then \
+        echo "Installing Volatility3 (Phase λ.α.C)" && \
+        /app/.venv/bin/uv pip install --python /app/.venv/bin/python \
+            --no-cache-dir 'volatility3==2.28.0[full]' \
+        && mkdir -p /opt/wairz/vol3-symbols \
+        && if [ -f /app/vol3-symbols/SHA256SUMS ]; then \
+                (cd /app/vol3-symbols && sha256sum -c SHA256SUMS) \
+                && if [ -f /app/vol3-symbols/windows.zip ]; then \
+                       unzip -q -o /app/vol3-symbols/windows.zip \
+                           -d /opt/wairz/vol3-symbols ; \
+                   fi \
+                && if [ -f /app/vol3-symbols/linux.zip ]; then \
+                       unzip -q -o /app/vol3-symbols/linux.zip \
+                           -d /opt/wairz/vol3-symbols ; \
+                   fi \
+                && if [ -f /app/vol3-symbols/mac.zip ]; then \
+                       mkdir -p /opt/wairz/vol3-symbols/mac \
+                       && unzip -q -o /app/vol3-symbols/mac.zip \
+                           -d /opt/wairz/vol3-symbols/mac ; \
+                   fi \
+                && chmod -R 0444 /opt/wairz/vol3-symbols \
+                && echo "vol3-symbols installed at /opt/wairz/vol3-symbols/" ; \
+           else \
+                echo "No /app/vol3-symbols/SHA256SUMS present — vol3 will run with empty symbol bundle (Vol3 will fail plugin requirements gracefully). Run scripts/refresh-vol3-symbols.sh on the host before rebuilding to populate bundles." ; \
+           fi ; \
+    else \
+        echo "INCLUDE_VOL3=0 — skipping Volatility3 install (default)" ; \
+    fi
+
 # Create data and Ghidra project directories
 RUN mkdir -p /data/firmware /tmp/ghidra_projects \
     && chown -R wairz:wairz /data /app /tmp/ghidra_projects /opt/ghidra /opt/jadx /opt/kernels /opt/wairz \

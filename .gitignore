@@ -54,3 +54,13 @@ test-firmware/
 .planning/daemon.json
 .planning/telemetry/*.jsonl
 .planning/fleet/session-*.md
+
+# Phase λ.α.C: Vol3 ISF symbol bundles baked at build time
+# (Rule #37). Bundles are large (~885 MiB combined) and pinned via the
+# committed SHA256SUMS; they're downloaded by
+# scripts/refresh-vol3-symbols.sh on the build host and NEVER committed
+# to git. README.md + SHA256SUMS.url ARE tracked. SHA256SUMS itself will
+# be tracked once the first refresh writes it.
+backend/vol3-symbols/*.zip
+backend/vol3-symbols/SHA256SUMS.tmp
+backend/vol3-symbols/*.zip.tmp
