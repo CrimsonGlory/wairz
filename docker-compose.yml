@@ -212,13 +212,6 @@ services:
       # The λ.α.B memory-image enumerator is unaffected — it never needs
       # the symbol bundle.
       VOL3_SYMBOLS_PATH: /opt/wairz/vol3-symbols
-      # Phase λ.μ — Acronis tibx-extractor side-container image name + output
-      # named-volume mount path. Worker spawns the extractor via Docker SDK
-      # (containers.run) and reads /var/lib/wairz/tibx_work/disk.raw after
-      # the container exits. WAIRZ_TIBX_AGENT_PATH propagates to the
-      # extractor service via .env (default /dev/null = no bind = clear error).
-      TIBX_EXTRACTOR_IMAGE: wairz-tibx-extractor
-      TIBX_WORK_PATH: /var/lib/wairz/tibx_work
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -227,8 +220,6 @@ services:
       - ./ghidra/scripts:/opt/ghidra_scripts:ro
       - ./emulation/kernels:/opt/kernels:rw
       - /tmp/wairz-dumps:/tmp/wairz-dumps
-      # Phase λ.μ — read the tibx-extractor side-container's output sink.
-      - tibx_work:/var/lib/wairz/tibx_work
     networks:
       - default
       - emulation_net
@@ -291,9 +282,6 @@ services:
       # Phase λ.α.C: see backend service block above for the offline Vol3
       # ISF symbol bundle rationale.
       VOL3_SYMBOLS_PATH: /opt/wairz/vol3-symbols
-      # Phase λ.μ — see backend service block above for tibx-extractor rationale.
-      TIBX_EXTRACTOR_IMAGE: wairz-tibx-extractor
-      TIBX_WORK_PATH: /var/lib/wairz/tibx_work
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -302,7 +290,6 @@ services:
       - ./ghidra/scripts:/opt/ghidra_scripts:ro
       - ./emulation/kernels:/opt/kernels:rw
       - /tmp/wairz-dumps:/tmp/wairz-dumps
-      - tibx_work:/var/lib/wairz/tibx_work
     depends_on:
       migrator:
         condition: service_completed_successfully
@@ -364,51 +351,6 @@ services:
         limits:
           memory: 2048M
           pids: 256
-
-  # Phase λ.μ — Acronis tibx-extractor side-container (BYOB-SC).
-  # CLAUDE.md Rule #36 Exception 3: vendor-supplied parser binary
-  # (tibxread, operator-installed Acronis Cyber Protection Agent for
-  # Linux) operating on customer data AS DATA inside an isolated
-  # side-container. Hardening per Scout C 2026-05-13 architectural
-  # recommendation (.planning/research/tibx-deep-2026-05-13/scout-c-
-  # sandboxed-extraction.md). Operator sets WAIRZ_TIBX_AGENT_PATH in
-  # .env to point at the host Acronis install (default /dev/null = no
-  # bind, worker fails fast with actionable error). Image is built
-  # but only spawned ephemerally by the worker per .tibx upload.
-  tibx-extractor:
-    profiles: ["build"]
-    build:
-      context: ./tibx-extractor
-      dockerfile: Dockerfile
-    image: wairz-tibx-extractor
-    read_only: true
-    tmpfs:
-      - /tmp:size=64M,mode=1777,noexec,nosuid,nodev
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    network_mode: none
-    user: "65534:65534"
-    volumes:
-      # Operator-supplied Acronis install (read-only bind). Default
-      # ${WAIRZ_TIBX_AGENT_PATH:-/dev/null} means "no bind"; the
-      # entrypoint detects the empty /opt/acronis and fails with a
-      # clear actionable error pointing operators at the Acronis
-      # Linux Agent install.
-      - ${WAIRZ_TIBX_AGENT_PATH:-/dev/null}:/opt/acronis:ro
-      # Customer firmware tree (read-only). The .tibx files live here.
-      - firmware_data:/data/firmware:ro
-      # Output sink — write-only via the worker's named-volume read
-      # after extraction completes. NOT a host bind; cannot escape
-      # the sandbox via path traversal.
-      - tibx_work:/work
-    deploy:
-      resources:
-        limits:
-          memory: 2048M
-          pids: 128
-          cpus: "2.0"
 
   system-emulation:
     profiles: ["build"]
@@ -545,11 +487,6 @@ volumes:
   firmware_data:
   kernel_vulns_data:
   clamav-db:
-  # Phase λ.μ — output sink for tibx-extractor side-container. Each
-  # extraction writes /work/disk.raw which the worker reads back and
-  # copies into the firmware's extraction_dir. Scoped to the
-  # tibx-extractor service alone; the worker mounts it RO when reading.
-  tibx_work:
 
 networks:
   emulation_net:

@@ -120,13 +120,7 @@ EXTRACTION_CAPABILITY: dict[DetectedFormat, ExtractionCapability] = {
     DetectedFormat.PE_EXECUTABLE: ExtractionCapability.PARTIAL,
     DetectedFormat.ISO_9660: ExtractionCapability.FULL,
     DetectedFormat.WIM_ARCHIVE: ExtractionCapability.FULL,
-    # Phase λ.μ — ACRONIS_BACKUP now extractable via the
-    # wairz-tibx-extractor BYOB-SC side-container. PARTIAL (not FULL)
-    # because operator setup is required (Acronis Cyber Protection
-    # Agent for Linux + WAIRZ_TIBX_AGENT_PATH); without operator
-    # setup the unpack worker fails fast with an actionable error.
-    # Multi-disk extraction beyond disk 1 is a follow-up.
-    DetectedFormat.ACRONIS_BACKUP: ExtractionCapability.PARTIAL,
+    DetectedFormat.ACRONIS_BACKUP: ExtractionCapability.NONE,
     DetectedFormat.QNX_IFS: ExtractionCapability.PARTIAL,
     # Windows ecosystem god-mode coverage (Phase α handlers 1-7).
     # PSF is PARTIAL because Phase α ships a magic-validation stub —

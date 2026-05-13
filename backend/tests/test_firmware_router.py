@@ -562,11 +562,7 @@ class TestUploadStateMachineLiveCanary:
             )
             assert resp.status_code == 200
             body = resp.json()
-            # Phase λ.μ — capability flipped from "none" to "partial" once
-            # the tibx-extractor BYOB-SC side-container shipped. PARTIAL
-            # because operator setup (Acronis Cyber Protection Agent for
-            # Linux + WAIRZ_TIBX_AGENT_PATH) is still required.
-            assert body["extraction_capability"] == "partial"
+            assert body["extraction_capability"] == "none"
             assert body["capability_note"] is not None
             assert "Acronis" in body["capability_note"]
 
