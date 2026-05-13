@@ -389,7 +389,6 @@ services:
     cap_drop:
       - ALL
     network_mode: none
-    pids_limit: 64
     user: "65534:65534"
     volumes:
       # Operator-supplied Acronis install (read-only bind). Default

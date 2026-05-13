@@ -24,10 +24,10 @@
 set -euo pipefail
 
 print_usage() {
-    cat <<EOF
+    cat <<'EOF'
 wairz tibx-extractor side-container
 
-Usage (via worker `client.containers.run`):
+Usage (via worker 'client.containers.run'):
 
   wairz-tibx-extractor get content \\
       --loc <dir-inside-/data/firmware> \\
