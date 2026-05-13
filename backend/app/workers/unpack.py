@@ -118,48 +118,40 @@ async def _run_hardware_firmware_detection_safe(
     except Exception:
         logger.warning("Hardware firmware graph build failed", exc_info=True)
 
-    # Phase γ.4 — auto-walk Windows registry hives in the extracted tree.
-    # Rule #36 no-execute discipline: regipy parses hives AS DATA; nothing
-    # in wairz invokes regedit / .reg apply / scriptable action paths.
-    # Runs AFTER detection + graph build so the walker's
-    # HardwareFirmwareBlob promotions (category="registry_hive") can
-    # update existing rows that detection might have created with a
-    # different category. Same fire-and-forget shape as the detection
-    # call above — owns its own session, swallows exceptions, logs.
-    try:
-        from app.services.registry_hive_walker import auto_walk_firmware_safe
-        await auto_walk_firmware_safe(firmware_id)
-    except Exception:
-        logger.warning("Registry hive auto-walk failed", exc_info=True)
-
-    # Phase γ.5 — auto-extract Windows driver packages (INF/CAT/SYS
-    # triplets) and classify CAT signatures into the Persona-E #13
-    # capability badge. Rule #36 no-execute discipline: signify parses
-    # CAT files AS DATA; nothing in wairz invokes rundll32 / .inf
-    # install / cscript or any scriptable driver-install primitive.
-    # Runs AFTER detection so driver_extractor's HardwareFirmwareBlob
-    # promotions (category="driver_package") can update existing rows.
-    try:
-        from app.services.driver_extractor import auto_extract_drivers_safe
-        await auto_extract_drivers_safe(firmware_id)
-    except Exception:
-        logger.warning("Driver extractor auto-walk failed", exc_info=True)
-
-    # Phase ε.1.b.4 — auto-walk Windows Event Log (EVTX) files in the
-    # extracted tree. Rule #36 no-execute discipline: python-evtx parses
-    # EVTX as DATA (mmap-based read-only record stream); nothing in
-    # wairz invokes wevtutil / Get-WinEvent or any scriptable event-
-    # replay primitive. The auto-walk variant (auto_walk_firmware_safe)
-    # does NOT mutate the firmware's evtx_walk_status — it stays at
-    # 'idle' so an operator-triggered re-walk via the ε.1.b.4 trigger
-    # MCP tool works without a 409 conflict (status='running' would
-    # block). Same fire-and-forget shape as the registry hive walker
-    # auto-walk above.
-    try:
-        from app.services.evtx_service import auto_walk_firmware_safe as _evtx_auto_walk
-        await _evtx_auto_walk(firmware_id)
-    except Exception:
-        logger.warning("EVTX auto-walk failed", exc_info=True)
+    # Walker auto-trigger registry — registry_hive (γ.4), driver_extractor
+    # (γ.5), evtx (ε.1.b.4), AppCompat (κ.B), BCD (θ.A), DPAPI (κ.D),
+    # EFS (ι.D), ESP (θ.C), ETL (ι.C), journald (ι.A), linux_persistence
+    # (κ.C), LNK (η.D), MBR/VBR (θ.B), MFT (η.A), prefetch (ζ.2),
+    # scheduled_task (η.E), SDB (θ.D), SRUM (ζ.3), systemd (ι.B),
+    # USN journal (κ.E), WMI (η.C), container (ι.E).
+    #
+    # Rule #36 no-execute discipline: every safe-runner is parse-only —
+    # nothing in wairz invokes rundll32 / cscript / wmic / wine / mono /
+    # wevtutil / Get-WinEvent / regedit / .reg apply / any scriptable
+    # primitive against extracted firmware contents.
+    #
+    # Each safe-runner owns its own AsyncSession via async_session_factory(),
+    # swallows exceptions silently, and DOES NOT mutate the
+    # firmware's per-walker ``*_walk_status`` column — those stay ``idle``
+    # so an operator-triggered re-walk via the corresponding
+    # ``trigger_*_walk`` MCP tool succeeds without a 409 conflict
+    # (Rule #39 .safe semantics).
+    #
+    # Registry lives at app.workers.walker_registry.WALKER_AUTO_TRIGGERS;
+    # adding a new walker is a one-line addition there. Iterated
+    # sequentially (not gathered) because each safe-runner opens its own
+    # AsyncSession + Rule #7 forbids gathering coroutines that share a
+    # session — sequential ``await`` keeps the contract.
+    from app.workers.walker_registry import get_walker_auto_triggers
+    for safe_runner in get_walker_auto_triggers():
+        try:
+            await safe_runner(firmware_id)
+        except Exception:
+            logger.warning(
+                "walker auto-trigger %s failed",
+                getattr(safe_runner, "__qualname__", repr(safe_runner)),
+                exc_info=True,
+            )
 
 
 def _analyze_filesystem(result: UnpackResult, extraction_dir: str) -> None:
