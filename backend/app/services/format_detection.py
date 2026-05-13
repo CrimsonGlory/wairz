@@ -142,9 +142,21 @@ EXTRACTION_CAPABILITY: dict[DetectedFormat, ExtractionCapability] = {
 # detection logic so the two evolve together.
 CAPABILITY_NOTES: dict[DetectedFormat, str] = {
     DetectedFormat.ACRONIS_BACKUP: (
-        "Acronis .tibx/.tib backup detected. The format is proprietary and no "
-        "open extractor exists. Restore the backup with Acronis True Image, "
-        "export the recovered filesystem as a tar/zip, and re-upload."
+        "Acronis .tibx/.tib backup detected. The format is proprietary; no "
+        "AGPL-compatible parser library exists (2026-05-13 deep-research "
+        "confirmed: no public .tibx parser across GitHub, GitLab, "
+        "DFRWS/USENIX/arxiv, awesome-forensics). Recommended workflow: "
+        "install Acronis Cyber Protection Agent for Linux on the build host "
+        "(30-day free trial available), then run "
+        "``/usr/lib/Acronis/BackupAndRecovery/tibxread get content --loc "
+        "<dir> --arc <master.tibx> --backup <recovery_point_id> --disk 1 > "
+        "disk.raw``, then re-upload the resulting ``disk.raw`` to wairz "
+        "(walks via existing NTFS/registry/EVTX chain). A future "
+        "tibx-extractor BYOB side-container (intake "
+        "``.planning/intake/tibx-byob-side-container-architecture-"
+        "2026-05-13.md``) will automate this on wairz's side once "
+        "implemented, but the Acronis EULA prohibits redistribution so the "
+        "operator-installed binary remains the source of truth."
     ),
     DetectedFormat.QNX_IFS: (
         "Listing-only via jtang613/qnx_dumpers; for full extraction use "
@@ -336,12 +348,26 @@ def detect_format(path: Path | str) -> DetectedFormat:
             return zip_kind
         return DetectedFormat.ZIP_ARCHIVE
 
-    # ── 8. Acronis backup — extension-based fallback ─────────────────
-    # The .tibx and .tib formats are proprietary with no public magic
-    # bytes (Acronis KB 63498). Trust the user-supplied filename when
-    # it carries the canonical extension.
+    # ── 8. Acronis backup — magic-byte + extension fallback ──────────
+    # The .tibx (Archive3) and .tib (Archive2) formats are proprietary
+    # (Acronis KB 63498); no public magic-byte signature was documented
+    # at the original detection layer was authored. The 2026-05-13 deep
+    # research on a real Medtronic ILLUMISITE sample surfaced an
+    # observable signature: ``Archive3`` master files carry the ASCII
+    # bytes ``"ARCH"`` at offset 8, immediately after a 4-byte version
+    # field. The pattern is consistent across the master + every
+    # continuation slice (master starts ``41 01 00 00 02 4c 52 ea
+    # "ARCH"``; continuations start ``41 ff 00 00`` followed by
+    # payload bytes — the ``ARCH`` marker lives only in the master).
+    # See ``.planning/research/tibx-deep-2026-05-13/scout-a-format-
+    # deep-research.md`` § "Header measurement". Trust the magic byte
+    # OR the extension — both routes converge on the same enum value;
+    # the magic gate just catches the case where the operator renamed
+    # the file before upload.
     name = p.name.lower()
     if name.endswith((".tibx", ".tib")):
+        return DetectedFormat.ACRONIS_BACKUP
+    if len(head) >= 12 and head[8:12] == b"ARCH":
         return DetectedFormat.ACRONIS_BACKUP
 
     # ── 9. Tar/gz/xz/bz2 by extension when the head doesn't have the

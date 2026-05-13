@@ -204,10 +204,26 @@ def test_detects_generic_zip(tmp_path: Path):
 
 @pytest.mark.parametrize("ext", [".tibx", ".tib"])
 def test_detects_acronis_backup_via_extension(tmp_path: Path, ext: str):
-    """No public magic bytes — falls back to canonical extension."""
+    """No public magic bytes documented — falls back to canonical extension."""
     p = tmp_path / f"backup{ext}"
     # Random non-matching bytes — extension drives the verdict.
     p.write_bytes(b"\xff" * 256)
+    assert detect_format(p) == DetectedFormat.ACRONIS_BACKUP
+
+
+def test_detects_acronis_backup_via_arch_magic(tmp_path: Path):
+    """2026-05-13 deep-research finding: master .tibx files carry ``"ARCH"``
+    at offset 8. Detection should fire on the magic byte even when the
+    file was renamed without the .tibx extension.
+
+    Master file shape from observed Medtronic ILLUMISITE sample:
+    ``41 01 00 00 02 4c 52 ea "ARCH" ...``. Continuation slices
+    (``41 ff 00 00 ...``) do NOT carry ARCH — they're caught only by
+    the extension check.
+    """
+    p = tmp_path / "renamed-backup.bin"  # NO .tibx extension
+    head = b"\x41\x01\x00\x00\x02\x4c\x52\xea" + b"ARCH" + b"\x00" * 64
+    p.write_bytes(head)
     assert detect_format(p) == DetectedFormat.ACRONIS_BACKUP
 
 

@@ -66,9 +66,15 @@ _ANDROID_PARTITION_SIBLINGS: frozenset[str] = frozenset({
 # File extensions that mark a directory as "has extractable content" for
 # purposes of root-candidate scoring. Kept deliberately narrow so that a
 # dir full of .log / .txt noise is NOT promoted to a detection root.
+# ``.raw`` was added 2026-05-13 to close a latent gap shared with
+# ``unpack_vhdx``: VHDX-extracted disks land at ``extraction_dir/disk.raw``;
+# without ``.raw`` here the resolver caught the parent extraction_dir via a
+# different code path, but a multi-volume extractor (planned for tibx
+# BYOB-SC) that lands ``extraction_dir/vol1/disk.raw`` + ``vol2/disk.raw``
+# needed ``.raw`` for each vol-dir to qualify as a detection root.
 _RAW_IMAGE_EXTENSIONS: frozenset[str] = frozenset({
     ".img", ".bin", ".elf", ".mbn", ".hcd", ".tar", ".zip",
-    ".lz4", ".ota", ".sin", ".pac",
+    ".lz4", ".ota", ".sin", ".pac", ".raw",
 })
 
 # Directory names that are always detection roots on sight.
