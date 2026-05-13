@@ -11,15 +11,20 @@ Strategy:
     - Build a minimal FAT16 stub via ``_make_fat16_stub``.
     - Pack it into a real ``.tar`` or ``.zip`` alongside text metadata.
     - Invoke ``FirmwareService.create_firmware`` with a mock upload.
-    - Assert the resulting ``Firmware`` row has ``extracted_path=None``
-      (shortcut fell through) for the image case, AND has it set for
-      the pure-rootfs-tar control case.
+    - Assert ``unpack_log`` does NOT contain a rootfs-shortcut marker
+      for the image case (Rule #47 — the walker-bridge fix in commit
+      ``5f3d195`` decoupled ``extracted_path`` from rootfs classification
+      so the old ``extracted_path is None`` proxy is no longer valid),
+      AND ``unpack_log`` DOES contain a marker for the pure-rootfs-tar
+      control case.
 
 Scenarios:
-    1. Tar-of-FAT-image (Eaton shape) → no extracted_path.
+    1. Tar-of-FAT-image (Eaton shape) → rootfs shortcut must NOT fire.
     2. Tar-of-pure-rootfs (ADB-dump shape with etc/, usr/, bin/)
-       → extracted_path set AND detection_roots populated (Rule #16).
-    3. Zip-of-FAT-image (latent defect, parallel of #1) → no extracted_path.
+       → rootfs shortcut fires + ``extracted_path`` set AND
+       detection_roots populated (Rule #16).
+    3. Zip-of-FAT-image (latent defect, parallel of #1) → rootfs
+       shortcut must NOT fire.
 """
 from __future__ import annotations
 
@@ -144,6 +149,24 @@ def _make_settings(storage_root: Path):
     return s
 
 
+# Substrings that ``firmware_service`` writes into ``firmware.unpack_log``
+# when the upload-time rootfs shortcut classifies the upload as a rootfs.
+# See ``firmware_service.py:603`` (tar shortcut) and ``:650`` (zip shortcut).
+# The walker-bridge fix in commit 5f3d195 made ``extracted_path`` get set
+# even for non-rootfs ZIPs (so walkers can fire over arbitrary extractions),
+# so we discriminate on this log marker instead of on ``extracted_path``.
+_ROOTFS_SHORTCUT_MARKERS = (
+    "Rootfs ZIP detected",
+    "Tarball detected; extracted directly as rootfs",
+)
+
+
+def _rootfs_shortcut_fired(firmware) -> bool:
+    """True iff the upload-time rootfs auto-classifier fired."""
+    log = firmware.unpack_log or ""
+    return any(marker in log for marker in _ROOTFS_SHORTCUT_MARKERS)
+
+
 @pytest.mark.asyncio
 async def test_tar_of_fat_image_does_not_shortcut(tmp_path: Path):
     """Eaton-shape tar must fall through the shortcut — extracted_path None."""
@@ -162,10 +185,14 @@ async def test_tar_of_fat_image_does_not_shortcut(tmp_path: Path):
             file=upload,
         )
 
-    # Eaton-shape: shortcut must NOT have stamped extracted_path because
-    # find_filesystem_root correctly returned None for the FAT16 dir.
-    assert firmware.extracted_path is None, (
-        "tar containing a raw FS image was falsely classified as rootfs"
+    # Eaton-shape: the rootfs auto-classifier must NOT have fired. Before
+    # commit 5f3d195 the cleanest proxy was ``extracted_path is None``;
+    # after the walker-bridge fix that proxy is no longer reliable because
+    # the generic-fallback path also sets ``extracted_path`` so walkers
+    # can fire. Use the unpack_log marker as the durable discriminator.
+    assert not _rootfs_shortcut_fired(firmware), (
+        f"tar containing a raw FS image was falsely classified as rootfs: "
+        f"unpack_log={firmware.unpack_log!r}"
     )
 
 
@@ -187,8 +214,11 @@ async def test_zip_of_fat_image_does_not_shortcut(tmp_path: Path):
             file=upload,
         )
 
-    assert firmware.extracted_path is None, (
-        "zip containing a raw FS image was falsely classified as rootfs"
+    # Same Rule #47 discriminator as the tar variant — see the
+    # ``test_tar_of_fat_image_does_not_shortcut`` comment for rationale.
+    assert not _rootfs_shortcut_fired(firmware), (
+        f"zip containing a raw FS image was falsely classified as rootfs: "
+        f"unpack_log={firmware.unpack_log!r}"
     )
 
 
@@ -210,9 +240,16 @@ async def test_pure_rootfs_tar_still_shortcuts_with_detection_roots(tmp_path: Pa
             file=upload,
         )
 
-    # Pure rootfs: shortcut fires, extracted_path set.
+    # Pure rootfs: the rootfs auto-classifier fires, extracted_path is set.
+    # Check the unpack_log marker directly (post-Rule #47, ``extracted_path``
+    # alone is no longer sufficient to prove the shortcut fired vs the
+    # generic-ZIP fallback).
+    assert _rootfs_shortcut_fired(firmware), (
+        f"pure rootfs tar failed to classify via the shortcut: "
+        f"unpack_log={firmware.unpack_log!r}"
+    )
     assert firmware.extracted_path is not None, (
-        "pure rootfs tar failed to classify via the shortcut"
+        "pure rootfs tar set unpack_log marker but extracted_path remained None"
     )
     # Rule #16: detection_roots must be populated inline.
     meta = firmware.device_metadata or {}
