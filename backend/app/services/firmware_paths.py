@@ -99,6 +99,38 @@ _IGNORED_BASENAMES: frozenset[str] = frozenset({
     ".git", "__pycache__", "node_modules",
 })
 
+# File extensions that mark a file as a firmware blob / partition image for
+# the deep-walk scorer. Distinct from ``_RAW_IMAGE_EXTENSIONS`` (used by the
+# shallow sweep, which is narrower so that ``.tar`` / ``.zip`` archive-bearing
+# dirs get promoted there but not down here where they'd flood the candidate
+# set). ``.image`` covers unblob's literal ``raw.image`` filename emitted for
+# each recursive extract step. ``.so``/``.so.[0-9]+`` covers Android DSP
+# firmware bundles (``AlacDecoderModule.so.1`` shape). ``.mbn`` is Qualcomm
+# modem firmware; ``.tlv`` is Bluetooth firmware; ``.elf32`` / ``.elf64`` are
+# the bootloader-payload ELF variants Motorola emits.
+_FIRMWARE_BLOB_EXTENSIONS: frozenset[str] = frozenset({
+    ".img", ".bin", ".raw", ".image",
+    ".ext2", ".ext3", ".ext4", ".extfs", ".erofs", ".squashfs", ".f2fs",
+    ".mbn", ".tlv", ".fw", ".ko", ".dtb", ".uimage",
+    ".so", ".so.0", ".so.1", ".so.2", ".so.3",
+    ".elf", ".elf32", ".elf64",
+    ".tee", ".bl1", ".bl2", ".mcu",
+})
+
+# Files that are noise — when a candidate dir has nothing but these, it
+# does NOT count as substantive content for the "substantial" bonus.
+_NOISE_FILE_BASENAMES: frozenset[str] = frozenset({
+    "lost+found",
+})
+
+# Directory basenames the deep-walk should NEVER enter (Linux filesystem
+# pseudo-mounts, ext mountpoints, ramdisk noise). Avoids picking up
+# /apex/com.android.foo, /system/apex/* etc. when the parent already
+# scored highly.
+_DEEP_WALK_SKIP_DIRS: frozenset[str] = frozenset({
+    "lost+found", "proc", "sys", "dev",
+})
+
 
 def _is_hint_root_name(name: str) -> bool:
     if name in _NAME_HINT_ROOTS:
@@ -237,6 +269,236 @@ def _is_partition_like_name(name: str) -> bool:
     return False
 
 
+def _path_isfile(base: str, *parts: str) -> bool:
+    """Safe ``os.path.isfile(os.path.join(base, *parts))`` with OSError suppression."""
+    try:
+        return os.path.isfile(os.path.join(base, *parts))
+    except OSError:
+        return False
+
+
+def _has_blob_extension(name: str) -> bool:
+    """Return True if ``name`` ends in any extension in ``_FIRMWARE_BLOB_EXTENSIONS``."""
+    lower = name.lower()
+    for ext in _FIRMWARE_BLOB_EXTENSIONS:
+        if lower.endswith(ext):
+            return True
+    # Versioned shared libs that we didn't explicitly enumerate (.so.42).
+    if ".so." in lower:
+        tail = lower.rsplit(".so.", 1)[1]
+        if tail and all(c.isdigit() or c == "." for c in tail):
+            return True
+    return False
+
+
+def _rootfs_score(path: str) -> int:
+    """Score ``path`` as a detection-root candidate (Issue #20 heuristic).
+
+    Higher score = stronger candidate. Returns 0 for non-candidates.
+
+    Scoring layers (per Issue #20 ask: ``/etc/passwd`` OR
+    ``/system/build.prop`` OR ``/vendor`` at depth ≤3):
+
+    * **T1 — definitive rootfs markers (≥300 pts):** ``system/build.prop``,
+      a direct ``build.prop`` (this dir IS the system partition),
+      ``etc/passwd``.
+    * **T2 — partition-container markers (100–300 pts):** ``vendor`` direct
+      child, ≥2 Android partition siblings, ``etc + bin`` Linux shape.
+    * **T3 — firmware-blob bundle (10–80 pts):** dir of ``.mbn`` / ``.tlv``
+      / ``.so`` / ``.elf32`` etc. (Motorola radio, BTFM, dspso).
+    * **T4 — sole partition image (10 pts):** single ``.image`` / ``.bin``
+      / ``.raw`` file with no siblings (unblob's ``super.img_sparsechunk.N/
+      raw.image`` shape).
+    * **Initramfs demotion (−80 pts):** small dir (<15 entries) carrying an
+      ``init`` file with no ``vendor`` and no ``system/build.prop`` — the
+      "tiny ramdisk with init + 5 binaries" shape Issue #20 calls out.
+
+    Scoring is deliberately additive: a dir that is BOTH a partition root
+    AND a firmware blob bundle (e.g., the Moto ``vendor_boot.img_extract``
+    ramdisk that has /odm + /etc + many .mbn files) outranks a pure blob
+    bundle.
+    """
+    try:
+        with os.scandir(path) as it:
+            entries = list(it)
+    except OSError:
+        return 0
+
+    dirs: set[str] = set()
+    files: set[str] = set()
+    for entry in entries:
+        name = entry.name
+        if name in _NOISE_FILE_BASENAMES:
+            continue
+        try:
+            if entry.is_dir(follow_symlinks=False):
+                dirs.add(name)
+            elif entry.is_file(follow_symlinks=False):
+                files.add(name)
+        except OSError:
+            continue
+
+    score = 0
+
+    # T1 — definitive rootfs markers
+    if "system" in dirs and _path_isfile(path, "system", "build.prop"):
+        score += 400
+    if "build.prop" in files:
+        score += 400
+    if "etc" in dirs and _path_isfile(path, "etc", "passwd"):
+        score += 300
+
+    # T2 — partition-container markers
+    if "vendor" in dirs:
+        score += 150
+    android_count = len(dirs & _ANDROID_PARTITION_SIBLINGS)
+    if android_count >= 2:
+        score += 100 * android_count
+    elif android_count == 1 and score == 0:
+        # Single Android sibling alone is weak signal — only bump if we
+        # have nothing else yet (avoid double-counting with the +150 vendor).
+        score += 30
+    if "etc" in dirs and "bin" in dirs:
+        score += 100
+
+    # T3 — firmware blob bundle
+    blob_count = sum(1 for f in files if _has_blob_extension(f))
+    if blob_count >= 3:
+        score += min(80, blob_count * 5)
+
+    # T4 — sole partition image (sparsechunk raw.image shape)
+    if (
+        score == 0
+        and len(dirs) == 0
+        and len(files) == 1
+        and blob_count == 1
+    ):
+        score += 10
+
+    # Substantial content bonus
+    if len(files) + len(dirs) >= 10:
+        score += 20
+
+    # Initramfs demotion: tiny dir + init file + no real rootfs marker
+    if (
+        "init" in files
+        and len(files) + len(dirs) < 15
+        and "vendor" not in dirs
+        and not _path_isfile(path, "system", "build.prop")
+    ):
+        score -= 80
+
+    return max(0, score)
+
+
+def _find_unblob_extraction_top(root: str) -> str:
+    """Climb from ``root`` through unblob's nested ``_extract`` chain.
+
+    unblob's recursive extractor emits a sibling ``<basename>_extract/``
+    directory for each archive / image / payload it cracks open. For
+    Motorola firmware the chain is::
+
+        extracted/
+            Moto-G32-XT2235-1.zip_extract/      ← we want this
+                boot.img_extract/
+                    14880768-27311594.gzip_extract/
+                        gzip.uncompressed_extract/   ← ``root``
+                vendor_boot.img_extract/
+                radio.img_extract/
+                super.img_sparsechunk.N_extract/  (×11)
+
+    The existing ``_find_extraction_container`` only climbs partition-like
+    names (``rootfs`` / ``partition_*`` / Android sibling names) — none of
+    the path components above match, so for Motorola it returns ``root``
+    unchanged. This helper extends the climb to traverse ``_extract``-
+    suffixed directories so the deep walk can sweep the whole nested
+    extraction tree, finding the sibling dirs the shallow sweep can't see.
+
+    Stops when:
+
+    * The parent directory's name is ``extracted`` (or a synonym) — the
+      child is the firmware-named container we want.
+    * The current directory name does NOT end in ``_extract``.
+    * Hard cap of 12 climbs (degenerate path safety).
+    """
+    if not root or not os.path.isdir(root):
+        return root
+    cur = root.rstrip("/") or root
+    for _ in range(12):
+        parent = os.path.dirname(cur)
+        if not parent or parent == cur:
+            return cur
+        if not os.path.isdir(parent):
+            return cur
+        parent_name = os.path.basename(parent.rstrip("/"))
+        cur_name = os.path.basename(cur.rstrip("/"))
+        # Hit the storage-root marker — stop, cur is the per-firmware container.
+        if parent_name in {"extracted", "Extracted", "extraction"}:
+            return cur
+        # Climb through _extract-chained dirs.
+        if cur_name.endswith("_extract") or parent_name.endswith("_extract"):
+            cur = parent
+            continue
+        return cur
+    return cur
+
+
+def _walk_for_additional_roots(
+    top: str,
+    *,
+    max_depth: int = 8,
+    max_dirs: int = 20_000,
+    prune_threshold: int = 200,
+) -> list[tuple[int, str]]:
+    """Recursively walk ``top`` looking for rootfs-like dirs (Issue #20).
+
+    The deep-walk runs in addition to the existing shallow sweep so we
+    catch sibling content buried 3-4 levels deep under unblob's nested
+    ``_extract`` chain (Motorola firmware shape). Bounded by:
+
+    * ``max_depth`` (default 8) — Moto's deepest content sits at 5 levels.
+    * ``max_dirs`` (default 20,000) — protective cap; the 5.9 GB Moto-G32
+      tree has well under 1,000 dirs but pathological samples could blow up.
+    * ``prune_threshold`` (default 200 score) — when a dir scores high
+      enough to be a definitive rootfs (e.g. /system/build.prop present),
+      we stop descending into it. Without pruning the walk would pick up
+      ``/system/apex/com.android.foo/`` and every nested ``priv-app``
+      subdir as candidates.
+
+    Returns ``(score, path)`` tuples for every qualifying dir. Caller is
+    responsible for dedup / merge / final ordering.
+    """
+    if not top or not os.path.isdir(top):
+        return []
+
+    results: list[tuple[int, str]] = []
+    walked = 0
+    for current, dirs, _files in os.walk(top, followlinks=False):
+        walked += 1
+        if walked > max_dirs:
+            break
+        rel = os.path.relpath(current, top)
+        depth = 0 if rel == "." else rel.count(os.sep) + 1
+        if depth > max_depth:
+            dirs[:] = []
+            continue
+        # Filter out hidden / ignored / pseudo-mount dirs (in-place so
+        # os.walk respects the change).
+        dirs[:] = [
+            d for d in dirs
+            if not d.startswith(".")
+            and d not in _IGNORED_BASENAMES
+            and d not in _DEEP_WALK_SKIP_DIRS
+        ]
+        score = _rootfs_score(current)
+        if score > 0:
+            results.append((score, current))
+            if score >= prune_threshold:
+                # Don't recurse into a clear rootfs.
+                dirs[:] = []
+    return results
+
+
 def _find_extraction_container(root: str) -> tuple[str, bool]:
     """Climb ``root`` until we find a dir that is NOT partition-like.
 
@@ -365,6 +627,67 @@ def _compute_roots_sync(extracted_path: str | None) -> list[str]:
             roots.sort(
                 key=lambda p: (os.path.realpath(p) != real_root,)
             )
+
+    # ── Deep walk for nested unblob output (Issue #20) ──────────────────
+    # The shallow sweep only inspects ONE level of children under the
+    # extraction container. unblob's recursive extractor produces a
+    # ``<basename>_extract/`` chain that can run 4–5 levels deep (Motorola
+    # factory flash packages have boot.img_extract/<offset>.gzip_extract/
+    # gzip.uncompressed_extract/ as one path AND super.img_sparsechunk.N_
+    # extract/, radio.img_extract/, BTFM.bin_extract/, dspso.bin_extract/
+    # as siblings two levels up). The shallow sweep + fallback picks ONE
+    # of those leaves and returns. The deep walk catches the rest so
+    # downstream walkers (SBOM, security audit, hardware firmware) see
+    # all extracted content, not just the first plausible rootfs.
+    unblob_top = _find_unblob_extraction_top(container)
+    deep_candidates: list[tuple[int, str]] = _walk_for_additional_roots(unblob_top)
+    # When extracted_path is deep inside the tree AND the climb landed us
+    # at a higher container, also sweep starting from extracted_path so
+    # any rootfs-like dirs visible from the leaf's vantage point are
+    # captured even if they fall outside the unblob-top subtree.
+    if (
+        climbed
+        and os.path.isdir(root)
+        and os.path.realpath(root) != os.path.realpath(unblob_top)
+    ):
+        deep_candidates.extend(_walk_for_additional_roots(root))
+
+    if deep_candidates:
+        existing_real = {os.path.realpath(r) for r in roots}
+        # Sort high-to-low so high-score additions append in priority order.
+        deep_candidates.sort(key=lambda sp: (-sp[0], sp[1]))
+        for _score, candidate in deep_candidates:
+            rp = os.path.realpath(candidate)
+            if rp not in existing_real:
+                roots.append(candidate)
+                existing_real.add(rp)
+
+        # Final re-order: anything with a definitive rootfs score
+        # (≥ definitive_threshold) MUST lead pure-blob and fallback
+        # entries. This realises Issue #20's "initramfs must NOT outrank
+        # a real Android filesystem" — a true /system/build.prop dir
+        # scores 400+; a Moto-style boot.img ramdisk with /odm + /apex +
+        # /etc scores ~340; a sole-partition-image dir scores 10. The
+        # sort below keeps an existing high-score lead intact while
+        # promoting newly-discovered better candidates above weaker
+        # existing entries.
+        path_scores: dict[str, int] = {}
+        for s, p in deep_candidates:
+            path_scores[os.path.realpath(p)] = s
+        # Score entries that came from the shallow sweep (didn't appear in
+        # deep_candidates because of pruning OR they were the fallback).
+        for r in roots:
+            rp = os.path.realpath(r)
+            path_scores.setdefault(rp, _rootfs_score(r))
+        # Preserve the original index as a tie-breaker so the shallow-sweep
+        # ordering (rootfs leads scatter in DPCS10) survives equal scores.
+        original_index = {os.path.realpath(r): i for i, r in enumerate(roots)}
+        roots.sort(
+            key=lambda r: (
+                -path_scores.get(os.path.realpath(r), 0),
+                original_index.get(os.path.realpath(r), 0),
+            )
+        )
 
     return _dedup_by_realpath(roots)
 
