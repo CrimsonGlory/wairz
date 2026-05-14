@@ -161,4 +161,15 @@ class WindowsScheduledTask(Base):
             "firmware_id",
             "task_uri",
         ),
+        # "Lookup by task_name" — covers the Rule #44 cross-firmware
+        # lookup_scheduled_task_across_firmwares filter (joins on
+        # task_name across firmwares). The SQL-audit 2026-05-14 found
+        # this was the only walker where the cross-firmware filter
+        # column lacked an index; full-corpus queries would otherwise
+        # full-scan windows_scheduled_tasks.
+        Index(
+            "ix_windows_scheduled_tasks_firmware_task_name",
+            "firmware_id",
+            "task_name",
+        ),
     )
