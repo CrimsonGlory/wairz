@@ -312,6 +312,15 @@ async def _handle_lookup_prefetch_record_across_firmwares(
     if not executable_name:
         return json.dumps({"error": "executable_name is required"})
 
+    # Input normalization (forensic review 2026-05-14): Windows prefetch
+    # .pf filenames are uppercase on disk (CMD.EXE, POWERSHELL.EXE) and
+    # the walker persists executable_name in that uppercase shape. If
+    # the analyst supplies a mixed-case name ('cmd.exe', 'PowerShell.exe'),
+    # the equality filter would miss the row. Normalize at the boundary
+    # so the analyst's intent — "find this executable across firmwares"
+    # — works regardless of the case they typed.
+    executable_name = executable_name.upper()
+
     prefetch_hash = input.get("prefetch_hash")
     scope = input.get("scope", "project")
     limit = int(input.get("limit", 100))
