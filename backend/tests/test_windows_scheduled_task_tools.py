@@ -91,6 +91,18 @@ def test_register_windows_scheduled_task_tools_registers_three():
     assert len(reg._tools) >= 3
 
 
+def test_register_windows_scheduled_task_tools_includes_cross_firmware_lookup():
+    """Rule #44 acceptance — register_windows_scheduled_task_tools
+    registers lookup_scheduled_task_across_firmwares alongside the
+    per-firmware tools. Issue #15 backfill for η.B walker."""
+    from app.ai.tool_registry import ToolRegistry
+
+    reg = ToolRegistry()
+    register_windows_scheduled_task_tools(reg)
+    names = {tool.name for tool in reg._tools.values()}
+    assert "lookup_scheduled_task_across_firmwares" in names
+
+
 # ── search_scheduled_tasks ──────────────────────────────────────────────────
 
 

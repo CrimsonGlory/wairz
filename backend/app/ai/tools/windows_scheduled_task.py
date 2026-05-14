@@ -25,6 +25,7 @@ from sqlalchemy import select
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.models.firmware import Firmware
+from app.models.project import Project
 from app.models.windows_scheduled_task import WindowsScheduledTask
 from app.services.jsonb_normalizers import (
     _normalize_firmware_scheduled_task_walk_result,
@@ -335,6 +336,128 @@ async def _handle_trigger_scheduled_task_walk(
     )
 
 
+# ── lookup_scheduled_task_across_firmwares (Rule #44) ───────────────────────
+
+
+async def _handle_lookup_scheduled_task_across_firmwares(
+    input: dict, context: ToolContext
+) -> str:
+    """**CROSS-FIRMWARE AGGREGATION** — given a task_name (and optional
+    run_as_user), return ALL firmware images in the active project (or
+    globally) with a matching scheduled task.
+
+    Rule #44 — same scheduled task across multiple captures indicates a
+    vendor-shipped task (e.g. WinSAT, ProactiveScan — should match
+    everywhere) OR a campaign / persistence task (the strong signal).
+    Identity key is the natural tuple (task_name, run_as_user).
+
+    Returns one row per matching firmware with:
+    - firmware_id, project_id, project_name, original_filename, sha256
+    - match_count (matching task rows in that firmware)
+    - sample_task (first matching task's summary)
+    - any_encoded_powershell flag across the firmware's matches
+    - supply_chain_signal (True when match_count >= 2 firmwares).
+    """
+    task_name = input.get("task_name")
+    if not task_name:
+        return json.dumps({"error": "task_name is required"})
+
+    run_as_user = input.get("run_as_user")
+    scope = input.get("scope", "project")
+    limit = int(input.get("limit", 100))
+    if limit > 500:
+        limit = 500
+    if limit < 1:
+        limit = 1
+
+    where = [WindowsScheduledTask.task_name == task_name]
+    if run_as_user is not None:
+        where.append(WindowsScheduledTask.run_as_user == run_as_user)
+
+    if scope == "project":
+        project_id = (
+            uuid.UUID(context.project_id)
+            if isinstance(context.project_id, str)
+            else context.project_id
+        )
+        stmt = (
+            select(WindowsScheduledTask, Firmware, Project)
+            .join(Firmware, WindowsScheduledTask.firmware_id == Firmware.id)
+            .join(Project, Firmware.project_id == Project.id)
+            .where(Project.id == project_id, *where)
+            .order_by(Firmware.created_at)
+        )
+    else:
+        stmt = (
+            select(WindowsScheduledTask, Firmware, Project)
+            .join(Firmware, WindowsScheduledTask.firmware_id == Firmware.id)
+            .join(Project, Firmware.project_id == Project.id)
+            .where(*where)
+            .order_by(Firmware.created_at)
+        )
+
+    rows = (await context.db.execute(stmt)).all()
+
+    by_firmware: dict[uuid.UUID, dict] = {}
+    for rec, firmware, project in rows:
+        slot = by_firmware.get(firmware.id)
+        if slot is None:
+            slot = {
+                "firmware_id": str(firmware.id),
+                "project_id": str(project.id),
+                "project_name": project.name,
+                "original_filename": firmware.original_filename,
+                "sha256": firmware.sha256,
+                "match_count": 0,
+                "sample_task": None,
+                "any_encoded_powershell": False,
+            }
+            by_firmware[firmware.id] = slot
+        slot["match_count"] += 1
+        actions = _normalize_windows_scheduled_tasks_actions(rec.actions)
+        if isinstance(actions, dict):
+            action_list = actions.get("actions") or []
+        elif isinstance(actions, list):
+            action_list = actions
+        else:
+            action_list = []
+        if _row_has_encoded_ps_action(action_list):
+            slot["any_encoded_powershell"] = True
+        if slot["sample_task"] is None:
+            slot["sample_task"] = {
+                "id": str(rec.id),
+                "source_path": rec.source_path,
+                "task_uri": rec.task_uri,
+                "task_name": rec.task_name,
+                "author": rec.author,
+                "run_level": rec.run_level,
+                "run_as_user": rec.run_as_user,
+            }
+
+    matches: list[dict] = []
+    for slot in by_firmware.values():
+        matches.append(slot)
+        if len(matches) >= limit:
+            break
+
+    out: dict = {
+        "task_name": task_name,
+        "run_as_user": run_as_user,
+        "scope": scope,
+        "match_firmware_count": len(matches),
+        "supply_chain_signal": len(matches) >= 2,
+        "matches": matches,
+    }
+    if not matches:
+        out["message"] = (
+            "No matching scheduled tasks found. Ensure the walker has "
+            "run on the relevant firmwares (trigger_scheduled_task_walk "
+            "+ poll), and double-check the task_name spelling — Windows "
+            "scheduled-task names are case-sensitive."
+        )
+    return _truncate(json.dumps(out, indent=2, default=str))
+
+
 # ── Registration ─────────────────────────────────────────────────────────────
 
 
@@ -446,4 +569,63 @@ def register_windows_scheduled_task_tools(registry: ToolRegistry) -> None:
             "additionalProperties": False,
         },
         handler=_handle_trigger_scheduled_task_walk,
+    )
+
+    registry.register(
+        name="lookup_scheduled_task_across_firmwares",
+        description=(
+            "Rule #44 CROSS-FIRMWARE AGGREGATION — given a task_name "
+            "(and optional run_as_user), return ALL firmware images in "
+            "the active project (or globally, with scope='global') that "
+            "contain a matching Windows scheduled task. Identity key is "
+            "the natural tuple (task_name, run_as_user). Returns one "
+            "entry per matching firmware with match_count, sample_task, "
+            "any_encoded_powershell flag, and supply_chain_signal=True "
+            "when match_count >= 2 firmwares (campaign / persistence "
+            "task across captures, OR a vendor-shipped task — the EXACT "
+            "task name disambiguates)."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "task_name": {
+                    "type": "string",
+                    "description": (
+                        "Required. Exact task name (case-sensitive). "
+                        "E.g. 'ProactiveScan' for the vendor-shipped "
+                        "Windows Defender scan, or 'Updater' for a "
+                        "common persistence guise."
+                    ),
+                },
+                "run_as_user": {
+                    "type": "string",
+                    "description": (
+                        "Optional. Exact run-as user identifier. "
+                        "Omit to match every task with the given name "
+                        "regardless of run-as user."
+                    ),
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["project", "global"],
+                    "description": (
+                        "Search scope. 'project' (default) restricts to "
+                        "firmwares in the active project; 'global' "
+                        "searches across all projects."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 500,
+                    "description": (
+                        "Maximum number of distinct firmwares to return "
+                        "(default 100, max 500)."
+                    ),
+                },
+            },
+            "required": ["task_name"],
+            "additionalProperties": False,
+        },
+        handler=_handle_lookup_scheduled_task_across_firmwares,
     )
