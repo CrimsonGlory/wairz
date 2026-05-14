@@ -1564,6 +1564,114 @@ def test_firmware_registry_hive_walk_result_schema_version_constant():
     assert FIRMWARE_REGISTRY_HIVE_WALK_RESULT_SCHEMA_VERSION == 1
 
 
+# ── _normalize_firmware_windows_info_walk_result (Phase λ.α.D) ────────────────
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        # Canonical pass-through — full λ.α.D aggregate shape.
+        (
+            {
+                "schema_version": 1,
+                "image_count": 3,
+                "classified_count": 2,
+                "by_os_kernel_family": {
+                    "windows10": 1,
+                    "windows11": 1,
+                    "windows_server": 0,
+                    "unknown": 0,
+                },
+                "total_elapsed_s": 12.5,
+                "errors_per_image": [],
+            },
+            {
+                "schema_version": 1,
+                "image_count": 3,
+                "classified_count": 2,
+                "by_os_kernel_family": {
+                    "windows10": 1,
+                    "windows11": 1,
+                    "windows_server": 0,
+                    "unknown": 0,
+                },
+                "total_elapsed_s": 12.5,
+                "errors_per_image": [],
+            },
+        ),
+        # Empty dict preserved.
+        ({}, {}),
+        # None — durable signal for "no completed run yet".
+        (None, None),
+        # Wrong-typed values coerce to None (Rule #35c defensive boundary).
+        ([{"image_count": 5}], None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_windows_info_walk_result(value, expected):
+    from app.services.jsonb_normalizers import (
+        _normalize_firmware_windows_info_walk_result,
+    )
+
+    assert _normalize_firmware_windows_info_walk_result(value) == expected
+
+
+def test_normalize_firmware_windows_info_walk_result_idempotent():
+    from app.services.jsonb_normalizers import (
+        _normalize_firmware_windows_info_walk_result,
+    )
+
+    canonical = {
+        "schema_version": 1,
+        "image_count": 1,
+        "classified_count": 1,
+        "by_os_kernel_family": {"windows11": 1},
+        "total_elapsed_s": 1.0,
+        "errors_per_image": [],
+    }
+    once = _normalize_firmware_windows_info_walk_result(canonical)
+    twice = _normalize_firmware_windows_info_walk_result(once)
+    assert once == twice == canonical
+
+
+def test_stamp_firmware_windows_info_walk_result_adds_version():
+    from app.services.jsonb_normalizers import (
+        FIRMWARE_WINDOWS_INFO_WALK_RESULT_SCHEMA_VERSION,
+        _stamp_firmware_windows_info_walk_result,
+    )
+
+    payload = {"image_count": 3, "classified_count": 2}
+    out = _stamp_firmware_windows_info_walk_result(payload)
+    assert out["schema_version"] == (
+        FIRMWARE_WINDOWS_INFO_WALK_RESULT_SCHEMA_VERSION
+    )
+    assert out["image_count"] == 3
+
+
+def test_stamp_firmware_windows_info_walk_result_idempotent():
+    from app.services.jsonb_normalizers import (
+        FIRMWARE_WINDOWS_INFO_WALK_RESULT_SCHEMA_VERSION,
+        _stamp_firmware_windows_info_walk_result,
+    )
+
+    payload = {"image_count": 0}
+    once = _stamp_firmware_windows_info_walk_result(payload)
+    twice = _stamp_firmware_windows_info_walk_result(once)
+    assert once == twice
+    assert once["schema_version"] == (
+        FIRMWARE_WINDOWS_INFO_WALK_RESULT_SCHEMA_VERSION
+    )
+
+
+def test_firmware_windows_info_walk_result_schema_version_constant():
+    from app.services.jsonb_normalizers import (
+        FIRMWARE_WINDOWS_INFO_WALK_RESULT_SCHEMA_VERSION,
+    )
+
+    assert FIRMWARE_WINDOWS_INFO_WALK_RESULT_SCHEMA_VERSION == 1
+
+
 # ── _normalize_windows_update_packages_update_metadata (Phase δ.1) ────────────
 
 

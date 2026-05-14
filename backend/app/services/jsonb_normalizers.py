@@ -926,6 +926,80 @@ def _stamp_firmware_registry_hive_walk_result(payload: dict) -> dict:
     return payload
 
 
+# ── firmware.windows_info_walk_result (Phase λ.α.D) ──────────────────────────
+#
+# Aggregate result of the per-firmware Vol3 ``windows.info`` walker run
+# (Phase λ.α.D). The walker iterates every ``memory_dump_image`` row
+# whose ``os_family`` is ``windows`` OR ``unknown``, invokes Vol3 via
+# :func:`app.services.vol3_runner.run_vol3_plugin` (subprocess wrapper
+# under Rule #29 600 s timeout + Rule #36 trusted argv[0]), parses the
+# ``-r jsonl`` records, stamps per-image ``kernel_hint`` +
+# ``isf_profile_guess`` + ``last_walked_at`` onto the
+# ``memory_dump_image`` rows, and writes this firmware-level aggregate
+# for last-known operator visibility.
+#
+# 3+ consumer files projected at λ shipping time:
+#
+# - λ.α.D walker writer (this stream).
+# - λ.δ MCP tool (``windows_info.get_aggregate`` or similar — reads
+#   the aggregate for cross-firmware comparisons).
+# - λ.ε frontend ``MemoryForensicHub`` (reads the aggregate for the
+#   per-firmware summary card).
+#
+# Stamp helper + schema_version constant added at writer-introduction
+# time per Rule #35c forward-looking discipline — avoids the "add the
+# pair when the 3rd consumer surfaces" mid-stream churn.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "image_count": int,                       # total images attempted
+#     "classified_count": int,                  # images Vol3 successfully
+#                                               # extracted windows.info from
+#     "by_os_kernel_family": dict[str, int],    # e.g. {"windows10": 2,
+#                                               # "windows11": 1, "unknown": 0}
+#     "total_elapsed_s": float,                 # sum of vol3_runner
+#                                               # elapsed_s across images
+#     "errors_per_image": list[str],            # per-image error summaries
+#                                               # (one per failed invocation)
+#   }
+#
+# Forward-discipline: bump SCHEMA_VERSION + extend dispatch in the
+# normaliser if the aggregate shape changes (e.g. add a sub-key for
+# Vol3 framework version captured at run time).
+
+FIRMWARE_WINDOWS_INFO_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_windows_info_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.windows_info_walk_result``.
+
+    ``None`` is preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None`` (treat as "unusable
+    persisted result"; the next run will overwrite). Mirrors the
+    ``_normalize_firmware_registry_hive_walk_result`` shape.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_windows_info_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.windows_info_walk_result``.
+
+    Always receives a non-None dict from the walker outer-wrapper
+    (the runner only stamps when transitioning to ``completed``), so
+    this helper is unconditionally additive. Idempotent.
+    """
+    payload["schema_version"] = (
+        FIRMWARE_WINDOWS_INFO_WALK_RESULT_SCHEMA_VERSION
+    )
+    return payload
+
+
 # ── windows_update_packages.update_metadata (Phase δ.1) ──────────────────────
 #
 # Per-package parsed manifest payload — bill-of-files, supersedence chain

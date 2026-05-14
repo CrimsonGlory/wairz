@@ -866,6 +866,34 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # ── λ.α.D — Vol3 windows.info walker state machine ──────────────
+    # Phase λ.α.D walker — invokes Volatility 3's ``windows.info``
+    # plugin against every ``memory_dump_image`` row whose ``os_family``
+    # is ``windows`` OR ``unknown`` (raw acquisitions carry no magic;
+    # Vol3's automagic LayerStacker classifies them at scan time).
+    # Each invocation is one subprocess via ``vol3_runner.run_vol3_plugin``
+    # under the Rule #29 600 s timeout + Rule #36 trusted argv[0] +
+    # Rule #45 deny-list discipline. Per-image kernel_hint +
+    # isf_profile_guess are stamped onto the ``memory_dump_image`` row;
+    # this firmware-level aggregate carries image_count + classified
+    # count + by-OS-kernel-family + total elapsed seconds for last-known
+    # operator visibility. Rule #33 .a 5-state machine + .c CHECK.
+    windows_info_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    windows_info_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    windows_info_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    windows_info_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    windows_info_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
