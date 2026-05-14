@@ -1110,6 +1110,122 @@ def _stamp_volatility_process_records_anomaly_flags(payload: dict) -> dict:
     return payload
 
 
+# ── firmware.windows_injection_walk_result (Phase λ.γ) ───────────────────────
+#
+# Aggregate result of the per-firmware Vol3 windows_injection walker
+# run. The walker invokes the ``windows.malware.malfind`` /
+# ``windows.malware.hollowprocesses`` / ``windows.malware.ldrmodules`` /
+# ``windows.malware.processghosting`` / ``windows.malware.pebmasquerade``
+# plugin family against every Windows / unknown memory_dump_image row,
+# emits one ``volatility_injection_records`` row per detection, stamps
+# this firmware-level aggregate carrying counts + classification.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "image_count": int,                 # memory images walked
+#     "detection_count": int,             # total rows persisted
+#     "by_kind": {                        # per-detection-kind row count.
+#       "injected_code_region": int,
+#       "hollow_process": int,
+#       "unlinked_module": int,
+#       "peb_masquerade": int,
+#       "ghosted_process": int,
+#     },
+#     "unique_hexdump_sha256_count": int, # de-duped count of distinct
+#                                         # injected-region hashes; the
+#                                         # Rule #44 cross-firmware key.
+#     "total_elapsed_s": float,
+#     "errors_per_image": list[str],
+#   }
+
+FIRMWARE_WINDOWS_INJECTION_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_windows_injection_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.windows_injection_walk_result``.
+
+    ``None`` preserved (no completed run yet); wrong-typed collapses
+    to ``None``. Mirrors the
+    ``_normalize_firmware_windows_processes_walk_result`` shape.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_windows_injection_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.windows_injection_walk_result``. Idempotent."""
+    payload["schema_version"] = (
+        FIRMWARE_WINDOWS_INJECTION_WALK_RESULT_SCHEMA_VERSION
+    )
+    return payload
+
+
+# ── volatility_injection_records.evidence (Phase λ.γ) ────────────────────────
+#
+# Per-row plugin-specific extra context for a
+# ``VolatilityInjectionRecord``. Each detection_kind carries a
+# different sub-shape; the dispatcher in
+# ``_normalize_volatility_injection_records_evidence`` doesn't enforce
+# the kind-specific keys — wrong-typed columns just collapse to None
+# at the boundary. Schema-versioned per Rule #35c.
+#
+# Canonical shapes (all carry ``schema_version`` + a ``kind`` echo
+# for self-describing JSONB):
+#
+# injected_code_region:
+#   { schema_version, kind: 'injected_code_region',
+#     vad_tag, commit_charge, private_memory, protection,
+#     disasm_first_line, hexdump_full_chars }
+#
+# hollow_process:
+#   { schema_version, kind: 'hollow_process',
+#     peb_image_path, eprocess_image_path, divergence_reason }
+#
+# unlinked_module:
+#   { schema_version, kind: 'unlinked_module',
+#     in_load_order, in_init_order, in_mem_order,
+#     missing_from_lists: list[str], base_address, module_size }
+#
+# peb_masquerade:
+#   { schema_version, kind: 'peb_masquerade',
+#     peb_image_path_name, eprocess_image_file_name,
+#     image_base_address }
+#
+# ghosted_process:
+#   { schema_version, kind: 'ghosted_process',
+#     ghosted_path, deletion_reason }
+
+VOLATILITY_INJECTION_RECORDS_EVIDENCE_SCHEMA_VERSION = 1
+
+
+def _normalize_volatility_injection_records_evidence(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``VolatilityInjectionRecord.evidence``.
+
+    ``None`` preserved (per-row evidence not computed yet — legacy
+    pre-λ.γ row). Wrong-typed collapses to ``None``. The dict's
+    sub-shape varies by detection_kind; this helper does NOT enforce
+    kind-specific keys, only the top-level dict-ness.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_volatility_injection_records_evidence(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``VolatilityInjectionRecord.evidence``. Idempotent."""
+    payload["schema_version"] = (
+        VOLATILITY_INJECTION_RECORDS_EVIDENCE_SCHEMA_VERSION
+    )
+    return payload
+
+
 # ── windows_update_packages.update_metadata (Phase δ.1) ──────────────────────
 #
 # Per-package parsed manifest payload — bill-of-files, supersedence chain

@@ -922,6 +922,35 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # ── λ.γ — Vol3 windows_injection walker state machine ───────────
+    # Phase λ.γ walker — invokes Vol3's ``windows.malware.malfind`` /
+    # ``windows.malware.hollowprocesses`` / ``windows.malware.ldrmodules`` /
+    # ``windows.malware.processghosting`` / ``windows.malware.pebmasquerade``
+    # plugin family against every ``memory_dump_image`` row whose
+    # ``os_family`` is ``windows`` OR ``unknown``. Surfaces five
+    # high-fidelity injection / hollowing / hiding indicators as one
+    # ``volatility_injection_records`` row per detection.
+    # **2026-06-07 deprecation deadline** for the deprecated top-level
+    # paths (bare malfind / hollowprocesses / etc.) — walker pins
+    # EXCLUSIVELY to the canonical ``windows.malware.<X>`` namespace.
+    # Rule #33 .a 5-state machine + .c CHECK enforced via
+    # ``ck_firmware_windows_injection_walk_status``.
+    windows_injection_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    windows_injection_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    windows_injection_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    windows_injection_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    windows_injection_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
