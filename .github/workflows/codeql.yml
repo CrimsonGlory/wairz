@@ -1,0 +1,62 @@
+name: CodeQL
+
+# Wairz is a firmware security analysis platform — running CodeQL on its
+# own source is the "eat your own dog food" discipline. Catches injection
+# vectors / sandbox bypasses / unsafe deserialisation / TOCTOU classes
+# that the same wairz codebase warns about in scanned firmware.
+#
+# Per Rule #41 concurrency policy: cancel in-progress runs on push so
+# the per-piece commit pattern doesn't pile up CodeQL invocations.
+# Push to main + weekly sweep cover boundary + drift cases.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly sweep — Monday 09:00 UTC, after Dependabot opens its PRs
+    # (06:00 UTC backend / 06:30 frontend) so CodeQL runs against any
+    # accepted version bumps.
+    - cron: "0 9 * * 1"
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: python
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # Use the security-extended query suite for a security-tool
+          # codebase. Lower-confidence queries still go to the security
+          # dashboard but don't fail the build.
+          queries: security-extended
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"

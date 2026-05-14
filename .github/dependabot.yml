@@ -1,0 +1,100 @@
+# wairz Dependabot configuration — supply-chain hygiene per CLAUDE.md
+# Rule #37 spirit (offline-trust-anchor: bundled trust artefacts must
+# stay current). Wairz is a security tool; out-of-date dependencies
+# undermine its own posture.
+#
+# Cadence is conservative (weekly) to avoid CI churn against the
+# Rule #41 boundary-commit + concurrency-cancel pattern. Major-version
+# bumps require manual review; minor + patch automerge candidates
+# only after the existing Backend Tests + Lint workflows pass.
+
+version: 2
+updates:
+  # Python backend (uv lockfile / pyproject.toml)
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "backend"
+    groups:
+      python-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Frontend (npm lockfile)
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:30"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "frontend"
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Backend Dockerfile base image + apt-installed tooling.
+  # Quarterly base-image refreshes catch CVEs in the OS layer.
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "docker"
+
+  # Emulation side-container Dockerfile
+  - package-ecosystem: "docker"
+    directory: "/emulation"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "docker"
+      - "emulation"
+
+  # Fuzzing side-container Dockerfile (AFL++)
+  - package-ecosystem: "docker"
+    directory: "/fuzzing"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "docker"
+      - "fuzzing"
+
+  # System-emulation side-container Dockerfile (FirmAE)
+  - package-ecosystem: "docker"
+    directory: "/system-emulation"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "docker"
+      - "system-emulation"
+
+  # GitHub Actions versions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "ci"
