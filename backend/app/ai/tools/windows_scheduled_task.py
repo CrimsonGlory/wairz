@@ -375,6 +375,13 @@ async def _handle_lookup_scheduled_task_across_firmwares(
         where.append(WindowsScheduledTask.run_as_user == run_as_user)
 
     if scope == "project":
+        if not context.project_id:
+            return json.dumps({
+                "error": (
+                    "scope='project' requires an active project — call "
+                    "switch_project first or use scope='global'."
+                )
+            })
         project_id = (
             uuid.UUID(context.project_id)
             if isinstance(context.project_id, str)

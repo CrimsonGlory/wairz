@@ -343,6 +343,13 @@ async def _handle_lookup_bcd_entry_across_firmwares(
     where = [WindowsBcdEntry.object_guid == object_guid]
 
     if scope == "project":
+        if not context.project_id:
+            return json.dumps({
+                "error": (
+                    "scope='project' requires an active project — call "
+                    "switch_project first or use scope='global'."
+                )
+            })
         project_id = (
             uuid.UUID(context.project_id)
             if isinstance(context.project_id, str)

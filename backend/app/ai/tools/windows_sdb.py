@@ -461,6 +461,13 @@ async def _handle_lookup_sdb_entry_across_firmwares(
         where.append(WindowsSdbEntry.file_sha256 == file_sha256)
 
     if scope == "project":
+        if not context.project_id:
+            return json.dumps({
+                "error": (
+                    "scope='project' requires an active project — call "
+                    "switch_project first or use scope='global'."
+                )
+            })
         project_id = (
             uuid.UUID(context.project_id)
             if isinstance(context.project_id, str)

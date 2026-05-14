@@ -472,6 +472,13 @@ async def _handle_lookup_systemd_unit_across_firmwares(
         )
 
     if scope == "project":
+        if not context.project_id:
+            return json.dumps({
+                "error": (
+                    "scope='project' requires an active project — call "
+                    "switch_project first or use scope='global'."
+                )
+            })
         # Restrict to firmwares within the active project.
         project_id = (
             uuid.UUID(context.project_id)

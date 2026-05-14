@@ -484,6 +484,13 @@ async def _handle_lookup_registry_extract_across_firmwares(
         where.append(WindowsRegistryExtract.hive_path == hive_path)
 
     if scope == "project":
+        if not context.project_id:
+            return json.dumps({
+                "error": (
+                    "scope='project' requires an active project — call "
+                    "switch_project first or use scope='global'."
+                )
+            })
         project_id = (
             uuid.UUID(context.project_id)
             if isinstance(context.project_id, str)

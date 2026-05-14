@@ -355,6 +355,13 @@ async def _handle_lookup_linux_persistence_across_firmwares(
     text_col = config["text_column"]
 
     if scope == "project":
+        if not context.project_id:
+            return json.dumps({
+                "error": (
+                    "scope='project' requires an active project — call "
+                    "switch_project first or use scope='global'."
+                )
+            })
         project_id = (
             uuid.UUID(context.project_id)
             if isinstance(context.project_id, str)

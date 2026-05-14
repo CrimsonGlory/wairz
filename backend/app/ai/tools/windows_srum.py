@@ -327,6 +327,13 @@ async def _handle_lookup_srum_record_across_firmwares(
         where.append(WindowsSrumRecord.record_type == record_type)
 
     if scope == "project":
+        if not context.project_id:
+            return json.dumps({
+                "error": (
+                    "scope='project' requires an active project — call "
+                    "switch_project first or use scope='global'."
+                )
+            })
         project_id = (
             uuid.UUID(context.project_id)
             if isinstance(context.project_id, str)

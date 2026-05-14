@@ -542,6 +542,13 @@ async def _handle_lookup_efs_recovery_agent_across_firmwares(
     # JSONB containment is dialect-specific and the DRF list is small
     # per row).
     if scope == "project":
+        if not context.project_id:
+            return json.dumps({
+                "error": (
+                    "scope='project' requires an active project — call "
+                    "switch_project first or use scope='global'."
+                )
+            })
         project_id = (
             uuid.UUID(context.project_id)
             if isinstance(context.project_id, str)
