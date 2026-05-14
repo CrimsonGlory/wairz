@@ -1000,6 +1000,116 @@ def _stamp_firmware_windows_info_walk_result(payload: dict) -> dict:
     return payload
 
 
+# ── firmware.windows_processes_walk_result (Phase λ.β) ───────────────────────
+#
+# Aggregate result of the per-firmware Vol3 windows_processes walker run.
+# The walker invokes the ``windows.pslist`` / ``windows.psscan`` /
+# ``windows.pstree`` / ``windows.cmdline`` plugin family against every
+# ``memory_dump_image`` row whose ``os_family`` is ``windows`` OR
+# ``unknown`` for this firmware, de-dupes process observations into
+# ``volatility_process_records`` rows, and stamps this firmware-level
+# aggregate carrying counts + classification.
+#
+# 3+ consumer files projected:
+#
+# - λ.β walker writer (this stream).
+# - λ.β.C MCP tool (``windows_processes_walk_status`` reader + the
+#   per-firmware ``list_windows_processes`` viewer).
+# - Future λ.δ / λ.ε aggregation + frontend Memory-Forensic Hub UI
+#   (reads the aggregate for the per-firmware summary card).
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "image_count": int,                 # memory images walked
+#     "process_count": int,               # de-duped process rows persisted
+#     "by_plugin_seen": {                 # how many records each plugin
+#                                         # contributed (pre-dedup multiset
+#                                         # totals; one process can appear
+#                                         # in pslist + psscan + pstree).
+#       "pslist": int, "psscan": int,
+#       "pstree": int, "cmdline": int,
+#     },
+#     "by_anomaly": {                     # de-duped row-count per signal.
+#       "unlinked": int, "terminated": int,
+#       "orphan": int, "suspicious_path": int,
+#     },
+#     "total_elapsed_s": float,
+#     "errors_per_image": list[str],
+#   }
+
+FIRMWARE_WINDOWS_PROCESSES_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_windows_processes_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.windows_processes_walk_result``.
+
+    ``None`` is preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None`` (treat as "unusable
+    persisted result"; the next run will overwrite). Mirrors the
+    ``_normalize_firmware_windows_info_walk_result`` shape.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_windows_processes_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.windows_processes_walk_result``. Idempotent."""
+    payload["schema_version"] = (
+        FIRMWARE_WINDOWS_PROCESSES_WALK_RESULT_SCHEMA_VERSION
+    )
+    return payload
+
+
+# ── volatility_process_records.anomaly_flags (Phase λ.β) ─────────────────────
+#
+# Per-row derived properties on a ``VolatilityProcessRecord``. Computed at
+# walker time so downstream finding-emit hooks don't need to re-derive
+# them. Schema-versioned per Rule #35c (the dict's shape is stable now;
+# extensions add new bool flags with default False so old rows continue
+# to deserialize cleanly).
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "unlinked": bool,           # seen_in_psscan=True + seen_in_pslist=False
+#                                 # → T1014 Rootkit DKOM-unlink indicator
+#     "terminated": bool,         # exit_time IS NOT NULL
+#     "orphan": bool,             # ppid points to no observed parent (this image)
+#     "suspicious_path": bool,    # image_path_full outside System32/SysWOW64/
+#                                 # Program Files (heuristic — PARSE-ONLY, no
+#                                 # binary inspection)
+#   }
+
+VOLATILITY_PROCESS_RECORDS_ANOMALY_FLAGS_SCHEMA_VERSION = 1
+
+
+def _normalize_volatility_process_records_anomaly_flags(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``VolatilityProcessRecord.anomaly_flags``.
+
+    ``None`` preserved — no derived flags computed yet (e.g. legacy row
+    pre-λ.β.X re-walk). Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_volatility_process_records_anomaly_flags(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``VolatilityProcessRecord.anomaly_flags``. Idempotent."""
+    payload["schema_version"] = (
+        VOLATILITY_PROCESS_RECORDS_ANOMALY_FLAGS_SCHEMA_VERSION
+    )
+    return payload
+
+
 # ── windows_update_packages.update_metadata (Phase δ.1) ──────────────────────
 #
 # Per-package parsed manifest payload — bill-of-files, supersedence chain

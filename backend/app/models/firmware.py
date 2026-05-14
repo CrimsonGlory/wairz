@@ -894,6 +894,34 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # ── λ.β — Vol3 windows_processes walker state machine ───────────
+    # Phase λ.β walker — invokes Vol3's ``windows.pslist`` /
+    # ``windows.psscan`` / ``windows.pstree`` / ``windows.cmdline``
+    # plugin family against every ``memory_dump_image`` row whose
+    # ``os_family`` is ``windows`` OR ``unknown`` for this firmware.
+    # De-dupes process observations across the four plugins per
+    # ``(memory_image_id, pid, image_filename, create_time)`` into
+    # ``volatility_process_records`` rows. The pslist/psscan delta is
+    # the highest-value forensic signal — a row psscan-saw +
+    # pslist-missed is the canonical T1014 Rootkit DKOM-unlink
+    # indicator. Rule #33 .a 5-state machine + .c CHECK enforced via
+    # ``ck_firmware_windows_processes_walk_status``.
+    windows_processes_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    windows_processes_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    windows_processes_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    windows_processes_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    windows_processes_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
