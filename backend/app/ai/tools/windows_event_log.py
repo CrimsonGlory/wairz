@@ -510,12 +510,23 @@ async def _handle_lookup_event_record_across_firmwares(
         if len(matches) >= limit:
             break
 
+    # supply_chain_signal threshold calibration (forensic review 2026-05-14):
+    # EVTX events naturally repeat across normal firmware operation —
+    # Security 4624 (logon success), System 7045 (service install), Sysmon 1
+    # (process create) fire on EVERY captured system. A threshold of >= 2
+    # would over-flag every baseline event. The forensic signal needs higher
+    # specificity — 5+ firmwares sharing the SAME (provider, event_id) is
+    # the threshold where vendor-shipped indicators become campaign-shaped.
+    # Operator can still inspect match_firmware_count for finer thresholds.
+    _SUPPLY_CHAIN_FIRMWARE_THRESHOLD = 5
     out: dict = {
         "provider": provider,
         "event_id": event_id,
         "scope": scope,
         "match_firmware_count": len(matches),
-        "supply_chain_signal": len(matches) >= 2,
+        "supply_chain_signal": (
+            len(matches) >= _SUPPLY_CHAIN_FIRMWARE_THRESHOLD
+        ),
         "matches": matches,
     }
     if not matches:
@@ -729,8 +740,11 @@ def register_windows_event_log_tools(registry: ToolRegistry) -> None:
             "Windows event record. Identity key is the natural tuple "
             "(provider, event_id). Returns one entry per matching firmware "
             "with match_count, sample_event, and supply_chain_signal=True "
-            "when match_count >= 2 firmwares (vendor-shipped event "
-            "indicator or campaign-wide persistence)."
+            "when match_count >= 5 firmwares (vendor-shipped event "
+            "indicator or campaign-wide persistence — EVTX events are "
+            "high-volume baseline, the >= 5 threshold suppresses noise "
+            "from naturally-repeating Security 4624 / System 7045 / "
+            "Sysmon 1 events that ship in every captured system)."
         ),
         input_schema={
             "type": "object",
