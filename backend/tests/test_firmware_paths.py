@@ -806,7 +806,7 @@ async def test_real_android_fs_outranks_boot_ramdisk(tmp_path: Path):
     roots = await get_detection_roots(fw)
 
     # The real Android system partition must lead the boot ramdisk.
-    real_indices = {os.path.realpath(r): i for i, r in enumerate(roots)}
+    real_indices = {_real(r): i for i, r in enumerate(roots)}
     super_idx = real_indices[_real(super_extracted)]
     boot_idx = real_indices[_real(paths["boot_ramdisk"])]
     assert super_idx < boot_idx, (

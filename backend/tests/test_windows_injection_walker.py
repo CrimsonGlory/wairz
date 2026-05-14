@@ -59,7 +59,6 @@ from app.services.windows_injection_walker import (
 )
 from tests._live_db import make_live_db
 
-
 # ── Plugin list locked to windows.malware.<X> (2026-06-07 deprecation) ──────
 
 

@@ -31,7 +31,6 @@ from app.services.memory_image_paths import (
     enumerate_memory_image_candidates,
 )
 
-
 # ── Extension allowlist ──────────────────────────────────────────────────────
 
 

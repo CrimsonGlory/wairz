@@ -50,17 +50,14 @@ from app.services.windows_processes_walker import (
     _WALK_OS_FAMILIES,
     _compute_anomaly_flags,
     _do_windows_processes_walk,
+    _int_or_none,
     _is_suspicious_path,
+    _parse_vol3_datetime,
     _record_key,
     auto_windows_processes_walk_firmware_safe,
     run_windows_processes_walk_background,
 )
-from app.services.windows_processes_walker import (
-    _int_or_none,
-    _parse_vol3_datetime,
-)
 from tests._live_db import make_live_db
-
 
 # ── Pure helpers ─────────────────────────────────────────────────────────────
 
