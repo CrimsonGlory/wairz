@@ -39,6 +39,7 @@ from app.ai.tools.windows_mbr_vbr import register_windows_mbr_vbr_tools
 from app.ai.tools.windows_mft import register_windows_mft_tools
 from app.ai.tools.windows_pe_signature import register_windows_pe_signature_tools
 from app.ai.tools.windows_prefetch import register_windows_prefetch_tools
+from app.ai.tools.windows_processes import register_windows_processes_tools
 from app.ai.tools.windows_registry import register_windows_registry_tools
 from app.ai.tools.windows_scheduled_task import (
     register_windows_scheduled_task_tools,
@@ -84,6 +85,7 @@ def create_tool_registry() -> ToolRegistry:
     register_windows_dotnet_tools(registry)
     register_windows_event_log_tools(registry)
     register_windows_prefetch_tools(registry)
+    register_windows_processes_tools(registry)
     register_windows_srum_tools(registry)
     register_windows_scheduled_task_tools(registry)
     register_windows_lnk_tools(registry)
