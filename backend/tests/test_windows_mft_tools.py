@@ -107,6 +107,18 @@ def test_register_windows_mft_tools_registers_three():
     assert len(reg._tools) >= 3
 
 
+def test_register_windows_mft_tools_includes_cross_firmware_lookup():
+    """Rule #44 acceptance — register_windows_mft_tools registers
+    lookup_mft_record_across_firmwares alongside the per-firmware tools.
+    Issue #15 backfill for η.A walker."""
+    from app.ai.tool_registry import ToolRegistry
+
+    reg = ToolRegistry()
+    register_windows_mft_tools(reg)
+    names = {tool.name for tool in reg._tools.values()}
+    assert "lookup_mft_record_across_firmwares" in names
+
+
 # ── search_mft_records ──────────────────────────────────────────────────────
 
 

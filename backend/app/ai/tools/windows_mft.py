@@ -24,6 +24,7 @@ from sqlalchemy import select
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.models.firmware import Firmware
+from app.models.project import Project
 from app.models.windows_mft_record import WindowsMftRecord
 from app.services.jsonb_normalizers import (
     _normalize_firmware_mft_walk_result,
@@ -324,6 +325,122 @@ async def _handle_trigger_mft_walk(
 # ── Registration ─────────────────────────────────────────────────────────────
 
 
+async def _handle_lookup_mft_record_across_firmwares(
+    input: dict, context: ToolContext
+) -> str:
+    """**CROSS-FIRMWARE AGGREGATION** — given a filename (and optional
+    full_path), return ALL firmware images in the active project (or
+    globally) with a matching $MFT record.
+
+    Rule #44 — same suspicious file or planted artifact appearing across
+    multiple captures is the strongest cross-firmware $MFT signal.
+    Identity key is the natural tuple (filename, full_path). Omitting
+    full_path widens to "every record with this basename" — useful for
+    detecting attackers who relocate binaries.
+
+    Returns one row per matching firmware with:
+    - firmware_id, project_id, project_name, original_filename, sha256
+    - match_count (total MFT rows matching the filter in that firmware)
+    - sample_record (first matching record's summary)
+    - any_ads_hidden / any_timestomp flags across the firmware's matches
+    - supply_chain_signal (True when match_count >= 2 firmwares).
+    """
+    filename = input.get("filename")
+    if not filename:
+        return json.dumps({"error": "filename is required"})
+
+    full_path = input.get("full_path")
+    scope = input.get("scope", "project")
+    limit = int(input.get("limit", 100))
+    if limit > 500:
+        limit = 500
+    if limit < 1:
+        limit = 1
+
+    where = [WindowsMftRecord.filename == filename]
+    if full_path:
+        where.append(WindowsMftRecord.full_path == full_path)
+
+    if scope == "project":
+        project_id = (
+            uuid.UUID(context.project_id)
+            if isinstance(context.project_id, str)
+            else context.project_id
+        )
+        stmt = (
+            select(WindowsMftRecord, Firmware, Project)
+            .join(Firmware, WindowsMftRecord.firmware_id == Firmware.id)
+            .join(Project, Firmware.project_id == Project.id)
+            .where(Project.id == project_id, *where)
+            .order_by(Firmware.created_at)
+        )
+    else:
+        stmt = (
+            select(WindowsMftRecord, Firmware, Project)
+            .join(Firmware, WindowsMftRecord.firmware_id == Firmware.id)
+            .join(Project, Firmware.project_id == Project.id)
+            .where(*where)
+            .order_by(Firmware.created_at)
+        )
+
+    rows = (await context.db.execute(stmt)).all()
+
+    by_firmware: dict[uuid.UUID, dict] = {}
+    for rec, firmware, project in rows:
+        slot = by_firmware.get(firmware.id)
+        if slot is None:
+            slot = {
+                "firmware_id": str(firmware.id),
+                "project_id": str(project.id),
+                "project_name": project.name,
+                "original_filename": firmware.original_filename,
+                "sha256": firmware.sha256,
+                "match_count": 0,
+                "sample_record": None,
+                "any_ads_hidden": False,
+                "any_timestomp": False,
+            }
+            by_firmware[firmware.id] = slot
+        slot["match_count"] += 1
+        if _row_has_hidden_ads(rec):
+            slot["any_ads_hidden"] = True
+        if _row_has_timestomp(rec):
+            slot["any_timestomp"] = True
+        if slot["sample_record"] is None:
+            slot["sample_record"] = {
+                "id": str(rec.id),
+                "source_path": rec.source_path,
+                "segment_number": rec.segment_number,
+                "filename": rec.filename,
+                "full_path": rec.full_path,
+                "file_size": rec.file_size,
+                "is_directory": bool(rec.is_directory),
+                "in_use": bool(rec.in_use),
+            }
+
+    matches: list[dict] = []
+    for slot in by_firmware.values():
+        matches.append(slot)
+        if len(matches) >= limit:
+            break
+
+    out: dict = {
+        "filename": filename,
+        "full_path": full_path,
+        "scope": scope,
+        "match_firmware_count": len(matches),
+        "supply_chain_signal": len(matches) >= 2,
+        "matches": matches,
+    }
+    if not matches:
+        out["message"] = (
+            "No matching MFT records found. Ensure the walker has run on "
+            "the relevant firmwares (trigger_mft_walk + poll), and "
+            "double-check the filename case (NTFS preserves case)."
+        )
+    return _truncate(json.dumps(out, indent=2, default=str))
+
+
 def register_windows_mft_tools(registry: ToolRegistry) -> None:
     """Register all Phase η.A.F Windows NTFS $MFT MCP tools."""
 
@@ -424,6 +541,66 @@ def register_windows_mft_tools(registry: ToolRegistry) -> None:
             "additionalProperties": False,
         },
         handler=_handle_mft_walk_status,
+    )
+
+    registry.register(
+        name="lookup_mft_record_across_firmwares",
+        description=(
+            "Rule #44 CROSS-FIRMWARE AGGREGATION — given a filename (and "
+            "optional exact full_path), return ALL firmware images in the "
+            "active project (or globally, with scope='global') that "
+            "contain a matching MFT record. Identity key is the natural "
+            "tuple (filename, full_path). Returns one entry per matching "
+            "firmware with match_count, sample_record, "
+            "any_ads_hidden / any_timestomp flags across the firmware's "
+            "matches, and supply_chain_signal=True when match_count >= 2 "
+            "firmwares (same suspicious file or planted artifact across "
+            "captures — the strongest cross-firmware $MFT signal)."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "description": (
+                        "Required. Exact filename (basename) to look up "
+                        "(e.g. 'cmd.exe', 'mimikatz.exe', "
+                        "'svchost.exe')."
+                    ),
+                },
+                "full_path": {
+                    "type": "string",
+                    "description": (
+                        "Optional. Exact full path within the volume "
+                        "(e.g. 'Windows\\\\System32\\\\cmd.exe'). Omit "
+                        "to match every record with the given filename "
+                        "regardless of path — useful for planted-file "
+                        "detection where attackers relocate binaries."
+                    ),
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["project", "global"],
+                    "description": (
+                        "Search scope. 'project' (default) restricts to "
+                        "firmwares in the active project; 'global' "
+                        "searches across all projects."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 500,
+                    "description": (
+                        "Maximum number of distinct firmwares to return "
+                        "(default 100, max 500)."
+                    ),
+                },
+            },
+            "required": ["filename"],
+            "additionalProperties": False,
+        },
+        handler=_handle_lookup_mft_record_across_firmwares,
     )
 
     registry.register(
