@@ -89,6 +89,9 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
     from app.services.windows_info_walker import (
         auto_windows_info_walk_firmware_safe,
     )
+    from app.services.windows_injection_walker import (
+        auto_windows_injection_walk_firmware_safe,
+    )
     from app.services.windows_processes_walker import (
         auto_windows_processes_walk_firmware_safe,
     )
@@ -124,6 +127,11 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
         # windows_info purely so the operator-facing UI surfaces the
         # cheaper aggregate first.
         auto_windows_processes_walk_firmware_safe,
+        # λ.γ — Vol3 windows_injection walker (windows.malware.*).
+        # Order-dependent on λ.α.B. Wires EXCLUSIVELY to the
+        # ``windows.malware.<X>`` namespace per the 2026-06-07
+        # deprecation deadline for the top-level paths.
+        auto_windows_injection_walk_firmware_safe,
         auto_mft_walk_firmware_safe,
         prefetch_auto_walk,
         auto_scheduled_task_walk_firmware_safe,
