@@ -35,6 +35,7 @@ from sqlalchemy import select
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.models.firmware import Firmware
+from app.models.project import Project
 from app.models.windows_prefetch_record import WindowsPrefetchRecord
 from app.services.jsonb_normalizers import (
     _normalize_firmware_prefetch_walk_result,
@@ -281,6 +282,131 @@ async def _handle_trigger_prefetch_walk(
     )
 
 
+# ── lookup_prefetch_record_across_firmwares (Rule #44) ──────────────────────
+
+
+async def _handle_lookup_prefetch_record_across_firmwares(
+    input: dict, context: ToolContext
+) -> str:
+    """**CROSS-FIRMWARE AGGREGATION** — given an executable_name (and
+    optional prefetch_hash), return ALL firmware images in the active
+    project (or globally) with a matching Prefetch record.
+
+    Rule #44 — same executable observed running across multiple captures
+    is a strong signal. The Windows prefetch_hash bakes in the executable
+    PATH at execution time, so (executable_name, prefetch_hash)
+    distinguishes "the same exe ran from the same path" from "an exe
+    with the same name ran from different paths" — the latter is the
+    LotL-relocation indicator (attackers copy cmd.exe to a new location
+    so its prefetch hash changes).
+
+    Returns one row per matching firmware with:
+    - firmware_id, project_id, project_name, original_filename, sha256
+    - match_count (matching prefetch rows in that firmware)
+    - sample_record (first matching record's summary)
+    - max_run_count (highest run_count across matching rows — frequently-
+      run binaries score higher)
+    - supply_chain_signal (True when match_count >= 2 firmwares).
+    """
+    executable_name = input.get("executable_name")
+    if not executable_name:
+        return json.dumps({"error": "executable_name is required"})
+
+    prefetch_hash = input.get("prefetch_hash")
+    scope = input.get("scope", "project")
+    limit = int(input.get("limit", 100))
+    if limit > 500:
+        limit = 500
+    if limit < 1:
+        limit = 1
+
+    where = [WindowsPrefetchRecord.executable_name == executable_name]
+    if prefetch_hash is not None:
+        where.append(WindowsPrefetchRecord.prefetch_hash == prefetch_hash)
+
+    if scope == "project":
+        project_id = (
+            uuid.UUID(context.project_id)
+            if isinstance(context.project_id, str)
+            else context.project_id
+        )
+        stmt = (
+            select(WindowsPrefetchRecord, Firmware, Project)
+            .join(Firmware, WindowsPrefetchRecord.firmware_id == Firmware.id)
+            .join(Project, Firmware.project_id == Project.id)
+            .where(Project.id == project_id, *where)
+            .order_by(Firmware.created_at)
+        )
+    else:
+        stmt = (
+            select(WindowsPrefetchRecord, Firmware, Project)
+            .join(Firmware, WindowsPrefetchRecord.firmware_id == Firmware.id)
+            .join(Project, Firmware.project_id == Project.id)
+            .where(*where)
+            .order_by(Firmware.created_at)
+        )
+
+    rows = (await context.db.execute(stmt)).all()
+
+    by_firmware: dict[uuid.UUID, dict] = {}
+    for rec, firmware, project in rows:
+        slot = by_firmware.get(firmware.id)
+        if slot is None:
+            slot = {
+                "firmware_id": str(firmware.id),
+                "project_id": str(project.id),
+                "project_name": project.name,
+                "original_filename": firmware.original_filename,
+                "sha256": firmware.sha256,
+                "match_count": 0,
+                "sample_record": None,
+                "max_run_count": 0,
+            }
+            by_firmware[firmware.id] = slot
+        slot["match_count"] += 1
+        rc = rec.run_count or 0
+        if rc > slot["max_run_count"]:
+            slot["max_run_count"] = rc
+        if slot["sample_record"] is None:
+            slot["sample_record"] = {
+                "id": str(rec.id),
+                "prefetch_file_path": rec.prefetch_file_path,
+                "executable_name": rec.executable_name,
+                "prefetch_hash": rec.prefetch_hash,
+                "version": rec.version,
+                "run_count": rec.run_count,
+                "last_run_time": (
+                    rec.last_run_time.isoformat()
+                    if rec.last_run_time
+                    else None
+                ),
+            }
+
+    matches: list[dict] = []
+    for slot in by_firmware.values():
+        matches.append(slot)
+        if len(matches) >= limit:
+            break
+
+    out: dict = {
+        "executable_name": executable_name,
+        "prefetch_hash": prefetch_hash,
+        "scope": scope,
+        "match_firmware_count": len(matches),
+        "supply_chain_signal": len(matches) >= 2,
+        "matches": matches,
+    }
+    if not matches:
+        out["message"] = (
+            "No matching prefetch records found. Ensure the walker has "
+            "run on the relevant firmwares (trigger_prefetch_walk + "
+            "poll). Prefetch file names are upper-cased on disk; the "
+            "executable_name stored here is the uppercase form (e.g. "
+            "'CMD.EXE')."
+        )
+    return _truncate(json.dumps(out, indent=2, default=str))
+
+
 # ── Registration ─────────────────────────────────────────────────────────────
 
 
@@ -374,4 +500,64 @@ def register_windows_prefetch_tools(registry: ToolRegistry) -> None:
             "additionalProperties": False,
         },
         handler=_handle_trigger_prefetch_walk,
+    )
+
+    registry.register(
+        name="lookup_prefetch_record_across_firmwares",
+        description=(
+            "Rule #44 CROSS-FIRMWARE AGGREGATION — given an "
+            "executable_name (and optional prefetch_hash), return ALL "
+            "firmware images in the active project (or globally, with "
+            "scope='global') that contain a matching Windows Prefetch "
+            "record. Identity key is the natural tuple "
+            "(executable_name, prefetch_hash). The prefetch_hash bakes "
+            "in the EXE path at execution time — including it "
+            "distinguishes 'same exe from same path' from 'LotL "
+            "relocation'. Returns one entry per matching firmware with "
+            "match_count, sample_record, max_run_count, and "
+            "supply_chain_signal=True when match_count >= 2 firmwares."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "executable_name": {
+                    "type": "string",
+                    "description": (
+                        "Required. Uppercase executable name as stored "
+                        "on disk in the prefetch (.pf) filename (e.g. "
+                        "'CMD.EXE', 'POWERSHELL.EXE')."
+                    ),
+                },
+                "prefetch_hash": {
+                    "type": "string",
+                    "description": (
+                        "Optional. Exact prefetch hash (path-fingerprint "
+                        "hex string). Omit to match every prefetch row "
+                        "with the given executable_name regardless of "
+                        "path."
+                    ),
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["project", "global"],
+                    "description": (
+                        "Search scope. 'project' (default) restricts to "
+                        "firmwares in the active project; 'global' "
+                        "searches across all projects."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 500,
+                    "description": (
+                        "Maximum number of distinct firmwares to return "
+                        "(default 100, max 500)."
+                    ),
+                },
+            },
+            "required": ["executable_name"],
+            "additionalProperties": False,
+        },
+        handler=_handle_lookup_prefetch_record_across_firmwares,
     )
