@@ -53,6 +53,37 @@ class TestAndroidOtaDetection:
         result = classify_firmware(str(zip_path))
         assert result != "android_ota"
 
+    def test_motorola_factory_flash_via_sparsechunks(self, tmp_path: Path):
+        """Moto-G32 / Moto-G30 factory flash packages don't include
+        payload.bin, system.img, or META-INF markers — but they DO ship
+        ``super.img_sparsechunk.0..10``. Issue #20b (2026-05-13): the
+        sparsechunk pattern alone is a strong Android-OTA signal and
+        must classify as android_ota so Stage 1 ``_extract_android_ota``
+        runs the sparsechunk-reassembly path from commit 6538735.
+        """
+        zip_path = tmp_path / "moto_flash.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            for i in range(11):
+                zf.writestr(f"super.img_sparsechunk.{i}", b"\xff" * 64)
+            zf.writestr("flashfile.xml", b"<?xml version='1.0'?>")
+        assert classify_firmware(str(zip_path)) == "android_ota"
+
+    def test_motorola_factory_flash_via_broader_partition_set(self, tmp_path: Path):
+        """The Moto-G32 namelist contains boot.img + vbmeta.img + dtbo.img
+        + vendor_boot.img. Under the OLD narrow {system,boot,vendor}.img
+        set only boot.img matched (1, < 2 → fallthrough → linux_blob).
+        Issue #20b widens the partition set to include vbmeta.img +
+        dtbo.img + vendor_boot.img + init_boot.img + vbmeta_system.img +
+        modem.img so the ≥2 condition fires cleanly."""
+        zip_path = tmp_path / "moto_partitions.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("boot.img", b"\x00" * 64)
+            zf.writestr("vendor_boot.img", b"\x00" * 64)
+            zf.writestr("dtbo.img", b"\x00" * 64)
+            zf.writestr("vbmeta.img", b"\x00" * 64)
+            # No sparsechunks; relies on the partition-set check only.
+        assert classify_firmware(str(zip_path)) == "android_ota"
+
 
 class TestAndroidSparseImageDetection:
     """Test classify_firmware() recognises Android sparse images."""

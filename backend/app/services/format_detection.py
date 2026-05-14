@@ -412,9 +412,17 @@ def _classify_zip(path: Path) -> DetectedFormat | None:
     android_partitions = {
         "system.img", "boot.img", "vendor.img", "super.img",
         "recovery.img", "vbmeta.img", "dtbo.img", "product.img",
-        "system_ext.img", "odm.img",
+        "system_ext.img", "odm.img", "vbmeta_system.img",
+        "vendor_boot.img", "init_boot.img", "modem.img",
     }
     if len(basenames & android_partitions) >= 2:
+        return DetectedFormat.ANDROID_OTA
+    # Motorola factory flash packages split the super partition across
+    # ``super.img_sparsechunk.0`` ... ``super.img_sparsechunk.10`` —
+    # presence of any sparsechunk entry is a strong Android-OTA signal.
+    # Issue #20b (2026-05-13). Mirrors the matching guard in
+    # ``unpack_common.classify_firmware``.
+    if any(b.startswith("super.img_sparsechunk.") for b in basenames):
         return DetectedFormat.ANDROID_OTA
 
     # Windows installer hint inside a ZIP (rare but seen — installer

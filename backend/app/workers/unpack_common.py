@@ -1251,6 +1251,34 @@ def classify_firmware(firmware_path: str) -> str:
                     return "android_ota"
                 if "payload.bin" in names or "system.img" in names:
                     return "android_ota"
+                # Broader Android partition set — mirrors
+                # ``format_detection._classify_zip`` so factory flash packages
+                # that don't carry payload.bin / system.img / META-INF still
+                # classify correctly. Issue #20b (2026-05-13): Motorola
+                # Moto-G32 / Moto-G30 factory flash ZIPs lack all four
+                # narrow markers above, but ship boot.img + vbmeta.img +
+                # dtbo.img + vendor_boot.img etc.; the broader set catches
+                # the ≥2 condition cleanly. Mirroring the basename-aware
+                # check from ``_classify_zip`` so nested entries
+                # (``<vendor>/boot.img``) match too.
+                basenames = {os.path.basename(n) for n in names}
+                android_partitions = {
+                    "system.img", "boot.img", "vendor.img", "super.img",
+                    "recovery.img", "vbmeta.img", "dtbo.img", "product.img",
+                    "system_ext.img", "odm.img", "vbmeta_system.img",
+                    "vendor_boot.img", "init_boot.img", "modem.img",
+                }
+                if len(basenames & android_partitions) >= 2:
+                    return "android_ota"
+                # Motorola factory flash packages split the super partition
+                # across ``super.img_sparsechunk.0`` … ``super.img_sparsechunk.10``
+                # files. Each chunk on its own isn't in the partition set,
+                # but the presence of ANY sparsechunk entry is a strong
+                # Android-OTA signal — these aren't a known shape outside
+                # the Android factory-flash family. Commit ``6538735``
+                # ships the Stage 1 reassembly path that consumes them.
+                if any(b.startswith("super.img_sparsechunk.") for b in basenames):
+                    return "android_ota"
                 # MediaTek scatter format: zip with *_scatter.txt + super.img
                 # (files may be nested under a subdirectory)
                 has_scatter = any(

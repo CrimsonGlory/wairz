@@ -198,6 +198,38 @@ def test_detects_generic_zip(tmp_path: Path):
     assert detect_format(p) == DetectedFormat.ZIP_ARCHIVE
 
 
+def test_detects_motorola_factory_flash_via_sparsechunks(tmp_path: Path):
+    """Motorola Moto-G32 / Moto-G30 factory flash ZIPs split the super
+    partition into ``super.img_sparsechunk.N`` entries. Even without
+    any classic Android partition image at the basename level, the
+    sparsechunk pattern alone qualifies as ANDROID_OTA (Issue #20b)."""
+    p = tmp_path / "moto_factory.zip"
+    with zipfile.ZipFile(p, "w") as zf:
+        # All 11 sparsechunks shape (real Moto-G32 has 0..10).
+        for i in range(11):
+            zf.writestr(f"super.img_sparsechunk.{i}", b"\xff" * 64)
+        # No payload.bin, no system.img, no META-INF — these flash
+        # packages are vendor-direct factory images.
+        zf.writestr("flashfile.xml", b"<?xml version='1.0'?>")
+    assert detect_format(p) == DetectedFormat.ANDROID_OTA
+
+
+def test_detects_moto_factory_flash_via_broader_partition_set(tmp_path: Path):
+    """The Moto-G32 ZIP carries boot.img + vbmeta.img + dtbo.img +
+    vendor_boot.img — the narrow {system,boot,vendor}.img set caught only
+    boot.img (1 match). The Issue #20b widening adds vendor_boot.img +
+    init_boot.img + vbmeta_system.img + modem.img to the set so a real
+    Moto namelist hits ≥2 cleanly without depending on the sparsechunks."""
+    p = tmp_path / "moto_partition_set.zip"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("boot.img", b"\x00" * 64)
+        zf.writestr("vendor_boot.img", b"\x00" * 64)
+        zf.writestr("dtbo.img", b"\x00" * 64)
+        zf.writestr("vbmeta.img", b"\x00" * 64)
+        # No sparsechunks here — pure partition-set classification.
+    assert detect_format(p) == DetectedFormat.ANDROID_OTA
+
+
 # ---------------------------------------------------------------------------
 # Acronis (extension-only fallback per Rule #19)
 # ---------------------------------------------------------------------------
