@@ -421,8 +421,8 @@ async def test_lookup_esp_chain_empty():
 # ── Registration smoke ──────────────────────────────────────────────────────
 
 
-def test_register_windows_esp_tools_registers_4():
-    """register_windows_esp_tools registers exactly 4 tools."""
+def test_register_windows_esp_tools_registers_5():
+    """register_windows_esp_tools registers exactly 5 tools."""
     registry = ToolRegistry()
     register_windows_esp_tools(registry)
     names = {t["name"] for t in registry.get_anthropic_tools()}
@@ -431,4 +431,16 @@ def test_register_windows_esp_tools_registers_4():
         "esp_walk_status",
         "trigger_esp_walk",
         "lookup_esp_chain",
+        "lookup_esp_entry_across_firmwares",
     }
+
+
+def test_register_windows_esp_tools_includes_cross_firmware_lookup():
+    """Rule #44 acceptance — register_windows_esp_tools registers
+    lookup_esp_entry_across_firmwares alongside the per-firmware tools.
+    Issue #15 backfill for θ.B walker (canonical-shape companion to
+    the pre-existing lookup_esp_chain)."""
+    registry = ToolRegistry()
+    register_windows_esp_tools(registry)
+    names = {t["name"] for t in registry.get_anthropic_tools()}
+    assert "lookup_esp_entry_across_firmwares" in names

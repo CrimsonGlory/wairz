@@ -35,6 +35,7 @@ from sqlalchemy import select
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.models.firmware import Firmware
+from app.models.project import Project
 from app.models.windows_esp_entry import WindowsEspEntry
 from app.services.jsonb_normalizers import (
     _normalize_firmware_esp_walk_result,
@@ -431,6 +432,132 @@ async def _handle_lookup_esp_chain(
     return _truncate(json.dumps(out, indent=2))
 
 
+async def _handle_lookup_esp_entry_across_firmwares(
+    input: dict, context: ToolContext
+) -> str:
+    """**CROSS-FIRMWARE AGGREGATION** — given a fingerprint_sha256
+    (or file_sha256), return ALL firmware images in the active project
+    (or globally) with a matching ESP entry.
+
+    Rule #44 — the fingerprint_sha256 column is specifically designed
+    for cross-firmware correlation (per the θ.C.A model docstring:
+    "BlackLotus / Bootkitty correlation across the wairz corpus"). Same
+    fingerprint across firmware ⇒ same `.efi` shape was planted.
+
+    Companion to ``lookup_esp_chain`` — that tool surfaces a flat
+    cross-corpus row list keyed by (firmware_id, file_path); THIS tool
+    follows the Rule #44 canonical shape (one row per matching firmware
+    with match_count + sample_entry + supply_chain_signal) so the agent
+    can pivot uniformly across walker categories.
+
+    Returns one row per matching firmware with:
+    - firmware_id, project_id, project_name, original_filename, sha256
+    - match_count (matching ESP rows in that firmware)
+    - sample_entry (first matching entry's summary)
+    - any_anomaly flag across the firmware's matches
+    - supply_chain_signal (True when match_count >= 2 firmwares).
+    """
+    fingerprint_sha256 = input.get("fingerprint_sha256")
+    file_sha256 = input.get("file_sha256")
+    if not fingerprint_sha256 and not file_sha256:
+        return json.dumps(
+            {"error": "fingerprint_sha256 or file_sha256 is required"}
+        )
+
+    scope = input.get("scope", "project")
+    limit = int(input.get("limit", 100))
+    if limit > 500:
+        limit = 500
+    if limit < 1:
+        limit = 1
+
+    where = []
+    if fingerprint_sha256:
+        where.append(WindowsEspEntry.fingerprint_sha256 == fingerprint_sha256)
+    if file_sha256:
+        where.append(WindowsEspEntry.file_sha256 == file_sha256)
+
+    if scope == "project":
+        project_id = (
+            uuid.UUID(context.project_id)
+            if isinstance(context.project_id, str)
+            else context.project_id
+        )
+        stmt = (
+            select(WindowsEspEntry, Firmware, Project)
+            .join(Firmware, WindowsEspEntry.firmware_id == Firmware.id)
+            .join(Project, Firmware.project_id == Project.id)
+            .where(Project.id == project_id, *where)
+            .order_by(Firmware.created_at)
+        )
+    else:
+        stmt = (
+            select(WindowsEspEntry, Firmware, Project)
+            .join(Firmware, WindowsEspEntry.firmware_id == Firmware.id)
+            .join(Project, Firmware.project_id == Project.id)
+            .where(*where)
+            .order_by(Firmware.created_at)
+        )
+
+    rows = (await context.db.execute(stmt)).all()
+
+    by_firmware: dict[uuid.UUID, dict] = {}
+    for rec, firmware, project in rows:
+        slot = by_firmware.get(firmware.id)
+        if slot is None:
+            slot = {
+                "firmware_id": str(firmware.id),
+                "project_id": str(project.id),
+                "project_name": project.name,
+                "original_filename": firmware.original_filename,
+                "sha256": firmware.sha256,
+                "match_count": 0,
+                "sample_entry": None,
+                "any_anomaly": False,
+            }
+            by_firmware[firmware.id] = slot
+        slot["match_count"] += 1
+        if _row_has_anomaly(rec):
+            slot["any_anomaly"] = True
+        if slot["sample_entry"] is None:
+            slot["sample_entry"] = {
+                "id": str(rec.id),
+                "file_path": rec.file_path,
+                "file_sha256": rec.file_sha256,
+                "file_size": rec.file_size,
+                "authenticode_state": rec.authenticode_state,
+                "fingerprint_sha256": rec.fingerprint_sha256,
+            }
+
+    matches: list[dict] = []
+    for slot in by_firmware.values():
+        matches.append(slot)
+        if len(matches) >= limit:
+            break
+
+    out: dict = {
+        "fingerprint_sha256": fingerprint_sha256,
+        "file_sha256": file_sha256,
+        "scope": scope,
+        "match_firmware_count": len(matches),
+        "supply_chain_signal": len(matches) >= 2,
+        "matches": matches,
+        "data_only_disclaimer": (
+            "The `.efi` PEs referenced by these matches are DATA. "
+            "Per CLAUDE.md Rule #36, treat as untrusted — never invoke."
+        ),
+    }
+    if not matches:
+        out["message"] = (
+            "No matching ESP entries found. Ensure the walker has run "
+            "on the relevant firmwares (trigger_esp_walk + poll). The "
+            "fingerprint_sha256 is the θ.C.A walker's stable cross-"
+            "firmware identity key (BlackLotus / Bootkitty correlation "
+            "across the wairz corpus)."
+        )
+    return _truncate(json.dumps(out, indent=2, default=str))
+
+
 # ── Registration ────────────────────────────────────────────────────────────
 
 
@@ -652,4 +779,63 @@ def register_windows_esp_tools(registry: ToolRegistry) -> None:
             "additionalProperties": False,
         },
         handler=_handle_lookup_esp_chain,
+    )
+
+    registry.register(
+        name="lookup_esp_entry_across_firmwares",
+        description=(
+            "Rule #44 CROSS-FIRMWARE AGGREGATION (canonical-shape "
+            "companion to lookup_esp_chain) — given a fingerprint_sha256 "
+            "(or file_sha256), return ALL firmware images in the active "
+            "project (or globally, with scope='global') that contain a "
+            "matching ESP `.efi` entry. Identity key is "
+            "fingerprint_sha256, the θ.C.A walker's stable cross-"
+            "corpus correlation column. Returns one entry per matching "
+            "firmware with match_count, sample_entry, any_anomaly flag, "
+            "and supply_chain_signal=True when match_count >= 2 "
+            "firmwares (BlackLotus / Bootkitty / supply-chain "
+            "indicator). Use lookup_esp_chain for the alternative flat "
+            "row-list shape with path_substring filtering."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "fingerprint_sha256": {
+                    "type": "string",
+                    "description": (
+                        "Either this OR file_sha256 is required. SHA256 "
+                        "hex string (64 chars) of the canonical entry "
+                        "tuple — the θ.C.A walker's cross-corpus key."
+                    ),
+                },
+                "file_sha256": {
+                    "type": "string",
+                    "description": (
+                        "Either this OR fingerprint_sha256 is required. "
+                        "SHA256 hex string of the raw `.efi` file "
+                        "content. Coarser than fingerprint_sha256."
+                    ),
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["project", "global"],
+                    "description": (
+                        "Search scope. 'project' (default) restricts to "
+                        "firmwares in the active project; 'global' "
+                        "searches across all projects."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 500,
+                    "description": (
+                        "Maximum number of distinct firmwares to return "
+                        "(default 100, max 500)."
+                    ),
+                },
+            },
+            "additionalProperties": False,
+        },
+        handler=_handle_lookup_esp_entry_across_firmwares,
     )
