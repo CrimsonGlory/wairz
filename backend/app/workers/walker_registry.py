@@ -89,6 +89,9 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
     from app.services.windows_info_walker import (
         auto_windows_info_walk_firmware_safe,
     )
+    from app.services.windows_processes_walker import (
+        auto_windows_processes_walk_firmware_safe,
+    )
     from app.services.wmi_walker import auto_wmi_walk_firmware_safe
 
     return [
@@ -114,6 +117,13 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
         # ``_fire_walker_auto_triggers``) guarantees the enumerator
         # commits its rows before this walker queries them.
         auto_windows_info_walk_firmware_safe,
+        # λ.β — Vol3 windows_processes walker (pslist/psscan/pstree/cmdline).
+        # Order-dependent on λ.α.B (memory_dump_image rows must exist).
+        # Independent of λ.α.D — the windows.info walk and the pslist
+        # plugin family can run in either order; this walker fires after
+        # windows_info purely so the operator-facing UI surfaces the
+        # cheaper aggregate first.
+        auto_windows_processes_walk_firmware_safe,
         auto_mft_walk_firmware_safe,
         prefetch_auto_walk,
         auto_scheduled_task_walk_firmware_safe,
