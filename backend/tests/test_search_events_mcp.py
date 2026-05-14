@@ -13,9 +13,24 @@ import uuid
 import pytest
 
 from app.ai.tool_registry import ToolContext
-from app.ai.tools.windows_event_log import _handle_search_events
+from app.ai.tools.windows_event_log import (
+    _handle_search_events,
+    register_windows_event_log_tools,
+)
 from app.models import Firmware, Project, WindowsEventRecord
 from tests._live_db import make_live_db
+
+
+def test_register_windows_event_log_tools_includes_cross_firmware_lookup():
+    """Rule #44 acceptance — register_windows_event_log_tools registers
+    lookup_event_record_across_firmwares alongside the per-firmware tools.
+    Issue #15 backfill for ε.1.b walker."""
+    from app.ai.tool_registry import ToolRegistry
+
+    reg = ToolRegistry()
+    register_windows_event_log_tools(reg)
+    names = {tool.name for tool in reg._tools.values()}
+    assert "lookup_event_record_across_firmwares" in names
 
 
 def _make_firmware(project_id: uuid.UUID, name: str, sha_seed: str) -> Firmware:

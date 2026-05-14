@@ -45,6 +45,7 @@ from sqlalchemy import select
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.models.firmware import Firmware
+from app.models.project import Project
 from app.models.windows_event_record import WindowsEventRecord
 from app.services.jsonb_normalizers import (
     _normalize_firmware_evtx_walk_result,
@@ -392,6 +393,134 @@ async def _handle_search_events(input: dict, context: ToolContext) -> str:
     return _truncate(json.dumps(out, indent=2))
 
 
+# ── lookup_event_record_across_firmwares (Rule #44) ─────────────────────────
+
+
+async def _handle_lookup_event_record_across_firmwares(
+    input: dict, context: ToolContext
+) -> str:
+    """**CROSS-FIRMWARE AGGREGATION** — given a provider + event_id, return
+    ALL firmware images in the active project (or globally) with a matching
+    Windows event record.
+
+    Rule #44 — wairz's unique forensic differentiator. Reveals supply-chain
+    signals (same vendor-pushed service-install event across firmware
+    captures) and persistence indicators (same Sysmon EID=1 process-create
+    or Security 4624 logon event across customer images).
+
+    The identity key is the natural tuple ``(provider, event_id)``. Two
+    events with the same provider+EID across firmwares are "the same
+    event type" — the natural Rule #44 unit of analysis for events.
+
+    Returns one row per matching firmware with:
+    - firmware_id, project_id, project_name, original_filename, sha256
+    - match_count (total matching event rows in that firmware)
+    - sample_event (the first matching event's summary)
+    - supply_chain_signal (True when match_count >= 2 across firmwares —
+      the same event type emitted by multiple captures suggests a
+      vendor-shipped or campaign-wide indicator).
+    """
+    provider = input.get("provider")
+    event_id_in = input.get("event_id")
+    if not provider:
+        return json.dumps({"error": "provider is required"})
+    if event_id_in is None:
+        return json.dumps({"error": "event_id is required"})
+    try:
+        event_id = int(event_id_in)
+    except (TypeError, ValueError):
+        return json.dumps({"error": f"invalid event_id: {event_id_in!r}"})
+
+    scope = input.get("scope", "project")  # "project" or "global"
+    limit = int(input.get("limit", 100))
+    if limit > 500:
+        limit = 500
+    if limit < 1:
+        limit = 1
+
+    where = [
+        WindowsEventRecord.provider == provider,
+        WindowsEventRecord.event_id == event_id,
+    ]
+
+    if scope == "project":
+        project_id = (
+            uuid.UUID(context.project_id)
+            if isinstance(context.project_id, str)
+            else context.project_id
+        )
+        stmt = (
+            select(WindowsEventRecord, Firmware, Project)
+            .join(Firmware, WindowsEventRecord.firmware_id == Firmware.id)
+            .join(Project, Firmware.project_id == Project.id)
+            .where(Project.id == project_id, *where)
+            .order_by(Firmware.created_at)
+        )
+    else:
+        stmt = (
+            select(WindowsEventRecord, Firmware, Project)
+            .join(Firmware, WindowsEventRecord.firmware_id == Firmware.id)
+            .join(Project, Firmware.project_id == Project.id)
+            .where(*where)
+            .order_by(Firmware.created_at)
+        )
+
+    rows = (await context.db.execute(stmt)).all()
+
+    by_firmware: dict[uuid.UUID, dict] = {}
+    for evt, firmware, project in rows:
+        slot = by_firmware.get(firmware.id)
+        if slot is None:
+            slot = {
+                "firmware_id": str(firmware.id),
+                "project_id": str(project.id),
+                "project_name": project.name,
+                "original_filename": firmware.original_filename,
+                "sha256": firmware.sha256,
+                "match_count": 0,
+                "sample_event": None,
+            }
+            by_firmware[firmware.id] = slot
+        slot["match_count"] += 1
+        if slot["sample_event"] is None:
+            slot["sample_event"] = {
+                "id": str(evt.id),
+                "evtx_file_path": evt.evtx_file_path,
+                "provider": evt.provider,
+                "event_id": evt.event_id,
+                "level": evt.level,
+                "channel": evt.channel,
+                "computer": evt.computer,
+                "recorded_at": (
+                    evt.recorded_at.isoformat() if evt.recorded_at else None
+                ),
+                "record_number": evt.record_number,
+            }
+
+    matches: list[dict] = []
+    for slot in by_firmware.values():
+        matches.append(slot)
+        if len(matches) >= limit:
+            break
+
+    out: dict = {
+        "provider": provider,
+        "event_id": event_id,
+        "scope": scope,
+        "match_firmware_count": len(matches),
+        "supply_chain_signal": len(matches) >= 2,
+        "matches": matches,
+    }
+    if not matches:
+        out["message"] = (
+            "No matching events found. Ensure the walker has run on the "
+            "relevant firmwares (trigger_evtx_walk + poll), and double-check "
+            "the provider string (must be exact, e.g. "
+            "'Microsoft-Windows-Sysmon' not 'Sysmon')."
+        )
+    return _truncate(json.dumps(out, indent=2, default=str))
+
+
 # ── Registration ─────────────────────────────────────────────────────────────
 
 
@@ -582,4 +711,60 @@ def register_windows_event_log_tools(registry: ToolRegistry) -> None:
             "additionalProperties": False,
         },
         handler=_handle_evtx_walk_summary,
+    )
+
+    registry.register(
+        name="lookup_event_record_across_firmwares",
+        description=(
+            "Rule #44 CROSS-FIRMWARE AGGREGATION — given a provider + "
+            "event_id, return ALL firmware images in the active project "
+            "(or globally, with scope='global') that contain a matching "
+            "Windows event record. Identity key is the natural tuple "
+            "(provider, event_id). Returns one entry per matching firmware "
+            "with match_count, sample_event, and supply_chain_signal=True "
+            "when match_count >= 2 firmwares (vendor-shipped event "
+            "indicator or campaign-wide persistence)."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "provider": {
+                    "type": "string",
+                    "description": (
+                        "Required. Exact provider name (e.g. "
+                        "'Microsoft-Windows-Sysmon', "
+                        "'Microsoft-Windows-Security-Auditing')."
+                    ),
+                },
+                "event_id": {
+                    "type": "integer",
+                    "description": (
+                        "Required. Event ID (e.g. 1 for Sysmon "
+                        "process-create, 4624 for Security logon success, "
+                        "7045 for System service install)."
+                    ),
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["project", "global"],
+                    "description": (
+                        "Search scope. 'project' (default) restricts to "
+                        "firmwares in the active project; 'global' "
+                        "searches across all projects."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 500,
+                    "description": (
+                        "Maximum number of distinct firmwares to return "
+                        "(default 100, max 500)."
+                    ),
+                },
+            },
+            "required": ["provider", "event_id"],
+            "additionalProperties": False,
+        },
+        handler=_handle_lookup_event_record_across_firmwares,
     )
