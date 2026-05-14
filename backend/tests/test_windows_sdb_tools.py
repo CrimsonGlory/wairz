@@ -106,8 +106,9 @@ def _make_entry(
 
 
 def test_register_windows_sdb_tools_registers_three():
-    """register_windows_sdb_tools adds exactly 3 tools (list /
-    lookup / summarize)."""
+    """register_windows_sdb_tools adds the original 3 tools (list /
+    lookup / summarize) plus the Rule #44 cross-firmware lookup added
+    in Issue #15 backfill."""
     registry = ToolRegistry()
     register_windows_sdb_tools(registry)
     tool_names = set(registry._tools.keys())
@@ -121,10 +122,22 @@ def test_register_windows_sdb_tools_has_descriptions():
     registry = ToolRegistry()
     register_windows_sdb_tools(registry)
     for name in ("list_sdb_entries", "lookup_sdb_shim",
-                 "summarize_sdb_anomalies"):
+                 "summarize_sdb_anomalies",
+                 "lookup_sdb_entry_across_firmwares"):
         tool = registry._tools[name]
         assert tool.description
         assert tool.input_schema
+
+
+def test_register_windows_sdb_tools_includes_cross_firmware_lookup():
+    """Rule #44 acceptance — register_windows_sdb_tools registers
+    lookup_sdb_entry_across_firmwares alongside the per-firmware tools.
+    Issue #15 backfill for θ.D walker (canonical-shape companion to
+    the pre-existing lookup_sdb_shim)."""
+    registry = ToolRegistry()
+    register_windows_sdb_tools(registry)
+    names = set(registry._tools.keys())
+    assert "lookup_sdb_entry_across_firmwares" in names
 
 
 # ── list_sdb_entries tests ─────────────────────────────────────────────────
