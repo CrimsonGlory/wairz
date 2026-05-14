@@ -63,6 +63,18 @@ def test_register_windows_srum_tools_registers_three():
     assert len(reg._tools) >= 3
 
 
+def test_register_windows_srum_tools_includes_cross_firmware_lookup():
+    """Rule #44 acceptance — register_windows_srum_tools registers
+    lookup_srum_record_across_firmwares alongside the per-firmware
+    tools. Issue #15 backfill for ζ.3 walker."""
+    from app.ai.tool_registry import ToolRegistry
+
+    reg = ToolRegistry()
+    register_windows_srum_tools(reg)
+    names = {tool.name for tool in reg._tools.values()}
+    assert "lookup_srum_record_across_firmwares" in names
+
+
 # ── search_srum_records ─────────────────────────────────────────────────────
 
 

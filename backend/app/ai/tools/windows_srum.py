@@ -24,6 +24,7 @@ from sqlalchemy import select
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.models.firmware import Firmware
+from app.models.project import Project
 from app.models.windows_srum_record import WindowsSrumRecord
 from app.services.jsonb_normalizers import (
     _normalize_firmware_srum_walk_result,
@@ -286,6 +287,126 @@ async def _handle_trigger_srum_walk(
     )
 
 
+# ── lookup_srum_record_across_firmwares (Rule #44) ──────────────────────────
+
+
+async def _handle_lookup_srum_record_across_firmwares(
+    input: dict, context: ToolContext
+) -> str:
+    """**CROSS-FIRMWARE AGGREGATION** — given an app_identifier (and
+    optional record_type), return ALL firmware images in the active
+    project (or globally) with a matching SRUM record.
+
+    Rule #44 — same application's resource usage logged across multiple
+    captures is a strong supply-chain / persistence signal. The SRUM
+    app_identifier IS typically a full Windows path, so identity is
+    naturally path-aware (a LotL attacker relocating the binary lands
+    under a different app_identifier).
+
+    Returns one row per matching firmware with:
+    - firmware_id, project_id, project_name, original_filename, sha256
+    - match_count (matching SRUM rows in that firmware)
+    - sample_record (first matching record's summary)
+    - total_bytes_sent / total_bytes_received aggregates
+    - supply_chain_signal (True when match_count >= 2 firmwares).
+    """
+    app_identifier = input.get("app_identifier")
+    if not app_identifier:
+        return json.dumps({"error": "app_identifier is required"})
+
+    record_type = input.get("record_type")
+    scope = input.get("scope", "project")
+    limit = int(input.get("limit", 100))
+    if limit > 500:
+        limit = 500
+    if limit < 1:
+        limit = 1
+
+    where = [WindowsSrumRecord.app_identifier == app_identifier]
+    if record_type is not None:
+        where.append(WindowsSrumRecord.record_type == record_type)
+
+    if scope == "project":
+        project_id = (
+            uuid.UUID(context.project_id)
+            if isinstance(context.project_id, str)
+            else context.project_id
+        )
+        stmt = (
+            select(WindowsSrumRecord, Firmware, Project)
+            .join(Firmware, WindowsSrumRecord.firmware_id == Firmware.id)
+            .join(Project, Firmware.project_id == Project.id)
+            .where(Project.id == project_id, *where)
+            .order_by(Firmware.created_at)
+        )
+    else:
+        stmt = (
+            select(WindowsSrumRecord, Firmware, Project)
+            .join(Firmware, WindowsSrumRecord.firmware_id == Firmware.id)
+            .join(Project, Firmware.project_id == Project.id)
+            .where(*where)
+            .order_by(Firmware.created_at)
+        )
+
+    rows = (await context.db.execute(stmt)).all()
+
+    by_firmware: dict[uuid.UUID, dict] = {}
+    for rec, firmware, project in rows:
+        slot = by_firmware.get(firmware.id)
+        if slot is None:
+            slot = {
+                "firmware_id": str(firmware.id),
+                "project_id": str(project.id),
+                "project_name": project.name,
+                "original_filename": firmware.original_filename,
+                "sha256": firmware.sha256,
+                "match_count": 0,
+                "sample_record": None,
+                "total_bytes_sent": 0,
+                "total_bytes_received": 0,
+            }
+            by_firmware[firmware.id] = slot
+        slot["match_count"] += 1
+        slot["total_bytes_sent"] += int(rec.bytes_sent or 0)
+        slot["total_bytes_received"] += int(rec.bytes_received or 0)
+        if slot["sample_record"] is None:
+            slot["sample_record"] = {
+                "id": str(rec.id),
+                "record_type": rec.record_type,
+                "source_path": rec.source_path,
+                "app_identifier": rec.app_identifier,
+                "user_identifier": rec.user_identifier,
+                "recorded_at": (
+                    rec.recorded_at.isoformat() if rec.recorded_at else None
+                ),
+                "bytes_sent": rec.bytes_sent,
+                "bytes_received": rec.bytes_received,
+            }
+
+    matches: list[dict] = []
+    for slot in by_firmware.values():
+        matches.append(slot)
+        if len(matches) >= limit:
+            break
+
+    out: dict = {
+        "app_identifier": app_identifier,
+        "record_type": record_type,
+        "scope": scope,
+        "match_firmware_count": len(matches),
+        "supply_chain_signal": len(matches) >= 2,
+        "matches": matches,
+    }
+    if not matches:
+        out["message"] = (
+            "No matching SRUM records found. Ensure the walker has run "
+            "on the relevant firmwares (trigger_srum_walk + poll). "
+            "SRUM app_identifier is typically a FULL Windows path; "
+            "double-check the value."
+        )
+    return _truncate(json.dumps(out, indent=2, default=str))
+
+
 # ── Registration ─────────────────────────────────────────────────────────────
 
 
@@ -393,4 +514,71 @@ def register_windows_srum_tools(registry: ToolRegistry) -> None:
             "additionalProperties": False,
         },
         handler=_handle_trigger_srum_walk,
+    )
+
+    registry.register(
+        name="lookup_srum_record_across_firmwares",
+        description=(
+            "Rule #44 CROSS-FIRMWARE AGGREGATION — given an "
+            "app_identifier (and optional record_type), return ALL "
+            "firmware images in the active project (or globally, with "
+            "scope='global') that contain a matching SRUM record. "
+            "Identity key is (app_identifier, record_type). SRUM "
+            "app_identifier IS typically a full Windows path, so a "
+            "LotL attacker who relocates the binary lands under a "
+            "different identifier. Returns one entry per matching "
+            "firmware with match_count, sample_record, "
+            "total_bytes_sent / total_bytes_received aggregates, and "
+            "supply_chain_signal=True when match_count >= 2 firmwares "
+            "(application's resource usage logged across captures)."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "app_identifier": {
+                    "type": "string",
+                    "description": (
+                        "Required. Exact app identifier as stored in "
+                        "the SRUM table (typically a full path like "
+                        "'C:\\\\Program Files\\\\Google\\\\Chrome"
+                        "\\\\Application\\\\chrome.exe')."
+                    ),
+                },
+                "record_type": {
+                    "type": "string",
+                    "enum": [
+                        "network_data_usage",
+                        "network_connectivity",
+                        "application_resource_usage",
+                        "push_notification",
+                        "energy_usage",
+                    ],
+                    "description": (
+                        "Optional. Filter to one SRUM provider's "
+                        "records."
+                    ),
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["project", "global"],
+                    "description": (
+                        "Search scope. 'project' (default) restricts to "
+                        "firmwares in the active project; 'global' "
+                        "searches across all projects."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 500,
+                    "description": (
+                        "Maximum number of distinct firmwares to return "
+                        "(default 100, max 500)."
+                    ),
+                },
+            },
+            "required": ["app_identifier"],
+            "additionalProperties": False,
+        },
+        handler=_handle_lookup_srum_record_across_firmwares,
     )
