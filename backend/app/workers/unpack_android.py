@@ -1,9 +1,12 @@
 """Android-specific firmware extraction — OTA, sparse images, super.img, boot.img."""
 
 import asyncio
+import contextlib
 import gzip
 import logging
 import os
+import re
+import shutil
 import struct
 
 logger = logging.getLogger(__name__)
@@ -568,6 +571,80 @@ def _read_super_lp_magic_sync(path: str) -> bytes | None:
         return None
 
 
+def _concatenate_sparsechunks(extraction_dir: str) -> list[tuple[str, int]]:
+    """Reassemble Motorola-style ``<name>.img_sparsechunk.N`` files into a
+    single ``<name>.img`` per prefix, then remove the individual chunks.
+
+    Motorola factory flash packages split the super partition across N
+    sparse chunks (``super.img_sparsechunk.0`` ...
+    ``super.img_sparsechunk.10``). Each chunk is itself a valid Android
+    sparse-image file; concatenating them in numeric order yields a
+    single sparse super.img that the downstream ``simg2img`` + super-
+    partition scan logic handles transparently.
+
+    Returns a list of ``(merged_basename, chunk_count)`` tuples — one
+    per reassembled image. Empty list if no sparsechunk files were
+    found in ``extraction_dir`` (so the caller can skip the log line).
+
+    The chunk filenames follow the convention ``<base>.img_sparsechunk.<N>``
+    where ``<base>`` is typically ``super`` and ``<N>`` is a contiguous
+    non-negative integer starting at 0. Non-contiguous or non-numeric
+    suffixes are treated as a missing chunk and the merge is skipped
+    (the chunks remain on disk for inspection rather than silently
+    producing a corrupt super.img). Per CLAUDE.md Rule #5 sync-I/O
+    discipline: this helper is sync and is invoked via
+    ``loop.run_in_executor`` from the async extraction flow.
+    """
+    chunk_pattern = re.compile(r"^(.+\.img)_sparsechunk\.(\d+)$")
+    chunks_by_prefix: dict[str, list[tuple[int, str]]] = {}
+    for name in os.listdir(extraction_dir):
+        full = os.path.join(extraction_dir, name)
+        if not os.path.isfile(full):
+            continue
+        m = chunk_pattern.match(name)
+        if not m:
+            continue
+        prefix = m.group(1)  # e.g. "super.img"
+        index = int(m.group(2))
+        chunks_by_prefix.setdefault(prefix, []).append((index, full))
+
+    merged: list[tuple[str, int]] = []
+    for prefix, indexed in chunks_by_prefix.items():
+        indexed.sort(key=lambda pair: pair[0])
+        # Validate contiguity (0 .. N-1) — skip merge on gap so a
+        # corrupt upload doesn't yield a silently-truncated super.img.
+        expected = list(range(len(indexed)))
+        actual = [idx for idx, _ in indexed]
+        if actual != expected:
+            continue
+        merged_path = os.path.join(extraction_dir, prefix)
+        # If a same-named file already exists (e.g. a separate
+        # ``super.img`` shipped alongside the chunks), don't overwrite
+        # it — that's a malformed firmware case that should surface
+        # to the operator as-is rather than be silently corrected.
+        if os.path.exists(merged_path):
+            continue
+        # Stream-concatenate in 16 MiB buffers so a 5+ GB super.img
+        # doesn't pin memory.
+        try:
+            with open(merged_path, "wb") as dst:
+                for _, chunk_path in indexed:
+                    with open(chunk_path, "rb") as src:
+                        shutil.copyfileobj(src, dst, length=16 * 1024 * 1024)
+        except OSError:
+            # If concat failed mid-write, drop the partial output so
+            # downstream code doesn't see a half-assembled super.img.
+            with contextlib.suppress(OSError):
+                os.remove(merged_path)
+            continue
+        # Remove the individual chunk files now that the merge succeeded.
+        for _, chunk_path in indexed:
+            with contextlib.suppress(OSError):
+                os.remove(chunk_path)
+        merged.append((prefix, len(indexed)))
+    return merged
+
+
 async def _extract_android_ota(firmware_path: str, extraction_dir: str) -> str:
     """Extract Android OTA ZIP — handles sparse images, ext4, EROFS."""
     import shutil
@@ -610,15 +687,43 @@ async def _extract_android_ota(firmware_path: str, extraction_dir: str) -> str:
             else:
                 log_lines.append("payload-dumper-go not installed, skipping payload.bin")
         else:
-            # Extract only .img and .bin partition images.
+            # Extract .img / .bin partition images AND Motorola-style
+            # sparse-chunk files (``super.img_sparsechunk.0`` ...
+            # ``super.img_sparsechunk.N``). Moto factory flash packages
+            # split the super partition across N sparse chunks; the
+            # default ``.img`` / ``.bin`` filter misses them because the
+            # chunk files end in ``.0`` / ``.1`` / ... rather than
+            # ``.img``. After extraction, :func:`_concatenate_sparsechunks`
+            # below reassembles them into a single ``super.img`` so the
+            # downstream simg2img + super-partition scan logic finds the
+            # content.
+            def _is_android_payload(n: str) -> bool:
+                return (
+                    n.endswith(".img")
+                    or n.endswith(".bin")
+                    or ".img_sparsechunk." in os.path.basename(n)
+                )
+
             _safe_extract_zip(
                 firmware_path,
                 extraction_dir,
-                entry_filter=lambda n: n.endswith(".img") or n.endswith(".bin"),
+                entry_filter=_is_android_payload,
             )
             for name in names:
-                if name.endswith(".img") or name.endswith(".bin"):
+                if _is_android_payload(name):
                     log_lines.append(f"Extracted {name}")
+            # Reassemble Motorola super.img_sparsechunk.N → super.img.
+            try:
+                merged = await loop.run_in_executor(
+                    None, _concatenate_sparsechunks, extraction_dir
+                )
+                for merged_basename, chunk_count in merged:
+                    log_lines.append(
+                        f"Reassembled {merged_basename} from "
+                        f"{chunk_count} sparse chunk(s)"
+                    )
+            except Exception as exc:  # noqa: BLE001 — defensive boundary
+                log_lines.append(f"sparse-chunk concat skipped: {exc}")
     else:
         import shutil
         dest = os.path.join(extraction_dir, os.path.basename(firmware_path))
