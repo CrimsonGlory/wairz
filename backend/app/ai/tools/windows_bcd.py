@@ -327,7 +327,11 @@ async def _handle_lookup_bcd_entry_across_firmwares(
     - match_count (matching BCD rows in that firmware)
     - sample_entry (first matching entry's summary)
     - any_testsigning / any_no_integrity_checks flags across matches
-    - supply_chain_signal (True when match_count >= 2 firmwares).
+    - supply_chain_signal (True when match_count >= 2 firmwares AND at
+      least one matching row has any_testsigning OR
+      any_no_integrity_checks — the GUIDs alone are baseline noise; a
+      cross-firmware match WITH a configuration anomaly is the
+      T1542.003 Pre-OS Boot campaign indicator).
     """
     object_guid = input.get("object_guid")
     if not object_guid:
@@ -412,11 +416,25 @@ async def _handle_lookup_bcd_entry_across_firmwares(
         if len(matches) >= limit:
             break
 
+    # supply_chain_signal calibration (forensic-domain review 2026-05-14):
+    # BCD object GUIDs like {9dea862c-...} (bootmgr) are IDENTICAL across
+    # every Windows install, so naïve match_count>=2 over-flags every
+    # baseline boot-config entry. The forensic signal requires BOTH
+    # cross-firmware presence AND a configuration anomaly that genuinely
+    # indicates tampering: any_testsigning (BlackLotus / Bootkitty
+    # precursor) OR any_no_integrity_checks (driver-signing bypass /
+    # BYOVD-precursor). A standard {bootmgr} appearing in 100 firmwares
+    # is expected; a {bootmgr} with testsigning=True in 2+ firmwares is
+    # a campaign indicator.
+    any_signal_dim = any(
+        slot.get("any_testsigning") or slot.get("any_no_integrity_checks")
+        for slot in matches
+    )
     out: dict = {
         "object_guid": object_guid,
         "scope": scope,
         "match_firmware_count": len(matches),
-        "supply_chain_signal": len(matches) >= 2,
+        "supply_chain_signal": len(matches) >= 2 and any_signal_dim,
         "matches": matches,
     }
     if not matches:
@@ -583,7 +601,10 @@ def register_windows_bcd_tools(registry: ToolRegistry) -> None:
             "strong signal. Returns one entry per matching firmware "
             "with match_count, sample_entry, "
             "any_testsigning / any_no_integrity_checks flags, and "
-            "supply_chain_signal=True when match_count >= 2 firmwares."
+            "supply_chain_signal=True when match_count >= 2 firmwares "
+            "AND at least one matching row has testsigning OR "
+            "no_integrity_checks (the GUIDs alone are baseline; the "
+            "configuration anomaly is the campaign signal)."
         ),
         input_schema={
             "type": "object",
