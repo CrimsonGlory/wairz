@@ -25,6 +25,7 @@ from sqlalchemy import select
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.models.firmware import Firmware
+from app.models.project import Project
 from app.models.windows_lnk_record import WindowsLnkRecord
 from app.services.jsonb_normalizers import (
     _normalize_firmware_lnk_walk_result,
@@ -362,6 +363,126 @@ async def _handle_trigger_lnk_walk(
     )
 
 
+# ── lookup_lnk_record_across_firmwares (Rule #44) ───────────────────────────
+
+
+async def _handle_lookup_lnk_record_across_firmwares(
+    input: dict, context: ToolContext
+) -> str:
+    """**CROSS-FIRMWARE AGGREGATION** — given a target_path (and optional
+    exact arguments), return ALL firmware images in the active project
+    (or globally) with a matching LNK record.
+
+    Rule #44 — same shortcut launching the same target across multiple
+    customer captures indicates a campaign / persistence mechanism that
+    survived imaging. Identity key is the natural tuple
+    (target_path, arguments). Omitting arguments matches every LNK
+    launching the given target.
+
+    Returns one row per matching firmware with:
+    - firmware_id, project_id, project_name, original_filename, sha256
+    - match_count (total LNK rows matching the filter)
+    - sample_record (first matching LNK's summary)
+    - any_encoded_powershell / any_script_host flags across matches
+    - supply_chain_signal (True when match_count >= 2 firmwares).
+    """
+    target_path = input.get("target_path")
+    if not target_path:
+        return json.dumps({"error": "target_path is required"})
+
+    arguments = input.get("arguments")
+    scope = input.get("scope", "project")
+    limit = int(input.get("limit", 100))
+    if limit > 500:
+        limit = 500
+    if limit < 1:
+        limit = 1
+
+    where = [WindowsLnkRecord.target_path == target_path]
+    if arguments is not None:
+        where.append(WindowsLnkRecord.arguments == arguments)
+
+    if scope == "project":
+        project_id = (
+            uuid.UUID(context.project_id)
+            if isinstance(context.project_id, str)
+            else context.project_id
+        )
+        stmt = (
+            select(WindowsLnkRecord, Firmware, Project)
+            .join(Firmware, WindowsLnkRecord.firmware_id == Firmware.id)
+            .join(Project, Firmware.project_id == Project.id)
+            .where(Project.id == project_id, *where)
+            .order_by(Firmware.created_at)
+        )
+    else:
+        stmt = (
+            select(WindowsLnkRecord, Firmware, Project)
+            .join(Firmware, WindowsLnkRecord.firmware_id == Firmware.id)
+            .join(Project, Firmware.project_id == Project.id)
+            .where(*where)
+            .order_by(Firmware.created_at)
+        )
+
+    rows = (await context.db.execute(stmt)).all()
+
+    by_firmware: dict[uuid.UUID, dict] = {}
+    for rec, firmware, project in rows:
+        slot = by_firmware.get(firmware.id)
+        if slot is None:
+            slot = {
+                "firmware_id": str(firmware.id),
+                "project_id": str(project.id),
+                "project_name": project.name,
+                "original_filename": firmware.original_filename,
+                "sha256": firmware.sha256,
+                "match_count": 0,
+                "sample_record": None,
+                "any_encoded_powershell": False,
+                "any_script_host_target": False,
+            }
+            by_firmware[firmware.id] = slot
+        slot["match_count"] += 1
+        if _row_arguments_have_encoded_ps(rec.arguments):
+            slot["any_encoded_powershell"] = True
+        if _row_target_is_script_host(rec.target_path):
+            slot["any_script_host_target"] = True
+        if slot["sample_record"] is None:
+            slot["sample_record"] = {
+                "id": str(rec.id),
+                "source_path": rec.source_path,
+                "lnk_filename": rec.lnk_filename,
+                "target_path": rec.target_path,
+                "working_directory": rec.working_directory,
+                "arguments": rec.arguments,
+                "icon_location": rec.icon_location,
+                "show_command": rec.show_command,
+            }
+
+    matches: list[dict] = []
+    for slot in by_firmware.values():
+        matches.append(slot)
+        if len(matches) >= limit:
+            break
+
+    out: dict = {
+        "target_path": target_path,
+        "arguments": arguments,
+        "scope": scope,
+        "match_firmware_count": len(matches),
+        "supply_chain_signal": len(matches) >= 2,
+        "matches": matches,
+    }
+    if not matches:
+        out["message"] = (
+            "No matching LNK records found. Ensure the walker has run "
+            "on the relevant firmwares (trigger_lnk_walk + poll), and "
+            "double-check target_path casing (Windows paths are "
+            "case-preserving)."
+        )
+    return _truncate(json.dumps(out, indent=2, default=str))
+
+
 # ── Registration ─────────────────────────────────────────────────────────────
 
 
@@ -492,4 +613,61 @@ def register_windows_lnk_tools(registry: ToolRegistry) -> None:
             "additionalProperties": False,
         },
         handler=_handle_trigger_lnk_walk,
+    )
+
+    registry.register(
+        name="lookup_lnk_record_across_firmwares",
+        description=(
+            "Rule #44 CROSS-FIRMWARE AGGREGATION — given a target_path "
+            "(and optional arguments), return ALL firmware images in the "
+            "active project (or globally, with scope='global') that "
+            "contain a matching Windows Shell Link (LNK) record. Identity "
+            "key is the natural tuple (target_path, arguments). Returns "
+            "one entry per matching firmware with match_count, "
+            "sample_record, any_encoded_powershell / any_script_host_target "
+            "flags, and supply_chain_signal=True when match_count >= 2 "
+            "firmwares (campaign / persistence pattern across captures)."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "target_path": {
+                    "type": "string",
+                    "description": (
+                        "Required. Exact target path the LNK launches "
+                        "(e.g. 'C:\\\\Windows\\\\System32\\\\cmd.exe', "
+                        "'C:\\\\Windows\\\\System32\\\\WindowsPowerShell"
+                        "\\\\v1.0\\\\powershell.exe')."
+                    ),
+                },
+                "arguments": {
+                    "type": "string",
+                    "description": (
+                        "Optional. Exact command-line arguments. Omit "
+                        "to match every LNK launching the given target."
+                    ),
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["project", "global"],
+                    "description": (
+                        "Search scope. 'project' (default) restricts to "
+                        "firmwares in the active project; 'global' "
+                        "searches across all projects."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 500,
+                    "description": (
+                        "Maximum number of distinct firmwares to return "
+                        "(default 100, max 500)."
+                    ),
+                },
+            },
+            "required": ["target_path"],
+            "additionalProperties": False,
+        },
+        handler=_handle_lookup_lnk_record_across_firmwares,
     )
