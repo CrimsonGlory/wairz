@@ -24,6 +24,7 @@ from sqlalchemy import select
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.models.firmware import Firmware
+from app.models.project import Project
 from app.models.windows_bcd_entry import WindowsBcdEntry
 from app.services.jsonb_normalizers import (
     _normalize_firmware_bcd_walk_result,
@@ -303,6 +304,124 @@ async def _handle_trigger_bcd_walk(
     )
 
 
+# ── lookup_bcd_entry_across_firmwares (Rule #44) ────────────────────────────
+
+
+async def _handle_lookup_bcd_entry_across_firmwares(
+    input: dict, context: ToolContext
+) -> str:
+    """**CROSS-FIRMWARE AGGREGATION** — given an object_guid, return ALL
+    firmware images in the active project (or globally) with a matching
+    BCD entry.
+
+    Rule #44 — BCD object GUIDs are STABLE across normal Windows
+    installs ({bootmgr} = {9dea862c-...}, {bootloader} = {466f5a88-...},
+    etc.), so common-GUID matches are baseline. The signal is stronger
+    when an UNUSUAL GUID (a campaign-specific or planted entry)
+    surfaces across multiple firmwares OR when testsigning /
+    no_integrity_checks anomaly flags propagate across captures.
+
+    Identity key is object_guid. Returns one row per matching firmware
+    with:
+    - firmware_id, project_id, project_name, original_filename, sha256
+    - match_count (matching BCD rows in that firmware)
+    - sample_entry (first matching entry's summary)
+    - any_testsigning / any_no_integrity_checks flags across matches
+    - supply_chain_signal (True when match_count >= 2 firmwares).
+    """
+    object_guid = input.get("object_guid")
+    if not object_guid:
+        return json.dumps({"error": "object_guid is required"})
+
+    scope = input.get("scope", "project")
+    limit = int(input.get("limit", 100))
+    if limit > 500:
+        limit = 500
+    if limit < 1:
+        limit = 1
+
+    where = [WindowsBcdEntry.object_guid == object_guid]
+
+    if scope == "project":
+        project_id = (
+            uuid.UUID(context.project_id)
+            if isinstance(context.project_id, str)
+            else context.project_id
+        )
+        stmt = (
+            select(WindowsBcdEntry, Firmware, Project)
+            .join(Firmware, WindowsBcdEntry.firmware_id == Firmware.id)
+            .join(Project, Firmware.project_id == Project.id)
+            .where(Project.id == project_id, *where)
+            .order_by(Firmware.created_at)
+        )
+    else:
+        stmt = (
+            select(WindowsBcdEntry, Firmware, Project)
+            .join(Firmware, WindowsBcdEntry.firmware_id == Firmware.id)
+            .join(Project, Firmware.project_id == Project.id)
+            .where(*where)
+            .order_by(Firmware.created_at)
+        )
+
+    rows = (await context.db.execute(stmt)).all()
+
+    by_firmware: dict[uuid.UUID, dict] = {}
+    for rec, firmware, project in rows:
+        slot = by_firmware.get(firmware.id)
+        if slot is None:
+            slot = {
+                "firmware_id": str(firmware.id),
+                "project_id": str(project.id),
+                "project_name": project.name,
+                "original_filename": firmware.original_filename,
+                "sha256": firmware.sha256,
+                "match_count": 0,
+                "sample_entry": None,
+                "any_testsigning": False,
+                "any_no_integrity_checks": False,
+            }
+            by_firmware[firmware.id] = slot
+        slot["match_count"] += 1
+        if rec.testsigning:
+            slot["any_testsigning"] = True
+        if rec.no_integrity_checks:
+            slot["any_no_integrity_checks"] = True
+        if slot["sample_entry"] is None:
+            slot["sample_entry"] = {
+                "id": str(rec.id),
+                "source_path": rec.source_path,
+                "object_guid": rec.object_guid,
+                "object_type": rec.object_type,
+                "description": rec.description,
+                "image_path": rec.image_path,
+                "testsigning": rec.testsigning,
+                "no_integrity_checks": rec.no_integrity_checks,
+            }
+
+    matches: list[dict] = []
+    for slot in by_firmware.values():
+        matches.append(slot)
+        if len(matches) >= limit:
+            break
+
+    out: dict = {
+        "object_guid": object_guid,
+        "scope": scope,
+        "match_firmware_count": len(matches),
+        "supply_chain_signal": len(matches) >= 2,
+        "matches": matches,
+    }
+    if not matches:
+        out["message"] = (
+            "No matching BCD entries found. Ensure the walker has run "
+            "on the relevant firmwares (trigger_bcd_walk + poll). BCD "
+            "GUIDs include the braces (e.g. '{9dea862c-5cdd-4e70-acc1-"
+            "f32b344d4795}' for {bootmgr})."
+        )
+    return _truncate(json.dumps(out, indent=2, default=str))
+
+
 # ── Registration ─────────────────────────────────────────────────────────────
 
 
@@ -442,4 +561,56 @@ def register_windows_bcd_tools(registry: ToolRegistry) -> None:
             "additionalProperties": False,
         },
         handler=_handle_trigger_bcd_walk,
+    )
+
+    registry.register(
+        name="lookup_bcd_entry_across_firmwares",
+        description=(
+            "Rule #44 CROSS-FIRMWARE AGGREGATION — given an object_guid, "
+            "return ALL firmware images in the active project (or "
+            "globally, with scope='global') that contain a matching BCD "
+            "entry. Identity key is object_guid. BCD GUIDs are STABLE "
+            "across normal Windows installs ({bootmgr} = {9dea862c-...}), "
+            "so common-GUID matches are baseline; unusual / "
+            "campaign-specific GUIDs surfacing across captures are the "
+            "strong signal. Returns one entry per matching firmware "
+            "with match_count, sample_entry, "
+            "any_testsigning / any_no_integrity_checks flags, and "
+            "supply_chain_signal=True when match_count >= 2 firmwares."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "object_guid": {
+                    "type": "string",
+                    "description": (
+                        "Required. BCD object GUID with braces (e.g. "
+                        "'{9dea862c-5cdd-4e70-acc1-f32b344d4795}' for "
+                        "{bootmgr}, '{466f5a88-0af2-4f76-9038-095b170dc"
+                        "21c}' for {bootloader})."
+                    ),
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["project", "global"],
+                    "description": (
+                        "Search scope. 'project' (default) restricts to "
+                        "firmwares in the active project; 'global' "
+                        "searches across all projects."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 500,
+                    "description": (
+                        "Maximum number of distinct firmwares to return "
+                        "(default 100, max 500)."
+                    ),
+                },
+            },
+            "required": ["object_guid"],
+            "additionalProperties": False,
+        },
+        handler=_handle_lookup_bcd_entry_across_firmwares,
     )

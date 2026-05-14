@@ -105,6 +105,18 @@ def test_register_windows_bcd_tools_registers_three():
     assert len(reg._tools) >= 3
 
 
+def test_register_windows_bcd_tools_includes_cross_firmware_lookup():
+    """Rule #44 acceptance — register_windows_bcd_tools registers
+    lookup_bcd_entry_across_firmwares alongside the per-firmware tools.
+    Issue #15 backfill for θ.A walker."""
+    from app.ai.tool_registry import ToolRegistry
+
+    reg = ToolRegistry()
+    register_windows_bcd_tools(reg)
+    names = {tool.name for tool in reg._tools.values()}
+    assert "lookup_bcd_entry_across_firmwares" in names
+
+
 # ── search_bcd_entries ───────────────────────────────────────────────────────
 
 
