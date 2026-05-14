@@ -86,6 +86,9 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
     from app.services.srum_walker import auto_walk_firmware_safe as srum_auto_walk
     from app.services.systemd_walker import auto_systemd_walk_firmware_safe
     from app.services.usnjrnl_walker import auto_usnjrnl_walk_firmware_safe
+    from app.services.windows_info_walker import (
+        auto_windows_info_walk_firmware_safe,
+    )
     from app.services.wmi_walker import auto_wmi_walk_firmware_safe
 
     return [
@@ -105,6 +108,12 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
         # λ.α.B — memory-dump-image enumerator (metadata only; no Vol3
         # invocation here — λ.α.D's vol3_runner is the Vol3 entry point).
         auto_memory_image_enumeration_safe,
+        # λ.α.D — Vol3 windows.info walker. Order-dependent on λ.α.B
+        # above: this walker iterates memory_dump_image rows the
+        # enumerator just persisted. Sequential dispatch (per
+        # ``_fire_walker_auto_triggers``) guarantees the enumerator
+        # commits its rows before this walker queries them.
+        auto_windows_info_walk_firmware_safe,
         auto_mft_walk_firmware_safe,
         prefetch_auto_walk,
         auto_scheduled_task_walk_firmware_safe,
