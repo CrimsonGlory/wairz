@@ -333,6 +333,14 @@ async def _unpack_firmware_inner(
 
     # Check disk space: need at least 2x firmware size for extraction headroom.
     # The getsize + disk_usage probe is a single sync helper executor hop.
+    # ``fw_size`` is also used downstream by ``check_extraction_limits`` (Stage 1
+    # branches at lines below) and the standalone-binary-fallback gating
+    # (Stage 2 exhausted path). Bail with a clear error if the source file
+    # can't be stat'd — otherwise downstream references to ``fw_size`` would
+    # raise NameError (regression caught 2026-05-13 on Moto-G32 retry; the
+    # rename ``fw_size`` → ``fw_size_check`` in commit ``a83fa14`` 2026-05-11
+    # was incomplete — only the disk-headroom block was updated, leaving 6
+    # downstream references broken).
     def _disk_headroom_sync(fw_path: str, dest: str) -> tuple[int, int] | None:
         try:
             return os.path.getsize(fw_path), shutil.disk_usage(dest).free
@@ -342,15 +350,21 @@ async def _unpack_firmware_inner(
     sizes = await loop.run_in_executor(
         None, _disk_headroom_sync, firmware_path, extraction_dir,
     )
-    if sizes is not None:
-        fw_size_check, free_space = sizes
-        if free_space < fw_size_check * 2:
-            result.error = (
-                f"Insufficient disk space: {free_space // (1024*1024)}MB free, "
-                f"need ~{fw_size_check * 2 // (1024*1024)}MB for extraction"
-            )
-            result.unpack_log = result.error
-            return result
+    if sizes is None:
+        result.error = (
+            f"Cannot stat firmware file: {firmware_path}. "
+            "Source file may have been deleted or permissions changed."
+        )
+        result.unpack_log = result.error
+        return result
+    fw_size, free_space = sizes
+    if free_space < fw_size * 2:
+        result.error = (
+            f"Insufficient disk space: {free_space // (1024*1024)}MB free, "
+            f"need ~{fw_size * 2 // (1024*1024)}MB for extraction"
+        )
+        result.unpack_log = result.error
+        return result
 
     await _report("Classifying firmware", 5)
     fw_type = classify_firmware(firmware_path)
