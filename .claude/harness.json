@@ -56,7 +56,7 @@
         "name": "auto-review-no-commit-in-tool-handler",
         "pattern": "context\\.db\\.commit\\(\\)",
         "filePattern": "backend/app/ai/tools/*.py",
-        "message": "Learned from review K1: Use context.db.flush() in tool handlers. The outer MCP dispatch handles commit — committing here prevents rollback on partial failures."
+        "message": "Learned from review K1: Use context.db.flush() in tool handlers. The outer MCP dispatch handles commit \u2014 committing here prevents rollback on partial failures."
       },
       {
         "name": "auto-standalone-dockerignore-venv",
@@ -152,25 +152,25 @@
         "name": "auto-phase5-cache-use-services-cache-helpers",
         "pattern": "delete\\(AnalysisCache\\)\\.where\\(",
         "filePattern": "{backend/app/services/**/*.py,backend/app/routers/**/*.py,backend/app/ai/**/*.py,backend/app/mcp_server.py}",
-        "message": "Learned from intake-sweep session 93a4948d Phase 5 (backend-cache-module-extraction-and-ttl): use app.services._cache helpers (store_cached / get_cached / exists_cached / invalidate_firmware / cleanup_older_than) instead of hand-rolling the delete-then-insert pattern against AnalysisCache. The helpers are the canonical path — they handle firmware-wide (binary_sha256 IS NULL) keys, issue flush() so callers own commit(), and their delete-then-insert is idempotent without relying on the unique constraint. Exemptions: app/services/_cache.py itself, app/services/export_service.py and app/services/import_service.py (legitimate bulk patterns), test files."
+        "message": "Learned from intake-sweep session 93a4948d Phase 5 (backend-cache-module-extraction-and-ttl): use app.services._cache helpers (store_cached / get_cached / exists_cached / invalidate_firmware / cleanup_older_than) instead of hand-rolling the delete-then-insert pattern against AnalysisCache. The helpers are the canonical path \u2014 they handle firmware-wide (binary_sha256 IS NULL) keys, issue flush() so callers own commit(), and their delete-then-insert is idempotent without relying on the unique constraint. Exemptions: app/services/_cache.py itself, app/services/export_service.py and app/services/import_service.py (legitimate bulk patterns), test files."
       },
       {
         "name": "auto-frontend-rebuild-not-restart",
         "pattern": "docker\\s+compose\\s+restart\\s+frontend\\b",
         "filePattern": "{.planning/**/*.md,CLAUDE.md,.mex/**/*.md}",
-        "message": "Learned from intake-sweep session 93a4948d (CLAUDE.md Rule #26): `docker compose restart frontend` reuses the stale image — the baked-in `/usr/share/nginx/html/dist` does NOT pick up code changes under `frontend/src/**`. Use `docker compose up -d --build frontend` instead. Session 93a4948d incident: a TypeError thrown in Sidebar.tsx from `projects.map(...)` traced to a frontend container built before Zeta's `unwrap()` helper landed; `projectStore.fetchProjects` was getting `{items:[...]}` from the new backend Page-envelope response, but the pre-Zeta bundle returned that raw to the store. Companion to Rule #8 (backend+worker rebuild discipline)."
+        "message": "Learned from intake-sweep session 93a4948d (CLAUDE.md Rule #26): `docker compose restart frontend` reuses the stale image \u2014 the baked-in `/usr/share/nginx/html/dist` does NOT pick up code changes under `frontend/src/**`. Use `docker compose up -d --build frontend` instead. Session 93a4948d incident: a TypeError thrown in Sidebar.tsx from `projects.map(...)` traced to a frontend container built before Zeta's `unwrap()` helper landed; `projectStore.fetchProjects` was getting `{items:[...]}` from the new backend Page-envelope response, but the pre-Zeta bundle returned that raw to the store. Companion to Rule #8 (backend+worker rebuild discipline)."
       },
       {
         "name": "auto-frontend-fake-scan-failed-error",
         "pattern": "errors:\\s*\\[\\s*['\\\"](Scan failed|Security audit failed|YARA scan failed)['\\\"]\\s*\\]",
         "filePattern": "frontend/src/**/*.{ts,tsx}",
-        "message": "Learned from session 93a4948d (CLAUDE.md Rule #2x bug-fix cluster): hardcoded fake-error arrays like `errors: ['Scan failed']` inside a `catch {}` block discard the real exception. Replace with `errors: [extractErrorMessage(e, 'Operation failed')]` and bind the exception with `catch (e) { ... }`. The backend is often succeeding while the UI claims failure — root cause is almost always a swallowed axios timeout from the default 30s on a long-running scan/audit endpoint. See .planning/knowledge/wairz-intake-sweep-bug-fixes-2026-04-19-antipatterns.md anti-pattern #1."
+        "message": "Learned from session 93a4948d (CLAUDE.md Rule #2x bug-fix cluster): hardcoded fake-error arrays like `errors: ['Scan failed']` inside a `catch {}` block discard the real exception. Replace with `errors: [extractErrorMessage(e, 'Operation failed')]` and bind the exception with `catch (e) { ... }`. The backend is often succeeding while the UI claims failure \u2014 root cause is almost always a swallowed axios timeout from the default 30s on a long-running scan/audit endpoint. See .planning/knowledge/wairz-intake-sweep-bug-fixes-2026-04-19-antipatterns.md anti-pattern #1."
       },
       {
         "name": "auto-frontend-long-op-no-explicit-timeout",
         "pattern": "apiClient\\.(post|get|put|patch)(<[^>]+>)?\\([^)]*`[^`]*/(audit|scan|export|import|dump|auto-populate|cve-match|generate|triage|analyze|capture|decompile|bytecode|sast|cleaned-code|disasm|network-analysis|upload-rootfs|apk-scan|tools/run)[^`]*`(?![^)]*\\btimeout\\s*:)[^)]*\\)",
         "filePattern": "frontend/src/api/**/*.ts",
-        "message": "Learned from session 7e8dd7c3 (bug.har complaint + generateSbom timeout + full sweep commit 6814461..ce4bf45): long-running backend calls must declare an explicit timeout: option on the options object — default axios timeout is 30s (client.ts) and these endpoints routinely exceed it, surfacing a fake 'scan failed' to the UI while the backend completes successfully. Common tiers: SECURITY_SCAN_TIMEOUT=600_000 (scans, SBOM, audit, fuzzing analyze/triage, MCP tools, uploads), GHIDRA_ANALYSIS_TIMEOUT=180_000 (decompile, cleaned-code), RADARE2_ANALYSIS_TIMEOUT=90_000 (functions, imports, disasm, binary-info), DEVICE_BRIDGE_TIMEOUT=300_000 (device import/dump). Use the matching constant already defined in the sibling file (findings.ts / sbom.ts pattern). Prior rule defects: (a) verb allowlist missed generate/triage/analyze/capture/decompile/bytecode/sast/cleaned-code/disasm/network-analysis/tools-run; (b) no negative-lookahead check — fired on already-annotated calls. Both fixed."
+        "message": "Learned from session 7e8dd7c3 (bug.har complaint + generateSbom timeout + full sweep commit 6814461..ce4bf45): long-running backend calls must declare an explicit timeout: option on the options object \u2014 default axios timeout is 30s (client.ts) and these endpoints routinely exceed it, surfacing a fake 'scan failed' to the UI while the backend completes successfully. Common tiers: SECURITY_SCAN_TIMEOUT=600_000 (scans, SBOM, audit, fuzzing analyze/triage, MCP tools, uploads), GHIDRA_ANALYSIS_TIMEOUT=180_000 (decompile, cleaned-code), RADARE2_ANALYSIS_TIMEOUT=90_000 (functions, imports, disasm, binary-info), DEVICE_BRIDGE_TIMEOUT=300_000 (device import/dump). Use the matching constant already defined in the sibling file (findings.ts / sbom.ts pattern). Prior rule defects: (a) verb allowlist missed generate/triage/analyze/capture/decompile/bytecode/sast/cleaned-code/disasm/network-analysis/tools-run; (b) no negative-lookahead check \u2014 fired on already-annotated calls. Both fixed."
       },
       {
         "name": "auto-phase5-no-security-audit-service-import",
@@ -194,7 +194,7 @@
         "name": "auto-phase5-no-emulation-service-import",
         "pattern": "from app\\.services\\.emulation_service\\b",
         "filePattern": "backend/**/*.py",
-        "message": "Learned from campaign wairz-intake-sweep-2026-04-19 session 7e8dd7c3: emulation_service.py was deleted in Phase 5 part 5 split (commit c267931); module no longer exists. Use from app.services.emulation import EmulationService instead. Sub-modules (docker_ops, kernel_selection, sysroot_mount, user_mode, system_mode) can be imported directly if needed — e.g. from app.services.emulation.docker_ops import copy_dir_to_container for free-function access."
+        "message": "Learned from campaign wairz-intake-sweep-2026-04-19 session 7e8dd7c3: emulation_service.py was deleted in Phase 5 part 5 split (commit c267931); module no longer exists. Use from app.services.emulation import EmulationService instead. Sub-modules (docker_ops, kernel_selection, sysroot_mount, user_mode, system_mode) can be imported directly if needed \u2014 e.g. from app.services.emulation.docker_ops import copy_dir_to_container for free-function access."
       },
       {
         "name": "auto-phase5-no-mobsfscan-service-import",
@@ -212,19 +212,19 @@
         "name": "auto-q4-no-get-analysis-cache",
         "pattern": "\\bget_analysis_cache\\b|_analysis_cache\\s*=\\s*GhidraAnalysisCache",
         "filePattern": "backend/**/*.py",
-        "message": "Learned from session 480666ce (Q4): GhidraAnalysisCache class + get_analysis_cache() singleton removed in commit a7bfe47. Use module-level ghidra_service.X() directly — e.g. await ghidra_service.get_functions(...). For tests, patch the module binding: patch('module.ghidra_service', mock_cache) with positional 2nd arg, not return_value=."
+        "message": "Learned from session 480666ce (Q4): GhidraAnalysisCache class + get_analysis_cache() singleton removed in commit a7bfe47. Use module-level ghidra_service.X() directly \u2014 e.g. await ghidra_service.get_functions(...). For tests, patch the module binding: patch('module.ghidra_service', mock_cache) with positional 2nd arg, not return_value=."
       },
       {
         "name": "auto-module-level-asyncio-lock",
         "pattern": "^[a-zA-Z_][a-zA-Z_0-9]*\\s*(:\\s*asyncio\\.Lock\\s*)?=\\s*asyncio\\.Lock\\(\\)",
         "filePattern": "backend/**/*.py",
-        "message": "Module-level asyncio.Lock() construction runs at import time, before any event loop. On workers / mcp_server / strict-async contexts this can raise 'no running event loop'. Safe pattern: declare `_lock: asyncio.Lock | None = None` + helper `def _get_lock(): global _lock; if _lock is None: _lock = asyncio.Lock(); return _lock`. Learned from session 480666ce Q4 Ghidra singleton drop — see ghidra_service.py:202-216."
+        "message": "Module-level asyncio.Lock() construction runs at import time, before any event loop. On workers / mcp_server / strict-async contexts this can raise 'no running event loop'. Safe pattern: declare `_lock: asyncio.Lock | None = None` + helper `def _get_lock(): global _lock; if _lock is None: _lock = asyncio.Lock(); return _lock`. Learned from session 480666ce Q4 Ghidra singleton drop \u2014 see ghidra_service.py:202-216."
       },
       {
         "name": "auto-ci-pytest-ignore-requires-intake",
         "pattern": "--ignore=tests/",
         "filePattern": ".github/workflows/**/*.yml",
-        "message": "CI pytest --ignore= flags hide real signal. Each ignored file MUST have a tracking intake in .planning/intake/*-unstable-*.md with per-file failure triage (test-bug / product-bug / missing-fixture / deprecated). Remove the --ignore= line in the same commit that makes the file green. Learned from session 480666ce backend-tests.yml workflow — see .planning/intake/backend-pytest-unstable-tests.md."
+        "message": "CI pytest --ignore= flags hide real signal. Each ignored file MUST have a tracking intake in .planning/intake/*-unstable-*.md with per-file failure triage (test-bug / product-bug / missing-fixture / deprecated). Remove the --ignore= line in the same commit that makes the file green. Learned from session 480666ce backend-tests.yml workflow \u2014 see .planning/intake/backend-pytest-unstable-tests.md."
       },
       {
         "name": "auto-vendor-aes-followups-1",
@@ -248,7 +248,7 @@
         "name": "auto-pytest-mock-patch-androguard-at-service",
         "pattern": "patch\\s*\\(\\s*[\"\\']app\\.services\\.\\w+_service\\.(APK|AnalyzeAPK|DEX|dx)[\"\\']",
         "filePattern": "backend/tests/**/*.py",
-        "message": "Androguard primitives (APK, AnalyzeAPK, DEX, dx) are typically lazy-imported inside service function bodies from androguard.core.apk / androguard.misc — so patching them at the service module is a no-op. Patch the SOURCE module instead (e.g. `patch('androguard.core.apk.APK')`). Triple-discovered across 3 streams in session 2026-04-23 (commits 7941f0f / 1da1f28 / 5e5eda0)."
+        "message": "Androguard primitives (APK, AnalyzeAPK, DEX, dx) are typically lazy-imported inside service function bodies from androguard.core.apk / androguard.misc \u2014 so patching them at the service module is a no-op. Patch the SOURCE module instead (e.g. `patch('androguard.core.apk.APK')`). Triple-discovered across 3 streams in session 2026-04-23 (commits 7941f0f / 1da1f28 / 5e5eda0)."
       },
       {
         "name": "auto-cpe-dictionary-direct-instantiation",
@@ -266,31 +266,31 @@
         "name": "auto-frontend-error-inline-detail-extract",
         "pattern": "\\(\\s*\\w+\\s+as\\s+\\{\\s*response\\?:",
         "filePattern": "frontend/src/**/*.{ts,tsx}",
-        "message": "Learned from autopilot frontend-error-message-unwrap-sweep-2026-04-29: avoid hand-rolled `(err as { response?: ... }).response?.data?.detail` inline detail extraction at display sites. Use extractErrorMessage(err, '<context-specific fallback>') from @/utils/error — the helper does the same FastAPI-detail-aware unwrap and avoids per-site drift. Companion to auto-firmware-upload-409-frontend-error-unwrap (which catches the bare `instanceof Error ? e.message` form). See .planning/knowledge/frontend-error-message-unwrap-sweep-2026-04-29-patterns.md."
+        "message": "Learned from autopilot frontend-error-message-unwrap-sweep-2026-04-29: avoid hand-rolled `(err as { response?: ... }).response?.data?.detail` inline detail extraction at display sites. Use extractErrorMessage(err, '<context-specific fallback>') from @/utils/error \u2014 the helper does the same FastAPI-detail-aware unwrap and avoids per-site drift. Companion to auto-firmware-upload-409-frontend-error-unwrap (which catches the bare `instanceof Error ? e.message` form). See .planning/knowledge/frontend-error-message-unwrap-sweep-2026-04-29-patterns.md."
       },
       {
         "name": "auto-audit-2026-05-04-mock-call-count-without-args",
         "pattern": "mock_db\\.add\\.call_count\\s*==",
         "filePattern": "backend/tests/test_*_service.py",
-        "message": "Learned from audit-2026-05-04: tests asserting `mock_db.add.call_count == N` without also capturing `call_args_list` cannot catch value-flow bugs (Rule #35b — the confidence-NULL bug shipped because tests only counted calls). Pair every `add.call_count == N` with a `call_args_list` capture that asserts the constructor args of each persisted entity. See .planning/knowledge/audit-2026-05-04-antipatterns.md anti-pattern #2."
+        "message": "Learned from audit-2026-05-04: tests asserting `mock_db.add.call_count == N` without also capturing `call_args_list` cannot catch value-flow bugs (Rule #35b \u2014 the confidence-NULL bug shipped because tests only counted calls). Pair every `add.call_count == N` with a `call_args_list` capture that asserts the constructor args of each persisted entity. See .planning/knowledge/audit-2026-05-04-antipatterns.md anti-pattern #2."
       },
       {
         "name": "auto-audit-2026-05-04-finding-direct-construct",
         "pattern": "\\bFinding\\s*\\(",
         "filePattern": "backend/app/services/**/*.py",
-        "message": "Learned from audit-2026-05-04: direct `Finding(...)` construction outside FindingService.create() bypasses field-forwarding logic (audit found 5 such sites — confidence + firmware_id silently dropped). Route through FindingService.create() instead. The ONLY legitimate site is finding_service.py itself. See .planning/knowledge/audit-2026-05-04-antipatterns.md anti-pattern #4."
+        "message": "Learned from audit-2026-05-04: direct `Finding(...)` construction outside FindingService.create() bypasses field-forwarding logic (audit found 5 such sites \u2014 confidence + firmware_id silently dropped). Route through FindingService.create() instead. The ONLY legitimate site is finding_service.py itself. See .planning/knowledge/audit-2026-05-04-antipatterns.md anti-pattern #4."
       },
       {
         "name": "auto-audit-intakes-2026-05-05-ci-silent-zero",
         "pattern": "2>/dev/null\\s*\\|\\|\\s*echo\\s+0",
         "filePattern": ".github/**/*.{yml,yaml}",
-        "message": "Learned from audit-intakes-wave1-wave2-2026-05-05 (Rule #35a generalisation): the `2>/dev/null || echo 0` pattern in CI parse steps deliberately discards subprocess errors and reports a falsy zero — a broken scan / parse / count appears 'clean' indistinguishably from a real green run. Replace with: `set -euo pipefail` at the top of the run-block, capture via `out=$(cmd)` (NOT process substitution which decouples the inner exit code), let non-zero exits abort the step. If a count genuinely defaults to 0 in some condition, branch in python with explicit try/except + sys.exit(non-zero) on parse failure. See .planning/knowledge/audit-intakes-wave1-wave2-2026-05-05-antipatterns.md anti-pattern #1."
+        "message": "Learned from audit-intakes-wave1-wave2-2026-05-05 (Rule #35a generalisation): the `2>/dev/null || echo 0` pattern in CI parse steps deliberately discards subprocess errors and reports a falsy zero \u2014 a broken scan / parse / count appears 'clean' indistinguishably from a real green run. Replace with: `set -euo pipefail` at the top of the run-block, capture via `out=$(cmd)` (NOT process substitution which decouples the inner exit code), let non-zero exits abort the step. If a count genuinely defaults to 0 in some condition, branch in python with explicit try/except + sys.exit(non-zero) on parse failure. See .planning/knowledge/audit-intakes-wave1-wave2-2026-05-05-antipatterns.md anti-pattern #1."
       },
       {
         "name": "auto-phase-2-test-coverage-2026-05-06-lazy-import-patch-target",
         "pattern": "patch\\s*\\(\\s*[\"\\']app\\.services\\.\\w+_service\\.(weasyprint|setools|pypdf|clamd|rapidfuzz|jadx|lief|pefile|cpu_rec|qiling)[\"\\']",
         "filePattern": "backend/tests/**/*.py",
-        "message": "Learned from phase-2-test-coverage-routers-services-2026-05-06 (extends Rule #30 androguard rule to the broader lazy-imported library family). These libraries (weasyprint / setools / pypdf / clamd / rapidfuzz / jadx / lief / pefile / cpu_rec / qiling) are typically lazy-imported inside service function bodies — patching them at the service module is a silent no-op. Use SOURCE-patch: `patch.dict(sys.modules, {\"<libname>\": fake_module})` for full-module replacement, paired with a `not hasattr(consumer_module, \"<libname>\")` sentinel that fails LOUDLY if a future refactor promotes the import to top-level. See .planning/knowledge/phase-2-test-coverage-routers-services-patterns.md pattern #2 + .planning/knowledge/phase-2-test-coverage-routers-services-antipatterns.md anti-pattern #3."
+        "message": "Learned from phase-2-test-coverage-routers-services-2026-05-06 (extends Rule #30 androguard rule to the broader lazy-imported library family). These libraries (weasyprint / setools / pypdf / clamd / rapidfuzz / jadx / lief / pefile / cpu_rec / qiling) are typically lazy-imported inside service function bodies \u2014 patching them at the service module is a silent no-op. Use SOURCE-patch: `patch.dict(sys.modules, {\"<libname>\": fake_module})` for full-module replacement, paired with a `not hasattr(consumer_module, \"<libname>\")` sentinel that fails LOUDLY if a future refactor promotes the import to top-level. See .planning/knowledge/phase-2-test-coverage-routers-services-patterns.md pattern #2 + .planning/knowledge/phase-2-test-coverage-routers-services-antipatterns.md anti-pattern #3."
       },
       {
         "name": "auto-phase-2-test-coverage-2026-05-06-stale-nested-tests-docker-cp",
@@ -320,13 +320,13 @@
         "name": "auto-async-cleanup-2026-05-11-no-bare-async-noqa",
         "pattern": "#\\s*noqa:\\s*ASYNC\\d+\\s*$",
         "filePattern": "backend/**/*.py",
-        "message": "Learned from async-cleanup-2026-05-11 Rule #43: bare `# noqa: ASYNC<code>` without a rationale is prohibited. Add `— <rationale>` matching one of the 4 categories: (1) pre-flight stat before bounded sync subprocess; (2) pure-string path math (no filesystem I/O); (3) bounded loop over ≤3 detection roots (Rule #16 partner); (4) caller-supplied timeout per Rule #29 contract. Future code review can REJECT a noqa whose rationale doesn't fit a category."
+        "message": "Learned from async-cleanup-2026-05-11 Rule #43: bare `# noqa: ASYNC<code>` without a rationale is prohibited. Add `\u2014 <rationale>` matching one of the 4 categories: (1) pre-flight stat before bounded sync subprocess; (2) pure-string path math (no filesystem I/O); (3) bounded loop over \u22643 detection roots (Rule #16 partner); (4) caller-supplied timeout per Rule #29 contract. Future code review can REJECT a noqa whose rationale doesn't fit a category."
       },
       {
         "name": "auto-async-cleanup-2026-05-11-no-f823-noqa",
         "pattern": "#\\s*noqa:\\s*F823",
         "filePattern": "backend/**/*.py",
-        "message": "Learned from async-cleanup-2026-05-11 Rule #40: F823 (local variable used before assignment) is mechanical — Python's local-binding rule promotes function-body imports to function-scope locals so any pre-import reference raises UnboundLocalError. Fix AT SOURCE by moving the `import X` to the first statement of the function body. NEVER noqa F823. Worked example: `app/ai/tools/emulation.py:2627` — `import asyncio` moved from mid-function to first statement (commit `6376d8d` Phase D.39)."
+        "message": "Learned from async-cleanup-2026-05-11 Rule #40: F823 (local variable used before assignment) is mechanical \u2014 Python's local-binding rule promotes function-body imports to function-scope locals so any pre-import reference raises UnboundLocalError. Fix AT SOURCE by moving the `import X` to the first statement of the function body. NEVER noqa F823. Worked example: `app/ai/tools/emulation.py:2627` \u2014 `import asyncio` moved from mid-function to first statement (commit `6376d8d` Phase D.39)."
       },
       {
         "name": "auto-async-cleanup-2026-05-11-pipe-then-exit-capture",
@@ -338,19 +338,25 @@
         "name": "auto-windows-coverage-godmode-eta-2026-05-11-regex-word-boundary-non-word-prefix",
         "pattern": "\\\\b-[A-Za-z]",
         "filePattern": "backend/app/**/*.py",
-        "message": "Learned from windows-coverage-godmode-eta-2026-05-11 (Rule-of-Two: η.B classifier `\\\\b-enc\\\\b` + η.C classifier `\\\\b\\\\[char\\\\[\\\\]\\\\]\\\\(` independently failed): regex `\\\\b` word-boundary metachar does NOT match between two non-word characters or at string-start when next char is non-word. So `\\\\b-enc\\\\b` silently fails to match the literal `-enc` flag at string-start. Symptom: classifier returns None on intended targets; tier-1 test catches if present. Fix: use explicit `(?:^|[^A-Za-z0-9])<token>(?:[^A-Za-z0-9]|$)` lookarounds for adjacency-to-non-word checks. Mechanical detection: any classifier regex containing `\\\\b` followed by a non-word character is suspect."
+        "message": "Learned from windows-coverage-godmode-eta-2026-05-11 (Rule-of-Two: \u03b7.B classifier `\\\\b-enc\\\\b` + \u03b7.C classifier `\\\\b\\\\[char\\\\[\\\\]\\\\]\\\\(` independently failed): regex `\\\\b` word-boundary metachar does NOT match between two non-word characters or at string-start when next char is non-word. So `\\\\b-enc\\\\b` silently fails to match the literal `-enc` flag at string-start. Symptom: classifier returns None on intended targets; tier-1 test catches if present. Fix: use explicit `(?:^|[^A-Za-z0-9])<token>(?:[^A-Za-z0-9]|$)` lookarounds for adjacency-to-non-word checks. Mechanical detection: any classifier regex containing `\\\\b` followed by a non-word character is suspect."
       },
       {
         "name": "auto-windows-coverage-godmode-eta-2026-05-12-in-container-system-python",
         "pattern": "docker\\s+compose\\s+exec\\s+(?:-T\\s+)?(?:backend|worker|migrator)\\s+python\\b(?!\\s+-)",
         "filePattern": "**/*.{md,sh,yml,yaml,json}",
-        "message": "Learned from windows-coverage-godmode-eta-2026-05-12 antipattern #10: `docker compose exec backend python -c '...'` resolves `python` to the BASE IMAGE's system Python (no wairz deps installed) — emits `ModuleNotFoundError: No module named 'sqlalchemy'` on the first import even though `/app/.venv` has the dep. Use `/app/.venv/bin/python` explicitly. Already codified in CLAUDE.md Rule #20 caveat (`docker compose exec -T -w /app -e PYTHONPATH=/app backend /app/.venv/bin/<tool>`) — this rule enforces the discipline mechanically across docs / scripts / agent prompts."
+        "message": "Learned from windows-coverage-godmode-eta-2026-05-12 antipattern #10: `docker compose exec backend python -c '...'` resolves `python` to the BASE IMAGE's system Python (no wairz deps installed) \u2014 emits `ModuleNotFoundError: No module named 'sqlalchemy'` on the first import even though `/app/.venv` has the dep. Use `/app/.venv/bin/python` explicitly. Already codified in CLAUDE.md Rule #20 caveat (`docker compose exec -T -w /app -e PYTHONPATH=/app backend /app/.venv/bin/<tool>`) \u2014 this rule enforces the discipline mechanically across docs / scripts / agent prompts."
       },
       {
         "name": "auto-local-dev-env-no-auth-2026-05-12-rebuild-without-restartcount-probe",
         "pattern": "docker\\s+compose\\s+up\\s+(?:-d\\s+)?--build\\s+(?:backend|worker|migrator)\\b",
         "filePattern": "{.planning/**/*.md,.mex/**/*.md}",
-        "message": "Learned from local-dev-env-no-auth-2026-05-12 (`wairz-backend-1` restart-looped 118 cycles across 5+ sessions because rebuild success was declared without probing `RestartCount`): after ANY `docker compose up -d --build backend|worker|migrator`, also probe `docker inspect wairz-backend-1 --format '{{.RestartCount}}'` AND `docker compose ps backend` AND `docker compose logs --tail 20 backend` BEFORE trusting the rebuild. The backend container's lifespan check at `app/main.py:68-76` exits **78 (EX_CONFIG)** if neither `API_KEY` nor `WAIRZ_ALLOW_NO_AUTH=true` is in `.env` — and the worker stays healthy regardless, so worker-uptime is NOT evidence backend is up. See `.mex/patterns/post-rebuild-health-check.md` for the full discipline and CLAUDE.md Rule #8 for the rebuild scope."
+        "message": "Learned from local-dev-env-no-auth-2026-05-12 (`wairz-backend-1` restart-looped 118 cycles across 5+ sessions because rebuild success was declared without probing `RestartCount`): after ANY `docker compose up -d --build backend|worker|migrator`, also probe `docker inspect wairz-backend-1 --format '{{.RestartCount}}'` AND `docker compose ps backend` AND `docker compose logs --tail 20 backend` BEFORE trusting the rebuild. The backend container's lifespan check at `app/main.py:68-76` exits **78 (EX_CONFIG)** if neither `API_KEY` nor `WAIRZ_ALLOW_NO_AUTH=true` is in `.env` \u2014 and the worker stays healthy regardless, so worker-uptime is NOT evidence backend is up. See `.mex/patterns/post-rebuild-health-check.md` for the full discipline and CLAUDE.md Rule #8 for the rebuild scope."
+      },
+      {
+        "name": "auto-rule-44-deep-review-2026-05-14-alembic-timestamp-nullable",
+        "pattern": "server_default=sa\\.func\\.now\\(\\)\\s*,?\\s*\\)",
+        "filePattern": "backend/alembic/versions/*.py",
+        "message": "Learned from Rule #44 backfill deep-review 2026-05-14: alembic migrations that create *_at columns with server_default=sa.func.now() MUST also declare nullable=False if the ORM column is Mapped[datetime] (non-Optional). Otherwise alembic-autogenerate-empty detects modify_nullable drift on CI. See postmortem section 'What Broke #1' + recommendation #2."
       }
     ]
   },
@@ -413,7 +419,7 @@
     "sessions": 0,
     "campaigns": 0,
     "override": null,
-    "sessions_completed": 192
+    "sessions_completed": 199
   },
   "consent": {
     "externalActions": "session-allow"
