@@ -42,6 +42,7 @@ from sqlalchemy import select
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.models.firmware import Firmware
 from app.models.hardware_firmware import HardwareFirmwareBlob
+from app.models.project import Project
 from app.models.windows_registry_extract import WindowsRegistryExtract
 from app.services.jsonb_normalizers import (
     _normalize_windows_registry_extracts_parsed_tree,
@@ -440,6 +441,135 @@ async def _handle_trigger_walk(input: dict, context: ToolContext) -> str:  # noq
     )
 
 
+# ── lookup_registry_extract_across_firmwares (Rule #44) ─────────────────────
+
+
+async def _handle_lookup_registry_extract_across_firmwares(
+    input: dict, context: ToolContext
+) -> str:
+    """**CROSS-FIRMWARE AGGREGATION** — given a hive_type (and optional
+    exact hive_path), return ALL firmware images in the active project
+    (or globally) with a matching Windows registry extract.
+
+    Rule #44 — same registry hive present across captures is the
+    baseline expectation (SOFTWARE, SYSTEM are ubiquitous); the
+    signal is stronger when a non-canonical hive (e.g. AmCache,
+    a per-user NTUSER on an unexpected SID, an unusual hive_type)
+    surfaces across multiple firmwares. Identity key is the natural
+    tuple (hive_type, hive_path). Joins through hardware_firmware_blobs
+    to reach the firmware row (registry extracts are blob-scoped, not
+    firmware-scoped — γ.4 walker shape).
+
+    Returns one row per matching firmware with:
+    - firmware_id, project_id, project_name, original_filename, sha256
+    - match_count (matching extract rows in that firmware)
+    - sample_extract (first matching extract's summary)
+    - total_key_count / total_value_count aggregates across matches
+    - supply_chain_signal (True when match_count >= 2 firmwares).
+    """
+    hive_type = input.get("hive_type")
+    if not hive_type:
+        return json.dumps({"error": "hive_type is required"})
+
+    hive_path = input.get("hive_path")
+    scope = input.get("scope", "project")
+    limit = int(input.get("limit", 100))
+    if limit > 500:
+        limit = 500
+    if limit < 1:
+        limit = 1
+
+    where = [WindowsRegistryExtract.hive_type == hive_type]
+    if hive_path is not None:
+        where.append(WindowsRegistryExtract.hive_path == hive_path)
+
+    if scope == "project":
+        project_id = (
+            uuid.UUID(context.project_id)
+            if isinstance(context.project_id, str)
+            else context.project_id
+        )
+        stmt = (
+            select(WindowsRegistryExtract, Firmware, Project)
+            .join(
+                HardwareFirmwareBlob,
+                WindowsRegistryExtract.blob_id == HardwareFirmwareBlob.id,
+            )
+            .join(Firmware, HardwareFirmwareBlob.firmware_id == Firmware.id)
+            .join(Project, Firmware.project_id == Project.id)
+            .where(Project.id == project_id, *where)
+            .order_by(Firmware.created_at)
+        )
+    else:
+        stmt = (
+            select(WindowsRegistryExtract, Firmware, Project)
+            .join(
+                HardwareFirmwareBlob,
+                WindowsRegistryExtract.blob_id == HardwareFirmwareBlob.id,
+            )
+            .join(Firmware, HardwareFirmwareBlob.firmware_id == Firmware.id)
+            .join(Project, Firmware.project_id == Project.id)
+            .where(*where)
+            .order_by(Firmware.created_at)
+        )
+
+    rows = (await context.db.execute(stmt)).all()
+
+    by_firmware: dict[uuid.UUID, dict] = {}
+    for rec, firmware, project in rows:
+        slot = by_firmware.get(firmware.id)
+        if slot is None:
+            slot = {
+                "firmware_id": str(firmware.id),
+                "project_id": str(project.id),
+                "project_name": project.name,
+                "original_filename": firmware.original_filename,
+                "sha256": firmware.sha256,
+                "match_count": 0,
+                "sample_extract": None,
+                "total_key_count": 0,
+                "total_value_count": 0,
+            }
+            by_firmware[firmware.id] = slot
+        slot["match_count"] += 1
+        slot["total_key_count"] += int(rec.key_count or 0)
+        slot["total_value_count"] += int(rec.value_count or 0)
+        if slot["sample_extract"] is None:
+            slot["sample_extract"] = {
+                "id": str(rec.id),
+                "blob_id": str(rec.blob_id),
+                "hive_path": rec.hive_path,
+                "hive_type": rec.hive_type,
+                "key_count": rec.key_count,
+                "value_count": rec.value_count,
+                "walk_status": rec.walk_status,
+            }
+
+    matches: list[dict] = []
+    for slot in by_firmware.values():
+        matches.append(slot)
+        if len(matches) >= limit:
+            break
+
+    out: dict = {
+        "hive_type": hive_type,
+        "hive_path": hive_path,
+        "scope": scope,
+        "match_firmware_count": len(matches),
+        "supply_chain_signal": len(matches) >= 2,
+        "matches": matches,
+    }
+    if not matches:
+        out["message"] = (
+            "No matching registry extracts found. Ensure the walker has "
+            "run on the relevant firmwares (γ.4 walks at hardware-firmware-"
+            "blob detection time). Common hive_type values: SOFTWARE, "
+            "SYSTEM, SAM, SECURITY, NTUSER, UsrClass, AmCache, BBI, "
+            "DEFAULT, COMPONENTS, DRIVERS, ELAM, BCD, SCHEMA."
+        )
+    return _truncate(_dump_json(out))
+
+
 # ── Registration ─────────────────────────────────────────────────────────────
 
 
@@ -609,4 +739,64 @@ def register_windows_registry_tools(registry: ToolRegistry) -> None:
             "additionalProperties": False,
         },
         handler=_handle_trigger_walk,
+    )
+
+    registry.register(
+        name="lookup_registry_extract_across_firmwares",
+        description=(
+            "Rule #44 CROSS-FIRMWARE AGGREGATION — given a hive_type "
+            "(and optional hive_path), return ALL firmware images in "
+            "the active project (or globally, with scope='global') that "
+            "contain a matching Windows registry extract. Identity key "
+            "is (hive_type, hive_path). Common-hive matches (SOFTWARE / "
+            "SYSTEM) are baseline; unusual hives or unusual paths "
+            "signal more strongly. Returns one entry per matching "
+            "firmware with match_count, sample_extract, "
+            "total_key_count / total_value_count aggregates, and "
+            "supply_chain_signal=True when match_count >= 2 firmwares."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "hive_type": {
+                    "type": "string",
+                    "description": (
+                        "Required. Hive type discriminator (e.g. "
+                        "'SOFTWARE', 'SYSTEM', 'SAM', 'SECURITY', "
+                        "'NTUSER', 'UsrClass', 'AmCache', 'BBI', "
+                        "'DEFAULT', 'COMPONENTS', 'DRIVERS', 'ELAM', "
+                        "'BCD', 'SCHEMA')."
+                    ),
+                },
+                "hive_path": {
+                    "type": "string",
+                    "description": (
+                        "Optional. Exact hive_path within the blob "
+                        "(e.g. 'Windows/System32/config/SOFTWARE'). Omit "
+                        "to match every extract with the given hive_type."
+                    ),
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["project", "global"],
+                    "description": (
+                        "Search scope. 'project' (default) restricts to "
+                        "firmwares in the active project; 'global' "
+                        "searches across all projects."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 500,
+                    "description": (
+                        "Maximum number of distinct firmwares to return "
+                        "(default 100, max 500)."
+                    ),
+                },
+            },
+            "required": ["hive_type"],
+            "additionalProperties": False,
+        },
+        handler=_handle_lookup_registry_extract_across_firmwares,
     )

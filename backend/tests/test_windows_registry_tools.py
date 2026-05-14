@@ -451,7 +451,7 @@ async def test_trigger_walk_unknown_firmware_errors(tmp_path) -> None:
 # ── Registration smoke ──────────────────────────────────────────────────────
 
 
-def test_register_adds_seven_tools() -> None:
+def test_register_adds_eight_tools() -> None:
     reg = ToolRegistry()
     register_windows_registry_tools(reg)
     names = {t["name"] for t in reg.get_anthropic_tools()}
@@ -463,4 +463,15 @@ def test_register_adds_seven_tools() -> None:
         "dump_subkey",
         "diff_hives",
         "trigger_registry_hive_walk",
+        "lookup_registry_extract_across_firmwares",
     }
+
+
+def test_register_windows_registry_tools_includes_cross_firmware_lookup():
+    """Rule #44 acceptance — register_windows_registry_tools registers
+    lookup_registry_extract_across_firmwares alongside the per-firmware
+    tools. Issue #15 backfill for γ.4 walker."""
+    reg = ToolRegistry()
+    register_windows_registry_tools(reg)
+    names = {tool.name for tool in reg._tools.values()}
+    assert "lookup_registry_extract_across_firmwares" in names
