@@ -428,9 +428,24 @@ async def test_lookup_no_results_returns_message():
 # ── Registration shape ──────────────────────────────────────────────────────
 
 
-def test_register_windows_mbr_vbr_tools_registers_two():
-    """register_windows_mbr_vbr_tools registers exactly 2 tools."""
+def test_register_windows_mbr_vbr_tools_registers_three():
+    """register_windows_mbr_vbr_tools registers exactly 3 tools."""
     registry = ToolRegistry()
     register_windows_mbr_vbr_tools(registry)
     names = set(registry._tools.keys())
-    assert names == {"list_mbr_vbr_sectors", "lookup_mbr_vbr_sector"}
+    assert names == {
+        "list_mbr_vbr_sectors",
+        "lookup_mbr_vbr_sector",
+        "lookup_mbr_vbr_sector_across_firmwares",
+    }
+
+
+def test_register_windows_mbr_vbr_tools_includes_cross_firmware_lookup():
+    """Rule #44 acceptance — register_windows_mbr_vbr_tools registers
+    lookup_mbr_vbr_sector_across_firmwares alongside the per-firmware
+    tools. Issue #15 backfill for θ.E walker (canonical-shape companion
+    to the pre-existing lookup_mbr_vbr_sector)."""
+    registry = ToolRegistry()
+    register_windows_mbr_vbr_tools(registry)
+    names = set(registry._tools.keys())
+    assert "lookup_mbr_vbr_sector_across_firmwares" in names
