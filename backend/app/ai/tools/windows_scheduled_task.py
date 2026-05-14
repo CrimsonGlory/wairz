@@ -447,12 +447,26 @@ async def _handle_lookup_scheduled_task_across_firmwares(
         if len(matches) >= limit:
             break
 
+    # supply_chain_signal calibration (forensic review 2026-05-14):
+    # Vendor-shipped scheduled tasks (ProactiveScan, WinDefend, Windows
+    # Update Medic, MapsToastTask, etc.) ship in EVERY Windows install.
+    # Naïve match_count>=2 over-flags every baseline task. The genuine
+    # T1053 Scheduled Task / Job signal requires the cross-firmware
+    # presence AND an attacker-shape Action — any_encoded_powershell
+    # is the canonical attacker primitive (powershell.exe -EncodedCommand
+    # / -enc / -e ENC_BASE64 to bypass logging + obfuscate payload).
+    # A standard ProactiveScan task appearing in 100 firmwares stays
+    # supply_chain_signal=False; an "Updater" task with -EncodedCommand
+    # in 2+ firmwares correctly fires supply_chain_signal=True.
+    any_encoded_ps = any(
+        slot.get("any_encoded_powershell") for slot in matches
+    )
     out: dict = {
         "task_name": task_name,
         "run_as_user": run_as_user,
         "scope": scope,
         "match_firmware_count": len(matches),
-        "supply_chain_signal": len(matches) >= 2,
+        "supply_chain_signal": len(matches) >= 2 and any_encoded_ps,
         "matches": matches,
     }
     if not matches:
@@ -588,9 +602,11 @@ def register_windows_scheduled_task_tools(registry: ToolRegistry) -> None:
             "the natural tuple (task_name, run_as_user). Returns one "
             "entry per matching firmware with match_count, sample_task, "
             "any_encoded_powershell flag, and supply_chain_signal=True "
-            "when match_count >= 2 firmwares (campaign / persistence "
-            "task across captures, OR a vendor-shipped task — the EXACT "
-            "task name disambiguates)."
+            "when match_count >= 2 firmwares AND at least one matching "
+            "task uses -EncodedCommand/-enc PowerShell (vendor-shipped "
+            "tasks ship in every firmware and are baseline; the encoded "
+            "PowerShell shape is the canonical T1053+T1059.001 attacker "
+            "primitive that disambiguates)."
         ),
         input_schema={
             "type": "object",
