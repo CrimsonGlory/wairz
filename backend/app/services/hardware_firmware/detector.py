@@ -215,13 +215,20 @@ def _walk_and_classify(extracted_path: str) -> list[dict]:
                             parsed = ParsedBlob(metadata={"error": "parser raised"})
 
                     partition = _detect_partition(extracted_path, entry.path)
+                    # Vendor precedence: parser-derived (content evidence)
+                    # WINS over classifier-derived (filename evidence) per
+                    # Rule #19 + the BTFM→Broadcom misattribution postmortem
+                    # 2026-05-15. When the parser leaves vendor=None
+                    # (default for the existing fleet), the classifier's
+                    # filename vendor is used unchanged.
+                    vendor = parsed.vendor if parsed.vendor else cls.vendor
                     rows.append({
                         "blob_path": entry.path,
                         "partition": partition,
                         "blob_sha256": sha256,
                         "file_size": size,
                         "category": cls.category,
-                        "vendor": cls.vendor if cls.vendor != "unknown" else None,
+                        "vendor": vendor if vendor and vendor != "unknown" else None,
                         "format": cls.format,
                         "detection_source": _DETECTION_SOURCE,
                         "detection_confidence": cls.confidence,

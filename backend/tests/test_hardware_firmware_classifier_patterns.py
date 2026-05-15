@@ -120,20 +120,26 @@ def test_vendor_alias_resolution() -> None:
         ("/vendor/lib/modules/icm42600_i2c.ko", "invensense", "sensor"),
         ("/vendor/lib/modules/mali_kbase_mt6771_r49p0.ko", "arm", "gpu"),
         ("/vendor/lib/modules/pn553.ko", "nxp", "nfc"),
-        # Broadcom Bluetooth on Motorola / Qualcomm Bengal platforms —
-        # DS1 Moto-G32 BTFM.bin archive + its unblob-extracted
-        # sub-components. Added 2026-05-14 (forensic-review A2 #3)
-        # after detection-roots fix surfaced these as miscategorized
-        # "other/qcom_mbn/qualcomm".
-        ("/vendor/firmware/BTFM.bin", "broadcom", "bluetooth"),
-        ("/.../BTFM.bin_extract/.../image/cmbtfw13.tlv", "broadcom", "bluetooth"),
-        ("/.../BTFM.bin_extract/.../image/apbtfw10.tlv", "broadcom", "bluetooth"),
-        ("/.../BTFM.bin_extract/.../image/crbtfw11.tlv", "broadcom", "bluetooth"),
-        ("/.../BTFM.bin_extract/.../image/cmbtfw12.ver", "broadcom", "bluetooth"),
-        ("/.../BTFM.bin_extract/.../image/cmnv12.bin", "broadcom", "bluetooth"),
-        ("/.../BTFM.bin_extract/.../image/cmnv13s.bin", "broadcom", "bluetooth"),
-        ("/.../BTFM.bin_extract/.../image/crnv21.bin", "broadcom", "bluetooth"),
-        ("/.../BTFM.bin_extract/.../image/apnv11.bin", "broadcom", "bluetooth"),
+        # Qualcomm Atheros Rome / WCN3xx0 Bluetooth on Motorola /
+        # Qualcomm Bengal platforms — DS1 Moto-G32 BTFM.bin archive +
+        # its unblob-extracted sub-components.
+        # ATTRIBUTION HISTORY: originally added 2026-05-14 with
+        # vendor=broadcom (commit f6bdc4e, forensic-review A2 #3).
+        # Corrected to vendor=qualcomm 2026-05-15 (commit 3d8d018) when
+        # the content-evidence audit found BTFM.<codename>.x.y.z-
+        # QCACHROMZ-1 banners + PF=WCN3950ROM= build strings + zero
+        # Broadcom/brcm strings in any BTFM file. See
+        # .planning/postmortems/postmortem-btfm-correction-and-corpus-
+        # 2026-05-15.md for the full audit chain.
+        ("/vendor/firmware/BTFM.bin", "qualcomm", "bluetooth"),
+        ("/.../BTFM.bin_extract/.../image/cmbtfw13.tlv", "qualcomm", "bluetooth"),
+        ("/.../BTFM.bin_extract/.../image/apbtfw10.tlv", "qualcomm", "bluetooth"),
+        ("/.../BTFM.bin_extract/.../image/crbtfw11.tlv", "qualcomm", "bluetooth"),
+        ("/.../BTFM.bin_extract/.../image/cmbtfw12.ver", "qualcomm", "bluetooth"),
+        ("/.../BTFM.bin_extract/.../image/cmnv12.bin", "qualcomm", "bluetooth"),
+        ("/.../BTFM.bin_extract/.../image/cmnv13s.bin", "qualcomm", "bluetooth"),
+        ("/.../BTFM.bin_extract/.../image/crnv21.bin", "qualcomm", "bluetooth"),
+        ("/.../BTFM.bin_extract/.../image/apnv11.bin", "qualcomm", "bluetooth"),
     ],
 )
 def test_match_returns_expected_vendor_and_category(
@@ -552,11 +558,11 @@ def test_path_context_match_rfnv() -> None:
 
 
 def test_path_context_match_btfm() -> None:
-    """BTFM.bin tree → bluetooth/broadcom."""
+    """BTFM.bin tree → bluetooth/qualcomm (corrected 2026-05-15)."""
     p = "/x/Moto-G32-XT2235-1.zip_extract/BTFM.bin_extract/raw.image_extract/image/unknown.tlv"
     m = match_path_context(p)
     assert m is not None
-    assert m.vendor == "broadcom"
+    assert m.vendor == "qualcomm"
     assert m.category == "bluetooth"
 
 
@@ -663,26 +669,27 @@ def test_classify_refine_wlan_split_other_to_wifi() -> None:
 
 def test_classify_rescue_btfm_unmatched_sub_blob() -> None:
     """A file inside BTFM.bin_extract that doesn't match any BTFM filename
-    pattern still gets rescued to bluetooth/broadcom via path-context."""
+    pattern still gets rescued to bluetooth/qualcomm via path-context.
+    (vendor corrected from broadcom to qualcomm 2026-05-15.)"""
     p = "/x/Moto-G32-XT2235-1.zip_extract/BTFM.bin_extract/raw.image_extract/image/unknown.dat"
     cls = classify(p, _RAW_BIN_MAGIC, 4096)
     assert cls is not None
     assert cls.category == "bluetooth"
-    assert cls.vendor == "broadcom"
+    assert cls.vendor == "qualcomm"
 
 
 def test_classify_path_context_does_not_demote_specific_category() -> None:
-    """A filename that classifies as (broadcom, bluetooth) via the BTFM
+    """A filename that classifies as (qualcomm, bluetooth) via the BTFM
     YAML pattern must STAY that way — path-context contract says it never
     overrides a non-"other" category. Regression guard for the precedence
-    rule."""
+    rule. (Vendor corrected from broadcom to qualcomm 2026-05-15.)"""
     # cmbtfw10.tlv matches firmware_patterns.yaml's
-    # "^[a-z]{2}btfw[0-9]+\\.(tlv|ver)$" with vendor=broadcom + category=bluetooth.
+    # "^[a-z]{2}btfw[0-9]+\\.(tlv|ver)$" with vendor=qualcomm + category=bluetooth.
     p = "/x/Moto-G32-XT2235-1.zip_extract/BTFM.bin_extract/raw.image_extract/image/cmbtfw10.tlv"
     cls = classify(p, _RAW_BIN_MAGIC, 4096)
     assert cls is not None
     assert cls.category == "bluetooth"
-    assert cls.vendor == "broadcom"
+    assert cls.vendor == "qualcomm"
     # Confidence comes from the filename pattern (high), NOT from the path
     # rule (which would have produced medium). This verifies path-context
     # did not run on the already-specific filename match.

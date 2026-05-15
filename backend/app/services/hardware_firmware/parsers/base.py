@@ -21,13 +21,24 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ParsedBlob:
-    """Output of a parser.  All fields optional — parser sets what it can extract."""
+    """Output of a parser.  All fields optional — parser sets what it can extract.
+
+    ``vendor`` is a content-derived override for the classifier's
+    filename-derived vendor: when the parser populates it (e.g. the
+    ``bt_fw_banner`` parser reading a ``BTFM.<codename>.x.y.z-QCACHROM*``
+    banner), the detector OVERRIDES ``Classification.vendor`` with this
+    value because content evidence beats filename evidence (see Rule #19
+    + the BTFM→Broadcom misattribution postmortem 2026-05-15). Parsers
+    leave it ``None`` to defer to the classifier's filename-derived
+    vendor — the default behaviour for the existing parser fleet.
+    """
 
     version: str | None = None
     signed: str | None = None  # signed|unsigned|unknown|weakly_signed
     signature_algorithm: str | None = None
     cert_subject: str | None = None
     chipset_target: str | None = None
+    vendor: str | None = None
     metadata: dict = field(default_factory=dict)
 
 

@@ -72,9 +72,13 @@ patterns:
     category: wifi
     confidence: medium
     format: mtk_wifi_hdr
-  - pattern: "^mt66[0-9]{2}_(fm|bt|wmt|ant)_[a-z0-9_.]*\\.(bin|cfg)$"
+  # mt66xx connectivity combo — `_bt_` is broken out into its own entry
+  # below (around line 745) so the BT banner parser fires AND the
+  # category is correct (bluetooth, not wifi). This pattern handles
+  # the remaining subsystems (FM radio / top-level WMT loader / ANT+).
+  - pattern: "^mt66[0-9]{2}_(fm|wmt|ant)_[a-z0-9_.]*\\.(bin|cfg)$"
     vendor: mediatek
-    product: "MediaTek MT66xx connectivity combo (Wi-Fi/BT/FM/GPS)"
+    product: "MediaTek MT66xx connectivity combo (Wi-Fi/FM/GPS/ANT+)"
     category: wifi
     confidence: high
     source: AOSP-vendor
@@ -384,6 +388,15 @@ patterns:
     product: "Broadcom Bluetooth HCI firmware (.hcd)"
     category: bluetooth
     confidence: high
+    format: bt_fw_banner
+    source: linux-firmware
+  - pattern: "^cyw[0-9a-z_-]+\\.hcd$"
+    vendor: cypress
+    product: "Cypress / Infineon AIROC Bluetooth HCI firmware (.hcd)"
+    category: bluetooth
+    confidence: high
+    format: bt_fw_banner
+    source: cypress-aircon
   # ATTRIBUTION CORRECTION (2026-05-15) — BTFM.bin is QUALCOMM-ATHEROS,
   # NOT Broadcom. Yesterday's commit f6bdc4e attributed BTFM to Broadcom
   # based on filename heuristic alone; content evidence proves the
@@ -435,6 +448,10 @@ patterns:
     product: "Qualcomm Atheros Rome-family Bluetooth firmware archive (BTFM.bin)"
     category: bluetooth
     confidence: high
+    # BTFM.bin is an ext2 fs container — not directly banner-parseable.
+    # Leave format=raw_bin so the existing fallback parser runs on the
+    # outer container; the banner parser fires on the .tlv / .ver files
+    # extracted from inside via the patterns immediately below.
     format: raw_bin
     source: qca-rome-wcn3xxx
   - pattern: "^[a-z]{2}btfw[0-9]+\\.(tlv|ver)$"
@@ -442,14 +459,34 @@ patterns:
     product: "Qualcomm Atheros Rome BT firmware (TLV patch, Apache/Cherokee/Comanche)"
     category: bluetooth
     confidence: high
-    format: raw_bin
+    # Route to bt_fw_banner — parser reads the BTFM.<codename>.x.y.z
+    # banner from the file tail and populates blob.vendor + blob.version
+    # + blob.chipset_target from content. Prevents the BTFM→Broadcom
+    # misattribution class entirely (postmortem 2026-05-15).
+    format: bt_fw_banner
     source: qca-rome-wcn3xxx
+  # Newer QCA family prefixes (per upstream Linux btqca.c): htbtfw
+  # (Hastings → QCA6390), msbtfw (Moselle → WCN6750), hpbtfw (QCA2066),
+  # hmtbtfw (WCN7850), wcnhpbtfw (WCN6855). Pattern is general enough
+  # to catch them all — parser disambiguates by banner codename.
+  - pattern: "^(?:htbtfw|msbtfw|hpbtfw|hmtbtfw|wcnhpbtfw)[0-9]+\\.(tlv|ver)$"
+    vendor: qualcomm
+    product: "Qualcomm BT firmware (FastConnect family — Hastings/Moselle/WCN6/7xxx)"
+    category: bluetooth
+    confidence: high
+    format: bt_fw_banner
+    source: qca-fastconnect
   - pattern: "^[a-z]{2}nv[0-9]+[a-z]?\\.bin$"
     vendor: qualcomm
     product: "Qualcomm Atheros Rome BT NV calibration"
     category: bluetooth
     confidence: medium
-    format: raw_bin
+    # NV calibration files carry no banner — they're tag-id tables.
+    # Route to bt_fw_banner anyway so the parser can confirm "unknown"
+    # family with a metadata footprint (negative case is informative).
+    # Returns ParsedBlob with no vendor override (filename's qualcomm
+    # attribution remains authoritative for NV files).
+    format: bt_fw_banner
     source: qca-rome-wcn3xxx
   - pattern: "^bcmdhd[_a-z0-9.-]*\\.(bin|cal)$"
     vendor: broadcom
@@ -684,13 +721,38 @@ patterns:
     source: live-audit-2026-04-17-DPCS10
 
   # MTK Bluetooth ROM patches — paired *_be_patch_*_hdr.bin files load
-  # ROM patches into the BT controller during link-up.
+  # ROM patches into the BT controller during link-up. These carry the
+  # 32-byte btmtk_patch_header (datetime[16] + platform[4] + hwver/swver
+  # + magicnum) per upstream Linux drivers/bluetooth/btmtk.c.
   - pattern: "^romv[0-9]+_(be|le)_patch_[0-9_]+_hdr\\.bin$"
     vendor: mediatek
-    product: "MediaTek Bluetooth ROM patch"
+    product: "MediaTek Bluetooth ROM patch (btmtk_patch_header format)"
     category: bluetooth
     confidence: high
+    format: bt_fw_banner
     source: live-audit-2026-04-17-DPCS10
+
+  # Modern MediaTek combo BT firmware (MT7921/7922/7925/7961 etc).
+  # These also use the 32-byte btmtk_patch_header.
+  - pattern: "^mt7[0-9]{3}_patch_[a-z0-9_.]+_hdr\\.bin$"
+    vendor: mediatek
+    product: "MediaTek BT controller patch (FastConnect-class)"
+    category: bluetooth
+    confidence: high
+    format: bt_fw_banner
+    source: linux-firmware-mediatek
+
+  # MediaTek MT66xx BT subsystem patches (per-subsystem split — _bt_
+  # vs _fm_ vs _wmt_ vs _ant_). Re-categorise the _bt_ variant from
+  # the catch-all `mt66xx_(fm|bt|wmt|ant)_*` pattern above so the BT
+  # banner parser fires AND the category is correct for CVE matching.
+  - pattern: "^mt66[0-9]{2}_bt_[a-z0-9_.]*\\.(bin|cfg)$"
+    vendor: mediatek
+    product: "MediaTek MT66xx BT subsystem firmware"
+    category: bluetooth
+    confidence: high
+    format: bt_fw_banner
+    source: AOSP-vendor
 
 # =====================================================================
 # PATH-CONTEXT RULES — applied as a FALLBACK after filename classification.

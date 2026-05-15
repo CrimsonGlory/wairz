@@ -12,6 +12,7 @@ from __future__ import annotations
 from app.services.hardware_firmware.parsers import (  # noqa: F401,E402
     awinic_acf,
     broadcom_wl,
+    bt_firmware_banner,
     dtb,
     elf_tee,
     kmod,

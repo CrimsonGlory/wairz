@@ -66,6 +66,11 @@ FORMATS: set[str] = {
     "uImage",
     "vmlinuz",
     "signed_archive",
+    # Bluetooth firmware banner-string parser (content-evidence vendor
+    # attribution — QCA Rome BTFM, Broadcom HCD, MediaTek WMT). Routes
+    # via firmware_patterns.yaml ``format: bt_fw_banner`` entries so
+    # the parser auto-fires on BTFM.bin / bt_fw / .hcd / .tlv inputs.
+    "bt_fw_banner",
 }
 
 
