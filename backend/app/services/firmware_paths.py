@@ -414,22 +414,41 @@ def _find_unblob_extraction_top(root: str) -> str:
     suffixed directories so the deep walk can sweep the whole nested
     extraction tree, finding the sibling dirs the shallow sweep can't see.
 
-    Stops when:
+    The climb stops when:
 
     * The parent directory's name is ``extracted`` (or a synonym) — the
       child is the firmware-named container we want.
     * The current directory name does NOT end in ``_extract``.
     * Hard cap of 12 climbs (degenerate path safety).
+
+    **Path-string fallback (Issue surfaced on DS1 Moto G32, 2026-05-14):**
+    When the climb stops at a non-``_extract`` pair (cur == root, no
+    climbing happened), some firmware shapes have extracted_path drilling
+    DEEPER than the climb can recover. Moto-G32 radio.img extracts to a
+    long internal NV/EFS chain::
+
+        radio.img_extract/...extfs_extract/...img.gz_extract/.../
+            gzip.uncompressed_extract/efs_item_files/nv/item_files/rfnv
+
+    Four non-``_extract`` dirs (``efs_item_files/nv/item_files/rfnv``) sit
+    between the ``gzip.uncompressed_extract`` ancestor and the climb's
+    starting point, blocking the climb. As a fallback, walk the path
+    string from the per-firmware ``extracted/`` marker downward and
+    return the path up to and including the FIRST ``_extract`` segment.
+    For the Moto shape that surfaces ``Moto-G32-XT2235-1.zip_extract`` —
+    the per-archive unblob top — letting the deep walk find every sibling
+    blob (BTFM.bin, dspso.bin, radio.img, super.img sparsechunks, etc.).
     """
     if not root or not os.path.isdir(root):
         return root
     cur = root.rstrip("/") or root
+    climbed_any = False
     for _ in range(12):
         parent = os.path.dirname(cur)
         if not parent or parent == cur:
-            return cur
+            break
         if not os.path.isdir(parent):
-            return cur
+            break
         parent_name = os.path.basename(parent.rstrip("/"))
         cur_name = os.path.basename(cur.rstrip("/"))
         # Hit the storage-root marker — stop, cur is the per-firmware container.
@@ -438,8 +457,30 @@ def _find_unblob_extraction_top(root: str) -> str:
         # Climb through _extract-chained dirs.
         if cur_name.endswith("_extract") or parent_name.endswith("_extract"):
             cur = parent
+            climbed_any = True
             continue
+        break
+
+    if climbed_any:
         return cur
+
+    # Path-string fallback — the climb couldn't traverse non-``_extract``
+    # dirs blocking the route to the outermost ``_extract`` ancestor.
+    # Walk path components from the per-firmware extraction marker down to
+    # find the FIRST ``_extract`` segment after it.
+    norm = root.rstrip("/")
+    parts = norm.split(os.sep)
+    extracted_idx = -1
+    for i, p in enumerate(parts):
+        if p in {"extracted", "Extracted", "extraction"}:
+            extracted_idx = i  # take the LAST marker (innermost) for nested re-extractions
+    if extracted_idx >= 0 and extracted_idx + 1 < len(parts):
+        for i in range(extracted_idx + 1, len(parts)):
+            if parts[i].endswith("_extract"):
+                outer = os.sep.join(parts[:i + 1])
+                if os.path.isdir(outer):
+                    return outer
+                break
     return cur
 
 

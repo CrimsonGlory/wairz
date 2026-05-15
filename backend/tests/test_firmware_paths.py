@@ -960,6 +960,53 @@ def test_find_unblob_extraction_top_no_climb_when_not_nested(tmp_path: Path):
     assert os.path.realpath(top) == os.path.realpath(plain)
 
 
+def test_find_unblob_extraction_top_path_string_fallback_for_deep_non_extract_subtree(
+    tmp_path: Path,
+):
+    """Regression backstop for the DS1 Moto-G32 case (2026-05-14): when
+    ``extracted_path`` lands inside a deep non-``_extract`` subtree (4+
+    dirs of vendor-specific config / NV / EFS chains), the climbing
+    approach can't reach the outermost ``_extract`` ancestor. The
+    path-string fallback should find ``Moto-G32-XT2235-1.zip_extract``
+    by scanning the path components from the ``extracted/`` marker
+    downward.
+    """
+    from app.services.firmware_paths import _find_unblob_extraction_top
+    # Mirror the real DS1 firmware shape: 4 non-_extract dirs between
+    # the leaf (rfnv) and the outermost ``gzip.uncompressed_extract``
+    # ancestor that's inside an unblob _extract chain.
+    leaf = (
+        tmp_path / "extracted" / "Moto-G32-XT2235-1.zip_extract"
+        / "radio.img_extract" / "77243904-95270400.extfs_extract"
+        / "devondvt1_apem.img.gz_extract" / "fsg.img_extract"
+        / "680-77945.gzip_extract" / "gzip.uncompressed_extract"
+        / "efs_item_files" / "nv" / "item_files" / "rfnv"
+    )
+    leaf.mkdir(parents=True)
+    # Drop a sentinel file so the leaf isn't empty; rfnv has 458 .bin files in prod.
+    (leaf / "0001.bin").write_bytes(b"\x00" * 16)
+
+    top = _find_unblob_extraction_top(str(leaf))
+    expected = tmp_path / "extracted" / "Moto-G32-XT2235-1.zip_extract"
+    assert os.path.realpath(top) == os.path.realpath(expected), (
+        f"Expected path-string fallback to resolve outermost _extract = {expected!s}; "
+        f"got {top!s}"
+    )
+
+
+def test_find_unblob_extraction_top_path_string_fallback_no_extracted_marker(
+    tmp_path: Path,
+):
+    """Path-string fallback must not invent an _extract ancestor when none
+    exists. If the path has no ``extracted/`` marker AND no ``_extract``
+    segments at all, the function returns ``root`` unchanged."""
+    from app.services.firmware_paths import _find_unblob_extraction_top
+    leaf = tmp_path / "some" / "random" / "path" / "with" / "no" / "marker"
+    leaf.mkdir(parents=True)
+    top = _find_unblob_extraction_top(str(leaf))
+    assert os.path.realpath(top) == os.path.realpath(leaf)
+
+
 def test_walk_for_additional_roots_respects_max_dirs_cap(tmp_path: Path):
     """Pathological deep trees must not blow up the walk — the max_dirs
     cap should kick in and return whatever was found so far."""
