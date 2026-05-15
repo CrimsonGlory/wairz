@@ -285,6 +285,18 @@ def _match_curated(
     (e.g. ``"^(audio|dsp|modem)$"`` for chipset-wide subsystem advisories)
     without duplicating the family. When present, takes precedence over
     the exact ``category`` field; otherwise the exact-match path runs.
+
+    Optional ``vendor_regex`` lets one entry span MULTIPLE vendors. When
+    present, takes precedence over the exact ``vendor`` field; otherwise
+    the exact-match path runs. Added 2026-05-16 after the BTFM correction
+    + spec-level BT-advisory authoring (KNOB/BLUFFS/BIAS/BLURtooth) made
+    it clear that ``vendor: unknown`` is a poor shape — those attacks
+    apply to ANY Bluetooth firmware vendor (Qualcomm, Broadcom, Cypress,
+    MediaTek, Realtek, Samsung). Using ``vendor_regex: "."`` matches
+    every populated vendor, OR ``vendor_regex: "^(qualcomm|broadcom|
+    cypress|mediatek)$"`` scopes to the known-spec-implementing set.
+    Per Reviewer C (2026-05-16): keep ``vendor`` AND ``vendor_regex``
+    as alternatives, not both — YAML clarity + author-intent precision.
     """
     matches: list[CveMatch] = []
     blob_vendor = (blob.vendor or "").lower()
@@ -294,7 +306,17 @@ def _match_curated(
     metadata_values = _stringify_metadata(_normalize_hardware_firmware_blobs_metadata(blob.metadata_))
 
     for fam in families:
-        if fam.get("vendor", "").lower() != blob_vendor:
+        # Vendor matching — exact OR vendor_regex (one of them required).
+        vendor_re = fam.get("vendor_regex")
+        if vendor_re:
+            # vendor_regex MUST match SOMETHING — empty / null blob.vendor
+            # is treated as no-match (avoids spec-level BT advisories
+            # accidentally firing on uncategorized blobs).
+            if not blob_vendor:
+                continue
+            if not re.search(vendor_re, blob_vendor, re.IGNORECASE):
+                continue
+        elif fam.get("vendor", "").lower() != blob_vendor:
             continue
 
         # Category matching — exact OR category_regex (one of them required).

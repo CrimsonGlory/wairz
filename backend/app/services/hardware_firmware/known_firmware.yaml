@@ -809,13 +809,23 @@ families:
 
   # ---- Bluetooth specification-level attacks (firmware participates) ----
 
+  # Spec-level BT advisories (KNOB/BLUFFS/BIAS/BLURtooth) apply to ANY
+  # vendor's Bluetooth firmware — the underlying spec flaw is implemented
+  # uniformly across silicon vendors. Using vendor_regex (added 2026-05-16
+  # per BTFM-correction follow-up rec #2) so these fire on QCA Rome,
+  # Broadcom HCD, Cypress, MediaTek, Realtek, Samsung Shannon, AND
+  # vendor=unknown bluetooth blobs alike. Confidence stays "medium"
+  # because per-firmware patch status is rarely externally observable
+  # from the blob — the advisory flags the spec exposure, operators
+  # verify patch level out-of-band.
   - name: Bluetooth KNOB attack (CVE-2019-9506)
     advisory_id: ADVISORY-BT-KNOB
-    vendor: unknown
+    vendor_regex: "."
     category: bluetooth
     cves: []
     severity: high
     cvss_score: 8.1
+    confidence: medium
     notes: |
       Antonioli, Tippenhauer, Rasmussen 2019. BT Core spec (through 5.1)
       permits encryption-key entropy negotiation down to 1 octet. Vendor
@@ -826,24 +836,27 @@ families:
 
   - name: Bluetooth BLUFFS attack (CVE-2023-24023)
     advisory_id: ADVISORY-BT-BLUFFS
-    vendor: unknown
+    vendor_regex: "."
     category: bluetooth
     cves: []
     severity: medium
     cvss_score: 6.8
+    confidence: medium
     notes: |
       Antonioli 2023. Bluetooth Secure Connections session-key derivation
       flaw across spec 4.2-5.4. MITM between paired devices can downgrade
       to weaker session keys (forward/future secrecy break). WCN3990
-      confirmed vulnerable per the original BLUFFS paper.
+      confirmed vulnerable per the original BLUFFS paper. Spec-level
+      flaw — applies to every BT chip implementing 4.2-5.4 SC.
 
   - name: Bluetooth BIAS attack (CVE-2020-10135)
     advisory_id: ADVISORY-BT-BIAS
-    vendor: unknown
+    vendor_regex: "."
     category: bluetooth
     cves: []
     severity: medium
     cvss_score: 6.8
+    confidence: medium
     notes: |
       Antonioli, Tippenhauer, Rasmussen 2020. Pre-paired-device
       impersonation via missing mutual-authentication during BR/EDR
@@ -852,11 +865,12 @@ families:
 
   - name: Bluetooth BLURtooth CTKD attack (CVE-2020-15802)
     advisory_id: ADVISORY-BT-BLUR
-    vendor: unknown
+    vendor_regex: "."
     category: bluetooth
     cves: []
     severity: medium
     cvss_score: 6.5
+    confidence: medium
     notes: |
       Bluetooth SIG 2020. Cross-Transport Key Derivation (CTKD) in BT
       4.2-5.0 permits key overwrite when both BR/EDR and LE coexist.

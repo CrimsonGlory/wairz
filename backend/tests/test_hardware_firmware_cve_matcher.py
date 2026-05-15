@@ -84,11 +84,15 @@ def test_load_known_firmware_has_seeded_entries() -> None:
     # Each family needs the core fields for matching. An entry must have
     # either ``category`` OR ``category_regex`` (the latter introduced
     # 2026-05-15 for cross-category clusters like Achilles spanning
-    # audio + dsp). ``vendor`` is always required. ``cves`` may be
-    # present-and-empty for advisory-only families.
+    # audio + dsp). An entry must have either ``vendor`` OR ``vendor_regex``
+    # (the latter introduced 2026-05-16 for spec-level BT advisories that
+    # span vendors). ``cves`` may be present-and-empty for advisory-only
+    # families.
     for fam in families:
         assert "name" in fam
-        assert "vendor" in fam
+        assert "vendor" in fam or "vendor_regex" in fam, (
+            f"family {fam.get('name')} missing both vendor and vendor_regex"
+        )
         assert "category" in fam or "category_regex" in fam, (
             f"family {fam.get('name')} missing both category and category_regex"
         )
@@ -253,6 +257,95 @@ class TestMatchParserDetected:
         by_blob = {m.blob_id: m.cve_id for m in matches}
         assert by_blob == {blob_a.id: "CVE-2025-A", blob_b.id: "CVE-2025-B"}
 
+    def test_bt_banner_parser_braktooth_pin_projects_into_tier0(self) -> None:
+        """End-to-end Tier 0 contract: when the BT banner parser populates
+        ``metadata.known_vulnerabilities`` for a QCA Rome BTFM blob
+        (BRAKTOOTH cluster), ``_match_parser_detected`` projects every
+        record into a parser_version_pin CveMatch.
+
+        Pins the integration shape between
+        ``app.services.hardware_firmware.parsers.bt_firmware_banner`` and
+        ``_match_parser_detected`` so future refactors of either side
+        can't silently break the pipeline.
+        """
+        # Same dict shape the banner parser writes (see
+        # bt_firmware_banner._maybe_pin_braktooth).
+        braktooth_records = [
+            {
+                "cve_id": "CVE-2021-28139",
+                "severity": "high",
+                "subcomponent": "bluetooth",
+                "confidence": "high",
+                "source": "parser_version_pin",
+                "rationale": (
+                    "BT firmware banner 'BTFM.CMC.1.3.0-00069-QCACHROMZ-1' "
+                    "confirms WCN3950 (QCA Rome family). Per the ASSET "
+                    "BRAKTOOTH disclosure (Garbelini et al. 2021), "
+                    "Qualcomm marked Rome BT patches 'TBA' — in-field "
+                    "BTFM builds remain unpatched."
+                ),
+                "reference": "https://asset-group.github.io/disclosures/braktooth/",
+            },
+            {
+                "cve_id": "CVE-2021-34147",
+                "severity": "medium",
+                "subcomponent": "bluetooth",
+                "confidence": "high",
+                "source": "parser_version_pin",
+                "rationale": "BTFM banner confirms WCN3950 — BRAKTOOTH cluster",
+            },
+            {
+                "cve_id": "CVE-2021-31609",
+                "severity": "medium",
+                "subcomponent": "bluetooth",
+                "confidence": "high",
+                "source": "parser_version_pin",
+                "rationale": "BTFM banner confirms WCN3950 — BRAKTOOTH cluster",
+            },
+            {
+                "cve_id": "CVE-2021-31612",
+                "severity": "medium",
+                "subcomponent": "bluetooth",
+                "confidence": "high",
+                "source": "parser_version_pin",
+                "rationale": "BTFM banner confirms WCN3950 — BRAKTOOTH cluster",
+            },
+        ]
+        blob = _make_blob(
+            vendor="qualcomm",
+            category="bluetooth",
+            version="BTFM.CMC.1.3.0-00069-QCACHROMZ-1",
+            chipset_target="wcn3950",
+            metadata={
+                "bt_fw_banner": {
+                    "family": "qca_rome",
+                    "vendor": "qualcomm",
+                    "codename": "CMC",
+                    "chipset_target": "wcn3950",
+                },
+                "known_vulnerabilities": braktooth_records,
+            },
+        )
+
+        matches = _match_parser_detected([blob])
+
+        # All 4 BRAKTOOTH CVEs surface as parser_version_pin entries.
+        cve_ids = {m.cve_id for m in matches}
+        assert cve_ids == {
+            "CVE-2021-28139",
+            "CVE-2021-34147",
+            "CVE-2021-31609",
+            "CVE-2021-31612",
+        }
+        for m in matches:
+            assert m.blob_id == blob.id
+            assert m.tier == "parser_version_pin"
+            assert m.confidence == "high"
+        # Severity is preserved per-record (28139=high; others=medium).
+        sev_by_cve = {m.cve_id: m.severity for m in matches}
+        assert sev_by_cve["CVE-2021-28139"] == "high"
+        assert sev_by_cve["CVE-2021-34147"] == "medium"
+
     def test_multiple_cves_on_one_blob(self) -> None:
         blob = _make_blob(
             vendor="mediatek",
@@ -412,6 +505,103 @@ class TestMatchCurated:
         )
         matches = _match_curated(blob, self._families())
         assert "CVE-2017-9417" not in {m.cve_id for m in matches}
+
+    # -----------------------------------------------------------------
+    # vendor_regex — spec-level BT advisories (added 2026-05-16)
+    # -----------------------------------------------------------------
+    def test_vendor_regex_matches_qualcomm_bt(self) -> None:
+        """ADVISORY-BT-KNOB has ``vendor_regex: '.'`` so it fires on
+        Qualcomm BT blobs (which were vendor=qualcomm post-BTFM correction)."""
+        blob = _make_blob(
+            vendor="qualcomm",
+            category="bluetooth",
+            version="BTFM.CHE.2.0.0-00082-QCACHROMZ-1",
+            chipset_target="wcn3990",
+        )
+        matches = _match_curated(blob, self._families())
+        advisory_ids = {m.cve_id for m in matches}
+        assert "ADVISORY-BT-KNOB" in advisory_ids
+        assert "ADVISORY-BT-BLUFFS" in advisory_ids
+        assert "ADVISORY-BT-BIAS" in advisory_ids
+        assert "ADVISORY-BT-BLUR" in advisory_ids
+
+    def test_vendor_regex_matches_broadcom_bt(self) -> None:
+        """Spec-level advisories fire on Broadcom BT blobs (BCM43xx HCD)."""
+        blob = _make_blob(
+            vendor="broadcom",
+            category="bluetooth",
+            version=None,
+            chipset_target="bcm43455",
+        )
+        matches = _match_curated(blob, self._families())
+        advisory_ids = {m.cve_id for m in matches}
+        assert "ADVISORY-BT-KNOB" in advisory_ids
+        assert "ADVISORY-BT-BLUFFS" in advisory_ids
+
+    def test_vendor_regex_matches_mediatek_bt(self) -> None:
+        """Spec-level advisories fire on MediaTek BT blobs (MT79xx/MT66xx)."""
+        blob = _make_blob(
+            vendor="mediatek",
+            category="bluetooth",
+            version=None,
+            chipset_target="mt7961",
+        )
+        matches = _match_curated(blob, self._families())
+        advisory_ids = {m.cve_id for m in matches}
+        assert "ADVISORY-BT-KNOB" in advisory_ids
+
+    def test_vendor_regex_skips_non_bt_blobs(self) -> None:
+        """Spec-level BT advisories MUST NOT fire on non-bluetooth blobs."""
+        blob = _make_blob(
+            vendor="qualcomm",
+            category="wifi",  # WLAN, not BT
+            version="some.wlan.firmware",
+            chipset_target="wcn3990",
+        )
+        matches = _match_curated(blob, self._families())
+        advisory_ids = {m.cve_id for m in matches}
+        # Category gate stops the BT advisories from firing on wifi.
+        assert "ADVISORY-BT-KNOB" not in advisory_ids
+        assert "ADVISORY-BT-BLUFFS" not in advisory_ids
+
+    def test_vendor_regex_rejects_empty_vendor(self) -> None:
+        """vendor_regex with empty/None blob.vendor → no match (defensive).
+
+        Without this guard, a regex like ``"."`` would match an empty
+        string vacuously and fire on every uncategorized blob.
+        """
+        blob = _make_blob(vendor=None, category="bluetooth")
+        matches = _match_curated(blob, self._families())
+        # Even though vendor_regex="." would technically match "" with some
+        # regex engines, the guard explicitly rejects empty vendor.
+        advisory_ids = {m.cve_id for m in matches}
+        assert "ADVISORY-BT-KNOB" not in advisory_ids
+
+    def test_vendor_regex_scoped_alternation(self) -> None:
+        """A scoped vendor_regex (e.g. (qualcomm|broadcom)) matches both
+        listed vendors but not others — sanity check on the alternation."""
+        # Inline test family that the actual YAML doesn't use yet — we
+        # verify the matcher behaviour, not the YAML content.
+        test_families = [
+            {
+                "name": "Test scoped BT advisory",
+                "advisory_id": "TEST-BT-SCOPED",
+                "vendor_regex": "^(qualcomm|broadcom)$",
+                "category": "bluetooth",
+                "cves": [],
+                "severity": "medium",
+                "notes": "Test family — scoped vendor_regex",
+            }
+        ]
+        for vendor in ("qualcomm", "broadcom"):
+            blob = _make_blob(vendor=vendor, category="bluetooth")
+            matches = _match_curated(blob, test_families)
+            assert any(m.cve_id == "TEST-BT-SCOPED" for m in matches), \
+                f"vendor={vendor!r} should match the scoped regex"
+        # vendor=mediatek doesn't match the scope
+        blob_mtk = _make_blob(vendor="mediatek", category="bluetooth")
+        matches = _match_curated(blob_mtk, test_families)
+        assert not any(m.cve_id == "TEST-BT-SCOPED" for m in matches)
 
 
 # ---------------------------------------------------------------------------
