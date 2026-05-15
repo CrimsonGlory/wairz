@@ -177,7 +177,8 @@ time per Rule #41 cancel-in-progress cadence).
 | Reviewer wall-clock | ~5 minutes total (parallel) |
 | Hook errors in telemetry today | 12 (6 git-push consent-blocks + 6 gh-issue-close blocks; 3 of each from this session) |
 | CI status, intermediate boundary `3ef7d06` | Backend Tests + Lint + CodeQL all green |
-| CI status, post-Phase-C boundary `c1fabf9` | Lint green; Backend Tests + CodeQL in-flight at writeup |
+| CI status, post-Phase-C boundary `c1fabf9` | Lint + CodeQL green; Backend Tests cancelled by `b63cb8b` push (Rule #41 concurrency-cancel — expected) |
+| CI status, final HEAD `b63cb8b` (postmortem + harness rule) | Backend Tests + Lint + CodeQL **all green** |
 
 ---HANDOFF---
 - Postmortem: rule-44-cross-firmware-backfill-plus-deep-review-2026-05-14
