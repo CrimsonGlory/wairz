@@ -615,7 +615,15 @@ def _recover_sparsechunk_extracts(
     import asyncio as _asyncio
 
     _MAX_CHUNKS = 16
-    _MAX_RAW_BYTES = 10 * 1024 * 1024 * 1024  # 10 GB per chunk
+    # 20 GB cap accommodates Moto-G30's 10.3 GB sparsechunk raw images
+    # (Snapdragon 480 / SM4350 — slightly larger super.img than G32's
+    # SM6225) while still defending against extraction-bomb firmware.
+    # Initial 10 GB cap was tuned to G32 and rejected G30 — the
+    # adaptability point the user flagged: don't hard-code values that
+    # only fit one device. Future devices with even larger super.img
+    # can extend per-deploy via env var (TODO: WAIRZ_RECOVERY_MAX_GB)
+    # without code change.
+    _MAX_RAW_BYTES = 20 * 1024 * 1024 * 1024  # 20 GB per chunk
     _SPARSE_PATTERN = re.compile(r"^(.+)_sparsechunk\.(\d+)_extract$")
 
     candidates: list[tuple[int, str, str]] = []
