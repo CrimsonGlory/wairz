@@ -1,0 +1,168 @@
+# Banner-pin → CVE rules. Each pin fires when ALL match conditions
+# evaluate true against a parsed BT firmware banner record; produces
+# one Finding per CVE in the pin's `cves:` list, with rationale text
+# templated against record fields.
+#
+# Externalized 2026-05-17 — Reviewer C H2 from postmortem-bt-banner-
+# parser-session-2026-05-16.md. Replaces the hardcoded `_maybe_pin_
+# braktooth` function in parsers/bt_firmware_banner.py with a generic
+# rule engine that operators can extend WITHOUT Python changes.
+#
+# Loaded by patterns_loader._load_banner_cve_pins() (@lru_cache);
+# consumed by parsers/bt_firmware_banner.py via `get_banner_cve_pins()`.
+# Graceful-degrade (Rule #34): on missing or malformed YAML the loader
+# logs a WARNING and returns the in-tree _BANNER_CVE_PIN_DEFAULTS (the
+# BrakTooth pin) so detection keeps working without operator intervention.
+#
+# Schema:
+#
+#   pins:
+#     - id:          kebab-case stable identifier; logged + tracked in
+#                    rationale traceback so operators can audit emitted
+#                    findings back to the pin rule. REQUIRED.
+#       description: human-readable summary of what this pin matches.
+#                    REQUIRED.
+#
+#       # ---- Match conditions ----
+#       # ALL conditions must evaluate true for the pin to fire. Omitting
+#       # a condition means "don't gate on it". At least ONE condition
+#       # is required (a pin with NO gates would fire on every BT blob).
+#       family:            qca_rome | broadcom_hcd | mediatek_bt
+#       codename_in:       [QCA 3-letter codenames]   # qca_rome only
+#       chipset_target_in: [list of chipset names]     # all families
+#       banner_match:      Python regex (re.IGNORECASE) against record.banner
+#       build_date_before: YYYY-MM-DD; record.build_date must parse as
+#                          "MMM DD YYYY" AND be strictly before this date.
+#                          (Broadcom HCD primarily — uses the BRCMcfg block
+#                          date stamp.)
+#       build_id_lt:       integer; record.build_id (string, possibly
+#                          "00069" or "00069.1") must coerce-to-int AND be
+#                          strictly less than this value. (qca_rome /
+#                          mediatek_bt — banner build_id field.)
+#
+#       # ---- CVE list ----
+#       # Each entry generates one ParsedBlob.metadata.known_vulnerabilities
+#       # row when the parent pin fires.
+#       cves:
+#         - id:         CVE-YYYY-NNNNN  (REQUIRED; case-sensitive ID)
+#           severity:   critical | high | medium | low | info  (REQUIRED)
+#           subcomponent: free-text component name (default: "bluetooth")
+#           confidence: high | medium | low  (default: "high")
+#           rationale:  multi-line text; templated with str.format against
+#                       {banner}, {chipset}, {chipset_upper}, {codename},
+#                       {build_id}, {build_date} from the record.
+#                       REQUIRED.
+#           reference:  URL to disclosure / NVD entry. RECOMMENDED — strong
+#                       audit trail for the per-CVE attribution.
+#
+# ----------------------------------------------------------------------
+# CRITICAL — Reviewer B 2026-05-16 discipline applies to every pin here:
+# ----------------------------------------------------------------------
+# Every CVE entry MUST cite an NVD URL in the `reference:` field. Before
+# adding a CVE pin to this file, INDEPENDENTLY verify that the NVD CPE
+# list for that CVE contains each chipset in `chipset_target_in:`. The
+# antipattern this file was created to make rarer is "disclosure-batch
+# attribution" — extrapolating from "all CVEs in disclosure X apply to
+# all devices in disclosure X" rather than checking each CVE individually.
+# CVE-2021-28139 (BrakTooth RCE CVSS 8.8) is the canonical example: it
+# appears in the BrakTooth disclosure batch but its NVD CPE list contains
+# only Espressif ESP-IDF / ESP32 — pinning it on QCA Rome would have
+# shipped ~18 false-positive RCE rows per Qualcomm-Rome firmware.
+#
+# Family extrapolation is NOT a substitute for per-CVE NVD-CPE check
+# either. CVE-2023-28581 was previously authored with chipset_regex
+# matching WCN3xx0 family because the QSB notes mentioned "WCN family";
+# the actual NVD CPE list is FastConnect 6800/6900/7800 + QCA6391/6426/
+# 6436 + Snapdragon 865/870/8 Gen 1 + ... — NOT WCN3950 or WCN3990.
+
+pins:
+  # ---- Qualcomm BrakTooth Rome DoS subset (Tier 0 — banner-confirmed) ----
+  - id: qualcomm-braktooth-qca-rome-dos-cluster
+    description: ASSET BrakTooth Qualcomm DoS subset (LMP_timing_accuracy + 2 × oversized-packet DoS)
+    family: qca_rome
+    chipset_target_in: [wcn3950, wcn3990, wcn3991, wcn3998]
+    cves:
+      - id: CVE-2021-34147
+        severity: medium
+        subcomponent: bluetooth
+        confidence: high
+        rationale: |
+          BT firmware banner '{banner}' confirms {chipset_upper} (QCA Rome
+          family). Per the ASSET BrakTooth disclosure (Garbelini et al.
+          2021), Qualcomm marked Rome BT patches 'TBA' in the 2021 PSIRT
+          response — in-field BTFM builds remain unpatched against the
+          LMP_timing_accuracy DoS.
+        reference: https://asset-group.github.io/disclosures/braktooth/
+      - id: CVE-2021-31609
+        severity: medium
+        subcomponent: bluetooth
+        confidence: high
+        rationale: |
+          BT firmware banner '{banner}' confirms {chipset_upper} (QCA Rome
+          family). Oversized-packet DoS per ASSET BrakTooth disclosure
+          (Garbelini et al. 2021); Qualcomm rated patch status TBA in the
+          2021 PSIRT response.
+        reference: https://asset-group.github.io/disclosures/braktooth/
+      - id: CVE-2021-31612
+        severity: medium
+        subcomponent: bluetooth
+        confidence: high
+        rationale: |
+          BT firmware banner '{banner}' confirms {chipset_upper} (QCA Rome
+          family). Oversized-packet DoS per ASSET BrakTooth disclosure
+          (Garbelini et al. 2021); Qualcomm rated patch status TBA in the
+          2021 PSIRT response.
+        reference: https://asset-group.github.io/disclosures/braktooth/
+
+  # ----------------------------------------------------------------------
+  # Worked examples — disabled by default. Uncomment ONLY after verifying
+  # the per-CVE NVD CPE list contains the chipset(s) in chipset_target_in
+  # for YOUR reference firmware. The match-condition shapes below
+  # demonstrate every gate the loader supports — copy + adapt as needed.
+  # ----------------------------------------------------------------------
+
+  # # ---- Broadcom BCM43xx pre-Sep-2017 (Armis BlueBorne family) ----
+  # # PREREQ before uncomment: confirm each CVE-2017-NNNN below has an NVD
+  # # CPE entry for the specific BCM43xx model (Armis's paper centered on
+  # # the Bluedroid Android HOST stack; firmware-side reach depends on
+  # # L2CAP fragmentation handling in the specific BCM model). Confidence
+  # # is set to "medium" because the firmware-side attribution is fuzzier
+  # # than the host-stack one.
+  # - id: broadcom-blueborne-bt-stack-bcm43xx-pre-sep-2017
+  #   description: Armis BlueBorne (BCM43xx pre-Sep-2017 BT firmware HCI-stack reach)
+  #   family: broadcom_hcd
+  #   chipset_target_in: [bcm4339, bcm4340, bcm4345, bcm4347, bcm4356, bcm4358]
+  #   build_date_before: 2017-09-12
+  #   cves:
+  #     - id: CVE-2017-0781
+  #       severity: critical
+  #       subcomponent: bluetooth
+  #       confidence: medium
+  #       rationale: |
+  #         BT firmware banner '{banner}' built {build_date} predates
+  #         the Sep 2017 BlueBorne patch wave for {chipset_upper}. CVE
+  #         primary attribution is the Bluedroid host stack (see Armis
+  #         BlueBorne paper); firmware-side reach surfaces via L2CAP
+  #         fragmentation handling — confidence reflects that fuzziness.
+  #       reference: https://nvd.nist.gov/vuln/detail/CVE-2017-0781
+
+  # # ---- MediaTek MT7663 OOB-write (CVE-2024-20017) ----
+  # # PREREQ before uncomment: confirm the build_id_lt: threshold from
+  # # the MediaTek 2024-03 Product Security Bulletin for YOUR firmware
+  # # supply chain. Different OEMs' patched-build cutoffs differ.
+  # - id: mediatek-mt7663-bt-oob-write-2024-20017
+  #   description: MediaTek MT76xx WiFi/BT shared driver OOB-write on MT7663-shipping BT firmware
+  #   family: mediatek_bt
+  #   chipset_target_in: [mt7663]
+  #   build_id_lt: 0       # ← REPLACE with the OEM-specific patched build cutoff
+  #   cves:
+  #     - id: CVE-2024-20017
+  #       severity: critical
+  #       subcomponent: bluetooth
+  #       confidence: high
+  #       rationale: |
+  #         BT firmware identified as {chipset_upper} build_id {build_id}.
+  #         CVE-2024-20017 is an out-of-bounds write in MediaTek's BT/WiFi
+  #         shared driver path; affects MT7622 / MT7615 / MT7663 per the
+  #         MediaTek 2024-03 Product Security Bulletin.
+  #       reference: https://corp.mediatek.com/product-security-bulletin/March-2024

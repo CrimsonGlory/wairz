@@ -378,23 +378,23 @@ def test_parser_consumes_new_codename_via_yaml(
     assert fb["chipset_source"] == "codename_map"
 
 
-def test_parser_skips_braktooth_pin_when_chipset_excluded_via_yaml(
+def test_braktooth_chipsets_accessor_is_informational_post_h2(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """When the operator removes a chipset from braktooth_chipsets in YAML,
-    the parser no longer pins the BrakTooth DoS cluster on that chipset.
+    """After H2 shipped, the H1 ``braktooth_chipsets`` field documents the
+    chipset scope for human cross-referencing but DOES NOT gate the
+    Tier 0 BrakTooth pin — H2's ``bt_banner_cve_pins.yaml`` owns the
+    runtime gate via ``chipset_target_in``.
 
-    Live demonstration that the safety scope is operator-configurable —
-    crucial for the BrakTooth-RCE-on-ESP32 fault class (operators who
-    discover a new disclosure-batch CPE mismatch fix the YAML and the
-    Tier 0 pin stops firing on rebuild)."""
+    The H1 accessor still exposes the field (callers may still query it
+    for non-pin uses like SBOM tagging); equivalent runtime-behavior
+    coverage lives in ``test_bt_banner_cve_pins_loader.py``.
+    """
     yaml_content = textwrap.dedent("""\
         codenames:
           - codename: CMC
             chipset: wcn3950
-            display: Comanche
-            families: [Rome]
-        braktooth_chipsets: []   # explicitly empty — no Tier 0 pins
+        braktooth_chipsets: []
         mtk_known_chips: []
     """)
     yaml_path = tmp_path / "bt_qca_codenames.yaml"
@@ -402,17 +402,5 @@ def test_parser_skips_braktooth_pin_when_chipset_excluded_via_yaml(
     monkeypatch.setattr(PL, "_BT_QCA_CODENAMES_YAML", yaml_path)
     PL._load_bt_qca_codenames.cache_clear()
 
-    banner = "BTFM.CMC.1.3.0-00069-QCACHROMZ-1"
-    fixture = _make_qca_tlv(banner)
-    fpath = tmp_path / "cmbtfw13.tlv"
-    fpath.write_bytes(fixture)
-
-    parser = get_parser("bt_fw_banner")
-    assert parser is not None
-    result = parser.parse(str(fpath), fixture[:64], len(fixture))
-
-    # Vendor + version still pinned by content.
-    assert result.vendor == "qualcomm"
-    assert result.chipset_target == "wcn3950"
-    # But no Tier 0 BRAKTOOTH pin because the YAML scope was empty.
-    assert "known_vulnerabilities" not in result.metadata
+    # The accessor honours the YAML override (informational; not load-bearing).
+    assert PL.get_braktooth_chipsets() == frozenset()

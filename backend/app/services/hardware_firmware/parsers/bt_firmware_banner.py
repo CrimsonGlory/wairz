@@ -94,11 +94,13 @@ from __future__ import annotations
 import logging
 import os
 import re
+from datetime import datetime
 from typing import Any
 
 from app.services.hardware_firmware.parsers.base import ParsedBlob, register_parser
 from app.services.hardware_firmware.patterns_loader import (
-    get_braktooth_chipsets,
+    BannerCvePin,
+    get_banner_cve_pins,
     get_mtk_chips,
     get_qca_codename_display,
     get_qca_codename_map,
@@ -158,25 +160,24 @@ _QCA_PATCH_RELEASE_RE = re.compile(
 )
 
 # Codename → canonical chipset target + codename → display name + BrakTooth
-# chipset scope are now externalized to ``data/bt_qca_codenames.yaml``
-# (loaded once via ``patterns_loader._load_bt_qca_codenames``; graceful-
-# degrade fallback to in-tree ``_BT_CODENAME_DEFAULTS`` if YAML is
-# missing or malformed — see Rule #34 in CLAUDE.md). The parser reads
-# via the accessors ``get_qca_codename_map`` / ``get_qca_codename_display``
-# / ``get_braktooth_chipsets`` / ``get_mtk_chips`` — operator-supplied
-# YAML additions surface immediately without Python changes.
+# chipset scope are externalized to ``data/bt_qca_codenames.yaml``
+# (graceful-degrade fallback to in-tree ``_BT_CODENAME_DEFAULTS`` if YAML
+# is missing or malformed — see Rule #34 in CLAUDE.md). The parser reads
+# via accessors ``get_qca_codename_map`` / ``get_qca_codename_display``
+# / ``get_mtk_chips`` — operator-supplied YAML additions surface
+# immediately without Python changes.
 #
-# CRITICAL: CVE-2021-28139 (BrakTooth RCE CVSS 8.8) remains hardcoded
-# OUT of ``_BRAKTOOTH_CVES`` below. The CVE is ESP32-only per NVD's CPE
-# list (Reviewer B 2026-05-16); fresh false-positive attribution would
-# replicate yesterday's BTFM→Broadcom misattribution class. The chipset
-# scope is operator-extensible via YAML; the CVE-list is NOT —
-# additions belong in the H2 banner-pin CVE YAML (queued).
-_BRAKTOOTH_CVES: tuple[tuple[str, str], ...] = (
-    ("CVE-2021-34147", "medium"),   # LMP_timing_accuracy DoS
-    ("CVE-2021-31609", "medium"),   # Oversized-packet DoS
-    ("CVE-2021-31612", "medium"),   # Oversized-packet DoS
-)
+# Banner-pin → CVE rules are externalized to ``data/bt_banner_cve_pins.yaml``
+# (loaded via ``patterns_loader._load_banner_cve_pins``; the H2 engine
+# below walks the rule list, applies match conditions, and emits CVEs).
+# The shipping YAML's first pin reproduces the BRAKTOOTH Tier 0 pin that
+# was previously hardcoded as ``_maybe_pin_braktooth`` (deleted; in-tree
+# ``_BANNER_CVE_PIN_DEFAULTS`` in patterns_loader carries the same data
+# as the YAML's first pin so detection keeps working under YAML loss).
+#
+# CRITICAL invariant: CVE-2021-28139 (BrakTooth RCE CVSS 8.8) is ESP32-only
+# per NVD's CPE list (Reviewer B 2026-05-16) — it is NOT in the shipped
+# YAML and MUST NOT be added to any qca_rome-family pin.
 
 # Broadcom HCI vendor-specific opcodes (little-endian 16-bit on disk).
 # OGF=0x3F → high byte = 0xFC.
@@ -666,48 +667,139 @@ def _parse_mediatek_bt(data: bytes, filename: str) -> dict[str, Any] | None:
     return rec
 
 
-def _maybe_pin_braktooth(record: dict[str, Any]) -> list[dict[str, Any]]:
-    """Tier 0 BRAKTOOTH DoS pin for QCA Rome WCN3xx0 banners.
+def _coerce_build_id(raw: Any) -> int | None:
+    """Coerce a record.build_id value to int for build_id_lt comparison.
 
-    Per the ASSET Group BrakTooth disclosure (Garbelini et al. 2021),
-    Qualcomm marked Rome BT patches "TBA" in the 2021 PSIRT response
-    and the in-field BTFM builds remain unpatched. When the banner
-    confirms a Rome chipset (WCN3950 / WCN3990 / WCN3991 / WCN3998),
-    the device participates in the BrakTooth Qualcomm-DoS subset
-    (CVE-2021-34147 LMP_timing_accuracy + CVE-2021-31609/31612
-    oversized-packet DoS). Tier 0 fires with confidence="high" because
-    the banner is direct evidence of the vulnerable chipset (not just
-    a vendor+category match).
-
-    Reviewer B 2026-05-16 evidence: CVE-2021-28139 (RCE CVSS 8.8) is
-    NOT included here — NVD's CPE list for that CVE contains only
-    Espressif ESP-IDF / ESP32 hardware. Including it would have shipped
-    a fresh false-positive class on every QCA-Rome device.
+    The QCA banner regex captures ``build_id`` as ``\\d+(?:\\.\\d+)?`` so
+    the string may be ``"00069"`` or ``"00076.1"`` (CI build with dotted
+    micro). We compare on the integer head only; non-integer inputs return
+    ``None`` so the gate fails closed (won't pin under uncertainty).
     """
-    chipset = (record.get("chipset_target") or "").lower()
-    if record.get("family") != "qca_rome":
-        return []
-    if chipset not in get_braktooth_chipsets():
-        return []
-    banner = record.get("banner", "")
+    if raw is None:
+        return None
+    try:
+        return int(str(raw).split(".", 1)[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_build_date(raw: Any) -> "datetime | None":
+    """Parse a BCM HCD-style build date ('Sep 12 2017') to a datetime.
+
+    Returns ``None`` on any failure so the build_date_before gate fails
+    closed under uncertainty (won't pin a CVE we can't date-bound).
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        return datetime.strptime(raw.strip(), "%b %d %Y")
+    except ValueError:
+        return None
+
+
+def _pin_matches(pin: BannerCvePin, record: dict[str, Any]) -> bool:
+    """Evaluate a single banner-pin rule's match conditions against a record.
+
+    All present conditions must evaluate true (logical AND). A condition
+    set to ``None`` on the pin means "don't gate on this dimension".
+    """
+    # Family gate (cheapest — common rejection).
+    if pin.family is not None and record.get("family") != pin.family:
+        return False
+    # Codename gate (qca_rome only — record['codename'] is the 3-letter tag).
+    if pin.codename_in is not None:
+        cn = (record.get("codename") or "").upper()
+        if cn not in pin.codename_in:
+            return False
+    # Chipset gate.
+    if pin.chipset_target_in is not None:
+        chipset = (record.get("chipset_target") or "").lower()
+        if chipset not in pin.chipset_target_in:
+            return False
+    # Banner regex gate.
+    if pin.banner_re is not None:
+        banner = record.get("banner") or ""
+        if not pin.banner_re.search(banner):
+            return False
+    # Build date gate (broadcom_hcd uses record['build_date'] format
+    # "Sep 12 2017"). Fails closed: missing or unparseable date → no pin.
+    if pin.build_date_before is not None:
+        parsed = _parse_build_date(record.get("build_date"))
+        if parsed is None:
+            return False
+        if not parsed.date() < pin.build_date_before:
+            return False
+    # Build ID gate (qca_rome / mediatek). Fails closed on non-int.
+    if pin.build_id_lt is not None:
+        n = _coerce_build_id(record.get("build_id"))
+        if n is None:
+            return False
+        if not n < pin.build_id_lt:
+            return False
+    return True
+
+
+def _format_rationale(template: str, pin_id: str, record: dict[str, Any]) -> str:
+    """Render the rationale template with record-derived placeholders.
+
+    Falls back to the raw template if a placeholder is missing — a future
+    YAML using a new ``{x}`` we don't supply WARNs but still emits the
+    finding so the operator notices the template gap without losing the
+    pin.
+    """
+    chipset = str(record.get("chipset_target") or "unknown")
+    template_vars = {
+        "banner": str(record.get("banner") or ""),
+        "chipset": chipset,
+        "chipset_upper": chipset.upper(),
+        "codename": str(record.get("codename") or ""),
+        "build_id": str(record.get("build_id") or ""),
+        "build_date": str(record.get("build_date") or ""),
+    }
+    try:
+        return template.format(**template_vars).strip()
+    except (KeyError, IndexError) as exc:
+        logger.warning(
+            "BT banner-pin %s: rationale template placeholder error (%s); "
+            "emitting raw template",
+            pin_id,
+            exc,
+        )
+        return template.strip()
+
+
+def _pin_from_yaml_rules(record: dict[str, Any]) -> list[dict[str, Any]]:
+    """Apply the YAML banner-pin → CVE engine to a parsed record.
+
+    Walks every loaded :class:`patterns_loader.BannerCvePin`; for each pin
+    whose match conditions all evaluate true, emits one finding per CVE in
+    the pin's ``cves`` list. Returns the aggregate across all matching
+    pins (multiple pins CAN fire on the same record — operators add narrow
+    pins above generic ones; the engine does not deduplicate).
+    """
     out: list[dict[str, Any]] = []
-    for cve_id, severity in _BRAKTOOTH_CVES:
-        out.append({
-            "cve_id": cve_id,
-            "severity": severity,
-            "subcomponent": "bluetooth",
-            "confidence": "high",
-            "source": "parser_version_pin",
-            "rationale": (
-                f"BT firmware banner {banner!r} confirms {chipset.upper()} "
-                f"(QCA Rome family). Per the ASSET BrakTooth disclosure "
-                f"(Garbelini et al. 2021), Qualcomm marked Rome BT patches "
-                f"'TBA' — in-field BTFM builds remain unpatched against "
-                f"the LMP-handling DoS subset."
-            ),
-            "reference": "https://asset-group.github.io/disclosures/braktooth/",
-        })
+    for pin in get_banner_cve_pins():
+        if not _pin_matches(pin, record):
+            continue
+        for cve in pin.cves:
+            out.append({
+                "cve_id": cve.cve_id,
+                "severity": cve.severity,
+                "subcomponent": cve.subcomponent,
+                "confidence": cve.confidence,
+                "source": "parser_version_pin",
+                "rationale": _format_rationale(cve.rationale, pin.pin_id, record),
+                "reference": cve.reference,
+                "pin_id": pin.pin_id,
+            })
     return out
+
+
+def _emit_pins(record: dict[str, Any], meta: dict[str, Any]) -> None:
+    """Run the banner-pin engine + stamp results into the parser metadata."""
+    pins = _pin_from_yaml_rules(record)
+    if pins:
+        meta["known_vulnerabilities"] = pins
 
 
 class BtFirmwareBannerParser:
@@ -748,15 +840,11 @@ class BtFirmwareBannerParser:
             qca = _parse_qca_banner(qca_scan, filename=path)
             if qca:
                 meta["bt_fw_banner"] = qca
-                version = qca.get("banner")
-                chipset = qca.get("chipset_target")
-                known = _maybe_pin_braktooth(qca)
-                if known:
-                    meta["known_vulnerabilities"] = known
+                _emit_pins(qca, meta)
                 return ParsedBlob(
-                    version=version,
+                    version=qca.get("banner"),
                     signed=qca.get("signed"),
-                    chipset_target=chipset,
+                    chipset_target=qca.get("chipset_target"),
                     vendor=qca.get("vendor"),
                     metadata=meta,
                 )
@@ -768,6 +856,7 @@ class BtFirmwareBannerParser:
             mtk = _parse_mediatek_bt(head, path)
             if mtk:
                 meta["bt_fw_banner"] = mtk
+                _emit_pins(mtk, meta)
                 return ParsedBlob(
                     version=mtk.get("banner"),
                     chipset_target=mtk.get("chipset_target"),
@@ -790,6 +879,7 @@ class BtFirmwareBannerParser:
             bcm = _parse_broadcom_hcd(head, full_data, size)
             if bcm:
                 meta["bt_fw_banner"] = bcm
+                _emit_pins(bcm, meta)
                 return ParsedBlob(
                     version=bcm.get("banner"),
                     signed="unsigned",  # BCM/CYW HCDs are unsigned HCI streams

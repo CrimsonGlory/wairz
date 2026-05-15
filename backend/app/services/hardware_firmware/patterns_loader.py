@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 
@@ -31,6 +32,15 @@ _DATA_DIR = Path(__file__).parent / "data"
 _VENDOR_YAML = _DATA_DIR / "vendor_prefixes.yaml"
 _PATTERNS_YAML = _DATA_DIR / "firmware_patterns.yaml"
 _BT_QCA_CODENAMES_YAML = _DATA_DIR / "bt_qca_codenames.yaml"
+_BT_BANNER_CVE_PINS_YAML = _DATA_DIR / "bt_banner_cve_pins.yaml"
+
+# Recognised BT banner parser families. Used by the H2 banner-pin loader
+# to validate that `family:` entries reference a real parser verdict.
+# Sourced from parsers/bt_firmware_banner.py — keep in sync if a new
+# family is added there.
+_BT_PARSER_FAMILIES: frozenset[str] = frozenset(
+    {"qca_rome", "broadcom_hcd", "mediatek_bt"}
+)
 
 # Canonical vendor prefixes Wairz ships with — classifier.py reads this set
 # (via the legacy ``VENDORS`` import) to gate downstream normalization.  The
@@ -689,12 +699,364 @@ def get_mtk_chips() -> tuple[bytes, ...]:
     return _load_bt_qca_codenames().mtk_known_chips
 
 
+# ---------------------------------------------------------------------------
+# Banner-pin → CVE rules (bt_banner_cve_pins.yaml) — externalized 2026-05-17.
+#
+# Replaces the hardcoded ``_maybe_pin_braktooth`` Python function in
+# parsers/bt_firmware_banner.py with a generic YAML-driven rule engine.
+# Each pin carries match conditions (family / codename / chipset /
+# banner-regex / build_date / build_id) and a CVE list; the parser
+# emits one ``known_vulnerabilities`` row per CVE when ALL match
+# conditions evaluate true against a parsed BT firmware banner record.
+#
+# Loader contract identical to the H1 codename table: @lru_cache,
+# graceful-degrade to in-tree ``_BANNER_CVE_PIN_DEFAULTS`` (which
+# preserves the BRAKTOOTH Tier 0 pin) on missing/malformed YAML.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class BannerCveEntry:
+    """One CVE attached to a banner-pin rule.
+
+    ``rationale`` is a str.format template; the parser substitutes
+    ``{banner} {chipset} {chipset_upper} {codename} {build_id}
+    {build_date}`` from the matched record.
+    """
+
+    cve_id: str
+    severity: str
+    rationale: str
+    subcomponent: str = "bluetooth"
+    confidence: str = "high"
+    reference: str | None = None
+
+
+@dataclass(frozen=True)
+class BannerCvePin:
+    """One banner-pin rule loaded from bt_banner_cve_pins.yaml.
+
+    All match-condition fields are optional (None = "don't gate on this");
+    the engine evaluates them as a logical AND. At least ONE non-None
+    condition is required at parse time — a pin with all gates absent
+    would fire on every BT blob.
+
+    ``banner_re`` is the compiled form of the YAML's ``banner_match:``
+    pattern (case-insensitive). ``build_date_before`` is parsed as a
+    ``datetime.date`` for direct comparison.
+    """
+
+    pin_id: str
+    description: str
+    family: str | None
+    codename_in: frozenset[str] | None
+    chipset_target_in: frozenset[str] | None
+    banner_re: re.Pattern[str] | None
+    build_date_before: date | None
+    build_id_lt: int | None
+    cves: tuple[BannerCveEntry, ...]
+
+
+# In-tree default — fallback when bt_banner_cve_pins.yaml is missing or
+# malformed. Mirrors the shipping YAML's first pin (BRAKTOOTH Qualcomm DoS
+# subset) so the parser keeps emitting Tier 0 pins even if the file is
+# absent. CRITICAL: CVE-2021-28139 (ESP32-only per NVD) is NOT in this
+# list and MUST NOT be added — Reviewer B 2026-05-16 finding.
+_BANNER_CVE_PIN_DEFAULTS: tuple[BannerCvePin, ...] = (
+    BannerCvePin(
+        pin_id="qualcomm-braktooth-qca-rome-dos-cluster",
+        description=(
+            "ASSET BrakTooth Qualcomm DoS subset (LMP_timing_accuracy + "
+            "2 × oversized-packet DoS)"
+        ),
+        family="qca_rome",
+        codename_in=None,
+        chipset_target_in=frozenset({"wcn3950", "wcn3990", "wcn3991", "wcn3998"}),
+        banner_re=None,
+        build_date_before=None,
+        build_id_lt=None,
+        cves=(
+            BannerCveEntry(
+                cve_id="CVE-2021-34147",
+                severity="medium",
+                rationale=(
+                    "BT firmware banner '{banner}' confirms {chipset_upper} "
+                    "(QCA Rome family). Per the ASSET BrakTooth disclosure "
+                    "(Garbelini et al. 2021), Qualcomm marked Rome BT patches "
+                    "'TBA' in the 2021 PSIRT response — in-field BTFM builds "
+                    "remain unpatched against the LMP_timing_accuracy DoS."
+                ),
+                reference="https://asset-group.github.io/disclosures/braktooth/",
+            ),
+            BannerCveEntry(
+                cve_id="CVE-2021-31609",
+                severity="medium",
+                rationale=(
+                    "BT firmware banner '{banner}' confirms {chipset_upper} "
+                    "(QCA Rome family). Oversized-packet DoS per ASSET "
+                    "BrakTooth disclosure (Garbelini et al. 2021); Qualcomm "
+                    "rated patch status TBA in the 2021 PSIRT response."
+                ),
+                reference="https://asset-group.github.io/disclosures/braktooth/",
+            ),
+            BannerCveEntry(
+                cve_id="CVE-2021-31612",
+                severity="medium",
+                rationale=(
+                    "BT firmware banner '{banner}' confirms {chipset_upper} "
+                    "(QCA Rome family). Oversized-packet DoS per ASSET "
+                    "BrakTooth disclosure (Garbelini et al. 2021); Qualcomm "
+                    "rated patch status TBA in the 2021 PSIRT response."
+                ),
+                reference="https://asset-group.github.io/disclosures/braktooth/",
+            ),
+        ),
+    ),
+)
+
+
+def _parse_banner_cve_pin(idx: int, entry: dict) -> BannerCvePin:
+    """Validate + convert a single YAML pin entry into a BannerCvePin.
+
+    Raises ``ValueError`` on any structural issue.
+    """
+    if not isinstance(entry, dict):
+        raise ValueError(f"pins[{idx}] must be a mapping, got {type(entry).__name__}")
+
+    pin_id = entry.get("id")
+    description = entry.get("description")
+    if not (isinstance(pin_id, str) and pin_id.strip()):
+        raise ValueError(f"pins[{idx}]: 'id' missing or empty")
+    if not (isinstance(description, str) and description.strip()):
+        raise ValueError(f"pins[{idx}] {pin_id!r}: 'description' missing or empty")
+
+    family = entry.get("family")
+    if family is not None:
+        if not isinstance(family, str) or family.strip() not in _BT_PARSER_FAMILIES:
+            raise ValueError(
+                f"pins[{idx}] {pin_id!r}: 'family' must be one of "
+                f"{sorted(_BT_PARSER_FAMILIES)}; got {family!r}"
+            )
+        family = family.strip()
+
+    codename_in_raw = entry.get("codename_in")
+    codename_in: frozenset[str] | None = None
+    if codename_in_raw is not None:
+        if not isinstance(codename_in_raw, list):
+            raise ValueError(f"pins[{idx}] {pin_id!r}: 'codename_in' must be a list")
+        codename_in = frozenset(
+            str(c).strip().upper()
+            for c in codename_in_raw
+            if isinstance(c, str) and c.strip()
+        )
+
+    chipset_in_raw = entry.get("chipset_target_in")
+    chipset_target_in: frozenset[str] | None = None
+    if chipset_in_raw is not None:
+        if not isinstance(chipset_in_raw, list):
+            raise ValueError(
+                f"pins[{idx}] {pin_id!r}: 'chipset_target_in' must be a list"
+            )
+        chipset_target_in = frozenset(
+            str(c).strip().lower()
+            for c in chipset_in_raw
+            if isinstance(c, str) and c.strip()
+        )
+
+    banner_match_raw = entry.get("banner_match")
+    banner_re: re.Pattern[str] | None = None
+    if banner_match_raw is not None:
+        if not isinstance(banner_match_raw, str):
+            raise ValueError(
+                f"pins[{idx}] {pin_id!r}: 'banner_match' must be a string regex"
+            )
+        try:
+            banner_re = re.compile(banner_match_raw, re.IGNORECASE)
+        except re.error as exc:
+            raise ValueError(
+                f"pins[{idx}] {pin_id!r}: 'banner_match' regex compile failed: {exc}"
+            ) from exc
+
+    build_date_before: date | None = None
+    bdb_raw = entry.get("build_date_before")
+    if bdb_raw is not None:
+        # PyYAML parses unquoted YYYY-MM-DD as a datetime.date already.
+        if isinstance(bdb_raw, date):
+            build_date_before = bdb_raw
+        elif isinstance(bdb_raw, str):
+            try:
+                build_date_before = date.fromisoformat(bdb_raw.strip())
+            except ValueError as exc:
+                raise ValueError(
+                    f"pins[{idx}] {pin_id!r}: 'build_date_before' must be YYYY-MM-DD; "
+                    f"got {bdb_raw!r} ({exc})"
+                ) from exc
+        else:
+            raise ValueError(
+                f"pins[{idx}] {pin_id!r}: 'build_date_before' must be a date or "
+                f"YYYY-MM-DD string; got {type(bdb_raw).__name__}"
+            )
+
+    bil_raw = entry.get("build_id_lt")
+    build_id_lt: int | None = None
+    if bil_raw is not None:
+        if isinstance(bil_raw, bool) or not isinstance(bil_raw, int):
+            raise ValueError(
+                f"pins[{idx}] {pin_id!r}: 'build_id_lt' must be an integer; "
+                f"got {type(bil_raw).__name__}"
+            )
+        build_id_lt = bil_raw
+
+    # At least one match condition required — a pin with NO gates would
+    # fire on every BT blob, which is never what an operator wants.
+    if all(
+        cond is None
+        for cond in (
+            family,
+            codename_in,
+            chipset_target_in,
+            banner_re,
+            build_date_before,
+            build_id_lt,
+        )
+    ):
+        raise ValueError(
+            f"pins[{idx}] {pin_id!r}: at least one match condition required "
+            "(family / codename_in / chipset_target_in / banner_match / "
+            "build_date_before / build_id_lt)"
+        )
+
+    cves_raw = entry.get("cves")
+    if not isinstance(cves_raw, list) or not cves_raw:
+        raise ValueError(
+            f"pins[{idx}] {pin_id!r}: 'cves' must be a non-empty list"
+        )
+    cves: list[BannerCveEntry] = []
+    for cidx, cve in enumerate(cves_raw):
+        if not isinstance(cve, dict):
+            raise ValueError(
+                f"pins[{idx}] {pin_id!r} cves[{cidx}] must be a mapping"
+            )
+        cve_id = cve.get("id")
+        severity = cve.get("severity")
+        rationale = cve.get("rationale")
+        if not (isinstance(cve_id, str) and cve_id.strip()):
+            raise ValueError(
+                f"pins[{idx}] {pin_id!r} cves[{cidx}]: 'id' missing or empty"
+            )
+        if not (isinstance(severity, str) and severity.strip()):
+            raise ValueError(
+                f"pins[{idx}] {pin_id!r} cves[{cidx}]: 'severity' missing or empty"
+            )
+        if not (isinstance(rationale, str) and rationale.strip()):
+            raise ValueError(
+                f"pins[{idx}] {pin_id!r} cves[{cidx}]: 'rationale' missing or empty"
+            )
+        subcomp = cve.get("subcomponent")
+        subcomp_str = (
+            subcomp.strip()
+            if isinstance(subcomp, str) and subcomp.strip()
+            else "bluetooth"
+        )
+        conf = cve.get("confidence")
+        conf_str = (
+            conf.strip().lower()
+            if isinstance(conf, str) and conf.strip()
+            else "high"
+        )
+        if conf_str not in {"high", "medium", "low"}:
+            conf_str = "high"
+        ref = cve.get("reference")
+        ref_str = (
+            ref.strip() if isinstance(ref, str) and ref.strip() else None
+        )
+        cves.append(
+            BannerCveEntry(
+                cve_id=cve_id.strip(),
+                severity=severity.strip().lower(),
+                rationale=rationale.strip(),
+                subcomponent=subcomp_str,
+                confidence=conf_str,
+                reference=ref_str,
+            )
+        )
+
+    return BannerCvePin(
+        pin_id=pin_id.strip(),
+        description=description.strip(),
+        family=family,
+        codename_in=codename_in,
+        chipset_target_in=chipset_target_in,
+        banner_re=banner_re,
+        build_date_before=build_date_before,
+        build_id_lt=build_id_lt,
+        cves=tuple(cves),
+    )
+
+
+def _parse_banner_cve_pin_data(data: dict) -> tuple[BannerCvePin, ...]:
+    """Parse a validated YAML dict into a tuple of BannerCvePin.
+
+    Raises ``ValueError`` on any structural issue; the caller wraps with
+    the graceful-degrade fallback to ``_BANNER_CVE_PIN_DEFAULTS``.
+    """
+    pins_raw = data.get("pins")
+    if not isinstance(pins_raw, list):
+        raise ValueError("'pins' must be a list")
+    pins: list[BannerCvePin] = []
+    seen_ids: set[str] = set()
+    for idx, entry in enumerate(pins_raw):
+        pin = _parse_banner_cve_pin(idx, entry)
+        if pin.pin_id in seen_ids:
+            raise ValueError(f"pins[{idx}]: duplicate id {pin.pin_id!r}")
+        seen_ids.add(pin.pin_id)
+        pins.append(pin)
+    return tuple(pins)
+
+
+@lru_cache(maxsize=1)
+def _load_banner_cve_pins() -> tuple[BannerCvePin, ...]:
+    """Load and validate bt_banner_cve_pins.yaml.
+
+    Returns the parsed pin tuple on success; on missing file, YAML syntax
+    error, or structural validation failure, returns
+    ``_BANNER_CVE_PIN_DEFAULTS`` (BrakTooth pin) and logs at WARNING.
+
+    Cached via ``functools.lru_cache(maxsize=1)``. Tests swap the YAML
+    path via monkeypatch and call ``_load_banner_cve_pins.cache_clear()``.
+    """
+    data = _safe_load(_BT_BANNER_CVE_PINS_YAML)
+    if not data:
+        logger.info(
+            "patterns_loader: using in-tree _BANNER_CVE_PIN_DEFAULTS "
+            "(bt_banner_cve_pins.yaml missing or unparseable)"
+        )
+        return _BANNER_CVE_PIN_DEFAULTS
+    try:
+        return _parse_banner_cve_pin_data(data)
+    except (ValueError, TypeError) as exc:
+        logger.warning(
+            "patterns_loader: bt_banner_cve_pins.yaml structural validation "
+            "failed (%s); falling back to in-tree _BANNER_CVE_PIN_DEFAULTS",
+            exc,
+        )
+        return _BANNER_CVE_PIN_DEFAULTS
+
+
+def get_banner_cve_pins() -> tuple[BannerCvePin, ...]:
+    """Banner-pin → CVE rule list, parsed + validated from YAML."""
+    return _load_banner_cve_pins()
+
+
 __all__ = [
+    "BannerCveEntry",
+    "BannerCvePin",
     "BtCodenameTable",
     "PathContextMatch",
     "PatternMatch",
     "VENDORS",
     "VENDOR_DISPLAY",
+    "get_banner_cve_pins",
     "get_braktooth_chipsets",
     "get_mtk_chips",
     "get_qca_also_covers",
