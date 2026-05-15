@@ -227,6 +227,9 @@ class ExportService:
             "os_info": fw.os_info,
             "kernel_path": fw.kernel_path,
             "version_label": fw.version_label,
+            "firmware_kind": fw.firmware_kind,
+            "firmware_kind_source": fw.firmware_kind_source,
+            "rtos_flavor": fw.rtos_flavor,
             "unpack_log": fw.unpack_log,
             "created_at": fw.created_at,
         }

@@ -222,6 +222,15 @@ class ImportService:
             os.makedirs(extracted_path, exist_ok=True)
             self._extract_filesystem(zf, extracted_prefix, extracted_path)
 
+        # firmware_kind was added after the initial archive format; pre-RTOS
+        # exports omit it. Infer linux when there's an extracted rootfs,
+        # otherwise leave unknown so the user can override in the UI.
+        firmware_kind = fw_data.get("firmware_kind")
+        firmware_kind_source = fw_data.get("firmware_kind_source")
+        if firmware_kind is None:
+            firmware_kind = "linux" if extracted_path else "unknown"
+            firmware_kind_source = "detected"
+
         firmware = Firmware(
             id=new_fw_id,
             project_id=new_project_id,
@@ -235,6 +244,9 @@ class ImportService:
             os_info=fw_data.get("os_info"),
             kernel_path=fw_data.get("kernel_path"),
             version_label=fw_data.get("version_label"),
+            firmware_kind=firmware_kind,
+            firmware_kind_source=firmware_kind_source,
+            rtos_flavor=fw_data.get("rtos_flavor"),
             unpack_log=fw_data.get("unpack_log"),
         )
         self.db.add(firmware)
