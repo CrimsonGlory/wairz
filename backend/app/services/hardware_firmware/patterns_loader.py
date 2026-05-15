@@ -53,6 +53,7 @@ _VENDOR_YAML = _DATA_DIR / "vendor_prefixes.yaml"
 _PATTERNS_YAML = _DATA_DIR / "firmware_patterns.yaml"
 _BT_QCA_CODENAMES_YAML = _DATA_DIR / "bt_qca_codenames.yaml"
 _BT_BANNER_CVE_PINS_YAML = _DATA_DIR / "bt_banner_cve_pins.yaml"
+_BT_REALTEK_PROJECT_IDS_YAML = _DATA_DIR / "bt_realtek_project_ids.yaml"
 
 # Recognised BT banner parser families. Used by the H2 banner-pin loader
 # to validate that ``family:`` entries reference a real parser verdict.
@@ -555,6 +556,253 @@ def _parse_bt_codename_data(raw: dict) -> BtCodenameTable:
 
 
 # ---------------------------------------------------------------------------
+# Realtek BT chipset table (bt_realtek_project_ids.yaml).
+#
+# project_id → chipset mapping per upstream Linux btrtl.c's ic_id_table[]
+# + project_id_to_lmp_subver[]. The project_id itself sits in trailing
+# TLV records at the firmware blob's TAIL (opcode=0, length=1, data=PID)
+# — NOT at offset 8 as a uint32 (a common misreading; offset 8 is the
+# fw_version field per rtl_epatch_header). The parser reads BOTH the
+# head (for the "Realtech"/"RTBTCore" magic + fw_version) AND the tail
+# (reverse-TLV scan for project_id), then looks up the chipset here.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RealtekChipsetEntry:
+    """One row from bt_realtek_project_ids.yaml.
+
+    Adaptability note: ``lmp_subver`` / ``hci_rev`` / ``hci_ver`` are
+    OPTIONAL — early-family chipsets (RTL8703B project_id=7) ship
+    without populated HCI revision metadata. Parser code treats
+    missing fields as "no claim", not "no match".
+    """
+
+    project_id: int
+    chipset: str
+    display: str | None
+    lmp_subver: int | None
+    hci_rev: int | None
+    hci_ver: int | None
+    bus: str | None
+    family: str | None
+    filename_fw: str | None
+    filename_config: str | None
+
+
+# In-tree defaults — fallback when bt_realtek_project_ids.yaml is
+# missing or malformed AND no prior valid load has occurred. Subset
+# of the shipping YAML; the parser still classifies firmware as
+# vendor=realtek even when this table is empty (the magic + tail-TLV
+# scan stand independent), but the chipset_target field stays None.
+_REALTEK_CHIPSET_DEFAULTS: tuple[RealtekChipsetEntry, ...] = (
+    RealtekChipsetEntry(
+        project_id=9,
+        chipset="rtl8723d",
+        display="RTL8723D / 8723DS",
+        lmp_subver=0x8723,
+        hci_rev=0x0d,
+        hci_ver=0x08,
+        bus="both",
+        family="rtl87xx",
+        filename_fw="rtl8723d_fw.bin",
+        filename_config="rtl8723d_config.bin",
+    ),
+    RealtekChipsetEntry(
+        project_id=14,
+        chipset="rtl8761b",
+        display="RTL8761B / 8761BTV / 8761BU",
+        lmp_subver=0x8761,
+        hci_rev=0x0b,
+        hci_ver=0x0a,
+        bus="both",
+        family="rtl87xx",
+        filename_fw="rtl8761b_fw.bin",
+        filename_config="rtl8761b_config.bin",
+    ),
+    RealtekChipsetEntry(
+        project_id=10,
+        chipset="rtl8821c",
+        display="RTL8821C / 8821CS",
+        lmp_subver=0x8821,
+        hci_rev=0x0c,
+        hci_ver=0x08,
+        bus="both",
+        family="rtl87xx",
+        filename_fw="rtl8821c_fw.bin",
+        filename_config="rtl8821c_config.bin",
+    ),
+    RealtekChipsetEntry(
+        project_id=18,
+        chipset="rtl8852a",
+        display="RTL8852A (8852AU)",
+        lmp_subver=0x8852,
+        hci_rev=0x0a,
+        hci_ver=0x0b,
+        bus="usb",
+        family="rtl88xx",
+        filename_fw="rtl8852au_fw.bin",
+        filename_config="rtl8852au_config.bin",
+    ),
+    RealtekChipsetEntry(
+        project_id=20,
+        chipset="rtl8852b",
+        display="RTL8852B (8852BU) / 8852BS",
+        lmp_subver=0x8852,
+        hci_rev=0x0b,
+        hci_ver=0x0b,
+        bus="both",
+        family="rtl88xx",
+        filename_fw="rtl8852bu_fw.bin",
+        filename_config="rtl8852bu_config.bin",
+    ),
+    RealtekChipsetEntry(
+        project_id=25,
+        chipset="rtl8852c",
+        display="RTL8852C (8852CU)",
+        lmp_subver=0x8852,
+        hci_rev=0x0c,
+        hci_ver=0x0c,
+        bus="usb",
+        family="rtl88xx",
+        filename_fw="rtl8852cu_fw.bin",
+        filename_config="rtl8852cu_config.bin",
+    ),
+)
+
+
+def _coerce_hex_int(value: object, field_name: str, idx: int) -> int | None:
+    """Coerce YAML scalar → int. Accepts hex strings ("0x8723") AND ints
+    AND None. Raises ValueError on any other shape so operator typos
+    surface loudly."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        # PyYAML may parse "yes/no" as bool — reject (int gate is wrong shape).
+        raise ValueError(
+            f"chipsets[{idx}]: {field_name!r} must be int or 0xHEX string, "
+            f"got bool"
+        )
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        s = value.strip().lower()
+        try:
+            if s.startswith("0x"):
+                return int(s, 16)
+            return int(s, 10)
+        except ValueError as exc:
+            raise ValueError(
+                f"chipsets[{idx}]: {field_name!r} unparseable as int: {value!r}"
+            ) from exc
+    raise ValueError(
+        f"chipsets[{idx}]: {field_name!r} must be int / 0xHEX string / null, "
+        f"got {type(value).__name__}"
+    )
+
+
+def _parse_realtek_data(raw: dict) -> tuple[RealtekChipsetEntry, ...]:
+    """Parse bt_realtek_project_ids.yaml into a tuple of RealtekChipsetEntry."""
+    chipsets_raw = raw.get("chipsets")
+    if not isinstance(chipsets_raw, list):
+        raise ValueError("'chipsets' must be a list")
+
+    entries: list[RealtekChipsetEntry] = []
+    seen_project_ids: set[int] = set()
+    for idx, entry in enumerate(chipsets_raw):
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"chipsets[{idx}] must be a mapping, got {type(entry).__name__}"
+            )
+        pid_raw = entry.get("project_id")
+        if not isinstance(pid_raw, int) or isinstance(pid_raw, bool):
+            raise ValueError(
+                f"chipsets[{idx}]: 'project_id' must be int, got {pid_raw!r}"
+            )
+        if pid_raw < 0 or pid_raw > 255:
+            # btrtl.c project_ids are small ints — anything outside 0-255
+            # is almost certainly a typo (fw_version mistakenly placed
+            # here).
+            raise ValueError(
+                f"chipsets[{idx}]: 'project_id' out of range (0-255): {pid_raw}"
+            )
+        if pid_raw in seen_project_ids:
+            raise ValueError(
+                f"chipsets[{idx}]: duplicate project_id {pid_raw}"
+            )
+        seen_project_ids.add(pid_raw)
+
+        chipset = entry.get("chipset")
+        if not (isinstance(chipset, str) and chipset.strip()):
+            raise ValueError(
+                f"chipsets[{idx}]: 'chipset' missing or empty"
+            )
+
+        display_raw = entry.get("display")
+        display = (
+            display_raw.strip()
+            if isinstance(display_raw, str) and display_raw.strip()
+            else None
+        )
+
+        lmp_subver = _coerce_hex_int(
+            entry.get("lmp_subver"), "lmp_subver", idx
+        )
+        hci_rev = _coerce_hex_int(entry.get("hci_rev"), "hci_rev", idx)
+        hci_ver = _coerce_hex_int(entry.get("hci_ver"), "hci_ver", idx)
+
+        bus_raw = entry.get("bus")
+        bus = (
+            bus_raw.strip().lower()
+            if isinstance(bus_raw, str) and bus_raw.strip()
+            else None
+        )
+        if bus is not None and bus not in {"usb", "uart", "both"}:
+            raise ValueError(
+                f"chipsets[{idx}]: 'bus' must be 'usb', 'uart', 'both', "
+                f"or null; got {bus_raw!r}"
+            )
+
+        family_raw = entry.get("family")
+        family = (
+            family_raw.strip()
+            if isinstance(family_raw, str) and family_raw.strip()
+            else None
+        )
+
+        filename_fw_raw = entry.get("filename_fw")
+        filename_fw = (
+            filename_fw_raw.strip()
+            if isinstance(filename_fw_raw, str) and filename_fw_raw.strip()
+            else None
+        )
+
+        filename_config_raw = entry.get("filename_config")
+        filename_config = (
+            filename_config_raw.strip()
+            if isinstance(filename_config_raw, str) and filename_config_raw.strip()
+            else None
+        )
+
+        entries.append(
+            RealtekChipsetEntry(
+                project_id=pid_raw,
+                chipset=chipset.strip().lower(),
+                display=display,
+                lmp_subver=lmp_subver,
+                hci_rev=hci_rev,
+                hci_ver=hci_ver,
+                bus=bus,
+                family=family,
+                filename_fw=filename_fw,
+                filename_config=filename_config,
+            )
+        )
+
+    return tuple(entries)
+
+
+# ---------------------------------------------------------------------------
 # Banner-pin → CVE rules (bt_banner_cve_pins.yaml).
 # ---------------------------------------------------------------------------
 
@@ -893,6 +1141,14 @@ def _summary_banner_pins(p: tuple[BannerCvePin, ...]) -> str:
     return f"{len(p)} pins, {sum(len(pin.cves) for pin in p)} CVEs total"
 
 
+def _summary_realtek_chipsets(p: tuple[RealtekChipsetEntry, ...]) -> str:
+    families: set[str] = {e.family for e in p if e.family}
+    return (
+        f"{len(p)} chipsets across {len(families)} families "
+        f"({', '.join(sorted(families)) or 'none'})"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Module-level loader instances.
 #
@@ -926,6 +1182,10 @@ def _resolve_bt_qca_codenames_yaml() -> Path:
 
 def _resolve_bt_banner_cve_pins_yaml() -> Path:
     return _this_module._BT_BANNER_CVE_PINS_YAML  # type: ignore[attr-defined]
+
+
+def _resolve_bt_realtek_project_ids_yaml() -> Path:
+    return _this_module._BT_REALTEK_PROJECT_IDS_YAML  # type: ignore[attr-defined]
 
 
 _VENDORS_LOADER: MtimeCachedYamlLoader[_VendorTable] = MtimeCachedYamlLoader(
@@ -982,6 +1242,16 @@ _BANNER_CVE_PINS_LOADER: MtimeCachedYamlLoader[tuple[BannerCvePin, ...]] = (
     )
 )
 
+_REALTEK_LOADER: MtimeCachedYamlLoader[tuple[RealtekChipsetEntry, ...]] = (
+    MtimeCachedYamlLoader(
+        path=_resolve_bt_realtek_project_ids_yaml,
+        parser=_parse_realtek_data,
+        defaults=_REALTEK_CHIPSET_DEFAULTS,
+        name="patterns_loader",
+        summary=_summary_realtek_chipsets,
+    )
+)
+
 
 # Backward-compat shims for the H1 + H2 unit tests that call
 # ``_load_bt_qca_codenames.cache_clear()`` / ``_load_banner_cve_pins.cache_clear()``.
@@ -989,6 +1259,7 @@ _BANNER_CVE_PINS_LOADER: MtimeCachedYamlLoader[tuple[BannerCvePin, ...]] = (
 # fixture code migrates without source edits.
 _load_bt_qca_codenames = _BT_CODENAMES_LOADER
 _load_banner_cve_pins = _BANNER_CVE_PINS_LOADER
+_load_realtek_chipsets = _REALTEK_LOADER
 
 
 def clear_all_caches() -> None:
@@ -1003,6 +1274,7 @@ def clear_all_caches() -> None:
     _PATH_CONTEXTS_LOADER.cache_clear()
     _BT_CODENAMES_LOADER.cache_clear()
     _BANNER_CVE_PINS_LOADER.cache_clear()
+    _REALTEK_LOADER.cache_clear()
 
 
 # ---------------------------------------------------------------------------
@@ -1111,12 +1383,40 @@ def get_banner_cve_pins() -> tuple[BannerCvePin, ...]:
     return _BANNER_CVE_PINS_LOADER.get()
 
 
+def get_realtek_chipsets() -> tuple[RealtekChipsetEntry, ...]:
+    """Realtek BT chipset table (hot-reloaded from bt_realtek_project_ids.yaml).
+
+    Consumed by parsers/bt_firmware_banner.py's `_parse_realtek_bt` to
+    map a project_id (read from trailing TLV records in the firmware
+    blob) to a chipset / LMP subversion / HCI revision triple. Empty
+    or missing YAML falls back to the in-tree `_REALTEK_CHIPSET_DEFAULTS`
+    (6 chipsets covering the prompt's named variants RTL8723D / 8761B /
+    8821C / 8852A/B/C).
+    """
+    return _REALTEK_LOADER.get()
+
+
+def get_realtek_chipset_by_project_id(project_id: int) -> RealtekChipsetEntry | None:
+    """Convenience lookup: project_id (small int 0-51 per btrtl.c) → entry.
+
+    Returns None when the project_id is unknown to the current YAML
+    (operators can extend without Python changes — edit
+    bt_realtek_project_ids.yaml, save; the next parser invocation
+    sees the new entry via mtime hot-reload).
+    """
+    for entry in _REALTEK_LOADER.get():
+        if entry.project_id == project_id:
+            return entry
+    return None
+
+
 __all__ = [
     "BannerCveEntry",
     "BannerCvePin",
     "BtCodenameTable",
     "PathContextMatch",
     "PatternMatch",
+    "RealtekChipsetEntry",
     "VENDORS",
     "VENDOR_DISPLAY",
     "clear_all_caches",
@@ -1127,6 +1427,8 @@ __all__ = [
     "get_qca_codename_display",
     "get_qca_codename_families",
     "get_qca_codename_map",
+    "get_realtek_chipset_by_project_id",
+    "get_realtek_chipsets",
     "get_vendor_display",
     "get_vendors",
     "match",

@@ -105,6 +105,7 @@ from app.services.hardware_firmware.patterns_loader import (
     get_mtk_chips,
     get_qca_codename_display,
     get_qca_codename_map,
+    get_realtek_chipset_by_project_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -275,6 +276,43 @@ _MTK_CHIP_RE = re.compile(rb"\bMT(?P<chip>\d{4})\b")
 # Filename → MediaTek chipset (extracted when content didn't pin the chip
 # — e.g. headerless ROM patch chunks).
 _MTK_FILENAME_CHIP_RE = re.compile(r"^(?:mt|romv)(?P<chip>\d{4})", re.IGNORECASE)
+
+# ----- Realtek BT firmware -----
+#
+# Two canonical header shapes per upstream Linux drivers/bluetooth/btrtl.h:
+#   * v1 (rtl_epatch_header):
+#       offset  0..7   "Realtech"  (note the "ch" spelling — Realtek's
+#                       own typo, preserved for ABI)
+#       offset  8..11  __le32 fw_version
+#       offset 12..13  __le16 num_patches
+#   * v2 (rtl_epatch_header_v2):
+#       offset  0..7   "RTBTCore"
+#       offset  8..15  __u8 fw_version[8]  (ASCII version string)
+#       offset 16..19  __le32 num_sections
+#
+# project_id is NOT at offset 8 (despite what some downstream
+# documentation claims). Per btrtl.c, project_id is encoded as TLV
+# records at the END of the firmware blob: reverse-scan from the tail
+# for the pattern (opcode=0, length=1, data=PID) — `data` is the
+# project_id (small int 0-51).
+#
+# Adaptive parser policy:
+#   * Accept BOTH canonical magic forms ("Realtech" AND "RTBTCore").
+#   * SOFT-match "Realtek" / "REALTEK" / "RealTek" anywhere in head as
+#     LOW-confidence fallback (operator-uploaded SDK builds may carry
+#     vendor-modified blobs that don't use the canonical magic).
+#   * Magic doesn't have to be at offset 0 — scan first 64 bytes
+#     (some downstream variants prepend a small wrapper). HIGH
+#     confidence only when offset == 0; non-zero offset → MEDIUM.
+#   * project_id outside the YAML chipset map → MEDIUM (operator can
+#     extend bt_realtek_project_ids.yaml without Python change).
+#   * Build-date extraction is NOT present in btrtl.c — Realtek firmware
+#     does NOT carry a textual `Date:` line. The fw_version uint32 IS
+#     the version-bearing field; surfaced as record["fw_version"].
+_RTL_MAGIC_V1 = b"Realtech"
+_RTL_MAGIC_V2 = b"RTBTCore"
+_RTL_SOFT_RE = re.compile(rb"[Rr][Ee][Aa][Ll][Tt][Ee][CcKk]")
+_RTL_HEAD_MAGIC_SCAN_BYTES = 64
 
 
 def _read_head(path: str, limit: int) -> bytes:
@@ -707,6 +745,230 @@ def _parse_mediatek_bt(data: bytes, filename: str) -> dict[str, Any] | None:
     return rec
 
 
+def _scan_realtek_project_id_from_tail(tail: bytes) -> int | None:
+    """Reverse-scan ``tail`` for the project_id TLV record per btrtl.c.
+
+    Realtek BT firmware encodes project_id (small integer 0-51 mapping
+    to a chipset) as a trailing TLV record:
+      (opcode_byte, length_byte, data_byte) read RIGHT-TO-LEFT.
+    Walk backward from the end:
+      - opcode == 0xFF → EOF marker, stop.
+      - opcode == 0, length == 1 → data is the project_id.
+      - else → skip `length` bytes and continue.
+
+    Returns the project_id int on success; None if not found within the
+    given tail buffer (operator can grow _TAIL_SCAN_BYTES if needed).
+    """
+    n = len(tail)
+    if n < 4:
+        return None
+    # Walk right-to-left through TLV triples.
+    i = n - 1
+    iterations = 0
+    # Cap iterations to bound CPU on adversarial inputs.
+    max_iter = 4096
+    while i >= 2 and iterations < max_iter:
+        iterations += 1
+        opcode = tail[i]
+        i -= 1
+        if opcode == 0xFF:
+            return None
+        if i < 1:
+            return None
+        length = tail[i]
+        i -= 1
+        if length == 1 and opcode == 0:
+            # data is the next byte (one to the left).
+            if i < 0:
+                return None
+            return tail[i]
+        # Skip `length` bytes of data + advance.
+        if length > 0:
+            i -= length
+    return None
+
+
+def _parse_realtek_bt(
+    head: bytes, tail: bytes, filename: str, size: int
+) -> dict[str, Any] | None:
+    """Parse a Realtek BT firmware blob (rtl_epatch_header v1 or v2).
+
+    Adaptive design (per Scout C 2026-05-18 research):
+    - Accepts BOTH "Realtech" (v1) and "RTBTCore" (v2) at offset 0..63
+      (scans first 64 bytes — some downstream variants prepend a small
+      wrapper preamble).
+    - SOFT-matches "Realtek"/"REALTEK"/"RealTek" anywhere in head as
+      LOW-confidence fallback when neither canonical magic is found.
+    - Reads fw_version + num_patches/num_sections from the header.
+    - Tail-scans for the (opcode=0, length=1, data=PID) TLV record →
+      project_id → chipset via YAML (operators extend without Python).
+    - Confidence ladder:
+        HIGH: canonical magic at offset 0 + project_id in YAML map
+        MEDIUM: magic at offset 0..63 (non-zero) OR project_id unknown
+        LOW: soft Realtek/Realtech ASCII anywhere + no other validation
+
+    Returns ``None`` only when NO Realtek evidence is found whatsoever.
+    Always emits a vendor=realtek record otherwise — operator value lives
+    in the metadata fields even at LOW confidence.
+    """
+    # Scan head for canonical magic.
+    magic_offset: int | None = None
+    version: str = "v1"  # default to v1; flipped if RTBTCore found
+    head_scan_window = head[: _RTL_HEAD_MAGIC_SCAN_BYTES]
+    idx_v1 = head_scan_window.find(_RTL_MAGIC_V1)
+    idx_v2 = head_scan_window.find(_RTL_MAGIC_V2)
+    if idx_v1 >= 0 and (idx_v2 < 0 or idx_v1 < idx_v2):
+        magic_offset = idx_v1
+        version = "v1"
+    elif idx_v2 >= 0:
+        magic_offset = idx_v2
+        version = "v2"
+    else:
+        # Soft fallback: any case variant of "Realtek" or "Realtec" in
+        # the head window? LOW confidence — emit record so operators
+        # know the parser saw Realtek-like evidence, but stamp
+        # confidence accordingly.
+        soft = _RTL_SOFT_RE.search(head_scan_window)
+        if not soft:
+            # No Realtek signal anywhere. Not our format.
+            return None
+        return {
+            "family": "realtek_bt",
+            "vendor": "realtek",
+            "banner": None,
+            "chipset_target": None,
+            "chipset_source": "none",
+            "confidence": "low",
+            "note": (
+                "Realtek-like ASCII pattern in head but no canonical "
+                "magic (Realtech/RTBTCore) — possible vendor-modified "
+                "blob or unrelated coincidence"
+            ),
+            "header_version": None,
+            "magic_offset": soft.start(),
+            "size": size,
+        }
+
+    # Canonical magic present. Parse header fields.
+    fw_version_raw: int | str | None = None
+    num_records: int | None = None
+    record_key: str = "num_patches"
+    header_len: int = 14
+    try:
+        if version == "v1":
+            # v1: __u8 signature[8] + __le32 fw_version + __le16 num_patches
+            hdr_end = magic_offset + 14
+            if len(head) >= hdr_end:
+                fw_version_raw = int.from_bytes(
+                    head[magic_offset + 8 : magic_offset + 12], "little"
+                )
+                num_records = int.from_bytes(
+                    head[magic_offset + 12 : magic_offset + 14], "little"
+                )
+                header_len = 14
+        else:
+            # v2: __u8 signature[8] + __u8 fw_version[8] (ASCII) +
+            #     __le32 num_sections
+            hdr_end = magic_offset + 20
+            if len(head) >= hdr_end:
+                fw_version_bytes = head[magic_offset + 8 : magic_offset + 16]
+                fw_version_raw = (
+                    fw_version_bytes.rstrip(b"\x00")
+                    .decode("ascii", errors="replace")
+                    .strip()
+                ) or None
+                num_records = int.from_bytes(
+                    head[magic_offset + 16 : magic_offset + 20], "little"
+                )
+                record_key = "num_sections"
+                header_len = 20
+    except (ValueError, IndexError, OSError):
+        # Header truncation or partial reads — preserve what we have.
+        pass
+
+    # Tail TLV scan for project_id.
+    project_id = _scan_realtek_project_id_from_tail(tail)
+
+    # Chipset lookup via YAML hot-reloaded table.
+    chipset_entry = (
+        get_realtek_chipset_by_project_id(project_id)
+        if project_id is not None
+        else None
+    )
+
+    chipset: str | None = None
+    chipset_source: str = "none"
+    if chipset_entry is not None:
+        chipset = chipset_entry.chipset
+        chipset_source = "project_id_tlv"
+
+    # Confidence ladder per the parser policy described above.
+    if magic_offset == 0 and chipset is not None:
+        confidence = "high"
+    elif magic_offset == 0 or chipset is not None:
+        confidence = "medium"
+    else:
+        # Magic found at non-zero offset AND no chipset resolved — LOW.
+        confidence = "low"
+
+    # Reconstruct a banner string for record["banner"] / blob.version.
+    banner_parts: list[str] = [
+        f"Realtek BT firmware ({version}, magic@{magic_offset})"
+    ]
+    if fw_version_raw is not None:
+        if isinstance(fw_version_raw, int):
+            banner_parts.append(f"fw_version=0x{fw_version_raw:08x}")
+        else:
+            banner_parts.append(f"fw_version={fw_version_raw!r}")
+    if num_records is not None:
+        banner_parts.append(f"{record_key}={num_records}")
+    if project_id is not None:
+        banner_parts.append(f"project_id={project_id}")
+    if chipset_entry is not None and chipset_entry.lmp_subver is not None:
+        banner_parts.append(f"lmp_subver=0x{chipset_entry.lmp_subver:04x}")
+    banner = "; ".join(banner_parts)
+
+    rec: dict[str, Any] = {
+        "family": "realtek_bt",
+        "vendor": "realtek",
+        "banner": banner,
+        "header_version": version,
+        "magic_offset": magic_offset,
+        "fw_version": (
+            f"0x{fw_version_raw:08x}"
+            if isinstance(fw_version_raw, int)
+            else fw_version_raw
+        ),
+        "num_patches": num_records if record_key == "num_patches" else None,
+        "num_sections": num_records if record_key == "num_sections" else None,
+        "project_id": project_id,
+        "chipset_target": chipset,
+        "chipset_source": chipset_source,
+        "confidence": confidence,
+        "size": size,
+        "header_length": header_len,
+    }
+    if chipset_entry is not None:
+        rec["chipset_display"] = chipset_entry.display
+        rec["lmp_subver"] = (
+            f"0x{chipset_entry.lmp_subver:04x}"
+            if chipset_entry.lmp_subver is not None
+            else None
+        )
+        rec["hci_rev"] = (
+            f"0x{chipset_entry.hci_rev:02x}"
+            if chipset_entry.hci_rev is not None
+            else None
+        )
+        rec["hci_ver"] = (
+            f"0x{chipset_entry.hci_ver:02x}"
+            if chipset_entry.hci_ver is not None
+            else None
+        )
+        rec["family_tag"] = chipset_entry.family
+    return rec
+
+
 def _coerce_build_id(raw: Any) -> int | None:
     """Coerce a record.build_id value to int for build_id_lt comparison.
 
@@ -905,6 +1167,10 @@ class BtFirmwareBannerParser:
             # the HCI walker (lazy-read deferred until QCA + MediaTek
             # rule out — Reviewer A M2 2026-05-16: defers a 4 MB read in
             # the common QCA-hit case). MediaTek third as the BT-fallback.
+            # Realtek inserted AFTER MediaTek but BEFORE Broadcom: its
+            # "Realtech"/"RTBTCore" magic is unambiguous in the head
+            # window, and the parser only needs head + tail (no full-
+            # file read), so it's cheap.
             qca = _parse_qca_banner(qca_scan, filename=path)
             if qca:
                 meta["bt_fw_banner"] = qca
@@ -929,6 +1195,23 @@ class BtFirmwareBannerParser:
                     version=mtk.get("banner"),
                     chipset_target=mtk.get("chipset_target"),
                     vendor=mtk.get("vendor"),
+                    metadata=meta,
+                )
+
+            # Realtek BT — head+tail scan, no full-file read needed.
+            # Per Scout C 2026-05-18: accepts BOTH "Realtech" (v1) AND
+            # "RTBTCore" (v2) magic + soft Realtek ASCII fallback;
+            # project_id read from tail TLV records (NOT offset 8 as
+            # the prompt initially suggested — offset 8 is fw_version
+            # per upstream btrtl.h).
+            rtl = _parse_realtek_bt(head, tail, path, size)
+            if rtl:
+                meta["bt_fw_banner"] = rtl
+                _emit_pins(rtl, meta)
+                return ParsedBlob(
+                    version=rtl.get("banner"),
+                    chipset_target=rtl.get("chipset_target"),
+                    vendor=rtl.get("vendor"),
                     metadata=meta,
                 )
 

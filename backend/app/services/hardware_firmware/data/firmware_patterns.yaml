@@ -506,54 +506,69 @@ patterns:
     source: linux-firmware
 
   # =====================================================================
-  # Realtek Wi-Fi + Bluetooth
+  # Realtek BT + Wi-Fi — first-match-wins order:
+  #   BT-specific names (chipset-shaped: rtl87XX/88XX/89XX/8922 + suffixes)
+  #     → bt_fw_banner format → Realtek family parser
+  #   Wi-Fi-specific names (rtw88_*, rtw89_*) → wifi category
+  #   Catch-all (rtl*_fw.bin, rtl*.bin) → other category, MEDIUM/LOW conf
   # =====================================================================
-  - pattern: "^rtl[0-9a-z_]+_fw\\.bin$"
-    vendor: realtek
-    product: "Realtek RTL Wi-Fi firmware"
-    category: wifi
-    confidence: high
-    source: linux-firmware
-  - pattern: "^rtw88[0-9a-z_]+_fw\\.bin$"
-    vendor: realtek
-    product: "Realtek RTW88 Wi-Fi firmware"
-    category: wifi
-    confidence: high
-    source: linux-firmware
-  - pattern: "^rtw89[0-9a-z_]+_fw\\.bin$"
-    vendor: realtek
-    product: "Realtek RTW89 Wi-Fi firmware"
-    category: wifi
-    confidence: high
-    source: linux-firmware
-  - pattern: "^rtl[0-9a-z_]+\\.bin$"
-    vendor: realtek
-    product: "Realtek RTL firmware blob"
-    category: wifi
-    confidence: medium
-  - pattern: "^rtl8[0-9a-z]+_config\\.bin$"
-    vendor: realtek
-    product: "Realtek RTL Bluetooth config"
-    category: bluetooth
-    confidence: high
-  # Realtek BT firmware (basename match; the path-aware version above is
-  # latent — `match` operates on basename only per classifier contract).
-  # Routes to bt_fw_banner format so the (forthcoming) Realtek BT parser
-  # extracts the "Realtech" / "RTBTCore" magic + project_id from the
-  # file tail. Pairs with the config sibling pattern below.
-  - pattern: "^rtl8[0-9]{3}[a-z]{0,3}(?:bs|bu|cs|cu|de|ds|ce|au|btu)?_fw(?:_v[0-9]+)?\\.bin$"
+
+  # Realtek BT firmware — canonical /rtl_bt/ filename shapes for the
+  # RTL87xx / RTL88xx / RTL89xx / RTL892x BT families. Routes to
+  # bt_fw_banner format so the Realtek family parser (added 2026-05-18)
+  # extracts "Realtech"/"RTBTCore" magic + fw_version + project_id
+  # (tail-TLV scan) → chipset via YAML.
+  - pattern: "^rtl8[7-9][0-9]{2}[a-z]{0,3}(?:bs|bu|cs|cu|de|ds|ce|au|btu)?_fw(?:_v[0-9]+)?\\.bin$"
     vendor: realtek
     product: "Realtek BT firmware (rtl_bt/ canonical naming)"
     category: bluetooth
     confidence: high
     format: bt_fw_banner
     source: linux-firmware
-  - pattern: "^rtl8[0-9]{3}[a-z]{0,3}(?:bs|bu|cs|cu|de|ds|ce|au|btu)?_config\\.bin$"
+  - pattern: "^rtl8[7-9][0-9]{2}[a-z]{0,3}(?:bs|bu|cs|cu|de|ds|ce|au|btu)?_config\\.bin$"
     vendor: realtek
     product: "Realtek BT UART config (companion to _fw.bin)"
     category: bluetooth
     confidence: high
     source: linux-firmware
+
+  # Realtek BT config — legacy / generic shapes (e.g. rtl8821a_config.bin
+  # before the strict chipset-family regex above).
+  - pattern: "^rtl8[0-9a-z]+_config\\.bin$"
+    vendor: realtek
+    product: "Realtek BT config (legacy naming)"
+    category: bluetooth
+    confidence: medium
+
+  # Realtek Wi-Fi — modern rtw88 / rtw89 driver firmware.
+  - pattern: "^rtw88[0-9a-z_]+_fw\\.bin$"
+    vendor: realtek
+    product: "Realtek RTW88 (Wi-Fi 5) firmware"
+    category: wifi
+    confidence: high
+    source: linux-firmware
+  - pattern: "^rtw89[0-9a-z_]+_fw\\.bin$"
+    vendor: realtek
+    product: "Realtek RTW89 (Wi-Fi 6/7) firmware"
+    category: wifi
+    confidence: high
+    source: linux-firmware
+
+  # Realtek catch-all (MEDIUM / LOW confidence). Operators wanting
+  # precise classification add a specific entry above this line. Note
+  # this used to claim 'wifi' for everything — corrected 2026-05-18
+  # because rtl8761b_fw.bin etc. were misclassified as Wi-Fi.
+  - pattern: "^rtl[0-9a-z_]+_fw\\.bin$"
+    vendor: realtek
+    product: "Realtek firmware (generic — refine via a specific entry above)"
+    category: other
+    confidence: medium
+    source: linux-firmware
+  - pattern: "^rtl[0-9a-z_]+\\.bin$"
+    vendor: realtek
+    product: "Realtek firmware blob (generic)"
+    category: other
+    confidence: low
 
   # =====================================================================
   # NVIDIA Tegra (TX1/TX2/Nano/Xavier/Orin) — Jetson Linux R32+ payload

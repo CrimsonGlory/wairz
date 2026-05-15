@@ -1,0 +1,217 @@
+# Realtek BT chipset table — project_id → chipset mapping.
+#
+# Source: upstream Linux drivers/bluetooth/btrtl.c `ic_id_table[]` +
+# `project_id_to_lmp_subver[]` (torvalds/linux master, 2026-05-18 snapshot).
+# Scout C research 2026-05-18.
+#
+# Schema (per entry):
+#   project_id:    Small integer (0-51) found at the END of the firmware
+#                  blob via reverse-TLV scan: (opcode=0, length=1, data=PID).
+#                  NOT at offset 8 — offset 8 is fw_version (uint32 LE v1)
+#                  or ASCII fw_version[8] (v2). Per btrtl.h `rtl_epatch_header`.
+#   chipset:       Canonical lower-case chipset identifier.
+#   display:       Human-readable chipset label.
+#   lmp_subver:    LMP subversion (16-bit hex) — matched against the HCI
+#                  Read_Local_Version_Information response.
+#   hci_rev:       HCI revision (8-bit hex) — used for fine-grained
+#                  firmware-version pinning.
+#   hci_ver:       HCI version (8-bit hex).
+#   bus:           Connection bus: USB / UART / both (sets driver path:
+#                  hci_uart vs hci_usb).
+#   family:        Generation tag (legacy / RTL87xx / RTL88xx / FastConnect).
+#   filename_fw:   Canonical _fw.bin filename in linux-firmware /rtl_bt/.
+#   filename_config: Companion _config.bin filename (UART-only blobs).
+#
+# Operators wishing to add a new chipset variant edit THIS file —
+# changes are picked up via mtime hot-reload (no docker restart).
+#
+# CRITICAL antipattern (per Scout C 2026-05-18): DO NOT pin BLUFFS /
+# BIAS / KNOB / Bluetooth Core spec CVEs to specific Realtek chipsets
+# via NVD-CPE-derived chipset_regex — those CVEs have no Realtek CPE.
+# DO NOT pin the RTL8762E SDK CVEs (CVE-2024-48290 / -2025-44526 /
+# -44531 / -44559) to chipsets OTHER than RTL8762E — disclosure-batch
+# extrapolation is the antipattern this codebase has hit before.
+
+chipsets:
+  - project_id: 0
+    chipset: rtl8723a
+    display: RTL8723A
+    lmp_subver: 0x1200
+    hci_rev: 0x0b
+    hci_ver: 0x06
+    bus: usb
+    family: legacy
+    filename_fw: rtl8723a_fw.bin
+
+  - project_id: 1
+    chipset: rtl8723b
+    display: RTL8723B / 8723BS
+    lmp_subver: 0x8723
+    hci_rev: 0x0b
+    hci_ver: 0x06
+    bus: both
+    family: rtl87xx
+    filename_fw: rtl8723b_fw.bin
+    filename_config: rtl8723b_config.bin
+
+  - project_id: 2
+    chipset: rtl8821a
+    display: RTL8821A
+    lmp_subver: 0x8821
+    hci_rev: 0x0a
+    hci_ver: 0x06
+    bus: usb
+    family: rtl87xx
+    filename_fw: rtl8821a_fw.bin
+    filename_config: rtl8821a_config.bin
+
+  - project_id: 3
+    chipset: rtl8761a
+    display: RTL8761A
+    lmp_subver: 0x8761
+    hci_rev: 0x0a
+    hci_ver: 0x06
+    bus: usb
+    family: rtl87xx
+    filename_fw: rtl8761a_fw.bin
+    filename_config: rtl8761a_config.bin
+
+  - project_id: 7
+    chipset: rtl8703b
+    display: RTL8703B / 8723CS-XX/CG/VF
+    lmp_subver: 0x8703
+    bus: uart
+    family: rtl87xx
+    filename_fw: rtl8723cs_xx_fw.bin
+
+  - project_id: 8
+    chipset: rtl8822b
+    display: RTL8822B
+    lmp_subver: 0x8822
+    hci_rev: 0x0b
+    hci_ver: 0x07
+    bus: usb
+    family: rtl88xx
+    filename_fw: rtl8822b_fw.bin
+    filename_config: rtl8822b_config.bin
+
+  - project_id: 9
+    chipset: rtl8723d
+    display: RTL8723D / 8723DS
+    lmp_subver: 0x8723
+    hci_rev: 0x0d
+    hci_ver: 0x08
+    bus: both
+    family: rtl87xx
+    filename_fw: rtl8723d_fw.bin
+    filename_config: rtl8723d_config.bin
+
+  - project_id: 10
+    chipset: rtl8821c
+    display: RTL8821C / 8821CS
+    lmp_subver: 0x8821
+    hci_rev: 0x0c
+    hci_ver: 0x08
+    bus: both
+    family: rtl87xx
+    filename_fw: rtl8821c_fw.bin
+    filename_config: rtl8821c_config.bin
+
+  - project_id: 13
+    chipset: rtl8822c
+    display: RTL8822C / 8822CS / 8822CU
+    lmp_subver: 0x8822
+    hci_rev: 0x0c
+    hci_ver: 0x08
+    bus: both
+    family: rtl88xx
+    filename_fw: rtl8822cs_fw.bin
+    filename_config: rtl8822cs_config.bin
+
+  - project_id: 14
+    chipset: rtl8761b
+    display: RTL8761B / 8761BTV / 8761BU
+    lmp_subver: 0x8761
+    hci_rev: 0x0b
+    hci_ver: 0x0a
+    bus: both
+    family: rtl87xx
+    filename_fw: rtl8761b_fw.bin
+    filename_config: rtl8761b_config.bin
+
+  - project_id: 18
+    chipset: rtl8852a
+    display: RTL8852A (8852AU)
+    lmp_subver: 0x8852
+    hci_rev: 0x0a
+    hci_ver: 0x0b
+    bus: usb
+    family: rtl88xx
+    filename_fw: rtl8852au_fw.bin
+    filename_config: rtl8852au_config.bin
+
+  - project_id: 20
+    chipset: rtl8852b
+    display: RTL8852B (8852BU) / 8852BS
+    lmp_subver: 0x8852
+    hci_rev: 0x0b
+    hci_ver: 0x0b
+    bus: both
+    family: rtl88xx
+    filename_fw: rtl8852bu_fw.bin
+    filename_config: rtl8852bu_config.bin
+
+  - project_id: 25
+    chipset: rtl8852c
+    display: RTL8852C (8852CU)
+    lmp_subver: 0x8852
+    hci_rev: 0x0c
+    hci_ver: 0x0c
+    bus: usb
+    family: rtl88xx
+    filename_fw: rtl8852cu_fw.bin
+    filename_config: rtl8852cu_config.bin
+
+  - project_id: 36
+    chipset: rtl8851b
+    display: RTL8851B (8851BU)
+    lmp_subver: 0x8851
+    hci_rev: 0x0b
+    hci_ver: 0x0c
+    bus: usb
+    family: rtl88xx
+    filename_fw: rtl8851bu_fw.bin
+    filename_config: rtl8851bu_config.bin
+
+  - project_id: 44
+    chipset: rtl8922a
+    display: RTL8922A (8922AU)
+    lmp_subver: 0x8922
+    hci_rev: 0x0a
+    hci_ver: 0x0c
+    bus: usb
+    family: rtl89xx
+    filename_fw: rtl8922au_fw.bin
+    filename_config: rtl8922au_config.bin
+
+  - project_id: 47
+    chipset: rtl8852bt
+    display: RTL8852BT / 8852BE-VT
+    lmp_subver: 0x8852
+    hci_rev: 0x87
+    hci_ver: 0x0c
+    bus: usb
+    family: rtl88xx
+    filename_fw: rtl8852btu_fw.bin
+    filename_config: rtl8852btu_config.bin
+
+  - project_id: 51
+    chipset: rtl8761c
+    display: RTL8761C / 8761CU
+    lmp_subver: 0x8761
+    hci_rev: 0x0e
+    hci_ver: 0x00
+    bus: usb
+    family: rtl87xx
+    filename_fw: rtl8761cu_fw.bin
+    filename_config: rtl8761cu_config.bin
