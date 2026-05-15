@@ -468,17 +468,41 @@ def _find_unblob_extraction_top(root: str) -> str:
     # dirs blocking the route to the outermost ``_extract`` ancestor.
     # Walk path components from the per-firmware extraction marker down to
     # find the FIRST ``_extract`` segment after it.
+    #
+    # **LAST-marker selection rationale (arch-review 2026-05-14):** for
+    # nested re-extractions (an unblob output that ITSELF contains a
+    # sub-``extracted/`` directory from a second pipeline run), we pick
+    # the LAST (innermost) ``extracted/`` marker. This keeps the fallback
+    # scoped to the INNERMOST per-firmware extraction container, matching
+    # how the unpacker's own ``extracted_path`` would be set. A future
+    # multi-pipeline rerun shape MIGHT prefer the FIRST marker — pin a
+    # nested-marker regression test before changing the selection.
     norm = root.rstrip("/")
     parts = norm.split(os.sep)
     extracted_idx = -1
     for i, p in enumerate(parts):
         if p in {"extracted", "Extracted", "extraction"}:
-            extracted_idx = i  # take the LAST marker (innermost) for nested re-extractions
+            extracted_idx = i
     if extracted_idx >= 0 and extracted_idx + 1 < len(parts):
         for i in range(extracted_idx + 1, len(parts)):
             if parts[i].endswith("_extract"):
                 outer = os.sep.join(parts[:i + 1])
-                if os.path.isdir(outer):
+                if not os.path.isdir(outer):
+                    break
+                # Realpath-guard (arch-review 2026-05-14 MED #2): aligns
+                # with Rule #1 sandbox discipline. A maliciously crafted
+                # firmware containing a symlink named ``something_extract``
+                # pointing outside the firmware storage dir would pass
+                # ``isdir()`` (follows symlinks by default). We resolve
+                # both ends and require the resolved outer dir to be an
+                # ancestor of the resolved input root — otherwise the
+                # symlink has escaped the firmware sandbox; reject the
+                # fallback and let the caller fall through to ``cur``.
+                outer_real = os.path.realpath(outer)
+                root_real = os.path.realpath(root)
+                if root_real == outer_real or root_real.startswith(
+                    outer_real + os.sep
+                ):
                     return outer
                 break
     return cur
