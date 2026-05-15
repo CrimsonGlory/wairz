@@ -37,7 +37,6 @@ from collections.abc import AsyncIterator, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import yaml
 from sqlalchemy import func, insert, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,6 +44,7 @@ from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.models.sbom import SbomComponent, SbomVulnerability
 from app.services.cpe_dictionary_service import get_cpe_dictionary_service
 from app.services.hardware_firmware import kernel_vulns_index as kvi
+from app.services.hardware_firmware._yaml_cache import MtimeCachedYamlLoader
 from app.services.jsonb_normalizers import _normalize_hardware_firmware_blobs_metadata
 
 logger = logging.getLogger(__name__)
@@ -109,45 +109,35 @@ class MatchResult:
         return NotImplemented
 
 
-def _load_known_firmware() -> list[dict]:
-    """Load curated CVE families from YAML.  Cached in module scope.
+def _parse_known_firmware_data(raw: dict) -> list[dict]:
+    """Parse known_firmware.yaml's families list with schema validation.
 
-    Performs lightweight schema validation on load:
+    Performs the same lightweight WARN-only validation that the legacy
+    ``_load_known_firmware`` did:
       - Advisory-only entries (``cves: []`` or missing ``cves``) MUST
-        carry an ``advisory_id`` key. Reviewer A's H1 finding
-        2026-05-15: the synthesised ``ADVISORY-<NAME>`` cve_id is
-        clipped to VARCHAR(20) (Rule #15), so two long YAML names with
-        identical first-11-chars-after-ADVISORY- would collide silently
-        and the DB dedup on (firmware_id, blob_id, cve_id) would drop
-        matches. The fix is to require an explicit advisory_id at YAML
-        author time and warn when missing.
+        carry an ``advisory_id`` key (Reviewer A H1 2026-05-15).
       - ``advisory_id`` (when present) MUST be ≤20 chars to fit the
         column constraint.
 
-    Validation is WARN-only — malformed entries still load (so a YAML
-    typo doesn't gate every CVE match) but the warning surfaces in
-    logs for the operator to fix. Mechanically detectable via the
-    Rule #46 canary in test_hardware_firmware_cve_matcher.
-    """
-    if not _YAML_PATH.is_file():
-        logger.warning("known_firmware.yaml missing at %s", _YAML_PATH)
-        return []
-    try:
-        with _YAML_PATH.open("r") as f:
-            data = yaml.safe_load(f)
-        families = data.get("families", []) if data else []
-    except yaml.YAMLError as exc:
-        logger.error("Failed to parse known_firmware.yaml: %s", exc)
-        return []
+    Malformed entries still load (so a YAML typo doesn't gate every CVE
+    match) but the warning surfaces in logs for the operator to fix.
 
-    # Schema validation pass — warn (don't reject) malformed entries.
+    Hot-reload contract: this parser is the per-load callable handed to
+    ``MtimeCachedYamlLoader`` — it runs on first access AND on every
+    subsequent disk-mtime-change. Raises only on FATAL whole-load
+    issues (top-level 'families' not a list); per-entry issues become
+    warnings.
+    """
+    families = raw.get("families", []) if raw else []
+    if not isinstance(families, list):
+        raise ValueError("'families' must be a list")
+
     seen_advisory_ids: set[str] = set()
     for idx, fam in enumerate(families):
         if not isinstance(fam, dict):
             continue
         cves = fam.get("cves") or []
         if not cves:
-            # Advisory-only — require advisory_id.
             adv_id = fam.get("advisory_id")
             if not adv_id:
                 logger.warning(
@@ -177,6 +167,50 @@ def _load_known_firmware() -> list[dict]:
                     )
                 seen_advisory_ids.add(adv_id)
     return families
+
+
+def _summary_known_firmware(families: list[dict]) -> str:
+    with_cves = sum(1 for f in families if isinstance(f, dict) and f.get("cves"))
+    advisories = len(families) - with_cves
+    return f"{len(families)} families ({with_cves} CVE-bearing, {advisories} advisory-only)"
+
+
+# Hot-reloadable cache: operators editing known_firmware.yaml see new
+# entries on the next cve-match cycle without a backend restart. The
+# previous-state-keep-on-malformed-reload discipline (matching the H1+H2
+# loaders in patterns_loader.py) means a YAML typo doesn't silently
+# regress curated CVE matching to in-tree defaults.
+#
+# Path resolver looks up ``_YAML_PATH`` on the module fresh on every
+# call so test fixtures that monkeypatch the constant swap the loader's
+# target file without explicit cache_clear.
+import sys as _sys
+
+_this_module = _sys.modules[__name__]
+
+
+def _resolve_yaml_path() -> Path:
+    return _this_module._YAML_PATH  # type: ignore[attr-defined]
+
+
+_KNOWN_FIRMWARE_LOADER: MtimeCachedYamlLoader[list[dict]] = MtimeCachedYamlLoader(
+    path=_resolve_yaml_path,
+    parser=_parse_known_firmware_data,
+    defaults=[],
+    name="cve_matcher",
+    summary=_summary_known_firmware,
+)
+
+
+def _load_known_firmware() -> list[dict]:
+    """Return the current curated CVE families list.
+
+    Hot-reloaded from known_firmware.yaml on every call: stat-checks the
+    file's ``st_mtime_ns``, returns cached state if unchanged, atomically
+    re-parses if changed. Operators iterating CVE-family edits see new
+    rows on the next cve-match invocation without a docker restart.
+    """
+    return _KNOWN_FIRMWARE_LOADER.get()
 
 
 # MediaTek's monthly Product Security Bulletins tag every CVE with a

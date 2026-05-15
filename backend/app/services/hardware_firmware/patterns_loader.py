@@ -1,18 +1,39 @@
-"""Data-driven firmware filename classifier.
+"""Data-driven firmware filename classifier with hot-reloadable YAML backing.
 
-Loads two YAML files once at import:
+Loads five YAML files that operators may extend at runtime:
 
 * ``data/vendor_prefixes.yaml`` — canonical vendor names, display strings,
-  and aliases.  Provides :data:`VENDORS` and :data:`VENDOR_DISPLAY` for UI
-  lookups and :func:`resolve_vendor`.
+  and aliases. Backs :func:`resolve_vendor` + module-level
+  :data:`VENDORS` / :data:`VENDOR_DISPLAY` snapshots.
 * ``data/firmware_patterns.yaml`` — ordered, first-match-wins list of
-  filename regexes mapped to (vendor, product, category, confidence, source,
-  format).  See :func:`match`.
+  filename regexes mapped to (vendor, product, category, confidence,
+  source, format). Backs :func:`match` and :func:`match_path_context`.
+* ``data/bt_qca_codenames.yaml`` — QCA Bluetooth codename → chipset map +
+  BrakTooth-DoS chipset scope + MediaTek BT known-chip allowlist.
+  Backs the six ``get_qca_*`` / ``get_braktooth_chipsets`` / ``get_mtk_chips``
+  accessors consumed by parsers/bt_firmware_banner.py.
+* ``data/bt_banner_cve_pins.yaml`` — banner-pin → CVE rule engine input.
+  Backs :func:`get_banner_cve_pins`.
+* (Sibling-module) ``known_firmware.yaml`` — curated CVE-family list
+  consumed by ``cve_matcher._load_known_firmware``. Hot-reloaded via the
+  same generic ``MtimeCachedYamlLoader`` shape over there.
 
-The loaders are tolerant — on YAML parse errors or missing files we log a
-warning and return empty tables rather than crashing the whole import.  Any
-regex that fails to compile is skipped (logged) so one bad entry cannot
-break classification for all other patterns.
+**Hot-reload contract (2026-05-18):** every accessor checks the file's
+``stat().st_mtime_ns`` on every call and reloads atomically when it
+changes. Operators edit YAML, save, and the next ``match()`` /
+``get_banner_cve_pins()`` / etc. invocation sees the new entries without
+a backend restart — pairs with the success-path INFO logs:
+
+    bt_qca_codenames.yaml loaded — 5 codenames ... (YAML, not defaults)
+    bt_qca_codenames.yaml reloaded due to mtime change (...)
+
+Malformed reload (YAML syntax error OR structural validation failure)
+**keeps the PREVIOUS valid cached value** + emits a WARN log; it does
+NOT silently regress to in-tree defaults. The defaults fire only on a
+cold start with a missing-or-malformed YAML.
+
+The five loaders share the same machinery (``_yaml_cache.MtimeCachedYamlLoader``)
+so adding a sixth surface in the future is a one-class-instance change.
 """
 from __future__ import annotations
 
@@ -20,10 +41,9 @@ import logging
 import re
 from dataclasses import dataclass, field
 from datetime import date
-from functools import lru_cache
 from pathlib import Path
 
-import yaml
+from app.services.hardware_firmware._yaml_cache import MtimeCachedYamlLoader
 
 logger = logging.getLogger(__name__)
 
@@ -35,15 +55,15 @@ _BT_QCA_CODENAMES_YAML = _DATA_DIR / "bt_qca_codenames.yaml"
 _BT_BANNER_CVE_PINS_YAML = _DATA_DIR / "bt_banner_cve_pins.yaml"
 
 # Recognised BT banner parser families. Used by the H2 banner-pin loader
-# to validate that `family:` entries reference a real parser verdict.
+# to validate that ``family:`` entries reference a real parser verdict.
 # Sourced from parsers/bt_firmware_banner.py — keep in sync if a new
 # family is added there.
 _BT_PARSER_FAMILIES: frozenset[str] = frozenset(
-    {"qca_rome", "broadcom_hcd", "mediatek_bt"}
+    {"qca_rome", "broadcom_hcd", "mediatek_bt", "realtek_bt"}
 )
 
 # Canonical vendor prefixes Wairz ships with — classifier.py reads this set
-# (via the legacy ``VENDORS`` import) to gate downstream normalization.  The
+# (via the legacy ``VENDORS`` import) to gate downstream normalization. The
 # loader always seeds this fallback so classification keeps working even if
 # the YAML file goes missing.
 _CORE_VENDORS: frozenset[str] = frozenset(
@@ -66,12 +86,17 @@ _CORE_VENDORS: frozenset[str] = frozenset(
 )
 
 
+# ---------------------------------------------------------------------------
+# Public dataclasses returned by accessors.
+# ---------------------------------------------------------------------------
+
+
 @dataclass
 class PatternMatch:
     """Result of matching a filename against firmware_patterns.yaml.
 
-    ``format`` defaults to ``raw_bin`` so callers can always pass it to the
-    ``Classification`` dataclass without None-checking.
+    ``format`` defaults to ``raw_bin`` so callers can always pass it to
+    the ``Classification`` dataclass without None-checking.
     """
 
     vendor: str
@@ -88,10 +113,9 @@ class PathContextMatch:
 
     Used by the classifier as a REFINEMENT step: when filename-stage
     classification returns ``category="other"`` for a blob in a known
-    partition tree (radio.img / BTFM.bin / dspso.bin / …), the path-
-    context matcher rescues it into a specific category.
-
-    See classifier._classify_by_path_context for the integration point.
+    partition tree, the path-context matcher rescues it into a specific
+    category. See classifier._classify_by_path_context for the
+    integration point.
     """
 
     vendor: str  # "unknown" → keep filename-inferred vendor
@@ -101,38 +125,33 @@ class PathContextMatch:
     priority: int = 0
 
 
-def _safe_load(path: Path) -> dict:
-    """Load a YAML file, returning {} on any error (logged)."""
-    if not path.is_file():
-        logger.warning("patterns_loader: YAML not found at %s", path)
-        return {}
-    try:
-        with path.open("r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-    except yaml.YAMLError as exc:  # pragma: no cover — exercised in tests
-        logger.warning("patterns_loader: failed to parse %s: %s", path, exc)
-        return {}
-    if not isinstance(data, dict):
-        logger.warning(
-            "patterns_loader: %s top-level must be a mapping, got %s",
-            path,
-            type(data).__name__,
-        )
-        return {}
-    return data
+@dataclass(frozen=True)
+class _VendorTable:
+    """Combined vendor data: canonical set + alias map + display map."""
+
+    canonical: frozenset[str]
+    aliases: dict[str, str]
+    display: dict[str, str]
 
 
-def _load_vendors() -> tuple[frozenset[str], dict[str, str], dict[str, str]]:
-    """Return (canonical prefixes, alias→canonical, canonical→display).
+# ---------------------------------------------------------------------------
+# Parser functions — each takes the raw YAML dict and returns the typed
+# value the loader will cache. Raises on structural issues; per-entry
+# skips are logged + counted but the whole load succeeds.
+# ---------------------------------------------------------------------------
 
-    Falls back to the hard-coded ``_CORE_VENDORS`` when the YAML is missing
-    so the rest of the codebase keeps working.
+
+def _parse_vendors_data(raw: dict) -> _VendorTable:
+    """Parse vendor_prefixes.yaml into a _VendorTable.
+
+    Always seeds the in-tree ``_CORE_VENDORS`` set so downstream code can
+    rely on those being present even if an operator deletes them from
+    the YAML. Display map gets a few hard-coded fallbacks for the same
+    reason.
     """
-    data = _safe_load(_VENDOR_YAML)
-    entries = data.get("vendors") or []
+    entries = raw.get("vendors") or []
     if not isinstance(entries, list):
-        logger.warning("patterns_loader: 'vendors' must be a list in %s", _VENDOR_YAML)
-        entries = []
+        raise ValueError("'vendors' must be a list")
 
     canonical: set[str] = set(_CORE_VENDORS)
     display: dict[str, str] = {}
@@ -158,31 +177,49 @@ def _load_vendors() -> tuple[frozenset[str], dict[str, str], dict[str, str]]:
     # Seed display for the core vendors if not overridden by the YAML.
     display.setdefault("qualcomm", "Qualcomm Technologies, Inc.")
     display.setdefault("mediatek", "MediaTek Inc.")
+    display.setdefault("nvidia", "NVIDIA Corporation")
+    display.setdefault("realtek", "Realtek Semiconductor Corp.")
     display.setdefault("unknown", "Unknown Vendor")
 
-    return frozenset(canonical), alias_map, display
+    return _VendorTable(
+        canonical=frozenset(canonical),
+        aliases=alias_map,
+        display=display,
+    )
 
 
-def _compile_patterns() -> list[tuple[re.Pattern[str], PatternMatch]]:
-    """Load and compile firmware_patterns.yaml → [(regex, match-template)]."""
-    data = _safe_load(_PATTERNS_YAML)
-    raw = data.get("patterns") or []
-    if not isinstance(raw, list):
-        logger.warning("patterns_loader: 'patterns' must be a list in %s", _PATTERNS_YAML)
-        return []
+_PatternEntry = tuple[re.Pattern[str], PatternMatch]
 
-    compiled: list[tuple[re.Pattern[str], PatternMatch]] = []
+
+def _parse_patterns_data(raw: dict) -> list[_PatternEntry]:
+    """Parse firmware_patterns.yaml::patterns into compiled regex list.
+
+    Per-entry validation failures (missing field, regex compile error)
+    are logged + skipped — the load still succeeds with the other
+    entries. Whole-load failure (non-list 'patterns') raises ValueError.
+    """
+    raw_patterns = raw.get("patterns") or []
+    if not isinstance(raw_patterns, list):
+        raise ValueError("'patterns' must be a list")
+
+    compiled: list[_PatternEntry] = []
     skipped = 0
-    for idx, entry in enumerate(raw):
+    for idx, entry in enumerate(raw_patterns):
         if not isinstance(entry, dict):
             skipped += 1
             continue
         pat = entry.get("pattern")
         vendor = entry.get("vendor")
         category = entry.get("category")
-        if not (isinstance(pat, str) and isinstance(vendor, str) and isinstance(category, str)):
+        if not (
+            isinstance(pat, str)
+            and isinstance(vendor, str)
+            and isinstance(category, str)
+        ):
             logger.warning(
-                "patterns_loader: entry #%d missing required field (pattern/vendor/category)", idx
+                "patterns_loader: entry #%d missing required field "
+                "(pattern/vendor/category)",
+                idx,
             )
             skipped += 1
             continue
@@ -203,13 +240,25 @@ def _compile_patterns() -> list[tuple[re.Pattern[str], PatternMatch]]:
             confidence = "medium"
 
         fmt = entry.get("format")
-        fmt_str = str(fmt).strip() if isinstance(fmt, str) and fmt.strip() else "raw_bin"
+        fmt_str = (
+            str(fmt).strip()
+            if isinstance(fmt, str) and fmt.strip()
+            else "raw_bin"
+        )
 
         product = entry.get("product")
-        product_str = str(product).strip() if isinstance(product, str) and product.strip() else None
+        product_str = (
+            str(product).strip()
+            if isinstance(product, str) and product.strip()
+            else None
+        )
 
         source = entry.get("source")
-        source_str = str(source).strip() if isinstance(source, str) and source.strip() else None
+        source_str = (
+            str(source).strip()
+            if isinstance(source, str) and source.strip()
+            else None
+        )
 
         compiled.append(
             (
@@ -227,39 +276,31 @@ def _compile_patterns() -> list[tuple[re.Pattern[str], PatternMatch]]:
 
     if skipped:
         logger.info(
-            "patterns_loader: loaded %d patterns (%d skipped due to errors)",
+            "patterns_loader: parsed %d patterns (%d skipped due to errors)",
             len(compiled),
             skipped,
         )
-    else:
-        logger.info("patterns_loader: loaded %d firmware patterns", len(compiled))
     return compiled
 
 
-def _compile_path_contexts() -> list[
-    tuple[re.Pattern[str], re.Pattern[str] | None, PathContextMatch]
-]:
-    """Load + compile ``firmware_patterns.yaml::path_contexts`` entries.
+_PathContextEntry = tuple[
+    re.Pattern[str], re.Pattern[str] | None, PathContextMatch
+]
+
+
+def _parse_path_contexts_data(raw: dict) -> list[_PathContextEntry]:
+    """Parse firmware_patterns.yaml::path_contexts into compiled list.
 
     Returns ``[(path_regex, filename_regex_or_None, PathContextMatch), ...]``
-    sorted by descending ``priority`` so the most specific rules fire first.
-
-    Same defensive shape as :func:`_compile_patterns` — invalid entries are
-    logged and skipped, never raise. An empty section returns ``[]``; a
-    missing section returns ``[]`` (back-compat with older YAML).
+    sorted by descending priority so the most specific rules fire first.
     """
-    data = _safe_load(_PATTERNS_YAML)
-    raw = data.get("path_contexts") or []
-    if not isinstance(raw, list):
-        logger.warning(
-            "patterns_loader: 'path_contexts' must be a list in %s",
-            _PATTERNS_YAML,
-        )
-        return []
+    raw_entries = raw.get("path_contexts") or []
+    if not isinstance(raw_entries, list):
+        raise ValueError("'path_contexts' must be a list")
 
-    compiled: list[tuple[re.Pattern[str], re.Pattern[str] | None, PathContextMatch]] = []
+    compiled: list[_PathContextEntry] = []
     skipped = 0
-    for idx, entry in enumerate(raw):
+    for idx, entry in enumerate(raw_entries):
         if not isinstance(entry, dict):
             skipped += 1
             continue
@@ -272,8 +313,8 @@ def _compile_path_contexts() -> list[
             and isinstance(category, str)
         ):
             logger.warning(
-                "patterns_loader: path_contexts entry #%d missing required field "
-                "(path_pattern/vendor/category)",
+                "patterns_loader: path_contexts entry #%d missing required "
+                "field (path_pattern/vendor/category)",
                 idx,
             )
             skipped += 1
@@ -296,8 +337,8 @@ def _compile_path_contexts() -> list[
         if filename_pat:
             if not isinstance(filename_pat, str):
                 logger.warning(
-                    "patterns_loader: path_contexts entry #%d filename_pattern "
-                    "must be a string",
+                    "patterns_loader: path_contexts entry #%d "
+                    "filename_pattern must be a string",
                     idx,
                 )
                 skipped += 1
@@ -306,8 +347,8 @@ def _compile_path_contexts() -> list[
                 filename_rx = re.compile(filename_pat, re.IGNORECASE)
             except re.error as exc:
                 logger.warning(
-                    "patterns_loader: path_contexts entry #%d filename_pattern "
-                    "%r failed to compile: %s",
+                    "patterns_loader: path_contexts entry #%d "
+                    "filename_pattern %r failed to compile: %s",
                     idx,
                     filename_pat,
                     exc,
@@ -347,13 +388,7 @@ def _compile_path_contexts() -> list[
         )
 
     # Highest priority first so the most specific rule wins. Secondary
-    # sort keys (category, vendor, product) ensure deterministic
-    # ordering across runs when two rules share the same priority —
-    # per Reviewer A M5 (2026-05-15): without the tiebreaker, two
-    # priority-tied rules resolve in YAML insertion order, so a future
-    # PR appending a new rule in the wrong spot could silently change
-    # classification results. Deterministic ordering makes the YAML
-    # rewrite robust to author-order accidents.
+    # sort keys ensure deterministic ordering when priorities tie.
     compiled.sort(
         key=lambda t: (
             -t[2].priority,
@@ -365,28 +400,15 @@ def _compile_path_contexts() -> list[
 
     if skipped:
         logger.info(
-            "patterns_loader: loaded %d path_contexts (%d skipped due to errors)",
+            "patterns_loader: parsed %d path_contexts (%d skipped due to errors)",
             len(compiled),
             skipped,
-        )
-    else:
-        logger.info(
-            "patterns_loader: loaded %d path_contexts entries", len(compiled)
         )
     return compiled
 
 
 # ---------------------------------------------------------------------------
-# BT QCA codename table (bt_qca_codenames.yaml) — externalized 2026-05-17.
-#
-# Owns the QCA Bluetooth codename → chipset map, the BrakTooth-DoS chipset
-# scope, and the MediaTek known-chip allowlist. Consumed by
-# parsers/bt_firmware_banner.py via the public accessors at the bottom of
-# this module. Each accessor reads via @lru_cache so per-call cost is O(1).
-#
-# Loader contract: on a missing or malformed YAML, log a WARNING and return
-# the in-tree ``_BT_CODENAME_DEFAULTS`` so parsing keeps working without
-# operator intervention (Rule #34-style graceful degrade).
+# BT QCA codename table (bt_qca_codenames.yaml).
 # ---------------------------------------------------------------------------
 
 
@@ -394,11 +416,10 @@ def _compile_path_contexts() -> list[
 class BtCodenameTable:
     """Loaded view of bt_qca_codenames.yaml.
 
-    Frozen so accessors can return shared instances safely. Field shapes are
-    chosen to match the parser's existing consumption (dict[str, str] for
-    fast .get / `in` checks; frozenset[str] for chipset membership tests;
-    tuple[bytes, ...] for byte-wise ``in data`` membership against raw
-    firmware bytes).
+    Frozen so accessors can return shared instances safely. Field shapes
+    are chosen to match the parser's existing consumption (dict for fast
+    .get / `in`; frozenset for chipset membership; tuple[bytes,...] for
+    byte-wise ``in data`` membership against raw firmware bytes).
     """
 
     codename_map: dict[str, str] = field(default_factory=dict)
@@ -410,11 +431,10 @@ class BtCodenameTable:
 
 
 # In-tree defaults — fallback when bt_qca_codenames.yaml is missing or
-# malformed. Mirrors the shipping YAML; keeping these as the literal
-# fallback means a future YAML schema regression cannot regress the
-# parser to silently lose all QCA codename / MediaTek chip coverage.
-# Order MUST be kept in lockstep with the shipped YAML (verified by the
-# loader tests).
+# malformed AND no prior valid load has occurred. Mirrors the shipping
+# YAML; keeping these as the literal fallback means a future YAML
+# schema regression cannot regress the parser to silently lose all QCA
+# codename / MediaTek chip coverage.
 _BT_CODENAME_DEFAULTS = BtCodenameTable(
     codename_map={
         "CMC": "wcn3950",
@@ -449,16 +469,12 @@ _BT_CODENAME_DEFAULTS = BtCodenameTable(
 )
 
 
-def _parse_bt_codename_data(data: dict) -> BtCodenameTable:
+def _parse_bt_codename_data(raw: dict) -> BtCodenameTable:
     """Parse a validated YAML dict into a BtCodenameTable.
 
-    Raises ``ValueError`` on any structural issue; the caller
-    (``_load_bt_qca_codenames``) wraps with the graceful-degrade fallback
-    to ``_BT_CODENAME_DEFAULTS``. Loud-on-bad-structure here is the right
-    shape — we want operators editing the YAML to see the error in the
-    backend log, not silently get defaults.
+    Raises ``ValueError`` on any structural issue.
     """
-    codenames_raw = data.get("codenames")
+    codenames_raw = raw.get("codenames")
     if not isinstance(codenames_raw, list):
         raise ValueError("'codenames' must be a list")
 
@@ -469,7 +485,9 @@ def _parse_bt_codename_data(data: dict) -> BtCodenameTable:
 
     for idx, entry in enumerate(codenames_raw):
         if not isinstance(entry, dict):
-            raise ValueError(f"codenames[{idx}] must be a mapping, got {type(entry).__name__}")
+            raise ValueError(
+                f"codenames[{idx}] must be a mapping, got {type(entry).__name__}"
+            )
         codename = entry.get("codename")
         chipset = entry.get("chipset")
         if not (isinstance(codename, str) and codename.strip()):
@@ -496,12 +514,14 @@ def _parse_bt_codename_data(data: dict) -> BtCodenameTable:
         fams = entry.get("families")
         if isinstance(fams, list):
             families = tuple(
-                str(f).strip() for f in fams if isinstance(f, str) and f.strip()
+                str(f).strip()
+                for f in fams
+                if isinstance(f, str) and f.strip()
             )
             if families:
                 codename_families[cn] = families
 
-    bt_raw = data.get("braktooth_chipsets")
+    bt_raw = raw.get("braktooth_chipsets")
     if bt_raw is not None and not isinstance(bt_raw, list):
         raise ValueError("'braktooth_chipsets' must be a list")
     braktooth_chipsets = frozenset(
@@ -510,7 +530,7 @@ def _parse_bt_codename_data(data: dict) -> BtCodenameTable:
         if isinstance(c, str) and c.strip()
     )
 
-    mtk_raw = data.get("mtk_known_chips")
+    mtk_raw = raw.get("mtk_known_chips")
     if mtk_raw is not None and not isinstance(mtk_raw, list):
         raise ValueError("'mtk_known_chips' must be a list")
     mtk_known_chips: list[bytes] = []
@@ -534,212 +554,14 @@ def _parse_bt_codename_data(data: dict) -> BtCodenameTable:
     )
 
 
-@lru_cache(maxsize=1)
-def _load_bt_qca_codenames() -> BtCodenameTable:
-    """Load and validate bt_qca_codenames.yaml.
-
-    Returns the parsed ``BtCodenameTable`` on success; on missing file,
-    YAML syntax error, or structural validation failure, returns
-    ``_BT_CODENAME_DEFAULTS`` and logs a WARNING.
-
-    Cached via ``functools.lru_cache(maxsize=1)``: per-call cost is O(1)
-    after the first invocation. Tests that swap the YAML path MUST call
-    ``_load_bt_qca_codenames.cache_clear()`` to reset state.
-    """
-    data = _safe_load(_BT_QCA_CODENAMES_YAML)
-    if not data:
-        # _safe_load already logged the issue (missing file or YAML syntax
-        # error). Surface the fallback decision at INFO so a stale-default
-        # state is visible to operators tailing the backend log.
-        logger.info(
-            "patterns_loader: bt_qca_codenames.yaml missing or unparseable — "
-            "using in-tree _BT_CODENAME_DEFAULTS (%d codenames, %d braktooth "
-            "chipsets, %d mtk chips)",
-            len(_BT_CODENAME_DEFAULTS.codename_map),
-            len(_BT_CODENAME_DEFAULTS.braktooth_chipsets),
-            len(_BT_CODENAME_DEFAULTS.mtk_known_chips),
-        )
-        return _BT_CODENAME_DEFAULTS
-    try:
-        table = _parse_bt_codename_data(data)
-    except (ValueError, TypeError) as exc:
-        logger.warning(
-            "patterns_loader: bt_qca_codenames.yaml structural validation "
-            "failed (%s); falling back to in-tree _BT_CODENAME_DEFAULTS",
-            exc,
-        )
-        return _BT_CODENAME_DEFAULTS
-    # Positive-side observability: an operator who edits the YAML wants
-    # a single log line to confirm "yes my YAML was used, with N entries".
-    # Reviewer C 2026-05-17 finding — without this, malformed-YAML
-    # silently falls back to defaults and the operator has no signal
-    # short of comparing /api/v1/.../analyze output against expectation.
-    logger.info(
-        "patterns_loader: bt_qca_codenames.yaml loaded — %d codenames, "
-        "%d braktooth chipsets, %d mtk chips (YAML, not defaults)",
-        len(table.codename_map),
-        len(table.braktooth_chipsets),
-        len(table.mtk_known_chips),
-    )
-    return table
-
-
 # ---------------------------------------------------------------------------
-# Module-level tables (loaded once at import time).
-# ---------------------------------------------------------------------------
-VENDORS, _VENDOR_ALIASES, VENDOR_DISPLAY = _load_vendors()
-_PATTERNS: list[tuple[re.Pattern[str], PatternMatch]] = _compile_patterns()
-_PATH_CONTEXTS: list[
-    tuple[re.Pattern[str], re.Pattern[str] | None, PathContextMatch]
-] = _compile_path_contexts()
-
-
-def resolve_vendor(name: str | None) -> str:
-    """Canonicalise a vendor token via the alias map.
-
-    Returns the input lowercased if no alias match is found — callers can
-    then check ``name in VENDORS`` themselves.  An empty/None input returns
-    ``"unknown"``.
-    """
-    if not name:
-        return "unknown"
-    key = name.strip().lower()
-    return _VENDOR_ALIASES.get(key, key)
-
-
-def match(path: str) -> PatternMatch | None:
-    """Return the first PatternMatch whose regex matches the basename.
-
-    The matcher is case-insensitive (regexes compiled with ``re.IGNORECASE``)
-    and operates on ``os.path.basename(path)`` — full-path matching is *not*
-    supported to keep YAML patterns portable across extraction roots.
-    """
-    if not path:
-        return None
-    # basename without importing os (cheap split is fine and keeps this
-    # module importable before os in some sandbox scenarios).
-    base = path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
-    if not base:
-        return None
-    for rx, tmpl in _PATTERNS:
-        if rx.search(base):
-            return tmpl
-    return None
-
-
-def match_path_context(path: str) -> PathContextMatch | None:
-    """Return the highest-priority path-context match for ``path``.
-
-    Args:
-        path: Full path (any case; the matcher lowercases). Separator MUST
-            be ``/`` or ``\\`` — the function normalises both to ``/``.
-
-    Returns ``None`` when no path_contexts entry matches. Path-context rules
-    fire ONLY if (a) the lowercased path matches the rule's ``path_pattern``
-    AND (b) when present, the basename matches the rule's ``filename_pattern``.
-
-    Use this as a REFINEMENT step in the classifier — see classifier.py
-    ``_classify_by_path_context``. Never overrides a non-"other" filename
-    classification by contract; the classifier enforces that gate.
-    """
-    if not path:
-        return None
-    norm = path.replace("\\", "/").lower()
-    base = norm.rsplit("/", 1)[-1] if "/" in norm else norm
-    if not base:
-        return None
-    for path_rx, filename_rx, tmpl in _PATH_CONTEXTS:
-        if not path_rx.search(norm):
-            continue
-        if filename_rx is not None and not filename_rx.search(base):
-            continue
-        return tmpl
-    return None
-
-
-# ---------------------------------------------------------------------------
-# BT QCA codename accessors. Each call resolves through the lru_cache, so
-# repeated lookups are O(1). Callers (parsers/bt_firmware_banner.py) treat
-# these as authoritative — the parser carries no parallel in-tree copy.
-# ---------------------------------------------------------------------------
-
-
-def get_qca_codename_map() -> dict[str, str]:
-    """3-letter QCA codename (UPPERCASE) → canonical primary chipset (lowercase)."""
-    return _load_bt_qca_codenames().codename_map
-
-
-def get_qca_codename_display() -> dict[str, str]:
-    """QCA codename → human-readable display name (e.g. "CMC" → "Comanche")."""
-    return _load_bt_qca_codenames().codename_display
-
-
-def get_qca_also_covers() -> dict[str, frozenset[str]]:
-    """QCA codename → additional chipsets the same codename can ship on.
-
-    Example: ``{"CHE": frozenset({"wcn3991", "wcn3998"})}`` — Cherokee
-    family covers WCN3990 (primary) + WCN3991 + WCN3998 in the upstream
-    Linux kernel switch. Informational; the parser does not currently
-    consume this beyond surfacing via metadata.
-    """
-    return _load_bt_qca_codenames().codename_also_covers
-
-
-def get_qca_codename_families() -> dict[str, tuple[str, ...]]:
-    """QCA codename → generation tag tuples (e.g. ``("Rome",)``, ``("FastConnect",)``).
-
-    Informational; available for future queries like "list all FastConnect
-    BT codenames" without re-reading the parser source.
-    """
-    return _load_bt_qca_codenames().codename_families
-
-
-def get_braktooth_chipsets() -> frozenset[str]:
-    """Chipsets in scope for the ASSET BrakTooth Qualcomm DoS subset.
-
-    CVE-2021-34147 + CVE-2021-31609 + CVE-2021-31612 fire on any blob
-    whose ``chipset_target`` falls in this set. CVE-2021-28139 (RCE
-    CVSS 8.8) is ESP32-only per NVD and is NOT pinned by this parser
-    despite being part of the BrakTooth disclosure batch — see Reviewer
-    B finding 2026-05-16.
-    """
-    return _load_bt_qca_codenames().braktooth_chipsets
-
-
-def get_mtk_chips() -> tuple[bytes, ...]:
-    """MediaTek BT/WiFi chip-ID allowlist for content scanning.
-
-    Returned as ``tuple[bytes, ...]`` because the parser performs byte-wise
-    ``in firmware_bytes`` membership tests — encoding once at load time is
-    cheaper than encoding on every parser invocation.
-    """
-    return _load_bt_qca_codenames().mtk_known_chips
-
-
-# ---------------------------------------------------------------------------
-# Banner-pin → CVE rules (bt_banner_cve_pins.yaml) — externalized 2026-05-17.
-#
-# Replaces the hardcoded ``_maybe_pin_braktooth`` Python function in
-# parsers/bt_firmware_banner.py with a generic YAML-driven rule engine.
-# Each pin carries match conditions (family / codename / chipset /
-# banner-regex / build_date / build_id) and a CVE list; the parser
-# emits one ``known_vulnerabilities`` row per CVE when ALL match
-# conditions evaluate true against a parsed BT firmware banner record.
-#
-# Loader contract identical to the H1 codename table: @lru_cache,
-# graceful-degrade to in-tree ``_BANNER_CVE_PIN_DEFAULTS`` (which
-# preserves the BRAKTOOTH Tier 0 pin) on missing/malformed YAML.
+# Banner-pin → CVE rules (bt_banner_cve_pins.yaml).
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class BannerCveEntry:
-    """One CVE attached to a banner-pin rule.
-
-    ``rationale`` is a str.format template; the parser substitutes
-    ``{banner} {chipset} {chipset_upper} {codename} {build_id}
-    {build_date}`` from the matched record.
-    """
+    """One CVE attached to a banner-pin rule."""
 
     cve_id: str
     severity: str
@@ -751,20 +573,7 @@ class BannerCveEntry:
 
 @dataclass(frozen=True)
 class BannerCvePin:
-    """One banner-pin rule loaded from bt_banner_cve_pins.yaml.
-
-    All match-condition fields are optional (None = "don't gate on this");
-    the engine evaluates them as a logical AND. At least ONE non-None
-    condition is required at parse time — a pin with all gates absent
-    would fire on every BT blob.
-
-    ``banner_re`` is the compiled form of the YAML's ``banner_match:``
-    pattern (case-insensitive). ``build_date_before`` is parsed as a
-    ``datetime.date`` for direct comparison. ``signed_eq`` matches
-    against the parser's ``record["signed"]`` value ("signed" or
-    "unsigned"); useful when an advisory applies only to debug/dev
-    unsigned firmware vs production signed.
-    """
+    """One banner-pin rule loaded from bt_banner_cve_pins.yaml."""
 
     pin_id: str
     description: str
@@ -779,24 +588,18 @@ class BannerCvePin:
 
 
 # In-tree default — fallback when bt_banner_cve_pins.yaml is missing or
-# malformed. Mirrors the shipping YAML's first pin (BRAKTOOTH Qualcomm
-# DoS — CVE-2021-30348) so the parser keeps emitting Tier 0 pins even
-# if the file is absent.
+# malformed AND no prior valid load has occurred. Mirrors the shipping
+# YAML's first pin (BRAKTOOTH Qualcomm DoS — CVE-2021-30348).
 #
 # CRITICAL: per Reviewer B 2026-05-16 + 2026-05-17 audits, the ONLY
 # correct per-NVD-CPE Qualcomm BrakTooth-DoS CVE is **CVE-2021-30348**
 # (CVSS 6.5, Qualcomm CNA). CVE-2021-28139 (ESP32 RCE), CVE-2021-34147
 # (Cypress WICED), CVE-2021-31609 (Silicon Labs iWRAP), and CVE-2021-31612
-# (Zhuhai Jieli) all appear in the ASSET BrakTooth disclosure batch but
-# their NVD CPE lists do NOT include Qualcomm chipsets — pinning them
-# under a qca_rome family pin would replicate yesterday's BTFM→Broadcom
-# misattribution class. NEVER add a non-Qualcomm-CNA CVE under a
-# qca_rome family pin without an explicit NVD-CPE-verifying citation.
-#
-# Reviewer A 2026-05-17: the BrakTooth chipset set is REFERENCED from
-# ``_BT_CODENAME_DEFAULTS.braktooth_chipsets`` rather than re-literal'd
-# here, so widening the set in one place can't leave the in-tree fallback
-# internally inconsistent.
+# (Zhuhai Jieli) appear in the ASSET BrakTooth disclosure batch but their
+# NVD CPE lists do NOT include Qualcomm chipsets — pinning them under a
+# qca_rome family pin would replicate the BTFM→Broadcom misattribution
+# class. NEVER add a non-Qualcomm-CNA CVE under a qca_rome family pin
+# without an explicit NVD-CPE-verifying citation.
 _BANNER_CVE_PIN_DEFAULTS: tuple[BannerCvePin, ...] = (
     BannerCvePin(
         pin_id="qualcomm-braktooth-qca-rome-dos-cve-2021-30348",
@@ -832,12 +635,11 @@ _BANNER_CVE_PIN_DEFAULTS: tuple[BannerCvePin, ...] = (
 
 
 def _parse_banner_cve_pin(idx: int, entry: dict) -> BannerCvePin:
-    """Validate + convert a single YAML pin entry into a BannerCvePin.
-
-    Raises ``ValueError`` on any structural issue.
-    """
+    """Validate + convert a single YAML pin entry into a BannerCvePin."""
     if not isinstance(entry, dict):
-        raise ValueError(f"pins[{idx}] must be a mapping, got {type(entry).__name__}")
+        raise ValueError(
+            f"pins[{idx}] must be a mapping, got {type(entry).__name__}"
+        )
 
     pin_id = entry.get("id")
     description = entry.get("description")
@@ -859,7 +661,9 @@ def _parse_banner_cve_pin(idx: int, entry: dict) -> BannerCvePin:
     codename_in: frozenset[str] | None = None
     if codename_in_raw is not None:
         if not isinstance(codename_in_raw, list):
-            raise ValueError(f"pins[{idx}] {pin_id!r}: 'codename_in' must be a list")
+            raise ValueError(
+                f"pins[{idx}] {pin_id!r}: 'codename_in' must be a list"
+            )
         codename_in = frozenset(
             str(c).strip().upper()
             for c in codename_in_raw
@@ -896,7 +700,6 @@ def _parse_banner_cve_pin(idx: int, entry: dict) -> BannerCvePin:
     build_date_before: date | None = None
     bdb_raw = entry.get("build_date_before")
     if bdb_raw is not None:
-        # PyYAML parses unquoted YYYY-MM-DD as a datetime.date already.
         if isinstance(bdb_raw, date):
             build_date_before = bdb_raw
         elif isinstance(bdb_raw, str):
@@ -904,13 +707,13 @@ def _parse_banner_cve_pin(idx: int, entry: dict) -> BannerCvePin:
                 build_date_before = date.fromisoformat(bdb_raw.strip())
             except ValueError as exc:
                 raise ValueError(
-                    f"pins[{idx}] {pin_id!r}: 'build_date_before' must be YYYY-MM-DD; "
-                    f"got {bdb_raw!r} ({exc})"
+                    f"pins[{idx}] {pin_id!r}: 'build_date_before' must be "
+                    f"YYYY-MM-DD; got {bdb_raw!r} ({exc})"
                 ) from exc
         else:
             raise ValueError(
-                f"pins[{idx}] {pin_id!r}: 'build_date_before' must be a date or "
-                f"YYYY-MM-DD string; got {type(bdb_raw).__name__}"
+                f"pins[{idx}] {pin_id!r}: 'build_date_before' must be a "
+                f"date or YYYY-MM-DD string; got {type(bdb_raw).__name__}"
             )
 
     bil_raw = entry.get("build_id_lt")
@@ -922,10 +725,7 @@ def _parse_banner_cve_pin(idx: int, entry: dict) -> BannerCvePin:
                 f"got {type(bil_raw).__name__}"
             )
         build_id_lt = bil_raw
-        # Reviewer C 2026-05-17: a `build_id_lt: 0` is almost always a
-        # placeholder sentinel — every real build_id is >= 0 so the gate
-        # would never fire and the pin is effectively dead. Loud-on-likely-
-        # mistake matches the rest of the loader's discipline.
+        # Reject the unfilled-placeholder sentinel.
         if (
             bil_raw == 0
             and family is None
@@ -955,8 +755,6 @@ def _parse_banner_cve_pin(idx: int, entry: dict) -> BannerCvePin:
             )
         signed_eq = normalized
 
-    # At least one match condition required — a pin with NO gates would
-    # fire on every BT blob, which is never what an operator wants.
     if all(
         cond is None
         for cond in (
@@ -1044,13 +842,9 @@ def _parse_banner_cve_pin(idx: int, entry: dict) -> BannerCvePin:
     )
 
 
-def _parse_banner_cve_pin_data(data: dict) -> tuple[BannerCvePin, ...]:
-    """Parse a validated YAML dict into a tuple of BannerCvePin.
-
-    Raises ``ValueError`` on any structural issue; the caller wraps with
-    the graceful-degrade fallback to ``_BANNER_CVE_PIN_DEFAULTS``.
-    """
-    pins_raw = data.get("pins")
+def _parse_banner_cve_pin_data(raw: dict) -> tuple[BannerCvePin, ...]:
+    """Parse the full bt_banner_cve_pins.yaml dict → tuple of pins."""
+    pins_raw = raw.get("pins")
     if not isinstance(pins_raw, list):
         raise ValueError("'pins' must be a list")
     pins: list[BannerCvePin] = []
@@ -1064,48 +858,257 @@ def _parse_banner_cve_pin_data(data: dict) -> tuple[BannerCvePin, ...]:
     return tuple(pins)
 
 
-@lru_cache(maxsize=1)
-def _load_banner_cve_pins() -> tuple[BannerCvePin, ...]:
-    """Load and validate bt_banner_cve_pins.yaml.
+# ---------------------------------------------------------------------------
+# Summary callables — produce the human-readable count strings the mtime
+# loader uses for its INFO log lines. Each must accept its loader's typed
+# value and return a one-line string.
+# ---------------------------------------------------------------------------
 
-    Returns the parsed pin tuple on success; on missing file, YAML syntax
-    error, or structural validation failure, returns
-    ``_BANNER_CVE_PIN_DEFAULTS`` (BrakTooth pin) and logs at WARNING.
 
-    Cached via ``functools.lru_cache(maxsize=1)``. Tests swap the YAML
-    path via monkeypatch and call ``_load_banner_cve_pins.cache_clear()``.
-    """
-    data = _safe_load(_BT_BANNER_CVE_PINS_YAML)
-    if not data:
-        logger.info(
-            "patterns_loader: bt_banner_cve_pins.yaml missing or "
-            "unparseable — using in-tree _BANNER_CVE_PIN_DEFAULTS "
-            "(%d pins, %d CVEs total)",
-            len(_BANNER_CVE_PIN_DEFAULTS),
-            sum(len(p.cves) for p in _BANNER_CVE_PIN_DEFAULTS),
-        )
-        return _BANNER_CVE_PIN_DEFAULTS
-    try:
-        pins = _parse_banner_cve_pin_data(data)
-    except (ValueError, TypeError) as exc:
-        logger.warning(
-            "patterns_loader: bt_banner_cve_pins.yaml structural validation "
-            "failed (%s); falling back to in-tree _BANNER_CVE_PIN_DEFAULTS",
-            exc,
-        )
-        return _BANNER_CVE_PIN_DEFAULTS
-    logger.info(
-        "patterns_loader: bt_banner_cve_pins.yaml loaded — %d pins, "
-        "%d CVEs total (YAML, not defaults)",
-        len(pins),
-        sum(len(p.cves) for p in pins),
+def _summary_vendors(t: _VendorTable) -> str:
+    return (
+        f"{len(t.canonical)} canonical vendors, "
+        f"{len(t.aliases)} aliases, "
+        f"{len(t.display)} display names"
     )
-    return pins
+
+
+def _summary_patterns(p: list[_PatternEntry]) -> str:
+    return f"{len(p)} patterns"
+
+
+def _summary_path_contexts(p: list[_PathContextEntry]) -> str:
+    return f"{len(p)} path_contexts entries"
+
+
+def _summary_bt_codenames(t: BtCodenameTable) -> str:
+    return (
+        f"{len(t.codename_map)} codenames, "
+        f"{len(t.braktooth_chipsets)} braktooth chipsets, "
+        f"{len(t.mtk_known_chips)} mtk chips"
+    )
+
+
+def _summary_banner_pins(p: tuple[BannerCvePin, ...]) -> str:
+    return f"{len(p)} pins, {sum(len(pin.cves) for pin in p)} CVEs total"
+
+
+# ---------------------------------------------------------------------------
+# Module-level loader instances.
+#
+# All five share the MtimeCachedYamlLoader machinery from _yaml_cache.py.
+# Each accessor function below delegates to ``.get()`` so an mtime change
+# on disk is picked up within a single call.
+# ---------------------------------------------------------------------------
+
+
+# Path resolvers are lambdas that re-read the module-level constants on
+# every call. This is load-bearing for test fixtures that
+# ``monkeypatch.setattr(PL, '_BT_QCA_CODENAMES_YAML', tmp_path)`` — the
+# loader's next ``get()`` sees the swapped path because the resolver
+# looks up the module attribute fresh.
+import sys as _sys
+
+_this_module = _sys.modules[__name__]
+
+
+def _resolve_vendor_yaml() -> Path:
+    return _this_module._VENDOR_YAML  # type: ignore[attr-defined]
+
+
+def _resolve_patterns_yaml() -> Path:
+    return _this_module._PATTERNS_YAML  # type: ignore[attr-defined]
+
+
+def _resolve_bt_qca_codenames_yaml() -> Path:
+    return _this_module._BT_QCA_CODENAMES_YAML  # type: ignore[attr-defined]
+
+
+def _resolve_bt_banner_cve_pins_yaml() -> Path:
+    return _this_module._BT_BANNER_CVE_PINS_YAML  # type: ignore[attr-defined]
+
+
+_VENDORS_LOADER: MtimeCachedYamlLoader[_VendorTable] = MtimeCachedYamlLoader(
+    path=_resolve_vendor_yaml,
+    parser=_parse_vendors_data,
+    defaults=_VendorTable(
+        canonical=_CORE_VENDORS,
+        aliases={},
+        display={
+            "qualcomm": "Qualcomm Technologies, Inc.",
+            "mediatek": "MediaTek Inc.",
+            "nvidia": "NVIDIA Corporation",
+            "realtek": "Realtek Semiconductor Corp.",
+            "unknown": "Unknown Vendor",
+        },
+    ),
+    name="patterns_loader",
+    summary=_summary_vendors,
+)
+
+_PATTERNS_LOADER: MtimeCachedYamlLoader[list[_PatternEntry]] = MtimeCachedYamlLoader(
+    path=_resolve_patterns_yaml,
+    parser=_parse_patterns_data,
+    defaults=[],
+    name="patterns_loader",
+    summary=_summary_patterns,
+)
+
+_PATH_CONTEXTS_LOADER: MtimeCachedYamlLoader[list[_PathContextEntry]] = (
+    MtimeCachedYamlLoader(
+        path=_resolve_patterns_yaml,
+        parser=_parse_path_contexts_data,
+        defaults=[],
+        name="patterns_loader",
+        summary=_summary_path_contexts,
+    )
+)
+
+_BT_CODENAMES_LOADER: MtimeCachedYamlLoader[BtCodenameTable] = MtimeCachedYamlLoader(
+    path=_resolve_bt_qca_codenames_yaml,
+    parser=_parse_bt_codename_data,
+    defaults=_BT_CODENAME_DEFAULTS,
+    name="patterns_loader",
+    summary=_summary_bt_codenames,
+)
+
+_BANNER_CVE_PINS_LOADER: MtimeCachedYamlLoader[tuple[BannerCvePin, ...]] = (
+    MtimeCachedYamlLoader(
+        path=_resolve_bt_banner_cve_pins_yaml,
+        parser=_parse_banner_cve_pin_data,
+        defaults=_BANNER_CVE_PIN_DEFAULTS,
+        name="patterns_loader",
+        summary=_summary_banner_pins,
+    )
+)
+
+
+# Backward-compat shims for the H1 + H2 unit tests that call
+# ``_load_bt_qca_codenames.cache_clear()`` / ``_load_banner_cve_pins.cache_clear()``.
+# The names match the previous @lru_cache function shapes so existing
+# fixture code migrates without source edits.
+_load_bt_qca_codenames = _BT_CODENAMES_LOADER
+_load_banner_cve_pins = _BANNER_CVE_PINS_LOADER
+
+
+def clear_all_caches() -> None:
+    """Pytest helper: reset every loader's cache (mtime + cached value).
+
+    Use in tests that swap YAML paths via monkeypatch.setattr against the
+    module-level ``_*_YAML`` constants. The reset forces a fresh load
+    against whatever path the loaders now point to.
+    """
+    _VENDORS_LOADER.cache_clear()
+    _PATTERNS_LOADER.cache_clear()
+    _PATH_CONTEXTS_LOADER.cache_clear()
+    _BT_CODENAMES_LOADER.cache_clear()
+    _BANNER_CVE_PINS_LOADER.cache_clear()
+
+
+# ---------------------------------------------------------------------------
+# Module-level snapshots — captured once at import for backward-compat.
+#
+# Runtime callers that need hot-reload behaviour MUST use the accessor
+# functions (``resolve_vendor`` / ``match`` / ``match_path_context`` /
+# ``get_*``) rather than these module-level constants. The constants are
+# preserved for downstream code that imports them by name (e.g.
+# classifier.py re-exports VENDORS for UI consumers).
+# ---------------------------------------------------------------------------
+_initial_vendors = _VENDORS_LOADER.get()
+VENDORS: frozenset[str] = _initial_vendors.canonical
+_VENDOR_ALIASES: dict[str, str] = _initial_vendors.aliases
+VENDOR_DISPLAY: dict[str, str] = _initial_vendors.display
+
+
+# ---------------------------------------------------------------------------
+# Accessors — read fresh state on every call so YAML edits land within
+# one accessor call. Pair with the per-load INFO logs to give operators
+# definitive visibility into "did my YAML edit take effect?".
+# ---------------------------------------------------------------------------
+
+
+def resolve_vendor(name: str | None) -> str:
+    """Canonicalise a vendor token via the alias map."""
+    if not name:
+        return "unknown"
+    key = name.strip().lower()
+    table = _VENDORS_LOADER.get()
+    return table.aliases.get(key, key)
+
+
+def get_vendors() -> frozenset[str]:
+    """Current canonical vendor set (hot-reloaded from vendor_prefixes.yaml)."""
+    return _VENDORS_LOADER.get().canonical
+
+
+def get_vendor_display() -> dict[str, str]:
+    """Current vendor → display-name mapping (hot-reloaded)."""
+    return _VENDORS_LOADER.get().display
+
+
+def match(path: str) -> PatternMatch | None:
+    """Return the first PatternMatch whose regex matches the basename."""
+    if not path:
+        return None
+    base = path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    if not base:
+        return None
+    for rx, tmpl in _PATTERNS_LOADER.get():
+        if rx.search(base):
+            return tmpl
+    return None
+
+
+def match_path_context(path: str) -> PathContextMatch | None:
+    """Return the highest-priority path-context match for ``path``."""
+    if not path:
+        return None
+    norm = path.replace("\\", "/").lower()
+    base = norm.rsplit("/", 1)[-1] if "/" in norm else norm
+    if not base:
+        return None
+    for path_rx, filename_rx, tmpl in _PATH_CONTEXTS_LOADER.get():
+        if not path_rx.search(norm):
+            continue
+        if filename_rx is not None and not filename_rx.search(base):
+            continue
+        return tmpl
+    return None
+
+
+def get_qca_codename_map() -> dict[str, str]:
+    """3-letter QCA codename (UPPERCASE) → canonical primary chipset (lowercase)."""
+    return _BT_CODENAMES_LOADER.get().codename_map
+
+
+def get_qca_codename_display() -> dict[str, str]:
+    """QCA codename → human-readable display name."""
+    return _BT_CODENAMES_LOADER.get().codename_display
+
+
+def get_qca_also_covers() -> dict[str, frozenset[str]]:
+    """QCA codename → additional chipsets the same codename can ship on."""
+    return _BT_CODENAMES_LOADER.get().codename_also_covers
+
+
+def get_qca_codename_families() -> dict[str, tuple[str, ...]]:
+    """QCA codename → generation tag tuples."""
+    return _BT_CODENAMES_LOADER.get().codename_families
+
+
+def get_braktooth_chipsets() -> frozenset[str]:
+    """Chipsets in scope for the ASSET BrakTooth Qualcomm DoS subset."""
+    return _BT_CODENAMES_LOADER.get().braktooth_chipsets
+
+
+def get_mtk_chips() -> tuple[bytes, ...]:
+    """MediaTek BT/WiFi chip-ID allowlist for content scanning."""
+    return _BT_CODENAMES_LOADER.get().mtk_known_chips
 
 
 def get_banner_cve_pins() -> tuple[BannerCvePin, ...]:
     """Banner-pin → CVE rule list, parsed + validated from YAML."""
-    return _load_banner_cve_pins()
+    return _BANNER_CVE_PINS_LOADER.get()
 
 
 __all__ = [
@@ -1116,6 +1119,7 @@ __all__ = [
     "PatternMatch",
     "VENDORS",
     "VENDOR_DISPLAY",
+    "clear_all_caches",
     "get_banner_cve_pins",
     "get_braktooth_chipsets",
     "get_mtk_chips",
@@ -1123,6 +1127,8 @@ __all__ = [
     "get_qca_codename_display",
     "get_qca_codename_families",
     "get_qca_codename_map",
+    "get_vendor_display",
+    "get_vendors",
     "match",
     "match_path_context",
     "resolve_vendor",

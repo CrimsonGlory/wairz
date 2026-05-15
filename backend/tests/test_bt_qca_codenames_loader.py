@@ -310,12 +310,20 @@ def test_yaml_syntax_error_falls_back_to_defaults(
     monkeypatch.setattr(PL, "_BT_QCA_CODENAMES_YAML", yaml_path)
     PL._load_bt_qca_codenames.cache_clear()
 
-    with caplog.at_level("WARNING", logger="app.services.hardware_firmware.patterns_loader"):
+    with caplog.at_level(
+        "WARNING", logger="app.services.hardware_firmware._yaml_cache"
+    ):
         cn = PL.get_qca_codename_map()
 
     assert cn["CMC"] == "wcn3950"
-    # _safe_load logged the parse failure (the message says "failed to parse").
-    assert any("failed to parse" in r.message for r in caplog.records)
+    # MtimeCachedYamlLoader logs "failed to read/parse" under the new
+    # hot-reload contract (2026-05-18). First-call parse failure with
+    # no prior valid state → defaults; subsequent failures would keep
+    # the previous valid state.
+    assert any(
+        "failed to read/parse" in r.message or "failed to parse" in r.message
+        for r in caplog.records
+    )
 
 
 # ---------------------------------------------------------------------------

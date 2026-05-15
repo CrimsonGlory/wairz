@@ -526,17 +526,26 @@ def test_firmware_patterns_minimum_coverage() -> None:
 
 
 def test_path_contexts_yaml_loads() -> None:
-    """firmware_patterns.yaml::path_contexts must populate the module table."""
-    from app.services.hardware_firmware.patterns_loader import _PATH_CONTEXTS
+    """firmware_patterns.yaml::path_contexts must populate the loader.
 
-    assert isinstance(_PATH_CONTEXTS, list)
-    assert len(_PATH_CONTEXTS) >= 14, (
+    Updated 2026-05-18 (YAML hot-reload migration): the module-level
+    ``_PATH_CONTEXTS`` constant was replaced with the mtime-cached
+    ``_PATH_CONTEXTS_LOADER`` instance whose ``.get()`` returns the
+    current compiled list. Public accessor: ``match_path_context``.
+    """
+    from app.services.hardware_firmware.patterns_loader import (
+        _PATH_CONTEXTS_LOADER,
+    )
+
+    path_contexts = _PATH_CONTEXTS_LOADER.get()
+    assert isinstance(path_contexts, list)
+    assert len(path_contexts) >= 14, (
         "expected at least 14 path_contexts entries (radio.img / BTFM / dspso /"
         " bootloader / RFNV / EFS / FSG / WLAN / GPU / carrier / bluedroid-system"
         " / bluedroid-vendor / bluedroid-daemon / wpa_supplicant-bin / wpa-libwpa)"
     )
     # Each tuple: (path_rx, filename_rx_or_None, PathContextMatch).
-    for path_rx, filename_rx, tmpl in _PATH_CONTEXTS:
+    for path_rx, filename_rx, tmpl in path_contexts:
         assert path_rx is not None
         assert isinstance(tmpl, PathContextMatch)
         assert tmpl.category in classifier.CATEGORIES, (
