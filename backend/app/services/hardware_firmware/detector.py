@@ -37,6 +37,65 @@ _SLOW_WALK_SECONDS = 45
 _DETECTION_SOURCE = "phase1_classifier"
 
 
+def _sanitize_text(value, max_len: int | None):
+    """Strip NUL bytes + control chars + clip length for a PostgreSQL TEXT/
+    VARCHAR insert.
+
+    PE/ELF parsers (LIEF, pyelftools, pefile) sometimes return strings
+    extracted from raw binary segments that contain embedded NUL bytes
+    (``0x00``) — Postgres rejects these in TEXT/VARCHAR with
+    ``CharacterNotInRepertoireError: invalid byte sequence for encoding
+    "UTF8": 0x00``. Surfaced on the DS1 Moto-G32 bootloader.img_extract
+    ELF segments (2026-05-14) — every bootloader sub-blob got rejected
+    by the bulk insert, leaving ``hardware_firmware_blobs`` empty.
+
+    Sanitization:
+    - ``None`` → ``None`` (preserves nullable contract).
+    - Non-str → str-coerce + sanitize.
+    - Strip every ``\\x00`` byte.
+    - Strip other C0 control chars except ``\\t \\n \\r`` (defensible:
+      these are legal in TEXT but break log readability).
+    - Clip to ``max_len`` if provided (mirrors pre-existing slice
+      semantics from the original `[:N]` discipline).
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        value = str(value)
+    if "\x00" in value:
+        value = value.replace("\x00", "")
+    # Strip C0 controls except tab/LF/CR
+    cleaned = "".join(
+        c for c in value
+        if c == "\t" or c == "\n" or c == "\r" or ord(c) >= 0x20
+    )
+    if max_len is not None and len(cleaned) > max_len:
+        cleaned = cleaned[:max_len]
+    return cleaned or None
+
+
+def _sanitize_jsonb(value):
+    """Recursively strip NUL bytes from a JSONB-bound dict/list/scalar tree.
+
+    JSONB strings have the same NUL prohibition as TEXT/VARCHAR. PE/ELF
+    metadata extracted by the classifier can land in
+    ``metadata.*.cert_subject`` / ``metadata.*.imphash`` etc. with
+    embedded NULs. Surfaced alongside the TEXT-column NUL bug on the
+    DS1 Moto-G32 bootloader extracts (2026-05-14).
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        if "\x00" in value:
+            return value.replace("\x00", "")
+        return value
+    if isinstance(value, dict):
+        return {k: _sanitize_jsonb(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_jsonb(v) for v in value]
+    return value
+
+
 def _detect_partition(extracted_path: str, blob_path: str) -> str | None:
     """Return the top-level directory under extracted_path, or None."""
     try:
@@ -306,26 +365,28 @@ async def detect_hardware_firmware(
         chipset = row.get("chipset_target")
         values.append({
             "firmware_id": firmware_id,
-            "blob_path": row["blob_path"][:1024],
-            "partition": row["partition"][:64] if row["partition"] else None,
+            "blob_path": _sanitize_text(row["blob_path"], 1024),
+            "partition": _sanitize_text(row["partition"], 64),
             "blob_sha256": sha,
             "file_size": row["file_size"],
             "category": row["category"],
-            "vendor": row["vendor"],
+            "vendor": _sanitize_text(row["vendor"], None),
             "format": row["format"],
             "detection_source": row["detection_source"],
             "detection_confidence": row["detection_confidence"],
-            "version": version[:128] if version else None,
+            "version": _sanitize_text(version, 128),
             "signed": row.get("signed") or "unknown",
-            "signature_algorithm": sig_algo[:64] if sig_algo else None,
-            "cert_subject": row.get("cert_subject"),
-            "chipset_target": chipset[:64] if chipset else None,
+            "signature_algorithm": _sanitize_text(sig_algo, 64),
+            "cert_subject": _sanitize_text(row.get("cert_subject"), None),
+            "chipset_target": _sanitize_text(chipset, 64),
             # ORM attribute is metadata_; DB column is "metadata".
             # postgresql.insert(<MappedClass>).values() resolves attribute
             # names, not column names — use "metadata_" or it collides with
             # Base.metadata (MetaData object) and raises AttributeError.
-            "metadata_": _stamp_hardware_firmware_blobs_metadata(
-                _normalize_hardware_firmware_blobs_metadata(row.get("metadata"))
+            "metadata_": _sanitize_jsonb(
+                _stamp_hardware_firmware_blobs_metadata(
+                    _normalize_hardware_firmware_blobs_metadata(row.get("metadata"))
+                )
             ),
         })
 
