@@ -91,6 +91,18 @@ User reported "hardware firmware detects nothing" for project `8413d661` (DS1 Mo
 
 5. **Extend the forensic-completeness checklist** — the forensic reviewer's #4 finding lists 4 categories (bootloader, kernel, tee, ramdisk-firmware) that are systemically missing from wairz detections. These need parser/walker work beyond the scope of this debugging session — track as separate work items.
 
+## Corpus Verification Pass (post-fix, same-session)
+
+After the 5 fixes shipped, user pointed at project `c3cc1194-ae30-4129-97ef-9b95c785d825` (Moto-G30 XT2129-1) — same vendor / similar shape / suspected same symptom. Verification:
+
+- **Initial state:** 441 detection_roots ALREADY widely populated (so commit `c0c107e` path-string-fallback fix wasn't the blocker for this firmware — its detection_roots were already correct at upload time). BUT `detection_audit` JSONB was NULL, indicating the detector NEVER COMPLETED. Hypothesis: hit the NUL-byte bug, was silently swallowed by the outer try/except in `_run_hardware_firmware_detection_safe`, no audit was stamped.
+- **Recovery:** ran `backfill_detection.py --firmware-id f84544a9-f829-47d1-8518-d9212abc7ea8` with the post-fix backend. Result: 0 → **286 blobs persisted + 45 CVE matches** + audit stamped.
+- **Blob breakdown:** 238 other/qcom_mbn/qualcomm + 15 bluetooth/broadcom (the BTFM patterns from `f6bdc4e` correctly fired) + 12 modem MBN + 11 audio MBN + 8 DSP MBN + 1 GPU ELF + 1 DTBO. Same shape as DS1 with slightly fewer entries (different ROM build).
+- **Unblob extraction health audit** (per CLAUDE.md Rule #34):
+  - DS1 Moto-G32: 9,183 files / 0 zero-byte / 0 hardlinks / 83.9 GB — HEALTHY.
+  - Moto-G30: 23,053 files / 1,627 zero-byte (7.1%) / 0 hardlinks / 135.9 GB — HEALTHY. The 1,617 of 1,627 zero-byte files are kernel CONFIG_* feature-flag headers in `boot.img_extract/4096-14699654.gzip_extract/include/config/*.h` (`support.h`, `fs.h`, `device.h`, etc.). Linux kernel build artifact, not extraction corruption. Per Rule #34, the failure signature requires "zero-byte set dominated by binaries/libraries" — G30 fails that criterion (zeros are headers).
+- **Cross-confirms the bug taxonomy:** DS1 needed BOTH fix #1 (detection-roots fallback) AND fix #2 (NUL sanitization); G30 only needed fix #2. Both fixes were the right call — `fc08450` alone wouldn't have fixed DS1, and `c0c107e` alone wouldn't have fixed G30. The bugs were chained on DS1 but independent across the corpus.
+
 ## Numbers
 
 | Metric | Value |
@@ -102,9 +114,10 @@ User reported "hardware firmware detects nothing" for project `8413d661` (DS1 Mo
 | New tests | 39 (2 firmware_paths regression + 28 sanitizer unit + 9 classifier-pattern) |
 | DS1 firmware blob count | 0 → 313 (after detection-roots + NUL fixes) → 331 (after Broadcom patterns) |
 | Broadcom Bluetooth blob count on DS1 | 0 → 18 |
-| Corpus firmwares discovered in same broken state | 5 (1 DS1 + 4 others) |
-| Corpus firmwares automatically recovered | 2 (DS1 Moto-G32 to 331 blobs + Netgear GS724Tv6 to 2 blobs) |
+| Corpus firmwares discovered in same broken state | 6 (1 DS1 Moto-G32 + 1 Moto-G30 user-pointed + 4 found in sweep) |
+| Corpus firmwares automatically recovered | 3 (DS1 Moto-G32 to 331 blobs + Moto-G30 to 286 blobs + 45 CVEs + Netgear GS724Tv6 to 2 blobs) |
 | Corpus firmwares remaining stuck | 3 (legitimate "no firmware blobs in scope" outcomes — Intel HEX bootloader, vendor binary, Linux library tarball) |
+| Unblob-extraction health audits | 2 (DS1 + G30 both confirmed HEALTHY per Rule #34) |
 | Parallel reviewer agents dispatched | 3 (arch + forensic + corpus) |
 | Reviewer wall-clock | ~5 min total (parallel) |
 | Rule #25 commits | 5 (per-fix discipline) |
