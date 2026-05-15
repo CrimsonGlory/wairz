@@ -110,17 +110,73 @@ class MatchResult:
 
 
 def _load_known_firmware() -> list[dict]:
-    """Load curated CVE families from YAML.  Cached in module scope."""
+    """Load curated CVE families from YAML.  Cached in module scope.
+
+    Performs lightweight schema validation on load:
+      - Advisory-only entries (``cves: []`` or missing ``cves``) MUST
+        carry an ``advisory_id`` key. Reviewer A's H1 finding
+        2026-05-15: the synthesised ``ADVISORY-<NAME>`` cve_id is
+        clipped to VARCHAR(20) (Rule #15), so two long YAML names with
+        identical first-11-chars-after-ADVISORY- would collide silently
+        and the DB dedup on (firmware_id, blob_id, cve_id) would drop
+        matches. The fix is to require an explicit advisory_id at YAML
+        author time and warn when missing.
+      - ``advisory_id`` (when present) MUST be ≤20 chars to fit the
+        column constraint.
+
+    Validation is WARN-only — malformed entries still load (so a YAML
+    typo doesn't gate every CVE match) but the warning surfaces in
+    logs for the operator to fix. Mechanically detectable via the
+    Rule #46 canary in test_hardware_firmware_cve_matcher.
+    """
     if not _YAML_PATH.is_file():
         logger.warning("known_firmware.yaml missing at %s", _YAML_PATH)
         return []
     try:
         with _YAML_PATH.open("r") as f:
             data = yaml.safe_load(f)
-        return data.get("families", []) if data else []
+        families = data.get("families", []) if data else []
     except yaml.YAMLError as exc:
         logger.error("Failed to parse known_firmware.yaml: %s", exc)
         return []
+
+    # Schema validation pass — warn (don't reject) malformed entries.
+    seen_advisory_ids: set[str] = set()
+    for idx, fam in enumerate(families):
+        if not isinstance(fam, dict):
+            continue
+        cves = fam.get("cves") or []
+        if not cves:
+            # Advisory-only — require advisory_id.
+            adv_id = fam.get("advisory_id")
+            if not adv_id:
+                logger.warning(
+                    "known_firmware.yaml entry #%d (%r) is advisory-only "
+                    "(cves: []) but missing advisory_id — synthesized ID "
+                    "may collide under VARCHAR(20) truncation",
+                    idx,
+                    fam.get("name", "<unnamed>"),
+                )
+            elif isinstance(adv_id, str):
+                if len(adv_id) > 20:
+                    logger.warning(
+                        "known_firmware.yaml entry #%d advisory_id %r "
+                        "exceeds VARCHAR(20) cap (length %d)",
+                        idx,
+                        adv_id,
+                        len(adv_id),
+                    )
+                if adv_id in seen_advisory_ids:
+                    logger.warning(
+                        "known_firmware.yaml entry #%d duplicate "
+                        "advisory_id %r — second entry will be deduped "
+                        "by the (firmware_id, blob_id, cve_id) UNIQUE "
+                        "constraint",
+                        idx,
+                        adv_id,
+                    )
+                seen_advisory_ids.add(adv_id)
+    return families
 
 
 # MediaTek's monthly Product Security Bulletins tag every CVE with a

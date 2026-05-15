@@ -334,8 +334,22 @@ def _compile_path_contexts() -> list[
             )
         )
 
-    # Highest priority first so the most specific rule wins.
-    compiled.sort(key=lambda t: -t[2].priority)
+    # Highest priority first so the most specific rule wins. Secondary
+    # sort keys (category, vendor, product) ensure deterministic
+    # ordering across runs when two rules share the same priority —
+    # per Reviewer A M5 (2026-05-15): without the tiebreaker, two
+    # priority-tied rules resolve in YAML insertion order, so a future
+    # PR appending a new rule in the wrong spot could silently change
+    # classification results. Deterministic ordering makes the YAML
+    # rewrite robust to author-order accidents.
+    compiled.sort(
+        key=lambda t: (
+            -t[2].priority,
+            t[2].category,
+            t[2].vendor,
+            t[2].product or "",
+        )
+    )
 
     if skipped:
         logger.info(

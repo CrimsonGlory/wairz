@@ -28,7 +28,7 @@ families:
   - name: Snapdragon modem RCE (CVE-2020-11292)
     vendor: qualcomm
     category: modem
-    chipset_regex: "(?i)^(sm|sdm|qcm|qm)(4[0-9]{3}|6[0-9]{3}|7[0-9]{3}|8[0-9]{3}|x[0-9]{2,3}).*"
+    chipset_regex: "(?i)^(sm|sdm|qcm|qm|sa)(4[0-9]{3}|6[0-9]{3}|7[0-9]{3}|8[0-9]{3}|x[0-9]{2,3}).*"
     cves:
       - CVE-2020-11292
     severity: critical
@@ -103,7 +103,7 @@ families:
   - name: Hexagon Achilles (CVE-2020-11201-11209)
     vendor: qualcomm
     category_regex: "^(dsp|audio)$"
-    chipset_regex: "(?i)^(sm|sdm|qcm|qm)(4[0-9]{3}|6[0-9]{3}|7[0-9]{3}|8[0-9]{3}).*"
+    chipset_regex: "(?i)^(sm|sdm|qcm|qm|sa)(4[0-9]{3}|6[0-9]{3}|7[0-9]{3}|8[0-9]{3}).*"
     cves:
       - CVE-2020-11201
       - CVE-2020-11202
@@ -149,17 +149,30 @@ families:
       ESET 2020.  All-zero encryption key after disassociation on Cypress/
       Broadcom Wi-Fi.  Widespread impact.
 
-  - name: BleedingTooth
-    vendor: broadcom
-    category: bluetooth
-    cves:
-      - CVE-2020-12351
-      - CVE-2020-12352
-      - CVE-2020-24490
+  - name: BleedingTooth (Linux kernel BlueZ)
+    advisory_id: ADVISORY-BLEEDTOOTH
+    vendor: unknown
+    category: kernel_module
+    cves: []
     severity: high
     cvss_score: 8.3
     notes: |
-      Andy Nguyen, Google 2020.  Linux BT stack + Broadcom firmware RCE.
+      Andy Nguyen, Google 2020.  CVE-2020-12351 / -12352 / -24490 are
+      LINUX KERNEL BLUEZ CVEs (in net/bluetooth/l2cap_core.c, a2mp.c,
+      hci_event.c) — NOT Bluetooth firmware CVEs. They affect Linux
+      kernels < 5.10 with BlueZ enabled. Android uses Bluedroid/
+      Fluoride in userspace, not BlueZ for the affected code paths,
+      and modern Android kernel patch levels post-date the BlueZ fix.
+      Disposition (2026-05-15): retargeted from `vendor=broadcom,
+      category=bluetooth` (which incorrectly fired on every QCA Rome
+      BT firmware blob like BTFM.bin contents — see firmware_patterns
+      .yaml correction header) to `category=kernel_module` so it only
+      fires on bluetooth.ko / btusb.ko kernel modules. Effectively an
+      advisory because most Android builds don't ship bluetooth.ko as
+      a standalone module. Keep the entry so the historical attack
+      surface is documented; cves: [] is intentional — the kernel-side
+      mitigation requires a kernel rebuild, not a firmware blob update.
+      Reference: third-party Bluetooth-stack content audit 2026-05-15.
 
   - name: QSEE Widevine keybox pre-2017
     vendor: qualcomm
@@ -525,7 +538,7 @@ families:
   - name: Qualcomm Snapdragon modem RCE cluster (2024-2025)
     vendor: qualcomm
     category: modem
-    chipset_regex: "(?i)^(sm|sdm|qcm|qm)(4[0-9]{3}|6[0-9]{3}|7[0-9]{3}|8[0-9]{3}|x[0-9]{2,3}).*"
+    chipset_regex: "(?i)^(sm|sdm|qcm|qm|sa)(4[0-9]{3}|6[0-9]{3}|7[0-9]{3}|8[0-9]{3}|x[0-9]{2,3}).*"
     cves:
       - CVE-2025-27034
       - CVE-2025-21483
@@ -545,19 +558,24 @@ families:
   - name: Qualcomm Adreno GPU zero-day cluster (2024-2025)
     vendor: qualcomm
     category: gpu
-    chipset_regex: "(?i)^(sm|sdm|qcm)(4[0-9]{3}|6[0-9]{3}|7[0-9]{3}|8[0-9]{3}).*"
+    chipset_regex: "(?i)^(sm|sdm|qcm|sa)(4[0-9]{3}|6[0-9]{3}|7[0-9]{3}|8[0-9]{3}).*"
     cves:
       - CVE-2025-21479
       - CVE-2025-21480
       - CVE-2025-27038
     severity: high
-    cvss_score: 8.6
+    cvss_score: 7.8
     notes: |
       Google Threat Analysis Group June 2025.  Incorrect authorization in
       Adreno Graphics component (CVE-2025-21479, -21480, CVSS 8.6) + UAF
-      in Adreno firmware rendering (CVE-2025-27038).  Affects Snapdragon
-      6/7/8-series Adreno A6xx/A7xx GPUs.  Limited, targeted exploitation
-      detected — suspected commercial spyware usage.
+      in Adreno firmware rendering (CVE-2025-27038, CVSS 7.8 — UAF in
+      firmware rendering path per Reviewer B audit 2026-05-15).
+      Aggregated cvss_score reduced to 7.8 to reflect the lowest
+      component CVSS (UAF) — operators triage on the highest, which
+      surfaces in the per-CVE record on read.  Affects Snapdragon
+      6/7/8-series Adreno A6xx/A7xx GPUs incl. SA-series automotive
+      (Reviewer B P5).  Limited, targeted exploitation detected —
+      suspected commercial spyware usage.
 
   - name: Qualcomm FastConnect WLAN/Bluetooth firmware RCE
     vendor: qualcomm
@@ -566,16 +584,18 @@ families:
     cves:
       - CVE-2025-47401
       - CVE-2025-47403
-      - CVE-2024-20040
     severity: high
     cvss_score: 7.5
     notes: |
-      Qualcomm Security Bulletin 2025-12 + ASB Feb 2024.  Adjacent-network
-      RCE via WLAN HAL channel-configuration buffer overruns (CVE-2025-47401,
-      -47403) and OOB write in WiFi firmware (CVE-2024-20040).  Covers
-      WCN6750/WCN6850 (FastConnect 6700/6900), QCA639x, on Snapdragon
-      6/7/8 series.  category_regex spans wifi+bluetooth — both surfaces
-      share the FastConnect firmware.
+      Qualcomm Security Bulletin 2025-12.  Adjacent-network RCE via WLAN
+      HAL channel-configuration buffer overruns (CVE-2025-47401, -47403).
+      Covers WCN6750/WCN6850 (FastConnect 6700/6900), QCA639x, on
+      Snapdragon 6/7/8 series.  category_regex spans wifi+bluetooth —
+      both surfaces share the FastConnect firmware.
+      Reviewer B (forensic-audit 2026-05-15) flagged CVE-2024-20040 as
+      a MediaTek WLAN firmware bug (ASB Apr 2024); already in the
+      MediaTek WLAN firmware OOB entry above. Removed from here to
+      avoid cross-vendor mis-attribution.
 
   - name: Qualcomm Spectra ISP camera memory corruption
     vendor: qualcomm
@@ -596,7 +616,7 @@ families:
   - name: Qualcomm modem remote DoS cluster
     vendor: qualcomm
     category: modem
-    chipset_regex: "(?i)^(sm|sdm|qcm|qm)(4[0-9]{3}|6[0-9]{3}|7[0-9]{3}|8[0-9]{3}|x[0-9]{2,3}).*"
+    chipset_regex: "(?i)^(sm|sdm|qcm|qm|sa)(4[0-9]{3}|6[0-9]{3}|7[0-9]{3}|8[0-9]{3}|x[0-9]{2,3}).*"
     cves:
       - CVE-2025-47408
       - CVE-2024-43048
@@ -608,21 +628,30 @@ families:
       reboot, not persistent compromise.  Rogue base station sending
       malformed RRC/NAS messages.
 
-  - name: Qualcomm Video Decoder (vdec) OOB write cluster
+  # Qualcomm video decoder advisory — placeholder for vendor-specific
+  # CVE coverage. The CVE-2024-20011/20009/20007 cluster originally
+  # appeared here AND in the MediaTek vdec entry. Reviewer B's audit
+  # (2026-05-15) traced the original ASB attribution to MediaTek; the
+  # Qualcomm equivalents have not yet been picked up in a Qualcomm-
+  # specific tracked bulletin. Keeping the advisory entry as a
+  # placeholder so a future contributor can attach the proper Qualcomm
+  # CVE list when QSB references surface.
+  - name: Qualcomm video decoder advisory
+    advisory_id: ADVISORY-QC-VDEC
     vendor: qualcomm
     category_regex: "^(dsp|gpu)$"
-    chipset_regex: "(?i)^(sm|sdm|qcm)(4[0-9]{3}|6[0-9]{3}|7[0-9]{3}|8[0-9]{3}).*"
-    cves:
-      - CVE-2024-20011
-      - CVE-2024-20009
-      - CVE-2024-20007
+    chipset_regex: "(?i)^(sm|sdm|qcm|sa)(4[0-9]{3}|6[0-9]{3}|7[0-9]{3}|8[0-9]{3}).*"
+    cves: []
     severity: high
     cvss_score: 7.8
     notes: |
-      ASB 2024.  Qualcomm video decoder OOB writes spanning hwcomposer /
-      graphics vendor blobs and kernel media drivers.  User opens
-      HEVC/VP9 file → LPE.  category_regex spans dsp+gpu since the bug
-      class crosses the decoder firmware (DSP-side) and the GPU compositor.
+      Qualcomm video decoder OOB write advisory.  Surfaces on
+      hwcomposer/graphics vendor blobs and DSP-side decoder firmware.
+      Reviewer B (forensic-audit 2026-05-15) flagged the original
+      CVE-2024-20011/20009/20007 list as MediaTek-attributed (ASB 2024
+      MediaTek vdec cluster); removed pending Qualcomm-specific bulletin
+      cross-reference.  Advisory-shape fires on any qcom dsp/gpu blob to
+      recommend BSP-current builds.
 
   - name: Qualcomm QSEE / TrustZone TA attack surface advisory
     advisory_id: ADVISORY-QC-QSEE
@@ -656,11 +685,11 @@ families:
       recommend firmware updates alongside Hexagon patches.
 
   - name: Qualcomm Hexagon FastRPC ICAlloc attack
+    advisory_id: ADVISORY-QC-FRPC
     vendor: qualcomm
     category: dsp
-    chipset_regex: "(?i)^(sm|sdm|qcm)(4[0-9]{3}|6[0-9]{3}|7[0-9]{3}|8[0-9]{3}).*"
-    cves:
-      - CVE-2024-43047
+    chipset_regex: "(?i)^(sm|sdm|qcm|sa)(4[0-9]{3}|6[0-9]{3}|7[0-9]{3}|8[0-9]{3}).*"
+    cves: []
     severity: high
     cvss_score: 7.8
     notes: |
@@ -669,6 +698,12 @@ families:
       with kernel bugs in observed exploit campaigns.  Distinct from
       Achilles cluster — newer attack class against the FastRPC IPC layer
       rather than the Hexagon SDK skeletons.
+      Reviewer B (forensic-audit 2026-05-15) flagged CVE-2024-43047 as
+      a duplicate with the Snapdragon modem RCE cluster (which lists it
+      under DSP service UAF semantics).  Reshaped as advisory-only —
+      the underlying CVE rides on the modem entry's specific list; this
+      entry surfaces presence of FastRPC IPC attack surface on
+      Snapdragon DSP blobs.
 
   - name: Qualcomm WLAN combo firmware advisory (chipset-wide)
     advisory_id: ADVISORY-QC-WLAN

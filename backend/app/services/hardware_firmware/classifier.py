@@ -319,9 +319,20 @@ def _apply_path_context(
             product=pcm.product,
         )
     # Refine: category="other" → specific via path-context.
-    new_vendor = (
-        pcm.vendor if pcm.vendor and pcm.vendor != "unknown" else result.vendor
-    )
+    # Reviewer A M1 (2026-05-15): preserve filename-inferred vendor
+    # when it's a known specific vendor. Path-context vendor wins only
+    # when the filename inferred vendor was "unknown" / unset. This
+    # prevents a `radio.img` rule (vendor:qualcomm) from clobbering a
+    # filename that was matched as `vendor:broadcom` with
+    # category="other" — filename evidence beats path evidence for
+    # vendor, mirroring the same precedence rule used for category.
+    filename_vendor = (result.vendor or "").lower()
+    if filename_vendor and filename_vendor != "unknown":
+        new_vendor = filename_vendor
+    elif pcm.vendor and pcm.vendor != "unknown":
+        new_vendor = pcm.vendor
+    else:
+        new_vendor = result.vendor
     return Classification(
         category=pcm.category,
         vendor=new_vendor,
