@@ -118,6 +118,20 @@ def test_vendor_alias_resolution() -> None:
         ("/vendor/lib/modules/icm42600_i2c.ko", "invensense", "sensor"),
         ("/vendor/lib/modules/mali_kbase_mt6771_r49p0.ko", "arm", "gpu"),
         ("/vendor/lib/modules/pn553.ko", "nxp", "nfc"),
+        # Broadcom Bluetooth on Motorola / Qualcomm Bengal platforms —
+        # DS1 Moto-G32 BTFM.bin archive + its unblob-extracted
+        # sub-components. Added 2026-05-14 (forensic-review A2 #3)
+        # after detection-roots fix surfaced these as miscategorized
+        # "other/qcom_mbn/qualcomm".
+        ("/vendor/firmware/BTFM.bin", "broadcom", "bluetooth"),
+        ("/.../BTFM.bin_extract/.../image/cmbtfw13.tlv", "broadcom", "bluetooth"),
+        ("/.../BTFM.bin_extract/.../image/apbtfw10.tlv", "broadcom", "bluetooth"),
+        ("/.../BTFM.bin_extract/.../image/crbtfw11.tlv", "broadcom", "bluetooth"),
+        ("/.../BTFM.bin_extract/.../image/cmbtfw12.ver", "broadcom", "bluetooth"),
+        ("/.../BTFM.bin_extract/.../image/cmnv12.bin", "broadcom", "bluetooth"),
+        ("/.../BTFM.bin_extract/.../image/cmnv13s.bin", "broadcom", "bluetooth"),
+        ("/.../BTFM.bin_extract/.../image/crnv21.bin", "broadcom", "bluetooth"),
+        ("/.../BTFM.bin_extract/.../image/apnv11.bin", "broadcom", "bluetooth"),
     ],
 )
 def test_match_returns_expected_vendor_and_category(

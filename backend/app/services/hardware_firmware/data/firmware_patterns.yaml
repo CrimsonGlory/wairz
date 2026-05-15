@@ -384,6 +384,47 @@ patterns:
     product: "Broadcom Bluetooth HCI firmware (.hcd)"
     category: bluetooth
     confidence: high
+  # Motorola / Qualcomm Bengal (Sm6225) platforms ship Broadcom
+  # Bluetooth firmware as a composite BTFM.bin archive. unblob
+  # decomposes it into individual chip-revision-specific TLV firmware
+  # images + NV (non-volatile) config blobs:
+  #
+  #   BTFM.bin_extract/raw.image_extract/image/
+  #       cmbtfw{10,11,12,13}.tlv     - common-rev Bluetooth FW (TLV)
+  #       cmbtfw{10,11,12,13}.ver     - paired version files
+  #       apbtfw10.tlv                - additional-rev (Apple-derived)
+  #       crbtfw11.tlv                - additional-rev (chris-rev)
+  #       cmnv{12,13s}.bin            - common-NV Bluetooth config
+  #       crnv21.bin                  - chris-NV Bluetooth config
+  #       apnv11.bin                  - additional-NV Bluetooth config
+  #
+  # Added 2026-05-14 after the DS1 Moto-G32 detection-roots fix
+  # (commit c0c107e) surfaced 313 blobs but the BTFM components were
+  # miscategorized as "other/qcom_mbn/qualcomm" by the qcom-prefix
+  # fallthrough — forensic-review A2 finding #3, 2026-05-14. Patterns
+  # cover both the raw BTFM.bin (for firmwares unblob doesn't fully
+  # extract) AND the post-extraction sub-components.
+  - pattern: "^btfm\\.bin$"
+    vendor: broadcom
+    product: "Broadcom Bluetooth firmware archive (BTFM.bin)"
+    category: bluetooth
+    confidence: high
+    format: raw_bin
+    source: motorola-vendor
+  - pattern: "^[a-z]{2}btfw[0-9]+\\.(tlv|ver)$"
+    vendor: broadcom
+    product: "Broadcom Bluetooth firmware (TLV)"
+    category: bluetooth
+    confidence: high
+    format: raw_bin
+    source: motorola-vendor
+  - pattern: "^[a-z]{2}nv[0-9]+s?\\.bin$"
+    vendor: broadcom
+    product: "Broadcom Bluetooth NV config"
+    category: bluetooth
+    confidence: medium
+    format: raw_bin
+    source: motorola-vendor
   - pattern: "^bcmdhd[_a-z0-9.-]*\\.(bin|cal)$"
     vendor: broadcom
     product: "Broadcom BCMDHD Wi-Fi firmware"
