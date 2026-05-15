@@ -83,6 +83,165 @@ _NESTED_ARCHIVE_SUFFIXES: tuple[str, ...] = (
 )
 
 
+# File extensions that look like CHECKSUM / SIGNATURE / MANIFEST sidecars
+# paired with a real archive of the same basename. Excluded from the
+# archive-density gate's denominator so a 6-file layout of (2 archives +
+# 4 sidecars) — DS1 firmware shape — gets correctly classified as
+# 100% archive even though by NAIVE count it's 2/6 = 33%.
+_SIDECAR_SUFFIXES: tuple[str, ...] = (
+    ".md5",
+    ".md5sum",
+    ".sha",
+    ".sha1",
+    ".sha256",
+    ".sha512",
+    ".sig",
+    ".asc",
+    ".gpg",
+    ".pgp",
+    ".manifest",
+    ".crt",
+    ".der",
+    ".pem",
+)
+
+
+# Linux/Android filesystem markers — when present at the top level of a
+# directory, that directory IS a rootfs and recursive nested-archive
+# unpacking should NOT fire. Subset of the canonical rootfs markers (a
+# directory containing two of these is overwhelmingly a real rootfs).
+_ROOTFS_MARKER_DIRS: frozenset[str] = frozenset({
+    "bin", "etc", "usr", "lib", "lib64", "var", "sbin", "dev", "proc",
+    "sys", "tmp", "boot", "root", "home", "opt", "media", "mnt", "run",
+    "system", "vendor", "product", "system_ext", "apex", "data",
+})
+
+
+def _is_sidecar_filename(name: str) -> bool:
+    """Return True if ``name`` looks like a checksum/signature/manifest
+    sidecar that operators ship alongside a real archive.
+
+    Match policy: case-insensitive suffix check against
+    :data:`_SIDECAR_SUFFIXES`. We deliberately accept ANY sidecar
+    suffix (not just sidecars-paired-with-a-sibling-archive) because
+    in practice operators ship .md5sum / .sha256sum files even when
+    the matching archive lives in a different directory.
+    """
+    lname = name.lower()
+    return any(lname.endswith(s) for s in _SIDECAR_SUFFIXES)
+
+
+def _looks_like_archive_filename(name: str) -> bool:
+    """Return True if ``name`` matches the recursive-extractor's
+    supported archive-suffix list."""
+    lname = name.lower()
+    return any(lname.endswith(s) for s in _NESTED_ARCHIVE_SUFFIXES)
+
+
+def _is_archive_dense_layout(
+    path: str,
+    *,
+    min_archive_byte_fraction: float = 0.70,
+    min_archive_size_bytes: int = 10 * 1024 * 1024,
+) -> bool:
+    """Return True when ``path`` looks like a nested-archive wrapper
+    rather than a real rootfs.
+
+    The gate fires (True) when ALL of the following hold:
+
+    * Top-level layout has ZERO rootfs marker directories (``bin``,
+      ``etc``, ``usr``, ``lib``, ``system``, ``vendor``, ``apex``,
+      etc.) — a real rootfs short-circuits this gate and the caller
+      uses the existing fast-path.
+    * Total bytes of non-sidecar files at the top level: archive-shaped
+      bytes / non-sidecar bytes ≥ ``min_archive_byte_fraction``
+      (default 0.70). Bytes-weighting (not file count) is load-bearing:
+      DS1 had 2 archives + 4 sidecars = 33% by count, but 100% by
+      bytes because the sidecars were ~600 bytes total against 2.5 GB
+      of archive.
+    * AT LEAST ONE archive file at the top level is ≥
+      ``min_archive_size_bytes`` (default 10 MB) — suppresses
+      false-fire on tiny mixed-content dirs where a stray tarball
+      doesn't justify recursion.
+
+    The discipline is bytes-weighted + sidecar-aware + negative-rootfs-
+    guarded. Operator-uploaded vendor packages from arbitrary vendors
+    (NVIDIA Tegra wraps, Samsung Odin nestings, OEM bundles) all hit
+    this gate adaptively without hard-coded vendor allowlists.
+
+    Reference: Scout B research 2026-05-18 (postmortem-bt-yaml-
+    externalization recommendations carried forward + DS1 d360f8f5
+    failure mode). Pairs with :func:`_recursive_extract_nested` —
+    callers that see ``_is_archive_dense_layout(extracted) → True``
+    should invoke recursion + re-probe.
+
+    Args:
+        path: Directory to inspect (top-level only; non-recursive).
+        min_archive_byte_fraction: Minimum bytes-fraction of
+            non-sidecar entries that must be archives. Default 0.70
+            balances false-fire (mixed dirs) against false-no-fire
+            (DS1 hit 1.0 = 100%).
+        min_archive_size_bytes: Minimum size of at least one archive
+            at top level. Default 10 MB. Suppresses recursion on
+            trivial cases (a single tiny .tar.gz in a config dir).
+
+    Returns:
+        True if the gate fires + recursion should proceed; False
+        otherwise (existing fast-path stands).
+    """
+    if not path or not os.path.isdir(path):
+        return False
+
+    try:
+        entries = list(os.scandir(path))
+    except OSError:
+        return False
+
+    # Negative-rootfs guard: any rootfs marker dir at top level → not
+    # archive-dense, leave shortcut as-is.
+    top_dir_names: set[str] = {
+        e.name.lower()
+        for e in entries
+        if e.is_dir(follow_symlinks=False)
+    }
+    rootfs_markers_present = top_dir_names & _ROOTFS_MARKER_DIRS
+    # Require ≥2 markers — a lone "tmp" or "boot" subdir doesn't
+    # mean rootfs.
+    if len(rootfs_markers_present) >= 2:
+        return False
+
+    archive_bytes = 0
+    non_sidecar_bytes = 0
+    max_archive_size = 0
+    for entry in entries:
+        if entry.is_symlink():
+            continue
+        if not entry.is_file(follow_symlinks=False):
+            continue
+        name = entry.name
+        try:
+            size = entry.stat(follow_symlinks=False).st_size
+        except OSError:
+            continue
+        is_sidecar = _is_sidecar_filename(name)
+        is_archive = _looks_like_archive_filename(name)
+        if is_sidecar:
+            # Sidecars excluded from BOTH numerator and denominator.
+            continue
+        non_sidecar_bytes += size
+        if is_archive:
+            archive_bytes += size
+            if size > max_archive_size:
+                max_archive_size = size
+
+    if non_sidecar_bytes == 0:
+        return False
+    if max_archive_size < min_archive_size_bytes:
+        return False
+    fraction = archive_bytes / non_sidecar_bytes
+    return fraction >= min_archive_byte_fraction
+
+
 def _recursive_extract_nested(root: str, max_depth: int = 3) -> list[str]:
     """Walk ``root`` and expand nested archives into sibling ``_extracted/``
     directories, recursively up to ``max_depth`` levels.

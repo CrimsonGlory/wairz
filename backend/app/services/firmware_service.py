@@ -33,6 +33,7 @@ from app.workers.unpack import (
     find_filesystem_root,
 )
 from app.workers.unpack_common import (
+    _is_archive_dense_layout,
     _recursive_extract_nested,
     diagnose_failed_archives,
     widen_read_perms,
@@ -598,9 +599,58 @@ async def _post_process_pipeline(
                 fs_root = await loop.run_in_executor(
                     None, find_filesystem_root, extraction_dir
                 )
+
+                # Adaptive nested-archive gate (2026-05-18):
+                # find_filesystem_root may return a directory that LOOKS
+                # like a rootfs (entry-count fallback) but is actually a
+                # vendor wrapper around nested archives — the DS1
+                # d360f8f5 case (live_base.tar.gz containing 2 inner
+                # tar.gz + 4 sidecars = 0 firmware blobs detected
+                # because both inner archives stayed packed). Probe
+                # post-extraction layout for archive-density; if dense,
+                # recurse + re-probe. Bytes-weighted + sidecar-aware +
+                # negative-rootfs-guarded — works for any vendor's
+                # nested-archive shape without hard-coded allowlists.
+                if fs_root:
+                    is_dense = await loop.run_in_executor(
+                        None, _is_archive_dense_layout, fs_root
+                    )
+                    if is_dense:
+                        logger.info(
+                            "firmware-service: tarball shortcut hit "
+                            "archive-dense layout at %s; invoking "
+                            "recursive nested-archive extraction",
+                            fs_root,
+                        )
+                        new_dirs = await loop.run_in_executor(
+                            None, _recursive_extract_nested, fs_root, 4
+                        )
+                        await loop.run_in_executor(
+                            None, widen_read_perms, fs_root
+                        )
+                        extraction_diagnostics.setdefault(
+                            "nested_extract", {}
+                        )["levels_expanded"] = len(new_dirs)
+                        # Re-probe — a deeper layer may now expose a
+                        # real rootfs OR the recursion may have just
+                        # made leaf binaries visible to detection.
+                        fs_root = await loop.run_in_executor(
+                            None, find_filesystem_root, extraction_dir
+                        )
+
                 if fs_root:
                     firmware.extracted_path = fs_root
-                    firmware.unpack_log = "Tarball detected; extracted directly as rootfs."
+                    firmware.unpack_log = (
+                        "Tarball detected; extracted directly as rootfs."
+                        if not extraction_diagnostics.get(
+                            "nested_extract", {}
+                        ).get("levels_expanded")
+                        else (
+                            "Tarball detected; recursively expanded "
+                            f"{extraction_diagnostics['nested_extract']['levels_expanded']}"
+                            " nested archive(s) before classification."
+                        )
+                    )
                     extracted_via_shortcut = True
         except Exception:
             logger.debug("Tarball device-dump detection failed", exc_info=True)
