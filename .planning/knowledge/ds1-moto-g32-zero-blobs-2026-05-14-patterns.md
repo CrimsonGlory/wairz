@@ -39,6 +39,18 @@
 - **Evidence:** Phase A3 audit-query returned 5 firmwares (DS1 + 4 others) in under 100ms. Phase B re-detection on those 5 recovered 2 (DS1 to 331 blobs, GS724Tv6 to 2 blobs) and confirmed 3 are legitimate "no firmware blobs in scope" outcomes.
 - **Applies when:** Designing any detection / classification / walker pipeline. Always include a diagnostic JSONB shape that future corpus-sweeps can query directly.
 
+### 7. Targeted corpus-verification pass after a fix lands
+
+- **Description:** Same session, AFTER the 5 DS1 fixes shipped, the user pointed at a SECOND firmware (`c3cc1194` Moto-G30) suspected to have the same shape. Running `backfill_detection.py --firmware-id <X>` against that single firmware took ~10 seconds and recovered 286 blobs + 45 CVE matches. Then a Rule #34 health audit (find -type f -size 0 + hardlink count + bytes total) on BOTH firmwares confirmed extraction integrity. Total wall-clock for the verification pass: ~2 minutes.
+- **Evidence:** G30 went from 0 → 286 blobs same-session post-fix, without ANY new commits — leveraging the already-shipped backfill script + already-shipped detector fixes. Cross-confirmed the bug taxonomy: DS1 needed BOTH fixes (chained); G30 only needed fix #2 (independent). Bugs were chained on DS1 but independent across the corpus.
+- **Applies when:** After a non-trivial detection-pipeline fix lands, the operator (or you) points at a SECOND firmware of similar shape to verify the fix generalizes. This catches the "fix #1 happened to also fix bug #2 on the specific firmware where I tested" trap — the SECOND firmware exercises a different bug-instance combination.
+
+### 8. Rule #34 health audit distinguishes legitimate from broken extractions
+
+- **Description:** Moto-G30 has 1,627 zero-byte files (7.1% of total) — would trigger a naive "extraction broken" alarm. But the distribution is overwhelmingly concentrated in `boot.img_extract/.../include/config/*.h` (1,617 of 1,627) — these are kernel CONFIG_* feature-flag headers, a LEGITIMATE Linux kernel build artifact. Rule #34's mechanical test ("zero-byte set dominated by binaries/libraries AND zero hardlinks AND >25% real-file zeros") correctly classified G30 as HEALTHY because the zero-bytes are HEADERS, not binaries.
+- **Evidence:** DS1 = 0% zero-bytes (HEALTHY trivially); G30 = 7.1% zero-bytes but dominated by `.h` files in kernel config dirs (HEALTHY per Rule #34's multi-condition test).
+- **Applies when:** Operator (or auditor) finds zero-byte files in a firmware extraction. Don't infer "broken" from the count alone — apply Rule #34's full criterion: dominated by binaries/libraries AND zero hardlinks AND >25% rate. Linux kernel CONFIG_* headers are the most common false-positive.
+
 ### 6. Existing `backfill_detection.py` script supported targeted CLI extension
 
 - **Description:** The script already had `--firmware-id` / `--limit` / `--dry-run` flags. Adding `--only-broken` was 30 lines of JSONB-filter expression. Avoided writing a separate one-off script; built on top of the pre-shipping operator-tooling instead.
