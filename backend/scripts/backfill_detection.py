@@ -260,6 +260,7 @@ async def run_backfill(
     dry_run: bool = False,
     firmware_id: uuid.UUID | None = None,
     limit: int | None = None,
+    only_broken: bool = False,
 ) -> BackfillSummary:
     """Walk every Firmware row (respecting filters) and run the backfill."""
     summary = BackfillSummary()
@@ -268,6 +269,21 @@ async def run_backfill(
         stmt = select(Firmware).order_by(Firmware.created_at.asc())
         if firmware_id is not None:
             stmt = stmt.where(Firmware.id == firmware_id)
+        if only_broken:
+            # Restrict to firmwares whose detection_audit signals a stuck
+            # detection (orphan_ratio >= 0.95 AND blobs_detected = 0).
+            # JSONB casts via PostgreSQL syntax; aiosqlite test DBs don't
+            # support this filter, but only_broken is operator-tooling
+            # against live PostgreSQL anyway.
+            stmt = stmt.where(
+                Firmware.device_metadata["detection_audit"].is_not(None),
+                Firmware.device_metadata["detection_audit"]["orphan_ratio"].astext.cast(
+                    __import__("sqlalchemy").Float
+                ) >= 0.95,
+                Firmware.device_metadata["detection_audit"]["blobs_detected"].astext.cast(
+                    __import__("sqlalchemy").Integer
+                ) == 0,
+            )
         if limit is not None:
             stmt = stmt.limit(limit)
 
@@ -364,6 +380,19 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default=None,
         help="Process at most N firmware rows (useful for smoke tests).",
     )
+    parser.add_argument(
+        "--only-broken",
+        action="store_true",
+        help=(
+            "Process only firmwares whose detection_audit shows "
+            "orphan_ratio >= 0.95 AND blobs_detected = 0 — the "
+            "shape that surfaced on DS1 Moto-G32 (2026-05-14) where "
+            "detection_roots stuck at a deep non-_extract subtree "
+            "and the blob detector found no candidates. Use after "
+            "deploying a fix that widens detection_roots to recover "
+            "stuck firmwares without re-running the whole corpus."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -386,6 +415,7 @@ async def main(argv: list[str] | None = None) -> int:
         dry_run=args.dry_run,
         firmware_id=firmware_id,
         limit=args.limit,
+        only_broken=args.only_broken,
     )
     _emit_summary(summary, args.dry_run)
     return 0 if summary.errored == 0 else 1
