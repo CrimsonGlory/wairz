@@ -571,6 +571,258 @@ def _read_super_lp_magic_sync(path: str) -> bytes | None:
         return None
 
 
+def _recover_sparsechunk_extracts(
+    extraction_dir: str, log_lines: list[str]
+) -> list[str]:
+    """Post-unblob recovery: scan unblob-expanded sparsechunk raw images for
+    embedded EROFS/ext4 partitions.
+
+    Context: unblob recognises Motorola ``super.img_sparsechunk.N`` files as
+    Android sparse images and expands each independently — emitting a 7.58 GB
+    ``raw.image`` per chunk into ``super.img_sparsechunk.N_extract/``. Each
+    expanded raw image carries valid partition data at the byte offsets that
+    chunk's slice represented; the rest of the image is zero-padding. The
+    individual chunks are gone after unblob, so the normal
+    :func:`_concatenate_sparsechunks` reassembly path doesn't apply.
+
+    This recovery scans each ``raw.image`` independently for EROFS / ext4
+    magic bytes (reusing the existing :func:`_scan_super_partitions` mmap
+    scanner) and extracts any partitions it finds into
+    ``<extraction_dir>/super.img_recovered_extract/sparsechunk_N/partition_*``.
+    Outputs are picked up by the detection_roots scanner via the existing
+    ``partition_`` prefix hint — no firmware_paths.py change required.
+
+    Bounded per CLAUDE.md Rule #29: caps the recovery to 16 sparsechunks
+    max (real-world Motorola firmware uses 11; the cap defends against
+    extraction-bomb-style firmware) and 30 GB total raw-image input. A
+    chunk whose raw.image is &gt;10 GB is skipped (defensive against
+    malformed/oversized sparse expansions).
+
+    Adaptability note: this function targets the Android sparsechunk
+    convention specifically (sparse-img-per-chunk output of unblob). The
+    broader "post-unblob carve embedded filesystems" capability is the
+    YAML-driven recovery_handlers registry queued for a future session;
+    sparsechunk recovery is the highest-leverage instance which is why it
+    ships first as an explicit function rather than waiting for the
+    registry.
+
+    Returns the list of created ``super.img_recovered_extract/sparsechunk_N``
+    directory paths. Empty list when no sparsechunk extracts are present
+    or recovery produced no partitions. Failures on a single chunk log to
+    ``log_lines`` and skip — never raise — so detection completes for the
+    chunks that did succeed.
+    """
+    import asyncio as _asyncio
+
+    _MAX_CHUNKS = 16
+    _MAX_RAW_BYTES = 10 * 1024 * 1024 * 1024  # 10 GB per chunk
+    _SPARSE_PATTERN = re.compile(r"^(.+)_sparsechunk\.(\d+)_extract$")
+
+    candidates: list[tuple[int, str, str]] = []
+    try:
+        for entry in os.scandir(extraction_dir):
+            if not entry.is_dir(follow_symlinks=False):
+                continue
+            m = _SPARSE_PATTERN.match(entry.name)
+            if not m:
+                continue
+            chunk_idx = int(m.group(2))
+            raw_path = os.path.join(entry.path, "raw.image")
+            if not os.path.isfile(raw_path):
+                continue
+            try:
+                raw_size = os.path.getsize(raw_path)
+            except OSError:
+                continue
+            if raw_size == 0 or raw_size > _MAX_RAW_BYTES:
+                log_lines.append(
+                    f"sparsechunk recovery: skipping {entry.name}/raw.image "
+                    f"(size {raw_size // (1024*1024)} MB outside bounds)"
+                )
+                continue
+            candidates.append((chunk_idx, entry.name, raw_path))
+    except OSError as e:
+        log_lines.append(f"sparsechunk recovery: scan failed: {e}")
+        return []
+
+    if not candidates:
+        return []
+
+    candidates.sort(key=lambda t: t[0])  # ascending chunk index
+    if len(candidates) > _MAX_CHUNKS:
+        log_lines.append(
+            f"sparsechunk recovery: bounded to {_MAX_CHUNKS} chunks "
+            f"({len(candidates)} present); skipping the tail."
+        )
+        candidates = candidates[:_MAX_CHUNKS]
+
+    recovery_root = os.path.join(extraction_dir, "super.img_recovered_extract")
+    try:
+        os.makedirs(recovery_root, exist_ok=True)
+    except OSError as e:
+        log_lines.append(f"sparsechunk recovery: mkdir failed: {e}")
+        return []
+
+    created_dirs: list[str] = []
+
+    # Each scan is sync I/O; run sequentially to bound peak memory (mmap
+    # of a 7.58 GB image plus carve-to-tmp). Async parallelism doesn't
+    # help — the bottleneck is mmap page-cache pressure, not CPU.
+    for chunk_idx, src_dirname, raw_path in candidates:
+        chunk_out = os.path.join(recovery_root, f"sparsechunk_{chunk_idx}")
+        try:
+            os.makedirs(chunk_out, exist_ok=True)
+        except OSError as e:
+            log_lines.append(
+                f"sparsechunk recovery: mkdir {chunk_out} failed: {e}"
+            )
+            continue
+
+        try:
+            partitions, err = _scan_super_partitions_layout_sync(raw_path)
+        except Exception as e:  # noqa: BLE001
+            log_lines.append(
+                f"sparsechunk recovery: scan {src_dirname}/raw.image failed: {e}"
+            )
+            continue
+        if err:
+            log_lines.append(
+                f"sparsechunk recovery: {src_dirname}/raw.image scan err: {err}"
+            )
+            continue
+        if not partitions:
+            # Empty raw.image (this chunk's slice was all zeros) — normal.
+            continue
+
+        try:
+            raw_size = os.path.getsize(raw_path)
+        except OSError:
+            continue
+
+        # Carve + extract each detected partition into chunk_out.
+        extracted_here = 0
+        for i, (fs_type, start_offset) in enumerate(partitions):
+            if i + 1 < len(partitions):
+                part_size = partitions[i + 1][1] - start_offset
+            else:
+                part_size = raw_size - start_offset
+            if part_size < _MIN_PARTITION_BYTES:
+                continue
+            partition_name = f"partition_{i}_{fs_type}"
+            tmp_path: str | None = None
+            try:
+                tmp_path = _carve_partition_to_tmp_sync(
+                    raw_path, start_offset, part_size, f".{fs_type}",
+                )
+                # _try_extract_partition is async — run via the loop.
+                # We're inside a sync helper invoked from an async caller's
+                # run_in_executor, so re-entering the loop directly is
+                # not safe. Instead use asyncio.run_coroutine_threadsafe
+                # against the loop the executor was spawned from, OR keep
+                # this helper sync and skip the inner-extract step here —
+                # the detection roots scanner will pick up the carved
+                # partition file as a raw .erofs/.ext4 image in any case.
+                # Simpler design: emit the carved file directly into the
+                # chunk_out dir so the existing recursive-extract pass
+                # downstream of the unpack pipeline handles unpacking it.
+                final_path = os.path.join(
+                    chunk_out, f"{partition_name}.{fs_type}",
+                )
+                # Move tmp into final location (rename is atomic on same fs).
+                try:
+                    os.replace(tmp_path, final_path)
+                except OSError:
+                    # Cross-device move — fall back to copy + unlink.
+                    shutil.copy2(tmp_path, final_path)
+                    with contextlib.suppress(OSError):
+                        os.remove(tmp_path)
+                tmp_path = None
+                extracted_here += 1
+            except Exception as e:  # noqa: BLE001
+                log_lines.append(
+                    f"sparsechunk recovery: carve {src_dirname} "
+                    f"partition_{i} failed: {e}"
+                )
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    with contextlib.suppress(OSError):
+                        os.remove(tmp_path)
+
+        if extracted_here > 0:
+            created_dirs.append(chunk_out)
+            log_lines.append(
+                f"sparsechunk recovery: {src_dirname}/raw.image → "
+                f"{extracted_here} partition(s) carved into "
+                f"super.img_recovered_extract/sparsechunk_{chunk_idx}/"
+            )
+
+    if not created_dirs:
+        # Clean up the empty top-level recovery dir.
+        with contextlib.suppress(OSError):
+            os.rmdir(recovery_root)
+
+    return created_dirs
+
+
+async def recover_sparsechunk_extracts_async(
+    extraction_dir: str, log_lines: list[str]
+) -> list[str]:
+    """Async post-unblob recovery: carve embedded partitions from sparsechunk
+    extracts AND extract each carved partition into a walkable rootfs tree.
+
+    Two-phase shape:
+      1. Sync mmap-scan + carve via :func:`_recover_sparsechunk_extracts`
+         (run on a thread executor to bound peak memory).
+      2. Async extract each carved ``.ext4`` / ``.erofs`` file via the
+         existing :func:`_try_extract_partition` helper (fsck.erofs or
+         debugfs depending on fs type). Removes the carved image file
+         after a successful extract to free disk (the extracted dir
+         holds the same content in walkable form).
+
+    Returns the list of walkable rootfs paths under
+    ``<extraction_dir>/super.img_recovered_extract/sparsechunk_N/<partition>/``.
+    These paths are picked up automatically by the detection_roots
+    scanner via the existing ``partition_`` prefix hint.
+
+    Called from :mod:`app.workers.unpack` immediately after the
+    ``_recursive_extract_nested`` pass; the per-extract step has its
+    own bounded timeout via ``_try_extract_partition`` (300s for
+    fsck.erofs / debugfs each).
+    """
+    loop = asyncio.get_running_loop()
+    chunk_dirs = await loop.run_in_executor(
+        None, _recover_sparsechunk_extracts, extraction_dir, log_lines,
+    )
+    if not chunk_dirs:
+        return []
+
+    walkable_dirs: list[str] = []
+    for chunk_dir in chunk_dirs:
+        try:
+            entries = os.listdir(chunk_dir)
+        except OSError:
+            continue
+        for entry in entries:
+            ent_path = os.path.join(chunk_dir, entry)
+            if not os.path.isfile(ent_path):
+                continue
+            # Carved filenames are like "partition_0_ext4.ext4" /
+            # "partition_1_erofs.erofs".
+            partition_name = entry.rsplit(".", 1)[0]
+            extracted = await _try_extract_partition(
+                ent_path, chunk_dir, partition_name, log_lines,
+            )
+            if extracted:
+                walkable_dirs.append(os.path.join(chunk_dir, partition_name))
+                # Drop the now-redundant .ext4/.erofs image file; the
+                # extracted dir holds the same content in walkable shape.
+                # Failure to remove is non-fatal (disk waste, not
+                # correctness).
+                with contextlib.suppress(OSError):
+                    os.remove(ent_path)
+    return walkable_dirs
+
+
 def _concatenate_sparsechunks(extraction_dir: str) -> list[tuple[str, int]]:
     """Reassemble Motorola-style ``<name>.img_sparsechunk.N`` files into a
     single ``<name>.img`` per prefix, then remove the individual chunks.

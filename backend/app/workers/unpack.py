@@ -900,6 +900,36 @@ async def _unpack_firmware_inner(
             except Exception as e:
                 result.unpack_log += f"Vendor-AES decrypt skipped: {e}\n"
                 logger.debug("Vendor-AES decrypt pass failed", exc_info=True)
+
+            # Post-unblob recovery: scan Android super.img sparsechunk
+            # extracts for embedded partitions and extract each carved
+            # partition into a walkable rootfs tree. Cheap no-op when no
+            # sparsechunks present; on Motorola/Bengal-class firmware it
+            # carves the system/vendor/product partition data out of the
+            # mmap'd raw.image files unblob left behind, then debugfs/
+            # fsck.erofs unpacks each into a walkable filesystem.
+            # Bounded per Rule #29 (≤16 chunks × ≤10 GB per chunk,
+            # plus 300s per fsck.erofs/debugfs invocation).
+            try:
+                from app.workers.unpack_android import (
+                    recover_sparsechunk_extracts_async,
+                )
+                recovery_log: list[str] = []
+                recovered_walkable = await recover_sparsechunk_extracts_async(
+                    extraction_dir, recovery_log,
+                )
+                if recovery_log:
+                    result.unpack_log += "\n".join(recovery_log) + "\n"
+                if recovered_walkable:
+                    result.unpack_log += (
+                        f"Sparsechunk recovery: {len(recovered_walkable)} "
+                        f"partition rootfs(es) extracted under "
+                        f"super.img_recovered_extract/.\n"
+                    )
+            except Exception as e:
+                result.unpack_log += f"Sparsechunk recovery skipped: {e}\n"
+                logger.debug("Sparsechunk recovery failed", exc_info=True)
+
             bomb_error = check_extraction_limits(extraction_dir, fw_size)
             # Widen read perms so the backend user can stat/open files
             # that vendor tarballs ship with restrictive modes (e.g.
