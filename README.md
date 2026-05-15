@@ -127,10 +127,18 @@ Or use the helper script:
 
 Wairz uses MCP to give AI agents access to firmware analysis tools. After starting the backend, register the MCP server with your preferred client:
 
+`--project-id` is optional — omit it on shared/team instances where you want to switch between projects from inside the agent. The agent will call `list_projects` on first use and ask which project you mean.
+
 ### Claude Code
 
 ```bash
 claude mcp add wairz -- docker exec -i wairz-backend-1 uv run wairz-mcp --project-id <PROJECT_ID>
+```
+
+For a shared Wairz server reached over SSH (no project pinned at boot):
+
+```bash
+claude mcp add wairz -- ssh wairz-host docker exec -i wairz-backend-1 uv run wairz-mcp
 ```
 
 ### Claude Desktop

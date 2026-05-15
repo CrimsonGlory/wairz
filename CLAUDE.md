@@ -508,6 +508,8 @@ Entry point: `wairz-mcp = "app.mcp_server:main"` (defined in `pyproject.toml`)
 
 The server uses a mutable `ProjectState` dataclass so all project context (project_id, firmware_id, extracted_path, storage_path, firmware_kind, rtos_flavor) can be switched dynamically via the `switch_project` tool without restarting the MCP process. When the firmware kind changes, the server emits `notifications/tools/list_changed` so clients re-fetch the visible tool set.
 
+`--project-id` is **optional**. When omitted, the server boots with an empty `ProjectState` (`project_id` = zero UUID, `firmware_kind="unknown"`); the firmware-kind filter naturally hides every analysis tool so only `list_projects`, `switch_project`, `get_project_info`, and `list_firmware_versions` remain callable, and `build_system_prompt` returns a short directive telling the agent to pick a project before doing anything else. Used for shared/team Wairz instances where multiple users connect to one server and `switch_project` between projects independently.
+
 ### Firmware kind discriminator
 
 Every `firmware` row carries `firmware_kind` (`linux | rtos | unknown`) plus an optional `rtos_flavor` (`freertos | zephyr | baremetal-cortexm`) and `firmware_kind_source` (`detected | manual`). Auto-detection runs in `app/services/rtos_detection_service.py` at the tail of unpack and only writes when `firmware_kind_source != 'manual'` — the dropdown override on the project page always wins. Kind plumbs through to the MCP system prompt (kind-aware blocks in `app/ai/system_prompt.py`), the tool registry filter (`registry.for_kind(kind)`), and the frontend (`Project.firmware_kind` from the projects-list endpoint, used by Sidebar to filter analysis tabs).

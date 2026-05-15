@@ -6,6 +6,18 @@ Wairz uses the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 
 
 Each Wairz project has a unique ID. You can find it in the URL when viewing a project in the web UI, or copy it from the project settings page.
 
+`--project-id` is **optional**. When omitted, the MCP server starts with no active project — the agent will call `list_projects` and ask you which one to switch into. Pin a project at boot when you almost always work on the same one; leave it off for shared or team instances where you jump between projects.
+
+## Shared / team instance
+
+If multiple users connect to one Wairz server (e.g. a VPN-gated EC2 instance with a shared Postgres), each user should register the MCP server **without** `--project-id`. Each user's session gets its own `ProjectState` (one process per SSH connection), and `switch_project` is independent across users while findings/scratchpads remain the single source of truth in the shared DB.
+
+```bash
+claude mcp add wairz -- ssh wairz-host docker exec -i wairz-backend-1 uv run wairz-mcp
+```
+
+Replace `wairz-host` with a `Host` entry in your `~/.ssh/config` that points at the Wairz server. When the agent asks for a project, call `list_projects`, pick one, and `switch_project` to it.
+
 ## Claude Code
 
 ```bash
