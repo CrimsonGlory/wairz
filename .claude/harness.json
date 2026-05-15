@@ -357,6 +357,18 @@
         "pattern": "server_default=sa\\.func\\.now\\(\\)\\s*,?\\s*\\)",
         "filePattern": "backend/alembic/versions/*.py",
         "message": "Learned from Rule #44 backfill deep-review 2026-05-14: alembic migrations that create *_at columns with server_default=sa.func.now() MUST also declare nullable=False if the ORM column is Mapped[datetime] (non-Optional). Otherwise alembic-autogenerate-empty detects modify_nullable drift on CI. See postmortem section 'What Broke #1' + recommendation #2."
+      },
+      {
+        "name": "auto-bt-yaml-externalization-2026-05-17-non-qualcomm-cna-braktooth-cves",
+        "pattern": "cve_id:\\s*CVE-2021-(28139|34147|31609|31612)",
+        "filePattern": "backend/app/services/hardware_firmware/data/bt_banner_cve_pins.yaml",
+        "message": "Learned from campaign bt-yaml-externalization-session-2026-05-17: CVE-2021-28139 (ESP32 RCE) / -34147 (Cypress WICED) / -31609 (Silicon Labs iWRAP) / -31612 (Zhuhai Jieli AC69xx) are NOT Qualcomm-CNA per NVD CPE. The only Qualcomm-CNA BrakTooth-DoS CVE per NVD is CVE-2021-30348. Pinning any of these 4 under a qca_rome family pin replicates the recursive disclosure-batch antipattern (Reviewer B 2026-05-16 + 2026-05-17 catches). Verify per-CVE NVD CPE before adding."
+      },
+      {
+        "name": "auto-bt-yaml-externalization-2026-05-17-nonexistent-mcp-tool-names",
+        "pattern": "\\b(detect_hardware_firmware|cve_match_firmware)\\b",
+        "filePattern": "docs/**/*.md",
+        "message": "Learned from campaign bt-yaml-externalization-session-2026-05-17: detect_hardware_firmware and cve_match_firmware are NOT registered MCP tools in wairz. Actual hardware-firmware tools: analyze_hardware_firmware, check_firmware_cves, run_vulnerability_scan (backend/app/ai/tools/{hardware_firmware,sbom}.py). For re-trigger paths, use the POST /api/v1/projects/.../hardware-firmware/cve-match REST endpoint (Rule #33 .a 202+polling)."
       }
     ]
   },
