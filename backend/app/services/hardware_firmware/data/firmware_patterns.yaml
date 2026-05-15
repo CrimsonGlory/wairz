@@ -536,11 +536,240 @@ patterns:
     product: "Realtek RTL Bluetooth config"
     category: bluetooth
     confidence: high
-  - pattern: "^rtl_bt\\/rtl[0-9a-z_]+_(fw|config)\\.bin$"
+  # Realtek BT firmware (basename match; the path-aware version above is
+  # latent — `match` operates on basename only per classifier contract).
+  # Routes to bt_fw_banner format so the (forthcoming) Realtek BT parser
+  # extracts the "Realtech" / "RTBTCore" magic + project_id from the
+  # file tail. Pairs with the config sibling pattern below.
+  - pattern: "^rtl8[0-9]{3}[a-z]{0,3}(?:bs|bu|cs|cu|de|ds|ce|au|btu)?_fw(?:_v[0-9]+)?\\.bin$"
     vendor: realtek
-    product: "Realtek RTL Bluetooth firmware"
+    product: "Realtek BT firmware (rtl_bt/ canonical naming)"
     category: bluetooth
     confidence: high
+    format: bt_fw_banner
+    source: linux-firmware
+  - pattern: "^rtl8[0-9]{3}[a-z]{0,3}(?:bs|bu|cs|cu|de|ds|ce|au|btu)?_config\\.bin$"
+    vendor: realtek
+    product: "Realtek BT UART config (companion to _fw.bin)"
+    category: bluetooth
+    confidence: high
+    source: linux-firmware
+
+  # =====================================================================
+  # NVIDIA Tegra (TX1/TX2/Nano/Xavier/Orin) — Jetson Linux R32+ payload
+  # =====================================================================
+  #
+  # Per Scout A research 2026-05-18 (NVIDIA L4T R32+ boot architecture).
+  # Component families in shipping order during cold boot:
+  #   BootROM → MB1 → MB2 (nvtboot) → MCE microcode → cboot → kernel
+  # Plus side-loaded: BPMP, SPE, ADSP, camera RTCPU, USB host (XUSB),
+  # DRAM ECC. TOS = ATF BL31 + Trusty TEE bundle on T186/T194.
+  #
+  # Filename conventions:
+  #   _t186 / _t194 — chip family suffix
+  #   _prod / _prod_cr — production / production-crypto-restricted
+  #   _recovery — recovery-boot variant
+  # Patterns target the canonical file forms; operator-modified names
+  # fall through to path_context refinement when present in known
+  # partition trees.
+
+  # BPMP — Boot + Power Management Processor (Cortex-R5) firmware
+  - pattern: "^bpmp(?:_t[0-9]{3})?\\.bin$"
+    vendor: nvidia
+    product: "NVIDIA Tegra BPMP firmware (Cortex-R5)"
+    category: bootloader
+    confidence: high
+    source: nvidia-tegra-l4t
+
+  # MB1 — post-BootROM extension; pinmux/PMIC/SDRAM init via MB1 BCT
+  - pattern: "^mb1(?:_t[0-9]{3})?(?:_recovery)?(?:_prod)?\\.bin$"
+    vendor: nvidia
+    product: "NVIDIA Tegra MB1 boot stage (NVIDIA-key signed)"
+    category: bootloader
+    confidence: high
+    source: nvidia-tegra-l4t
+
+  # MB2 / nvtboot (TegraBoot) — BPMP side + CPU side handoff
+  - pattern: "^nvtboot(?:_t[0-9]{3})?(?:_recovery)?(?:_cpu)?(?:_t[0-9]{3})?\\.bin$"
+    vendor: nvidia
+    product: "NVIDIA Tegra TegraBoot (MB2 / CPU handoff)"
+    category: bootloader
+    confidence: high
+    source: nvidia-tegra-l4t
+
+  # nvtboot_applet — T194 platform-detection applet
+  - pattern: "^nvtboot_applet(?:_t[0-9]{3})?\\.bin$"
+    vendor: nvidia
+    product: "NVIDIA Tegra nvtboot platform-detection applet"
+    category: bootloader
+    confidence: high
+    source: nvidia-tegra-l4t
+
+  # cboot — Little-Kernel-based CPU bootloader
+  - pattern: "^cboot(?:_t[0-9]{3})?\\.bin$"
+    vendor: nvidia
+    product: "NVIDIA Tegra cboot (Little Kernel CPU bootloader)"
+    category: bootloader
+    confidence: high
+    source: nvidia-tegra-l4t
+
+  # U-Boot for Tegra (when shipped — OE4T / Jetson Linux optional)
+  - pattern: "^u-boot-jetson-[a-z0-9-]+\\.bin$"
+    vendor: nvidia
+    product: "U-Boot for Tegra (OE4T u-boot-tegra lineage)"
+    category: bootloader
+    confidence: high
+    source: nvidia-tegra-l4t
+
+  # Warmboot — SC7 deep-sleep resume vector
+  - pattern: "^(warmboot|nvtbootwb0)(?:_t[0-9]{3})?(?:_prod)?\\.bin$"
+    vendor: nvidia
+    product: "NVIDIA Tegra warmboot (SC7 deep-sleep resume)"
+    category: bootloader
+    confidence: high
+    source: nvidia-tegra-l4t
+
+  # MB1 recovery
+  - pattern: "^mb1_recovery(?:_t[0-9]{3})?(?:_prod)?\\.bin$"
+    vendor: nvidia
+    product: "NVIDIA Tegra MB1 recovery"
+    category: bootloader
+    confidence: high
+    source: nvidia-tegra-l4t
+
+  # TOS — Trusty TEE + ATF BL31 bundle
+  - pattern: "^tos(?:-trusty|-mon-only)?(?:_t[0-9]{3})?\\.img$"
+    vendor: nvidia
+    product: "NVIDIA Tegra TOS (ATF BL31 + Trusty TEE)"
+    category: tee
+    confidence: high
+    source: nvidia-tegra-l4t
+
+  # EKS — Encrypted Key Set consumed by Trusty
+  - pattern: "^eks\\.img$"
+    vendor: nvidia
+    product: "NVIDIA Tegra EKS (Encrypted Key Set for Trusty)"
+    category: tee
+    confidence: high
+    source: nvidia-tegra-l4t
+
+  # MCE / MTS — Microcode Engine + Translation Stub for Denver/Carmel.
+  # Accepts mce_*, mts_*, AND the TX2-specific combined mce_mts_d15_*
+  # prefix (where MCE microcode + MTS translation stub ship as ONE blob).
+  - pattern: "^(mce_mts|mts_mce|mce|mts)_(d[0-9]{2}|c[0-9]{2})(?:_prod(?:_cr)?)?\\.bin$"
+    vendor: nvidia
+    product: "NVIDIA Tegra MCE/MTS microcode (Denver d15 / Carmel c10)"
+    category: mcu
+    confidence: high
+    source: nvidia-tegra-l4t
+
+  # Preboot microcode — pre-MTS bootstrap on Denver / Carmel
+  - pattern: "^preboot_(d[0-9]{2}|c[0-9]{2})(?:_prod_cr)?\\.bin$"
+    vendor: nvidia
+    product: "NVIDIA Tegra preboot microcode (pre-MTS bootstrap)"
+    category: mcu
+    confidence: high
+    source: nvidia-tegra-l4t
+
+  # SPE — Sensor Processing Engine FreeRTOS (Cortex-R5 always-on)
+  - pattern: "^spe(?:_t[0-9]{3})?\\.bin$"
+    vendor: nvidia
+    product: "NVIDIA Tegra SPE (Sensor Processing Engine FreeRTOS)"
+    category: mcu
+    confidence: high
+    source: nvidia-tegra-l4t
+
+  # ADSP — Audio Processing Engine (Cadence Tensilica HiFi DSP)
+  - pattern: "^adsp-fw\\.bin$"
+    vendor: nvidia
+    product: "NVIDIA Tegra ADSP firmware (Tensilica HiFi DSP)"
+    category: dsp
+    confidence: high
+    source: nvidia-tegra-l4t
+
+  # Camera RTCPU — R-Core / Sensor-Capture Engine (Cortex-R5)
+  - pattern: "^camera-rtcpu-(rce|sce)(?:_t[0-9]{3})?\\.img$"
+    vendor: nvidia
+    product: "NVIDIA Tegra camera RTCPU (R-Core / Sensor-Capture Engine)"
+    category: camera
+    confidence: high
+    source: nvidia-tegra-l4t
+
+  # DRAM ECC — bad-page DenyListing microcode
+  - pattern: "^(dram-ecc|badpage)(?:_t[0-9]{3})?\\.bin$"
+    vendor: nvidia
+    product: "NVIDIA Tegra DRAM ECC microcode"
+    category: mcu
+    confidence: high
+    source: nvidia-tegra-l4t
+
+  # XUSB SIL — USB host controller firmware
+  - pattern: "^xusb_sil_(?:rel|prod)_fw$"
+    vendor: nvidia
+    product: "NVIDIA Tegra XUSB SIL firmware (USB 3.0 host)"
+    category: usb
+    confidence: high
+    source: nvidia-tegra-l4t
+
+  # Tegra DTBs — kernel device tree blobs (T186/T194/T210/T234)
+  - pattern: "^tegra(186|194|210|234)-.+\\.dtbo?$"
+    vendor: nvidia
+    product: "NVIDIA Tegra device tree blob"
+    category: dtb
+    confidence: high
+    format: dtb
+    source: nvidia-tegra-l4t
+
+  # Bootloader Update Payload — multi-blob signed payload
+  - pattern: "^(bl_update_payload|bl_only_payload|kernel_only_payload)$"
+    vendor: nvidia
+    product: "NVIDIA Tegra Bootloader Update Payload (BUP)"
+    category: other
+    confidence: high
+    format: signed_archive
+    source: nvidia-tegra-l4t
+  - pattern: "^.+\\.bup$"
+    vendor: nvidia
+    product: "NVIDIA Tegra Bootloader Update Payload"
+    category: other
+    confidence: high
+    format: signed_archive
+    source: nvidia-tegra-l4t
+
+  # nvidia-l4t-bootloader Debian package — wraps signed L4T bootloader
+  - pattern: "^nvidia-l4t-bootloader_[0-9.]+(?:-[0-9]+)?_arm64\\.deb$"
+    vendor: nvidia
+    product: "NVIDIA L4T bootloader Debian package"
+    category: other
+    confidence: high
+    format: signed_archive
+    source: nvidia-tegra-l4t
+
+  # DS1 / Jetson custom system image (vendor-specific naming pattern;
+  # MEDIUM confidence because the prefix is operator-supplied — content
+  # parsing via Android boot.img magic refines downstream).
+  - pattern: "^ds[0-9]*-(image|boot|system)(?:-jetson-[a-z0-9-]+)?(?:\\.[a-z]+)?\\.(img|dataimg)$"
+    vendor: nvidia
+    product: "Jetson/DS1 custom system image"
+    category: other
+    confidence: medium
+    source: jetson-customisation
+
+  # Slot metadata — A/B redundancy state (small fixed-size descriptor)
+  - pattern: "^slot_metadata\\.bin$"
+    vendor: nvidia
+    product: "NVIDIA Tegra A/B slot metadata"
+    category: other
+    confidence: high
+    source: nvidia-tegra-l4t
+
+  # BMP boot logo blob (Tegra splash screen)
+  - pattern: "^bmp\\.blob$"
+    vendor: nvidia
+    product: "NVIDIA Tegra boot logo blob"
+    category: other
+    confidence: high
+    source: nvidia-tegra-l4t
 
   # =====================================================================
   # Qualcomm Adreno GPU firmware (fallback; the classifier prefers
