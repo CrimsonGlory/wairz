@@ -81,12 +81,17 @@ def test_load_known_firmware_has_seeded_entries() -> None:
     assert len(families) >= 10, (
         f"Expected >=10 curated CVE families, got {len(families)}"
     )
-    # Each family needs the core fields for matching.
+    # Each family needs the core fields for matching. An entry must have
+    # either ``category`` OR ``category_regex`` (the latter introduced
+    # 2026-05-15 for cross-category clusters like Achilles spanning
+    # audio + dsp). ``vendor`` is always required. ``cves`` may be
+    # present-and-empty for advisory-only families.
     for fam in families:
         assert "name" in fam
         assert "vendor" in fam
-        assert "category" in fam
-        # cves may be present-and-empty (advisory-only families)
+        assert "category" in fam or "category_regex" in fam, (
+            f"family {fam.get('name')} missing both category and category_regex"
+        )
         assert "cves" in fam
 
 
@@ -290,9 +295,21 @@ class TestMatchCurated:
             assert m.tier == "curated_yaml"
             assert m.confidence == "high"
 
-    def test_chipset_regex_required_when_present(self) -> None:
-        # Matching vendor/category/version but chipset missing entirely
-        # (BroadPwn demands a bcm4xxx chipset_target).
+    def test_chipset_regex_soft_when_blob_chipset_missing(self) -> None:
+        """Updated 2026-05-15 — chipset_regex is now SOFT.
+
+        Old semantics: BroadPwn required a bcm4xxx chipset_target → rejected
+        on NULL.
+
+        New semantics: NULL blob.chipset_target → match still fires WITH
+        confidence downgraded from "high" to "medium". This was driven by
+        the Moto-G32/G30 audit finding that chipset_target is populated on
+        ~0% of qualcomm blobs; the strict gate produced zero matches across
+        612 qualcomm blobs.
+
+        Populated-but-non-matching chipset_target STILL rejects (covered by
+        ``test_chipset_regex_miss_excludes`` below).
+        """
         blob = _make_blob(
             vendor="broadcom",
             category="wifi",
@@ -301,7 +318,9 @@ class TestMatchCurated:
         )
         matches = _match_curated(blob, self._families())
         broadpwn_hits = [m for m in matches if m.cve_id == "CVE-2017-9417"]
-        assert broadpwn_hits == []
+        assert len(broadpwn_hits) == 1
+        # Soft match → confidence downgraded to medium.
+        assert broadpwn_hits[0].confidence == "medium"
 
     def test_chipset_regex_miss_excludes(self) -> None:
         blob = _make_blob(
@@ -941,3 +960,167 @@ async def test_kernel_cpe_matcher_case_insensitive_component_name() -> None:
     assert len(matches) == 1
     assert matches[0].cve_id == "CVE-2024-CASE"
     assert matches[0].tier == "kernel_cpe"
+
+
+# ---------------------------------------------------------------------------
+# Soft chipset + category_regex tests (2026-05-15 systematic-debugging
+# expansion). Driven by the Moto-G32/G30 audit finding that chipset_target
+# is populated on ~0% of qualcomm blobs, making the previous strict
+# chipset_regex gate produce zero matches across the entire Qualcomm
+# subsystem.
+# ---------------------------------------------------------------------------
+
+
+def test_match_curated_soft_chipset_null_target_still_matches() -> None:
+    """When a family declares chipset_regex but blob.chipset_target is NULL,
+    the match still fires — confidence is downgraded to medium to signal
+    the missing positive chipset evidence."""
+    blob = _make_blob(vendor="qualcomm", category="modem", chipset_target=None)
+    families = [
+        {
+            "name": "Test Modem RCE",
+            "vendor": "qualcomm",
+            "category": "modem",
+            "chipset_regex": "(?i)^(sm|sdm)6[0-9]{3}.*",
+            "cves": ["CVE-9999-TESTA"],
+            "severity": "critical",
+            "cvss_score": 9.8,
+            "notes": "Test entry",
+        }
+    ]
+    matches = _match_curated(blob, families)
+    assert len(matches) == 1
+    m = matches[0]
+    assert m.cve_id == "CVE-9999-TESTA"
+    # Soft match → downgrade.
+    assert m.confidence == "medium"
+
+
+def test_match_curated_strict_chipset_populated_target_must_match() -> None:
+    """When blob.chipset_target IS populated and doesn't match
+    chipset_regex, the match is rejected — strict mode still applies."""
+    blob = _make_blob(
+        vendor="qualcomm",
+        category="modem",
+        chipset_target="MT6789",  # MediaTek chipset; won't match the SM regex
+    )
+    families = [
+        {
+            "name": "Test Modem RCE",
+            "vendor": "qualcomm",
+            "category": "modem",
+            "chipset_regex": "(?i)^(sm|sdm)6[0-9]{3}.*",
+            "cves": ["CVE-9999-TESTB"],
+            "severity": "critical",
+            "cvss_score": 9.8,
+            "notes": "Test entry",
+        }
+    ]
+    matches = _match_curated(blob, families)
+    assert matches == []
+
+
+def test_match_curated_strict_chipset_matching_target_keeps_high_confidence() -> None:
+    """When blob.chipset_target matches the regex, confidence stays high —
+    soft mode only triggers when the target is NULL."""
+    blob = _make_blob(
+        vendor="qualcomm",
+        category="modem",
+        chipset_target="SM6225",  # Bengal — matches the regex
+    )
+    families = [
+        {
+            "name": "Test Modem RCE",
+            "vendor": "qualcomm",
+            "category": "modem",
+            "chipset_regex": "(?i)^(sm|sdm)6[0-9]{3}.*",
+            "cves": ["CVE-9999-TESTC"],
+            "severity": "critical",
+            "cvss_score": 9.8,
+            "notes": "Test entry",
+        }
+    ]
+    matches = _match_curated(blob, families)
+    assert len(matches) == 1
+    assert matches[0].confidence == "high"
+
+
+def test_match_curated_category_regex_spans_audio_and_dsp() -> None:
+    """category_regex lets one family match multiple related categories
+    (e.g. Achilles cluster covers both audio aDSP and compute cDSP)."""
+    families = [
+        {
+            "name": "Test Hexagon Cluster",
+            "vendor": "qualcomm",
+            "category_regex": "^(audio|dsp)$",
+            "cves": ["CVE-9999-TESTD"],
+            "severity": "high",
+            "cvss_score": 8.4,
+            "notes": "Test entry",
+        }
+    ]
+    blob_audio = _make_blob(vendor="qualcomm", category="audio")
+    blob_dsp = _make_blob(vendor="qualcomm", category="dsp")
+    blob_other = _make_blob(vendor="qualcomm", category="modem")
+    assert len(_match_curated(blob_audio, families)) == 1
+    assert len(_match_curated(blob_dsp, families)) == 1
+    # modem doesn't match the (audio|dsp) regex → no match.
+    assert _match_curated(blob_other, families) == []
+
+
+def test_match_curated_category_regex_takes_precedence_over_exact_category() -> None:
+    """If both category and category_regex are present, the regex wins
+    (more expressive). Exact-category field is ignored when regex exists."""
+    families = [
+        {
+            "name": "Test Mixed",
+            "vendor": "qualcomm",
+            "category": "modem",  # would say "modem only"
+            "category_regex": "^(audio|dsp)$",  # but regex says audio/dsp
+            "cves": ["CVE-9999-TESTE"],
+            "severity": "high",
+            "cvss_score": 7.0,
+        }
+    ]
+    blob_modem = _make_blob(vendor="qualcomm", category="modem")
+    blob_audio = _make_blob(vendor="qualcomm", category="audio")
+    # Regex wins → modem rejected, audio accepted.
+    assert _match_curated(blob_modem, families) == []
+    assert len(_match_curated(blob_audio, families)) == 1
+
+
+def test_match_curated_qualcomm_advisory_fires_on_null_chipset() -> None:
+    """Smoke test against the SHIPPED known_firmware.yaml: load the real
+    entries and verify a typical Moto-G32 blob (qualcomm/modem, no chipset,
+    no version) gets at least one match (the Snapdragon modem advisory)."""
+    families = _load_known_firmware()
+    blob = _make_blob(
+        vendor="qualcomm",
+        category="modem",
+        chipset_target=None,
+        version=None,
+    )
+    matches = _match_curated(blob, families)
+    assert len(matches) >= 1, (
+        "Expected the soft-chipset matcher + new advisory entries to surface "
+        "at least one CVE on a typical Moto-G32 qualcomm/modem blob"
+    )
+    cves = {m.cve_id for m in matches}
+    # CVE-2020-11292 (Snapdragon modem RCE) is the canonical regression check.
+    assert "CVE-2020-11292" in cves, (
+        f"CVE-2020-11292 (Snapdragon modem RCE) missing — got {cves}"
+    )
+
+
+def test_match_curated_qualcomm_audio_advisory_via_category_regex() -> None:
+    """Achilles cluster (CVE-2020-11201..11209) now matches both audio and
+    dsp categories through category_regex — was dsp-only before."""
+    families = _load_known_firmware()
+    audio_blob = _make_blob(vendor="qualcomm", category="audio")
+    matches = _match_curated(audio_blob, families)
+    cves = {m.cve_id for m in matches}
+    # Achilles cluster has 9 CVE IDs; at least one must surface.
+    achilles_cves = {f"CVE-2020-1120{i}" for i in range(1, 10)}
+    assert cves & achilles_cves, (
+        f"Achilles cluster missing on qualcomm/audio blob — got {cves}"
+    )

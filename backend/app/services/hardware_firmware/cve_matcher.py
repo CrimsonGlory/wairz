@@ -209,7 +209,27 @@ def _match_parser_detected(
 def _match_curated(
     blob: HardwareFirmwareBlob, families: list[dict]
 ) -> list[CveMatch]:
-    """Tier 3 — curated YAML match."""
+    """Tier 3 — curated YAML match.
+
+    Vendor + (category OR category_regex) must match. Optional
+    ``chipset_regex`` is **soft**: when ``blob.chipset_target`` is populated,
+    the regex MUST match; when it's NULL, the blob still matches but the
+    emitted ``CveMatch.confidence`` is downgraded to ``"medium"`` (signaling
+    that the match relied on vendor+category alone, not chipset evidence).
+
+    Soft chipset semantics were adopted 2026-05-15 after the Moto-G32 + G30
+    audit found ``chipset_target`` populated on only 1 of 611 qualcomm
+    blobs — strict mode produced zero qualcomm matches across the corpus
+    despite 312 qualcomm blobs and a Bengal SM6225 SoC. The user-facing
+    directive was "be more adaptable/versatile/flexible/resilient"; the
+    confidence downgrade preserves the strict-mode signal in UI while
+    surfacing the advisory-shape match.
+
+    Optional ``category_regex`` lets one entry span related categories
+    (e.g. ``"^(audio|dsp|modem)$"`` for chipset-wide subsystem advisories)
+    without duplicating the family. When present, takes precedence over
+    the exact ``category`` field; otherwise the exact-match path runs.
+    """
     matches: list[CveMatch] = []
     blob_vendor = (blob.vendor or "").lower()
     blob_category = (blob.category or "").lower()
@@ -220,18 +240,28 @@ def _match_curated(
     for fam in families:
         if fam.get("vendor", "").lower() != blob_vendor:
             continue
-        if fam.get("category", "").lower() != blob_category:
+
+        # Category matching — exact OR category_regex (one of them required).
+        cat_re = fam.get("category_regex")
+        if cat_re:
+            if not re.search(cat_re, blob_category, re.IGNORECASE):
+                continue
+        elif fam.get("category", "").lower() != blob_category:
             continue
 
-        # Optional chipset regex
+        # Optional chipset regex — SOFT: NULL blob.chipset_target → match
+        # with confidence downgrade. Populated chipset_target → must match.
+        chipset_soft = False
         chipset_re = fam.get("chipset_regex")
         if chipset_re:
             if not blob_chipset:
-                continue
-            if not re.search(chipset_re, blob_chipset, re.IGNORECASE):
+                chipset_soft = True
+            elif not re.search(chipset_re, blob_chipset, re.IGNORECASE):
                 continue
 
-        # Optional version regex — match against version OR any metadata value
+        # Optional version regex — match against version OR any metadata value.
+        # Stays STRICT — when present, version evidence MUST be found.
+        # Authors who want chipset-wide advisories should omit version_regex.
         version_re = fam.get("version_regex")
         if version_re:
             version_ok = False
@@ -249,20 +279,35 @@ def _match_curated(
         severity = fam.get("severity", "medium")
         cvss_score = fam.get("cvss_score")
         desc = f"{fam.get('name', '(unnamed)')}: {fam.get('notes', '').strip()}"
+        # Confidence: high when all soft gates were either absent or
+        # satisfied with positive evidence; medium when a soft chipset
+        # match propagated. Explicit "confidence" key on the family
+        # overrides (rarely used; falls back to high).
+        match_conf = fam.get("confidence") or ("medium" if chipset_soft else "high")
 
         if not cves:
-            # Advisory-only (e.g. kamakiri BROM — no CVE assigned)
+            # Advisory-only (e.g. kamakiri BROM — no CVE assigned).
+            # cve_id column is VARCHAR(20) — clip to fit. Rule #15: when
+            # the YAML name is too long, the matcher truncates rather than
+            # raising at INSERT time. Authors who need a distinct short tag
+            # for collision avoidance can override via the family-level
+            # ``advisory_id`` key (max 20 chars including any prefix).
+            advisory_id = fam.get("advisory_id")
+            if advisory_id:
+                cve_id_advisory = str(advisory_id)[:20]
+            else:
+                raw_name = fam.get("name", "unknown").upper().replace(" ", "-")
+                # Strip punctuation that would push past the cap before clip.
+                raw_name = re.sub(r"[^A-Z0-9-]", "", raw_name)
+                cve_id_advisory = ("ADVISORY-" + raw_name)[:20]
             matches.append(
                 CveMatch(
                     blob_id=blob.id,
-                    cve_id=(
-                        "ADVISORY-"
-                        + fam.get("name", "unknown").upper().replace(" ", "-")
-                    ),
+                    cve_id=cve_id_advisory,
                     severity=severity,
                     cvss_score=cvss_score,
                     description=desc,
-                    confidence="high",
+                    confidence=match_conf,
                     tier="curated_yaml",
                 )
             )
@@ -276,7 +321,7 @@ def _match_curated(
                     severity=severity,
                     cvss_score=cvss_score,
                     description=desc,
-                    confidence="high",
+                    confidence=match_conf,
                     tier="curated_yaml",
                 )
             )
