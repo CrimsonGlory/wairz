@@ -405,6 +405,51 @@ class TestMatchCurated:
         matches = _match_curated(blob, self._families())
         assert "CVE-2017-9417" not in {m.cve_id for m in matches}
 
+    def test_strict_chipset_skips_soft_null_fallback(self) -> None:
+        """Reviewer B 2026-05-17: ``strict_chipset: true`` disables the
+        soft NULL-fallback so a restrictive CPE-attributed CVE does NOT
+        over-attribute on Qualcomm+wifi blobs whose chipset_target is
+        NULL. Verifies the new opt-in flag behaves correctly.
+        """
+        # CVE-2023-28581 entry in known_firmware.yaml ships with
+        # strict_chipset: true. A qualcomm+wifi blob with NULL
+        # chipset_target should NOT match.
+        blob_null = _make_blob(
+            vendor="qualcomm",
+            category="wifi",
+            version="some.version",
+            chipset_target=None,
+        )
+        matches = _match_curated(blob_null, self._families())
+        cve_ids = {m.cve_id for m in matches}
+        assert "CVE-2023-28581" not in cve_ids, (
+            "strict_chipset: true must suppress the soft-NULL fallback "
+            "for the restrictive CVE-2023-28581 CPE list"
+        )
+
+        # Same blob, but chipset_target now matches the FastConnect regex
+        # — should fire with high confidence (strict-positive case).
+        blob_match = _make_blob(
+            vendor="qualcomm",
+            category="wifi",
+            version="some.version",
+            chipset_target="fastconnect6900",
+        )
+        matches2 = _match_curated(blob_match, self._families())
+        cve_ids2 = {m.cve_id for m in matches2}
+        assert "CVE-2023-28581" in cve_ids2
+
+        # Same blob, chipset_target outside the regex — should NOT fire.
+        blob_wrong = _make_blob(
+            vendor="qualcomm",
+            category="wifi",
+            version="some.version",
+            chipset_target="wcn3950",   # not in FastConnect CPE list
+        )
+        matches3 = _match_curated(blob_wrong, self._families())
+        cve_ids3 = {m.cve_id for m in matches3}
+        assert "CVE-2023-28581" not in cve_ids3
+
     def test_version_regex_miss_filters_out(self) -> None:
         # BroadPwn version_regex wants 7.30-7.59.x; 8.x falls outside.
         blob = _make_blob(

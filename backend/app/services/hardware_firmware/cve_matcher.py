@@ -327,12 +327,28 @@ def _match_curated(
         elif fam.get("category", "").lower() != blob_category:
             continue
 
-        # Optional chipset regex — SOFT: NULL blob.chipset_target → match
-        # with confidence downgrade. Populated chipset_target → must match.
+        # Optional chipset regex — SOFT by default: NULL blob.chipset_target
+        # → match with confidence downgrade. Populated chipset_target → must
+        # match.
+        #
+        # `strict_chipset: true` opts OUT of the soft fallback (Reviewer B
+        # 2026-05-17 finding): for CVEs whose NVD CPE list is narrowly
+        # vendor-attributed (e.g. CVE-2023-28581 covers FastConnect 6800/
+        # 6900/7800 + QCA6391/6426/6436 + Snapdragon 865/870/8 Gen 1 — NOT
+        # the broader Qualcomm BT+WiFi surface), the soft NULL-fallback
+        # produces over-attribution on Qualcomm+wifi blobs whose
+        # chipset_target is NULL but which clearly ship a different
+        # chipset (G32 = WCN3950, G30 = WCN3990 — neither in the CPE list).
+        # Use `strict_chipset: true` when the CPE list is RESTRICTIVE
+        # enough that uncertainty about chipset_target should mean NO
+        # match rather than a downgraded match.
         chipset_soft = False
         chipset_re = fam.get("chipset_regex")
+        strict_chipset = bool(fam.get("strict_chipset", False))
         if chipset_re:
             if not blob_chipset:
+                if strict_chipset:
+                    continue
                 chipset_soft = True
             elif not re.search(chipset_re, blob_chipset, re.IGNORECASE):
                 continue

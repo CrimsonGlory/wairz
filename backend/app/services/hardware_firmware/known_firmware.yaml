@@ -913,6 +913,16 @@ families:
     # Original chipset_regex matched wcn3*** + sm6225 + sm4350; that
     # was an over-attribution. Retargeted to the actual NVD CPE list.
     chipset_regex: "(?i)^(fastconnect6[89]00|fastconnect7800|qca639[16]|qca64[23]6|wcn6740|sm8(250|450)|wcd938[05]).*"
+    # Reviewer B 2026-05-17 finding: the soft-chipset NULL-fallback was
+    # re-firing CVE-2023-28581 on G32 + G30 qualcomm+wifi blobs (whose
+    # chipset_target is NULL) because soft semantics treat "we don't
+    # know the chipset" as "match with downgrade". For RESTRICTIVE CPE
+    # lists like this one (FastConnect-only), match-with-downgrade is
+    # wrong — G32 (SM6225/WCN3950) and G30 (SM4350/WCN3990) genuinely
+    # don't ship the affected chipsets. strict_chipset: true disables
+    # the soft fallback so the pin fires ONLY when chipset_target is
+    # populated AND matches the regex.
+    strict_chipset: true
     cves:
       - CVE-2023-28581
     severity: critical
