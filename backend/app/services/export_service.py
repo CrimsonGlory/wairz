@@ -32,22 +32,16 @@ from app.services.jsonb_normalizers import (
 
 ARCHIVE_VERSION = 1
 
-# ZIP format minimum timestamp — 1980-01-01 00:00:00.
-# Files with earlier timestamps (common in firmware: epoch 0, squashfs defaults)
-# must be clamped to this value or zipfile raises ValueError.
-_ZIP_MIN_DATE_TIME = (1980, 1, 1, 0, 0, 0)
-
-
 def _safe_write_file(zf: zipfile.ZipFile, filepath: str, arcname: str) -> None:
     """Add a file to a ZIP archive, clamping pre-1980 timestamps.
 
-    Python's zipfile module raises ValueError for timestamps before
-    1980-01-01. Firmware filesystems routinely contain files with epoch-0
-    or other pre-1980 dates, so we clamp to the ZIP minimum.
+    Firmware filesystems routinely contain files with epoch-0 or other
+    pre-1980 mtimes. With strict_timestamps=True (the default), ZipInfo's
+    __init__ raises ValueError before from_file can return; passing
+    strict_timestamps=False makes from_file clamp the date to 1980-01-01
+    before constructing the ZipInfo.
     """
-    info = zipfile.ZipInfo.from_file(filepath, arcname)
-    if info.date_time < _ZIP_MIN_DATE_TIME:
-        info.date_time = _ZIP_MIN_DATE_TIME
+    info = zipfile.ZipInfo.from_file(filepath, arcname, strict_timestamps=False)
     info.compress_type = zipfile.ZIP_DEFLATED
     with open(filepath, "rb") as f:
         zf.writestr(info, f.read())
