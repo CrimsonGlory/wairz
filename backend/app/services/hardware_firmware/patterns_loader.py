@@ -552,12 +552,16 @@ def _load_bt_qca_codenames() -> BtCodenameTable:
         # error). Surface the fallback decision at INFO so a stale-default
         # state is visible to operators tailing the backend log.
         logger.info(
-            "patterns_loader: using in-tree _BT_CODENAME_DEFAULTS "
-            "(bt_qca_codenames.yaml missing or unparseable)"
+            "patterns_loader: bt_qca_codenames.yaml missing or unparseable — "
+            "using in-tree _BT_CODENAME_DEFAULTS (%d codenames, %d braktooth "
+            "chipsets, %d mtk chips)",
+            len(_BT_CODENAME_DEFAULTS.codename_map),
+            len(_BT_CODENAME_DEFAULTS.braktooth_chipsets),
+            len(_BT_CODENAME_DEFAULTS.mtk_known_chips),
         )
         return _BT_CODENAME_DEFAULTS
     try:
-        return _parse_bt_codename_data(data)
+        table = _parse_bt_codename_data(data)
     except (ValueError, TypeError) as exc:
         logger.warning(
             "patterns_loader: bt_qca_codenames.yaml structural validation "
@@ -565,6 +569,19 @@ def _load_bt_qca_codenames() -> BtCodenameTable:
             exc,
         )
         return _BT_CODENAME_DEFAULTS
+    # Positive-side observability: an operator who edits the YAML wants
+    # a single log line to confirm "yes my YAML was used, with N entries".
+    # Reviewer C 2026-05-17 finding — without this, malformed-YAML
+    # silently falls back to defaults and the operator has no signal
+    # short of comparing /api/v1/.../analyze output against expectation.
+    logger.info(
+        "patterns_loader: bt_qca_codenames.yaml loaded — %d codenames, "
+        "%d braktooth chipsets, %d mtk chips (YAML, not defaults)",
+        len(table.codename_map),
+        len(table.braktooth_chipsets),
+        len(table.mtk_known_chips),
+    )
+    return table
 
 
 # ---------------------------------------------------------------------------
@@ -743,7 +760,10 @@ class BannerCvePin:
 
     ``banner_re`` is the compiled form of the YAML's ``banner_match:``
     pattern (case-insensitive). ``build_date_before`` is parsed as a
-    ``datetime.date`` for direct comparison.
+    ``datetime.date`` for direct comparison. ``signed_eq`` matches
+    against the parser's ``record["signed"]`` value ("signed" or
+    "unsigned"); useful when an advisory applies only to debug/dev
+    unsigned firmware vs production signed.
     """
 
     pin_id: str
@@ -754,61 +774,57 @@ class BannerCvePin:
     banner_re: re.Pattern[str] | None
     build_date_before: date | None
     build_id_lt: int | None
+    signed_eq: str | None
     cves: tuple[BannerCveEntry, ...]
 
 
 # In-tree default — fallback when bt_banner_cve_pins.yaml is missing or
-# malformed. Mirrors the shipping YAML's first pin (BRAKTOOTH Qualcomm DoS
-# subset) so the parser keeps emitting Tier 0 pins even if the file is
-# absent. CRITICAL: CVE-2021-28139 (ESP32-only per NVD) is NOT in this
-# list and MUST NOT be added — Reviewer B 2026-05-16 finding.
+# malformed. Mirrors the shipping YAML's first pin (BRAKTOOTH Qualcomm
+# DoS — CVE-2021-30348) so the parser keeps emitting Tier 0 pins even
+# if the file is absent.
+#
+# CRITICAL: per Reviewer B 2026-05-16 + 2026-05-17 audits, the ONLY
+# correct per-NVD-CPE Qualcomm BrakTooth-DoS CVE is **CVE-2021-30348**
+# (CVSS 6.5, Qualcomm CNA). CVE-2021-28139 (ESP32 RCE), CVE-2021-34147
+# (Cypress WICED), CVE-2021-31609 (Silicon Labs iWRAP), and CVE-2021-31612
+# (Zhuhai Jieli) all appear in the ASSET BrakTooth disclosure batch but
+# their NVD CPE lists do NOT include Qualcomm chipsets — pinning them
+# under a qca_rome family pin would replicate yesterday's BTFM→Broadcom
+# misattribution class. NEVER add a non-Qualcomm-CNA CVE under a
+# qca_rome family pin without an explicit NVD-CPE-verifying citation.
+#
+# Reviewer A 2026-05-17: the BrakTooth chipset set is REFERENCED from
+# ``_BT_CODENAME_DEFAULTS.braktooth_chipsets`` rather than re-literal'd
+# here, so widening the set in one place can't leave the in-tree fallback
+# internally inconsistent.
 _BANNER_CVE_PIN_DEFAULTS: tuple[BannerCvePin, ...] = (
     BannerCvePin(
-        pin_id="qualcomm-braktooth-qca-rome-dos-cluster",
+        pin_id="qualcomm-braktooth-qca-rome-dos-cve-2021-30348",
         description=(
-            "ASSET BrakTooth Qualcomm DoS subset (LMP_timing_accuracy + "
-            "2 × oversized-packet DoS)"
+            "Qualcomm BrakTooth LLM utility-timer DoS (CVE-2021-30348) "
+            "on Rome WCN3xx0 BT firmware"
         ),
         family="qca_rome",
         codename_in=None,
-        chipset_target_in=frozenset({"wcn3950", "wcn3990", "wcn3991", "wcn3998"}),
+        chipset_target_in=_BT_CODENAME_DEFAULTS.braktooth_chipsets,
         banner_re=None,
         build_date_before=None,
         build_id_lt=None,
+        signed_eq=None,
         cves=(
             BannerCveEntry(
-                cve_id="CVE-2021-34147",
+                cve_id="CVE-2021-30348",
                 severity="medium",
                 rationale=(
                     "BT firmware banner '{banner}' confirms {chipset_upper} "
-                    "(QCA Rome family). Per the ASSET BrakTooth disclosure "
-                    "(Garbelini et al. 2021), Qualcomm marked Rome BT patches "
-                    "'TBA' in the 2021 PSIRT response — in-field BTFM builds "
-                    "remain unpatched against the LMP_timing_accuracy DoS."
+                    "(QCA Rome family). Per NVD's CPE list (vendor=qualcomm), "
+                    "CVE-2021-30348 is the Qualcomm BrakTooth-class LLM "
+                    "utility-timer availability DoS affecting WCN3950/3990/"
+                    "3991/3998 (plus WCN6750, QCA6390, and other Snapdragon "
+                    "SoCs). Disclosed in the ASSET BrakTooth research "
+                    "(Garbelini et al. 2021); CNA=Qualcomm, CVSS 6.5."
                 ),
-                reference="https://asset-group.github.io/disclosures/braktooth/",
-            ),
-            BannerCveEntry(
-                cve_id="CVE-2021-31609",
-                severity="medium",
-                rationale=(
-                    "BT firmware banner '{banner}' confirms {chipset_upper} "
-                    "(QCA Rome family). Oversized-packet DoS per ASSET "
-                    "BrakTooth disclosure (Garbelini et al. 2021); Qualcomm "
-                    "rated patch status TBA in the 2021 PSIRT response."
-                ),
-                reference="https://asset-group.github.io/disclosures/braktooth/",
-            ),
-            BannerCveEntry(
-                cve_id="CVE-2021-31612",
-                severity="medium",
-                rationale=(
-                    "BT firmware banner '{banner}' confirms {chipset_upper} "
-                    "(QCA Rome family). Oversized-packet DoS per ASSET "
-                    "BrakTooth disclosure (Garbelini et al. 2021); Qualcomm "
-                    "rated patch status TBA in the 2021 PSIRT response."
-                ),
-                reference="https://asset-group.github.io/disclosures/braktooth/",
+                reference="https://nvd.nist.gov/vuln/detail/CVE-2021-30348",
             ),
         ),
     ),
@@ -906,6 +922,38 @@ def _parse_banner_cve_pin(idx: int, entry: dict) -> BannerCvePin:
                 f"got {type(bil_raw).__name__}"
             )
         build_id_lt = bil_raw
+        # Reviewer C 2026-05-17: a `build_id_lt: 0` is almost always a
+        # placeholder sentinel — every real build_id is >= 0 so the gate
+        # would never fire and the pin is effectively dead. Loud-on-likely-
+        # mistake matches the rest of the loader's discipline.
+        if (
+            bil_raw == 0
+            and family is None
+            and codename_in is None
+            and chipset_target_in is None
+            and banner_re is None
+            and build_date_before is None
+        ):
+            raise ValueError(
+                f"pins[{idx}] {pin_id!r}: 'build_id_lt: 0' with no other gate "
+                "would never fire — likely an unfilled placeholder sentinel"
+            )
+
+    signed_eq_raw = entry.get("signed_eq")
+    signed_eq: str | None = None
+    if signed_eq_raw is not None:
+        if not isinstance(signed_eq_raw, str):
+            raise ValueError(
+                f"pins[{idx}] {pin_id!r}: 'signed_eq' must be a string; "
+                f"got {type(signed_eq_raw).__name__}"
+            )
+        normalized = signed_eq_raw.strip().lower()
+        if normalized not in {"signed", "unsigned"}:
+            raise ValueError(
+                f"pins[{idx}] {pin_id!r}: 'signed_eq' must be 'signed' or "
+                f"'unsigned'; got {signed_eq_raw!r}"
+            )
+        signed_eq = normalized
 
     # At least one match condition required — a pin with NO gates would
     # fire on every BT blob, which is never what an operator wants.
@@ -918,12 +966,13 @@ def _parse_banner_cve_pin(idx: int, entry: dict) -> BannerCvePin:
             banner_re,
             build_date_before,
             build_id_lt,
+            signed_eq,
         )
     ):
         raise ValueError(
             f"pins[{idx}] {pin_id!r}: at least one match condition required "
             "(family / codename_in / chipset_target_in / banner_match / "
-            "build_date_before / build_id_lt)"
+            "build_date_before / build_id_lt / signed_eq)"
         )
 
     cves_raw = entry.get("cves")
@@ -990,6 +1039,7 @@ def _parse_banner_cve_pin(idx: int, entry: dict) -> BannerCvePin:
         banner_re=banner_re,
         build_date_before=build_date_before,
         build_id_lt=build_id_lt,
+        signed_eq=signed_eq,
         cves=tuple(cves),
     )
 
@@ -1028,12 +1078,15 @@ def _load_banner_cve_pins() -> tuple[BannerCvePin, ...]:
     data = _safe_load(_BT_BANNER_CVE_PINS_YAML)
     if not data:
         logger.info(
-            "patterns_loader: using in-tree _BANNER_CVE_PIN_DEFAULTS "
-            "(bt_banner_cve_pins.yaml missing or unparseable)"
+            "patterns_loader: bt_banner_cve_pins.yaml missing or "
+            "unparseable — using in-tree _BANNER_CVE_PIN_DEFAULTS "
+            "(%d pins, %d CVEs total)",
+            len(_BANNER_CVE_PIN_DEFAULTS),
+            sum(len(p.cves) for p in _BANNER_CVE_PIN_DEFAULTS),
         )
         return _BANNER_CVE_PIN_DEFAULTS
     try:
-        return _parse_banner_cve_pin_data(data)
+        pins = _parse_banner_cve_pin_data(data)
     except (ValueError, TypeError) as exc:
         logger.warning(
             "patterns_loader: bt_banner_cve_pins.yaml structural validation "
@@ -1041,6 +1094,13 @@ def _load_banner_cve_pins() -> tuple[BannerCvePin, ...]:
             exc,
         )
         return _BANNER_CVE_PIN_DEFAULTS
+    logger.info(
+        "patterns_loader: bt_banner_cve_pins.yaml loaded — %d pins, "
+        "%d CVEs total (YAML, not defaults)",
+        len(pins),
+        sum(len(p.cves) for p in pins),
+    )
+    return pins
 
 
 def get_banner_cve_pins() -> tuple[BannerCvePin, ...]:

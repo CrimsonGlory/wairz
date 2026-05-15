@@ -43,14 +43,23 @@
 #                    list of strings; lowercased on load.
 #
 #   braktooth_chipsets:
-#     list of chipsets in scope for the ASSET BrakTooth Qualcomm DoS
-#     subset (CVE-2021-34147 LMP_timing_accuracy + CVE-2021-31609 +
-#     CVE-2021-31612 oversized-packet DoS). **CRITICAL** — CVE-2021-28139
-#     (BrakTooth RCE CVSS 8.8) is ESP32-only per NVD's CPE list and MUST
-#     NOT be added to the banner-pin set; the parser's banner→CVE pin
-#     uses the chipset list below intersected with a hardcoded
-#     _BRAKTOOTH_CVES tuple in bt_firmware_banner.py. See Reviewer B
-#     finding 2026-05-16 + postmortem-bt-banner-parser-session-2026-05-16.md.
+#     **INFORMATIONAL POST-H2 (2026-05-17 Reviewer C finding).** Documents
+#     the chipset scope for the ASSET BrakTooth Qualcomm DoS subset for
+#     human cross-referencing + SBOM tagging. The RUNTIME GATE for the
+#     Tier 0 BRAKTOOTH pin lives in `bt_banner_cve_pins.yaml` under
+#     the pin's `chipset_target_in:` field — that is what the parser
+#     reads via `_pin_matches`. The two scopes are currently equal
+#     (wcn3950/3990/3991/3998) but operators editing this list will
+#     NOT change runtime pin behaviour; edit the H2 YAML instead.
+#
+#     **CRITICAL** — CVE-2021-28139 (RCE CVSS 8.8), CVE-2021-34147,
+#     CVE-2021-31609, and CVE-2021-31612 are all in the ASSET BrakTooth
+#     disclosure batch but their NVD CPE entries do NOT contain Qualcomm
+#     chipsets (ESP32 / Cypress / Silicon Labs / Zhuhai Jieli respectively).
+#     The SINGLE correct Qualcomm BrakTooth-DoS CVE per NVD CPE list is
+#     **CVE-2021-30348** (CVSS 6.5, CNA=Qualcomm). See Reviewer B findings
+#     2026-05-16 + 2026-05-17 in postmortem-bt-banner-parser-session-
+#     2026-05-16.md and today's reviewer-fixup commit.
 #
 #   mtk_known_chips:
 #     MediaTek BT/WiFi chip-ID allowlist for the chipset extraction

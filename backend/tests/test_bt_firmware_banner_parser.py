@@ -206,9 +206,11 @@ def test_qca_rome_pf_field_wins_over_codename_map(parser, tmp_path: Path) -> Non
 def test_qca_rome_braktooth_pin_wcn3950(parser, tmp_path: Path) -> None:
     """Tier 0 BRAKTOOTH DoS pin fires when banner confirms WCN3950.
 
-    Important: CVE-2021-28139 (BrakTooth RCE) is NOT pinned — per NVD's
-    CPE list it's ESP32-only. Reviewer B 2026-05-16 caught the original
-    parser implementation would have shipped this as a false positive.
+    Reviewer B 2026-05-17: the SINGLE NVD-CPE-confirmed Qualcomm
+    BrakTooth-DoS CVE is CVE-2021-30348 (Qualcomm CNA, CVSS 6.5).
+    CVE-2021-28139 (ESP32), -34147 (Cypress), -31609 (Silicon Labs),
+    -31612 (Zhuhai Jieli) are in the BrakTooth disclosure batch but
+    NVD's CPE entries do NOT contain Qualcomm.
     """
     banner = "BTFM.CMC.1.3.0-00069-QCACHROMZ-1"
     blob = _make_qca_tlv(banner)
@@ -219,12 +221,19 @@ def test_qca_rome_braktooth_pin_wcn3950(parser, tmp_path: Path) -> None:
 
     known = result.metadata["known_vulnerabilities"]
     cve_ids = {v["cve_id"] for v in known}
-    # Three DoS CVEs from the BrakTooth Qualcomm subset.
-    assert "CVE-2021-34147" in cve_ids
-    assert "CVE-2021-31609" in cve_ids
-    assert "CVE-2021-31612" in cve_ids
-    # CVE-2021-28139 is ESP32-only — must NOT be pinned.
-    assert "CVE-2021-28139" not in cve_ids
+    # The one Qualcomm-CNA BrakTooth CVE per NVD.
+    assert "CVE-2021-30348" in cve_ids
+    # All four disclosure-batch-but-non-Qualcomm-CNA CVEs must NOT pin.
+    for non_qualcomm_cve in (
+        "CVE-2021-28139",   # Espressif ESP32 RCE
+        "CVE-2021-34147",   # Cypress/Infineon WICED
+        "CVE-2021-31609",   # Silicon Labs iWRAP
+        "CVE-2021-31612",   # Zhuhai Jieli AC69xx
+    ):
+        assert non_qualcomm_cve not in cve_ids, (
+            f"{non_qualcomm_cve} is not Qualcomm-CNA per NVD CPE list "
+            "and must NOT pin under a qca_rome banner"
+        )
     # All Tier 0 pins from this parser declare parser_version_pin source.
     for v in known:
         assert v["source"] == "parser_version_pin"
@@ -232,16 +241,26 @@ def test_qca_rome_braktooth_pin_wcn3950(parser, tmp_path: Path) -> None:
         assert "BrakTooth" in v["rationale"]
 
 
-def test_qca_rome_braktooth_no_esp32_rce_pin(parser, tmp_path: Path) -> None:
-    """Explicit guard: CVE-2021-28139 (ESP32 RCE) is NEVER pinned by
-    this parser on Qualcomm Rome banners, even on the chipsets that
-    are otherwise BrakTooth-vulnerable.
+def test_qca_rome_braktooth_no_non_qualcomm_cna_pins(
+    parser, tmp_path: Path
+) -> None:
+    """Broader canary (Reviewer B 2026-05-17 F-07): the qca_rome pin
+    set must NEVER include a CVE whose NVD CNA is anything other than
+    Qualcomm. Originally caught CVE-2021-28139 (ESP32 RCE, 2026-05-16);
+    today's audit caught CVE-2021-34147 / 31609 / 31612 (Cypress /
+    Silicon Labs / Zhuhai Jieli) — all in the BrakTooth disclosure
+    batch but none Qualcomm-attributed per NVD.
 
-    Reviewer B 2026-05-16 caught the original implementation included
-    CVE-2021-28139 in _BRAKTOOTH_CVES — would have shipped ~18
-    false-positive RCE-CVSS-8.8 sb_vuln rows per QCA-Rome firmware
-    (replicating yesterday's BleedingTooth misattribution failure mode).
+    This is a structural invariant: pinning a non-Qualcomm-CNA CVE on
+    a qca_rome banner replicates the antipattern the whole campaign
+    was built to prevent.
     """
+    non_qualcomm_cna_cves_in_bt_disclosures = {
+        "CVE-2021-28139",   # ESP32 RCE
+        "CVE-2021-34147",   # Cypress/Infineon WICED
+        "CVE-2021-31609",   # Silicon Labs iWRAP
+        "CVE-2021-31612",   # Zhuhai Jieli AC69xx
+    }
     for banner in (
         "BTFM.CMC.1.3.0-00069-QCACHROMZ-1",
         "BTFM.CHE.2.0.0-00082-QCACHROMZ-1",
@@ -252,9 +271,13 @@ def test_qca_rome_braktooth_no_esp32_rce_pin(parser, tmp_path: Path) -> None:
         result = parser.parse(str(p), _read_magic(p), n)
         kv = result.metadata.get("known_vulnerabilities", [])
         cve_ids = {v["cve_id"] for v in kv}
-        assert "CVE-2021-28139" not in cve_ids, (
-            f"banner {banner!r} should NOT pin CVE-2021-28139 — "
-            f"that CVE is ESP32-only per NVD CPE list"
+        leaked = cve_ids & non_qualcomm_cna_cves_in_bt_disclosures
+        assert not leaked, (
+            f"banner {banner!r} pinned non-Qualcomm-CNA CVEs: {leaked}. "
+            "These appear in the BrakTooth disclosure batch but their "
+            "NVD CPE lists do NOT contain Qualcomm chipsets — pinning "
+            "them under a qca_rome family pin is the disclosure-batch "
+            "antipattern Reviewer B caught 2026-05-16 + 2026-05-17."
         )
 
 
@@ -298,7 +321,11 @@ def test_qca_rome_filename_content_match_no_mismatch_flag(
 
 
 def test_qca_rome_braktooth_pin_wcn3990(parser, tmp_path: Path) -> None:
-    """BrakTooth DoS pin also fires for Cherokee → WCN3990."""
+    """BrakTooth DoS pin also fires for Cherokee → WCN3990.
+
+    Per Reviewer B 2026-05-17: CVE-2021-30348 is the single
+    Qualcomm-CNA BrakTooth CVE per NVD CPE list.
+    """
     banner = "BTFM.CHE.2.0.0-00082-QCACHROMZ-1"
     blob = _make_qca_tlv(banner)
     p = tmp_path / "crbtfw20.tlv"
@@ -308,10 +335,10 @@ def test_qca_rome_braktooth_pin_wcn3990(parser, tmp_path: Path) -> None:
 
     known = result.metadata.get("known_vulnerabilities", [])
     cve_ids = {v["cve_id"] for v in known}
-    # 3 BrakTooth Qualcomm-DoS CVEs.
-    assert "CVE-2021-34147" in cve_ids
-    # CVE-2021-28139 is ESP32-only — must NOT fire on Qualcomm Rome.
+    assert "CVE-2021-30348" in cve_ids
+    # CVE-2021-28139 / -34147 / -31609 / -31612 are NOT Qualcomm-CNA in NVD.
     assert "CVE-2021-28139" not in cve_ids
+    assert "CVE-2021-34147" not in cve_ids
 
 
 def test_qca_rome_no_braktooth_pin_for_non_rome(parser, tmp_path: Path) -> None:

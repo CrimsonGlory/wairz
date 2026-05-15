@@ -94,6 +94,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import string
 from datetime import datetime
 from typing import Any
 
@@ -107,6 +108,45 @@ from app.services.hardware_firmware.patterns_loader import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class _SafeRationaleFormatter(string.Formatter):
+    """``str.Formatter`` subclass that rejects attribute + item access.
+
+    Reviewer A 2026-05-17 finding: a YAML pin authored as ``rationale:
+    "leak {banner.__class__.__mro__}"`` would resolve via Python's
+    default str.format attribute-access semantics. While the YAML files
+    are git-reviewed today, the H2 design EXPLICITLY invites operator
+    extension — future operator-supplied YAMLs (vendor uploads, fleet
+    rollouts) inherit any attack surface the engine ships with.
+
+    This formatter:
+
+    * Allows the documented placeholder syntax: ``{banner}``,
+      ``{chipset_upper}``, etc.
+    * Rejects any field name containing ``.`` (attribute access) or
+      ``[`` (item access) by raising ValueError, which the caller
+      catches + logs.
+    * Inherits all other ``string.Formatter`` behaviour (positional
+      args, conversion flags ``!r``/``!s``, format specs ``:d``/``:>10``
+      etc. — these are non-leaky on their own).
+    """
+
+    def get_field(
+        self,
+        field_name: str,
+        args: tuple,
+        kwargs: dict,
+    ) -> tuple[Any, str]:
+        if "." in field_name or "[" in field_name:
+            raise ValueError(
+                f"rationale field {field_name!r} uses attribute or item "
+                "access (not allowed in banner-pin rationale templates)"
+            )
+        return super().get_field(field_name, args, kwargs)
+
+
+_SAFE_FORMATTER = _SafeRationaleFormatter()
 
 
 # Read windows. Banner location varies by family:
@@ -702,6 +742,12 @@ def _pin_matches(pin: BannerCvePin, record: dict[str, Any]) -> bool:
 
     All present conditions must evaluate true (logical AND). A condition
     set to ``None`` on the pin means "don't gate on this dimension".
+
+    Fail-closed semantics on missing or unparseable data (Reviewer B
+    2026-05-17): under uncertainty, the engine does NOT pin a CVE. Over-
+    attribution is materially worse than under-attribution for operator
+    trust. The DEBUG log surfaces the audit trail without flooding the
+    info-level stream.
     """
     # Family gate (cheapest — common rejection).
     if pin.family is not None and record.get("family") != pin.family:
@@ -726,6 +772,12 @@ def _pin_matches(pin: BannerCvePin, record: dict[str, Any]) -> bool:
     if pin.build_date_before is not None:
         parsed = _parse_build_date(record.get("build_date"))
         if parsed is None:
+            logger.debug(
+                "BT banner-pin %s: build_date_before gate fail-closed "
+                "(value=%r unparseable as 'MMM DD YYYY')",
+                pin.pin_id,
+                record.get("build_date"),
+            )
             return False
         if not parsed.date() < pin.build_date_before:
             return False
@@ -733,8 +785,21 @@ def _pin_matches(pin: BannerCvePin, record: dict[str, Any]) -> bool:
     if pin.build_id_lt is not None:
         n = _coerce_build_id(record.get("build_id"))
         if n is None:
+            logger.debug(
+                "BT banner-pin %s: build_id_lt gate fail-closed "
+                "(value=%r non-int)",
+                pin.pin_id,
+                record.get("build_id"),
+            )
             return False
         if not n < pin.build_id_lt:
+            return False
+    # Signed gate — qca_rome banner parser emits 'signed' / 'unsigned';
+    # broadcom_hcd parser always emits 'unsigned'; mediatek_bt parser
+    # does not populate record['signed']. Reviewer C 2026-05-17.
+    if pin.signed_eq is not None:
+        signed = (record.get("signed") or "").lower()
+        if signed != pin.signed_eq:
             return False
     return True
 
@@ -742,10 +807,12 @@ def _pin_matches(pin: BannerCvePin, record: dict[str, Any]) -> bool:
 def _format_rationale(template: str, pin_id: str, record: dict[str, Any]) -> str:
     """Render the rationale template with record-derived placeholders.
 
-    Falls back to the raw template if a placeholder is missing — a future
-    YAML using a new ``{x}`` we don't supply WARNs but still emits the
-    finding so the operator notices the template gap without losing the
-    pin.
+    Uses ``_SAFE_FORMATTER`` (Reviewer A 2026-05-17) which rejects
+    attribute access (``{banner.__class__}``) and item access
+    (``{banner[0]}``) — defense-in-depth for the operator-extensible
+    YAML surface. Falls back to the raw template if a placeholder is
+    missing OR uses a disallowed access pattern; the WARN log surfaces
+    the gap so the operator notices without losing the finding.
     """
     chipset = str(record.get("chipset_target") or "unknown")
     template_vars = {
@@ -755,12 +822,13 @@ def _format_rationale(template: str, pin_id: str, record: dict[str, Any]) -> str
         "codename": str(record.get("codename") or ""),
         "build_id": str(record.get("build_id") or ""),
         "build_date": str(record.get("build_date") or ""),
+        "signed": str(record.get("signed") or ""),
     }
     try:
-        return template.format(**template_vars).strip()
-    except (KeyError, IndexError) as exc:
+        return _SAFE_FORMATTER.vformat(template, (), template_vars).strip()
+    except (KeyError, IndexError, ValueError) as exc:
         logger.warning(
-            "BT banner-pin %s: rationale template placeholder error (%s); "
+            "BT banner-pin %s: rationale template error (%s); "
             "emitting raw template",
             pin_id,
             exc,

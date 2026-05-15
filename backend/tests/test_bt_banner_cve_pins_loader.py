@@ -1,13 +1,15 @@
 """Unit tests for the banner-pin → CVE YAML loader + engine (Reviewer C
-H2 2026-05-17).
+H2 2026-05-17 + Reviewer B fixup 2026-05-17).
 
 Validates the externalization of the BT firmware banner-pin → CVE rules
 into ``data/bt_banner_cve_pins.yaml`` + the in-parser rule engine:
 
 * Shipped YAML loads cleanly — the regression BRAKTOOTH Tier 0 pin is
-  present with the 3 NVD-confirmed Qualcomm DoS CVEs (CVE-2021-34147 +
-  CVE-2021-31609 + CVE-2021-31612) and CVE-2021-28139 (ESP32-only) is
-  EXPLICITLY NOT in any qca_rome-family pin.
+  present with the single NVD-CPE-confirmed Qualcomm-CNA BrakTooth-DoS
+  CVE (CVE-2021-30348) and the four non-Qualcomm-CNA disclosure-batch
+  CVEs (CVE-2021-28139 ESP32, -34147 Cypress, -31609 Silicon Labs,
+  -31612 Zhuhai Jieli) are EXPLICITLY NOT in any qca_rome family pin
+  (Reviewer B 2026-05-16 + 2026-05-17 invariant).
 * Each match condition gates correctly: family, codename_in,
   chipset_target_in, banner_match (regex), build_date_before,
   build_id_lt. Failing gates short-circuit.
@@ -54,6 +56,29 @@ def _reset_pin_cache():
     PL._load_bt_qca_codenames.cache_clear()
 
 
+def _make_pin(**overrides) -> PL.BannerCvePin:
+    """Test factory: construct a BannerCvePin with all match conditions
+    defaulting to None, override any subset for the test under exam.
+
+    Adding a new match condition to the dataclass only requires updating
+    this factory's defaults — individual tests stay simple.
+    """
+    defaults: dict[str, object] = {
+        "pin_id": "t",
+        "description": "t",
+        "family": None,
+        "codename_in": None,
+        "chipset_target_in": None,
+        "banner_re": None,
+        "build_date_before": None,
+        "build_id_lt": None,
+        "signed_eq": None,
+        "cves": (),
+    }
+    defaults.update(overrides)
+    return PL.BannerCvePin(**defaults)
+
+
 # ---------------------------------------------------------------------------
 # Shipped YAML — regression coverage for the BRAKTOOTH Tier 0 pin.
 # ---------------------------------------------------------------------------
@@ -63,40 +88,78 @@ def test_shipped_yaml_loads_with_braktooth_pin() -> None:
     pins = PL.get_banner_cve_pins()
     assert len(pins) >= 1
     bt = pins[0]
-    assert bt.pin_id == "qualcomm-braktooth-qca-rome-dos-cluster"
+    assert bt.pin_id == "qualcomm-braktooth-qca-rome-dos-cve-2021-30348"
     assert bt.family == "qca_rome"
     assert bt.chipset_target_in == frozenset(
         {"wcn3950", "wcn3990", "wcn3991", "wcn3998"}
     )
     cve_ids = {c.cve_id for c in bt.cves}
-    assert cve_ids == {"CVE-2021-34147", "CVE-2021-31609", "CVE-2021-31612"}
-    # All severities default-or-set to medium per the shipped YAML.
+    # Single NVD-CPE-confirmed Qualcomm-CNA BrakTooth CVE per Reviewer B
+    # 2026-05-17. The other 3 batch CVEs (34147/31609/31612) and the ESP32
+    # RCE (28139) are NOT Qualcomm-CNA in NVD and must NOT pin under a
+    # qca_rome family pin.
+    assert cve_ids == {"CVE-2021-30348"}
     assert all(c.severity == "medium" for c in bt.cves)
-    # All point at the ASSET BrakTooth disclosure URL.
     assert all(
-        c.reference == "https://asset-group.github.io/disclosures/braktooth/"
+        c.reference == "https://nvd.nist.gov/vuln/detail/CVE-2021-30348"
         for c in bt.cves
     )
 
 
-def test_shipped_yaml_does_not_contain_cve_2021_28139() -> None:
-    """Reviewer B 2026-05-16 invariant — ESP32-only CVE NEVER in qca_rome pins.
+def test_shipped_yaml_does_not_contain_non_qualcomm_cna_braktooth_cves() -> (
+    None
+):
+    """Reviewer B 2026-05-16 + 2026-05-17 invariant — broader canary.
 
-    This is a canary test: if a future YAML edit re-introduces
-    CVE-2021-28139 anywhere in the shipped YAML, this test fails LOUD
-    with the rationale "Reviewer B 2026-05-16 invariant violated" in the
-    blast radius. Reproduces the safeguard at the YAML layer that the
-    in-tree _BANNER_CVE_PIN_DEFAULTS also enforces.
+    The 2026-05-16 version of this test only guarded CVE-2021-28139.
+    Reviewer B 2026-05-17 caught CVE-2021-34147 / 31609 / 31612 had
+    slipped past that narrow guard — same disclosure-batch antipattern
+    shape, but with the 3 DoS CVEs the original parser shipped. The
+    broader canary asserts NO non-Qualcomm-CNA BrakTooth-batch CVE
+    appears under any qca_rome family pin.
+
+    If a future YAML edit re-introduces any of these CVEs, this test
+    fails LOUD with the offending CVE ID + pin_id in the message.
     """
+    # CVEs in the ASSET BrakTooth disclosure batch whose NVD CPE lists
+    # do NOT contain Qualcomm chipsets — pinning them under qca_rome
+    # would replicate the misattribution this campaign was built to
+    # prevent. Source: NVD per-CVE CPE lists verified 2026-05-17.
+    non_qualcomm_cna_braktooth_cves = {
+        "CVE-2021-28139",   # Espressif ESP32 RCE (CVSS 8.8) — caught 2026-05-16
+        "CVE-2021-34147",   # Cypress/Infineon WICED + CYW20735B1 — caught 2026-05-17
+        "CVE-2021-31609",   # Silicon Labs iWRAP + WT32i-A    — caught 2026-05-17
+        "CVE-2021-31612",   # Zhuhai Jieli AC69xx              — caught 2026-05-17
+    }
     pins = PL.get_banner_cve_pins()
     for pin in pins:
         if pin.family != "qca_rome":
             continue
         for cve in pin.cves:
-            assert cve.cve_id != "CVE-2021-28139", (
-                f"Reviewer B 2026-05-16 invariant violated: pin {pin.pin_id!r} "
-                "added ESP32-only CVE-2021-28139 to a qca_rome-family pin"
+            assert cve.cve_id not in non_qualcomm_cna_braktooth_cves, (
+                f"Reviewer B invariant violated: qca_rome pin {pin.pin_id!r} "
+                f"includes {cve.cve_id} — that CVE is in the BrakTooth "
+                "disclosure batch but its NVD CPE list does NOT include "
+                "Qualcomm chipsets. The only Qualcomm-CNA BrakTooth CVE "
+                "per NVD is CVE-2021-30348."
             )
+
+
+def test_shipped_yaml_qualcomm_braktooth_cve_30348_present() -> None:
+    """Positive-side assertion: CVE-2021-30348 IS pinned on qca_rome.
+
+    Complements the negative canary above. If a future refactor
+    accidentally drops the CVE-2021-30348 entry, this canary catches it
+    instead of letting BRAKTOOTH detection silently disappear.
+    """
+    pins = PL.get_banner_cve_pins()
+    qca_pins = [p for p in pins if p.family == "qca_rome"]
+    assert qca_pins, "no qca_rome family pins present"
+    all_qca_cves = {c.cve_id for pin in qca_pins for c in pin.cves}
+    assert "CVE-2021-30348" in all_qca_cves, (
+        "CVE-2021-30348 (Qualcomm-CNA BrakTooth DoS) missing from qca_rome "
+        "pins — Tier 0 BRAKTOOTH detection silently disabled."
+    )
 
 
 def test_lru_cache_is_active() -> None:
@@ -127,7 +190,7 @@ def test_pin_matches_family_gate(_basic_qca_record) -> None:
         pin_id="t", description="t",
         family="qca_rome",
         codename_in=None, chipset_target_in=None, banner_re=None,
-        build_date_before=None, build_id_lt=None,
+        build_date_before=None, build_id_lt=None, signed_eq=None,
         cves=(),
     )
     assert _pin_matches(p, _basic_qca_record) is True
@@ -135,7 +198,7 @@ def test_pin_matches_family_gate(_basic_qca_record) -> None:
         pin_id="t", description="t",
         family="broadcom_hcd",
         codename_in=None, chipset_target_in=None, banner_re=None,
-        build_date_before=None, build_id_lt=None,
+        build_date_before=None, build_id_lt=None, signed_eq=None,
         cves=(),
     )
     assert _pin_matches(p2, _basic_qca_record) is False
@@ -147,7 +210,7 @@ def test_pin_matches_codename_gate(_basic_qca_record) -> None:
         family=None,
         codename_in=frozenset({"CMC", "CHE"}),
         chipset_target_in=None, banner_re=None,
-        build_date_before=None, build_id_lt=None,
+        build_date_before=None, build_id_lt=None, signed_eq=None,
         cves=(),
     )
     assert _pin_matches(p, _basic_qca_record) is True
@@ -156,29 +219,19 @@ def test_pin_matches_codename_gate(_basic_qca_record) -> None:
         family=None,
         codename_in=frozenset({"APA", "HAS"}),
         chipset_target_in=None, banner_re=None,
-        build_date_before=None, build_id_lt=None,
+        build_date_before=None, build_id_lt=None, signed_eq=None,
         cves=(),
     )
     assert _pin_matches(p2, _basic_qca_record) is False
 
 
 def test_pin_matches_chipset_gate(_basic_qca_record) -> None:
-    p = PL.BannerCvePin(
-        pin_id="t", description="t",
-        family=None, codename_in=None,
-        chipset_target_in=frozenset({"wcn3950"}),
-        banner_re=None, build_date_before=None, build_id_lt=None,
-        cves=(),
-    )
-    assert _pin_matches(p, _basic_qca_record) is True
-    p2 = PL.BannerCvePin(
-        pin_id="t", description="t",
-        family=None, codename_in=None,
-        chipset_target_in=frozenset({"mt7663"}),
-        banner_re=None, build_date_before=None, build_id_lt=None,
-        cves=(),
-    )
-    assert _pin_matches(p2, _basic_qca_record) is False
+    assert _pin_matches(
+        _make_pin(chipset_target_in=frozenset({"wcn3950"})), _basic_qca_record
+    ) is True
+    assert _pin_matches(
+        _make_pin(chipset_target_in=frozenset({"mt7663"})), _basic_qca_record
+    ) is False
 
 
 def test_pin_matches_banner_regex_gate(_basic_qca_record) -> None:
@@ -187,7 +240,7 @@ def test_pin_matches_banner_regex_gate(_basic_qca_record) -> None:
         pin_id="t", description="t",
         family=None, codename_in=None, chipset_target_in=None,
         banner_re=_re.compile(r"BTFM\.CMC\.1\."),
-        build_date_before=None, build_id_lt=None,
+        build_date_before=None, build_id_lt=None, signed_eq=None,
         cves=(),
     )
     assert _pin_matches(p, _basic_qca_record) is True
@@ -195,7 +248,7 @@ def test_pin_matches_banner_regex_gate(_basic_qca_record) -> None:
         pin_id="t", description="t",
         family=None, codename_in=None, chipset_target_in=None,
         banner_re=_re.compile(r"BTFM\.CHE\."),
-        build_date_before=None, build_id_lt=None,
+        build_date_before=None, build_id_lt=None, signed_eq=None,
         cves=(),
     )
     assert _pin_matches(p2, _basic_qca_record) is False
@@ -208,13 +261,7 @@ def test_pin_matches_build_date_before_gate() -> None:
         "banner": "...",
         "build_date": "Jun 12 2017",
     }
-    p = PL.BannerCvePin(
-        pin_id="t", description="t",
-        family=None, codename_in=None, chipset_target_in=None, banner_re=None,
-        build_date_before=date(2017, 9, 12),
-        build_id_lt=None,
-        cves=(),
-    )
+    p = _make_pin(build_date_before=date(2017, 9, 12))
     assert _pin_matches(p, record) is True
 
     # Built AFTER the cutoff — should fail.
@@ -231,13 +278,7 @@ def test_pin_matches_build_date_before_gate() -> None:
 
 
 def test_pin_matches_build_id_lt_gate(_basic_qca_record) -> None:
-    p = PL.BannerCvePin(
-        pin_id="t", description="t",
-        family=None, codename_in=None, chipset_target_in=None, banner_re=None,
-        build_date_before=None,
-        build_id_lt=100,
-        cves=(),
-    )
+    p = _make_pin(build_id_lt=100)
     # build_id "00069" → 69 < 100 → match
     assert _pin_matches(p, _basic_qca_record) is True
 
@@ -265,6 +306,7 @@ def test_pin_matches_logical_and_all_conditions(_basic_qca_record) -> None:
         banner_re=_re.compile(r"BTFM\.CMC"),
         build_date_before=None,
         build_id_lt=100,
+        signed_eq=None,
         cves=(),
     )
     assert _pin_matches(p, _basic_qca_record) is True
@@ -272,6 +314,142 @@ def test_pin_matches_logical_and_all_conditions(_basic_qca_record) -> None:
     # Flip one condition → false.
     wrong_chipset = {**_basic_qca_record, "chipset_target": "wcn3990"}
     assert _pin_matches(p, wrong_chipset) is False
+
+
+def test_pin_matches_signed_eq_gate(_basic_qca_record) -> None:
+    """signed_eq gate (Reviewer C 2026-05-17): match record['signed']."""
+    p_signed = PL.BannerCvePin(
+        pin_id="t", description="t",
+        family=None, codename_in=None, chipset_target_in=None, banner_re=None,
+        build_date_before=None, build_id_lt=None,
+        signed_eq="signed",
+        cves=(),
+    )
+    signed_record = {**_basic_qca_record, "signed": "signed"}
+    assert _pin_matches(p_signed, signed_record) is True
+    unsigned_record = {**_basic_qca_record, "signed": "unsigned"}
+    assert _pin_matches(p_signed, unsigned_record) is False
+    # Missing signed field — fails closed (no pin under uncertainty).
+    record_no_signed = {k: v for k, v in _basic_qca_record.items() if k != "signed"}
+    assert _pin_matches(p_signed, record_no_signed) is False
+
+    p_unsigned = PL.BannerCvePin(
+        pin_id="t", description="t",
+        family=None, codename_in=None, chipset_target_in=None, banner_re=None,
+        build_date_before=None, build_id_lt=None,
+        signed_eq="unsigned",
+        cves=(),
+    )
+    assert _pin_matches(p_unsigned, unsigned_record) is True
+    assert _pin_matches(p_unsigned, signed_record) is False
+
+
+def test_loader_rejects_signed_eq_invalid_value(tmp_path: Path, monkeypatch) -> None:
+    """signed_eq must be 'signed' or 'unsigned' — other strings rejected."""
+    yaml_content = textwrap.dedent("""\
+        pins:
+          - id: bad-signed
+            description: invalid signed_eq value
+            family: qca_rome
+            signed_eq: maybe
+            cves:
+              - id: CVE-X
+                severity: low
+                rationale: x
+    """)
+    yaml_path = tmp_path / "bt_banner_cve_pins.yaml"
+    yaml_path.write_text(yaml_content)
+    monkeypatch.setattr(PL, "_BT_BANNER_CVE_PINS_YAML", yaml_path)
+    PL._load_banner_cve_pins.cache_clear()
+    pins = PL.get_banner_cve_pins()
+    # Falls back to defaults (single CVE-2021-30348 pin).
+    assert pins[0].pin_id == "qualcomm-braktooth-qca-rome-dos-cve-2021-30348"
+
+
+def test_loader_rejects_build_id_lt_zero_sentinel(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Reviewer C 2026-05-17: build_id_lt: 0 with no other gate rejected.
+
+    A pin with only ``build_id_lt: 0`` and no other match condition
+    would never fire (every real build_id is >= 0). Loud-on-likely-
+    mistake matches the rest of the loader's strict-validation discipline.
+    """
+    yaml_content = textwrap.dedent("""\
+        pins:
+          - id: sentinel-zero
+            description: build_id_lt 0 with no other gate
+            build_id_lt: 0
+            cves:
+              - id: CVE-X
+                severity: low
+                rationale: x
+    """)
+    yaml_path = tmp_path / "bt_banner_cve_pins.yaml"
+    yaml_path.write_text(yaml_content)
+    monkeypatch.setattr(PL, "_BT_BANNER_CVE_PINS_YAML", yaml_path)
+    PL._load_banner_cve_pins.cache_clear()
+    pins = PL.get_banner_cve_pins()
+    # Falls back to defaults — bad pin rejected.
+    assert pins[0].pin_id == "qualcomm-braktooth-qca-rome-dos-cve-2021-30348"
+
+
+def test_loader_allows_build_id_lt_zero_with_other_gate(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """build_id_lt: 0 WITH another gate IS allowed (operator may have
+    a build_id-0 special-case alongside a chipset_target_in)."""
+    yaml_content = textwrap.dedent("""\
+        pins:
+          - id: zero-build-id-special-case
+            description: legitimate build_id=0 + chipset gate
+            family: qca_rome
+            chipset_target_in: [wcn3950]
+            build_id_lt: 1
+            cves:
+              - id: CVE-X
+                severity: low
+                rationale: x
+    """)
+    yaml_path = tmp_path / "bt_banner_cve_pins.yaml"
+    yaml_path.write_text(yaml_content)
+    monkeypatch.setattr(PL, "_BT_BANNER_CVE_PINS_YAML", yaml_path)
+    PL._load_banner_cve_pins.cache_clear()
+    pins = PL.get_banner_cve_pins()
+    assert pins[0].pin_id == "zero-build-id-special-case"
+    assert pins[0].build_id_lt == 1
+
+
+def test_safe_formatter_rejects_attribute_access(tmp_path: Path) -> None:
+    """Reviewer A 2026-05-17: rationale templates cannot use {x.attr}.
+
+    Defense-in-depth for the operator-extensible YAML surface. A future
+    operator-supplied YAML containing {banner.__class__.__mro__} or
+    {chipset[0]} resolves through Python's str.format attribute/item
+    access by default; the _SafeRationaleFormatter rejects both forms.
+    """
+    from app.services.hardware_firmware.parsers.bt_firmware_banner import (
+        _format_rationale,
+    )
+
+    record = {"banner": "test-banner", "chipset_target": "wcn3950"}
+
+    # Attribute access is rejected; the formatter falls back to the raw template.
+    out = _format_rationale(
+        "leaked: {banner.__class__.__mro__}", "test-pin", record
+    )
+    # Raw template emitted unchanged (defense — operator sees the gap).
+    assert "{banner.__class__.__mro__}" in out
+
+    # Item access is rejected.
+    out2 = _format_rationale("leaked: {banner[0]}", "test-pin", record)
+    assert "{banner[0]}" in out2
+
+    # Normal usage still works.
+    out3 = _format_rationale(
+        "banner is {banner}, chipset is {chipset_upper}", "test-pin", record
+    )
+    assert out3 == "banner is test-banner, chipset is WCN3950"
 
 
 # ---------------------------------------------------------------------------
@@ -384,12 +562,11 @@ def test_missing_yaml_falls_back_to_defaults(tmp_path: Path, monkeypatch) -> Non
     )
     PL._load_banner_cve_pins.cache_clear()
     pins = PL.get_banner_cve_pins()
-    # Defaults preserve the BRAKTOOTH pin.
+    # Defaults preserve the BRAKTOOTH pin — single Qualcomm-CNA CVE per
+    # Reviewer B 2026-05-17 NVD CPE verification (CVE-2021-30348).
     assert len(pins) == 1
-    assert pins[0].pin_id == "qualcomm-braktooth-qca-rome-dos-cluster"
-    assert {c.cve_id for c in pins[0].cves} == {
-        "CVE-2021-34147", "CVE-2021-31609", "CVE-2021-31612",
-    }
+    assert pins[0].pin_id == "qualcomm-braktooth-qca-rome-dos-cve-2021-30348"
+    assert {c.cve_id for c in pins[0].cves} == {"CVE-2021-30348"}
 
 
 def test_malformed_yaml_pin_missing_id(
@@ -410,7 +587,7 @@ def test_malformed_yaml_pin_missing_id(
 
     with caplog.at_level("WARNING", logger="app.services.hardware_firmware.patterns_loader"):
         pins = PL.get_banner_cve_pins()
-    assert pins[0].pin_id == "qualcomm-braktooth-qca-rome-dos-cluster"
+    assert pins[0].pin_id == "qualcomm-braktooth-qca-rome-dos-cve-2021-30348"
     assert any("structural validation failed" in r.message for r in caplog.records)
 
 
@@ -433,7 +610,7 @@ def test_malformed_yaml_pin_no_match_condition(
 
     pins = PL.get_banner_cve_pins()
     # Falls back to defaults — bad pin rejected.
-    assert pins[0].pin_id == "qualcomm-braktooth-qca-rome-dos-cluster"
+    assert pins[0].pin_id == "qualcomm-braktooth-qca-rome-dos-cve-2021-30348"
 
 
 def test_malformed_yaml_bad_family(tmp_path: Path, monkeypatch) -> None:
@@ -452,7 +629,7 @@ def test_malformed_yaml_bad_family(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(PL, "_BT_BANNER_CVE_PINS_YAML", yaml_path)
     PL._load_banner_cve_pins.cache_clear()
     pins = PL.get_banner_cve_pins()
-    assert pins[0].pin_id == "qualcomm-braktooth-qca-rome-dos-cluster"
+    assert pins[0].pin_id == "qualcomm-braktooth-qca-rome-dos-cve-2021-30348"
 
 
 def test_malformed_yaml_bad_regex(tmp_path: Path, monkeypatch) -> None:
@@ -472,7 +649,7 @@ def test_malformed_yaml_bad_regex(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(PL, "_BT_BANNER_CVE_PINS_YAML", yaml_path)
     PL._load_banner_cve_pins.cache_clear()
     pins = PL.get_banner_cve_pins()
-    assert pins[0].pin_id == "qualcomm-braktooth-qca-rome-dos-cluster"
+    assert pins[0].pin_id == "qualcomm-braktooth-qca-rome-dos-cve-2021-30348"
 
 
 def test_malformed_yaml_duplicate_pin_id(tmp_path: Path, monkeypatch) -> None:
@@ -491,7 +668,7 @@ def test_malformed_yaml_duplicate_pin_id(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(PL, "_BT_BANNER_CVE_PINS_YAML", yaml_path)
     PL._load_banner_cve_pins.cache_clear()
     pins = PL.get_banner_cve_pins()
-    assert pins[0].pin_id == "qualcomm-braktooth-qca-rome-dos-cluster"
+    assert pins[0].pin_id == "qualcomm-braktooth-qca-rome-dos-cve-2021-30348"
 
 
 # ---------------------------------------------------------------------------
@@ -533,7 +710,8 @@ def _make_qca_tlv(banner: str) -> bytes:
 
 
 def test_shipped_yaml_fires_braktooth_pin_via_parser(tmp_path: Path) -> None:
-    """End-to-end: a CMC banner produces all 3 BRAKTOOTH CVEs."""
+    """End-to-end: a CMC banner produces the single CVE-2021-30348 pin
+    (Qualcomm-CNA-attributed per NVD, Reviewer B 2026-05-17)."""
     banner = "BTFM.CMC.1.3.0-00069-QCACHROMZ-1"
     fixture = _make_qca_tlv(banner)
     p = tmp_path / "cmbtfw13.tlv"
@@ -543,12 +721,12 @@ def test_shipped_yaml_fires_braktooth_pin_via_parser(tmp_path: Path) -> None:
     result = parser.parse(str(p), fixture[:64], len(fixture))
 
     kvs = result.metadata.get("known_vulnerabilities") or []
-    assert len(kvs) == 3
+    assert len(kvs) == 1
     cve_ids = {k["cve_id"] for k in kvs}
-    assert cve_ids == {"CVE-2021-34147", "CVE-2021-31609", "CVE-2021-31612"}
+    assert cve_ids == {"CVE-2021-30348"}
     # Each finding carries the pin_id traceback per H2 design.
     assert all(
-        k["pin_id"] == "qualcomm-braktooth-qca-rome-dos-cluster"
+        k["pin_id"] == "qualcomm-braktooth-qca-rome-dos-cve-2021-30348"
         for k in kvs
     )
     # Rationale templating substituted the banner + chipset.
@@ -710,7 +888,7 @@ def test_rationale_with_missing_placeholder_falls_back_to_raw(
     assert len(kvs) == 1
     # Raw template emitted (still useful to the operator).
     assert "{unknown_var}" in kvs[0]["rationale"]
-    assert any("placeholder error" in r.message for r in caplog.records)
+    assert any("template error" in r.message for r in caplog.records)
 
 
 def test_pin_id_traceback_in_findings(tmp_path: Path) -> None:

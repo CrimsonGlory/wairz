@@ -118,7 +118,7 @@ path_contexts:
 
 Required: `path_pattern`, `vendor`, `category`. Optional: `filename_pattern`, `priority` (default 0), `product`, `confidence`.
 
-**Priority handling.** When two path-context rules fire on the same blob, the higher-priority one wins. Ties resolve deterministically by `(category, vendor, product)` — author-order accidents don't change classification (Reviewer A M5 2026-05-15 finding; see `patterns_loader._compile_path_contexts:345-352`).
+**Priority handling.** When two path-context rules fire on the same blob, the higher-priority one wins. Ties resolve deterministically by `(category, vendor, product)` — author-order accidents don't change classification (Reviewer A M5 2026-05-15 finding; see the `compiled.sort(...)` block at the end of `patterns_loader._compile_path_contexts`).
 
 **Worked example — Bluedroid host-stack coverage (shipped 2026-05-16):**
 
@@ -193,7 +193,15 @@ mtk_known_chips:                        # MediaTek BT/WiFi chip-ID allowlist
 
 - New filename → codename prefix mappings (`cmbtfw` → `CMC` etc.). These live in `parsers/bt_firmware_banner.py` `_QCA_FILENAME_PREFIX_TO_CODENAME` because the **filename↔content mismatch flag** (Reviewer B M2 2026-05-16) is forensic-load-bearing and the small bespoke map keeps the link auditable. Extending the YAML to cover this would require a parser code change too.
 
-**Graceful degrade** (Rule #34): if this YAML is missing or fails structural validation, the loader logs WARN and falls back to the in-tree `_BT_CODENAME_DEFAULTS` constant (`patterns_loader.py`). Detection keeps working; an operator log line surfaces the issue.
+**Graceful degrade** (Rule #34): if this YAML is missing the loader logs INFO; if it fails structural validation the loader logs WARN. In both cases the loader falls back to the in-tree `_BT_CODENAME_DEFAULTS` constant (`patterns_loader.py`). Detection keeps working; an operator log line surfaces the issue.
+
+**Observability** (Reviewer C 2026-05-17 finding): every load — success OR fallback — emits one INFO line per file that operators can grep for. Tail backend logs after a Rule #8 rebuild:
+
+```bash
+docker compose logs backend | grep -E "patterns_loader: bt_qca_codenames"
+# Expect on success: "bt_qca_codenames.yaml loaded — 5 codenames, 4 braktooth chipsets, 18 mtk chips (YAML, not defaults)"
+# Expect on YAML loss: "bt_qca_codenames.yaml missing or unparseable — using in-tree _BT_CODENAME_DEFAULTS (...)"
+```
 
 ---
 
@@ -205,10 +213,10 @@ Externalized 2026-05-17. The banner-pin → CVE rule engine that replaces the ha
 
 ```yaml
 pins:
-  - id: qualcomm-braktooth-qca-rome-dos-cluster      # kebab-case stable ID
+  - id: qualcomm-braktooth-qca-rome-dos-cve-2021-30348    # kebab-case stable ID
     description: |
-      ASSET BrakTooth Qualcomm DoS subset (LMP_timing_accuracy + 2 ×
-      oversized-packet DoS)
+      Qualcomm BrakTooth LLM utility-timer DoS (CVE-2021-30348) on
+      Rome WCN3xx0 BT firmware
 
     # ---- Match conditions (logical AND of all present fields) ----
     family: qca_rome                                  # parser family verdict
@@ -217,17 +225,18 @@ pins:
     banner_match: "BTFM\\.CMC\\.1\\."                 # regex against record.banner
     build_date_before: 2017-09-12                     # broadcom_hcd build date
     build_id_lt: 100                                  # qca_rome/mediatek integer
+    signed_eq: signed                                 # "signed" | "unsigned"
 
     # ---- CVE list (required, non-empty) ----
     cves:
-      - id: CVE-2021-34147
+      - id: CVE-2021-30348
         severity: medium                              # critical|high|medium|low|info
         subcomponent: bluetooth                       # default "bluetooth"
         confidence: high                              # default "high"
         rationale: |
           BT firmware banner '{banner}' confirms {chipset_upper} (QCA
-          Rome family). Per the ASSET BrakTooth disclosure ...
-        reference: https://asset-group.github.io/disclosures/braktooth/
+          Rome family). Per NVD CPE list (vendor=qualcomm), ...
+        reference: https://nvd.nist.gov/vuln/detail/CVE-2021-30348
 ```
 
 ### Match conditions in detail
@@ -237,9 +246,10 @@ pins:
 | `family` | enum | all | Must equal `record.family` (the parser verdict — `qca_rome`, `broadcom_hcd`, or `mediatek_bt`). |
 | `codename_in` | list[str] | qca_rome | UPPERCASE 3-letter codenames the QCA banner regex extracted. |
 | `chipset_target_in` | list[str] | all | Lowercase chipset names that `chipset_target` must match. |
-| `banner_match` | regex | all | `re.IGNORECASE` regex against `record.banner`. |
-| `build_date_before` | YYYY-MM-DD | broadcom_hcd | `record.build_date` parsed as `MMM DD YYYY` must be strictly earlier. Fails closed on unparseable/missing dates. |
-| `build_id_lt` | int | qca_rome / mediatek_bt | Integer-head of `record.build_id` must be strictly less. Fails closed on non-int values. |
+| `banner_match` | regex | all | `re.IGNORECASE` regex against `record.banner`. Loader-side check: the regex MUST compile; uncompilable patterns reject the whole YAML to defaults. |
+| `build_date_before` | YYYY-MM-DD | broadcom_hcd | `record.build_date` parsed as `MMM DD YYYY` must be strictly earlier. Fails closed on unparseable/missing dates (DEBUG-logged). |
+| `build_id_lt` | int | qca_rome / mediatek_bt | Integer-head of `record.build_id` must be strictly less. Fails closed on non-int values (DEBUG-logged). NOTE: `build_id_lt: 0` with no other gate is rejected at load time as a likely-unfilled placeholder sentinel. |
+| `signed_eq` | enum | qca_rome (signed/unsigned) | Match against `record.signed` ("signed" or "unsigned" — the QCA banner trailing "Z" indicates signed). Useful when an advisory applies only to dev/debug builds. broadcom_hcd always emits "unsigned"; mediatek_bt doesn't populate `signed`. |
 
 A pin with **all** conditions absent is rejected at load time (it would fire on every BT blob). At least one condition is required.
 
@@ -308,6 +318,8 @@ codenames:
 
 **Step 2.** If your firmware filenames follow the QCA convention (`<prefix>btfw*.tlv`), the existing classifier rules in `firmware_patterns.yaml` already match — the parser will read the banner, extract the `HEN` codename, and resolve `chipset_target=qca6490` via the YAML accessor. No filename-pattern change needed.
 
+**Caveat (Reviewer C 2026-05-17):** if you skip the `_QCA_FILENAME_PREFIX_TO_CODENAME` extension below, the filename↔content mismatch flag won't surface for the new family — content evidence still wins (the parser correctly trusts the banner over the filename), but operators lose the forensic mismatch metadata that's load-bearing for "is this BTFM blob in the right partition" audits. If you're sure the new family will only ship under one filename prefix, you can skip the parser edit; otherwise update both.
+
 If the filename is novel (e.g. `henbtfw01.tlv`), add a filename pattern:
 
 ```yaml
@@ -358,13 +370,38 @@ docker compose up -d --build backend worker migrator
 
 Always rebuild **worker** AND **migrator** alongside **backend** — they share the same Dockerfile and codebase. A stale worker silently blocks all background jobs.
 
-**Step 5.** Re-detect on a test firmware:
+**Step 5.** Re-detect on a test firmware, then trigger CVE matching.
+
+Hardware-firmware re-detection runs as part of the unpack worker — there is no standalone "detect-only" MCP tool. To re-trigger detection without re-uploading, re-run the unpack job (which clears `extracted_path` + `device_metadata.detection_roots`) via the wairz UI or call the firmware-unpack REST endpoint with the firmware ID. For inspection-only flows, the relevant MCP tools (verified against `backend/app/ai/tools/hardware_firmware.py` + `backend/app/ai/tools/sbom.py`):
 
 ```bash
-# From a running backend, via the MCP tool:
-detect_hardware_firmware(project_id, firmware_id, force=True)
+# Inspect what hardware-firmware detection already found:
+analyze_hardware_firmware(project_id=..., firmware_id=...)
 
-# Then check that the Hennessy banner produced the expected pin:
+# Inspect per-component CVE attribution against your shipped pin:
+check_firmware_cves(project_id=..., firmware_id=...)
+
+# Re-run the full SBOM-driven vulnerability scan (covers curated YAML
+# matches AND the banner-pin engine's persisted CVE rows):
+run_vulnerability_scan(project_id=..., firmware_id=...)
+```
+
+To re-run **just** the curated CVE matcher (faster than re-unpacking, persists banner-pin findings already in `metadata.known_vulnerabilities` into `sbom_vulnerabilities`), POST to the cve-match endpoint with idempotent-202 polling (Rule #33 .a):
+
+```bash
+# 202 + polling endpoint (decouples the work from any reverse-proxy timeout):
+curl -X POST \
+  -H "X-API-Key: $WAIRZ_API_KEY" \
+  http://localhost:8000/api/v1/projects/$PROJECT_ID/hardware-firmware/cve-match
+
+# Poll until status=completed:
+curl -H "X-API-Key: $WAIRZ_API_KEY" \
+  http://localhost:8000/api/v1/projects/$PROJECT_ID/hardware-firmware/cve-match/status
+```
+
+Then verify the Hennessy banner produced the expected attribution. SQL:
+
+```sql
 SELECT
   blob.path, blob.chipset_target, blob.metadata->'bt_fw_banner'->>'codename'
 FROM hardware_firmware_blobs blob
@@ -378,24 +415,20 @@ WHERE blob.metadata->'bt_fw_banner'->>'codename' = 'HEN'
   AND sv.cve_id = 'CVE-9999-99999';
 ```
 
-**Step 6.** Re-run `cve_match` for the project to persist the new pin into `sbom_vulnerabilities`:
-
-```bash
-cve_match_firmware(project_id, firmware_id)
-```
-
 ---
 
 ## Graceful-degrade behavior cheat-sheet
 
-| YAML file | Missing file | YAML syntax error | Structural validation error |
-|-----------|--------------|-------------------|-----------------------------|
-| `vendor_prefixes.yaml` | Falls back to `_CORE_VENDORS` (qualcomm, mediatek, broadcom, …) + WARN | Same | Same |
-| `firmware_patterns.yaml` | Empty pattern list + WARN | Empty list + WARN | Per-entry skip + WARN; rest of YAML still loads |
-| `bt_qca_codenames.yaml` | `_BT_CODENAME_DEFAULTS` + INFO | Same | All-or-nothing fallback to defaults + WARN |
-| `bt_banner_cve_pins.yaml` | `_BANNER_CVE_PIN_DEFAULTS` (BRAKTOOTH pin) + INFO | Same | All-or-nothing fallback + WARN |
+| YAML file | Missing file | YAML syntax error | Structural validation error | Per-load success log |
+|-----------|--------------|-------------------|-----------------------------|----------------------|
+| `vendor_prefixes.yaml` | Falls back to `_CORE_VENDORS` (qualcomm, mediatek, broadcom, …) + WARN | Same | Same | No explicit success log |
+| `firmware_patterns.yaml` | Empty pattern list + WARN | Empty list + WARN | Per-entry skip + WARN; rest of YAML still loads | INFO: "loaded N firmware patterns" / "loaded N path_contexts entries" |
+| `bt_qca_codenames.yaml` | `_BT_CODENAME_DEFAULTS` + INFO | INFO | All-or-nothing fallback to defaults + WARN | INFO: "bt_qca_codenames.yaml loaded — N codenames, M braktooth chipsets, K mtk chips (YAML, not defaults)" |
+| `bt_banner_cve_pins.yaml` | `_BANNER_CVE_PIN_DEFAULTS` (BRAKTOOTH pin) + INFO | INFO | All-or-nothing fallback + WARN | INFO: "bt_banner_cve_pins.yaml loaded — N pins, M CVEs total (YAML, not defaults)" |
 
 The H1 + H2 loaders use an **atomic fallback** (one structural error → entire YAML rejected, defaults fire) because partial-load semantics are subtle for these files — for an operator, "my new pin doesn't appear" is easier to diagnose than "my pin appears but with a silently-dropped chipset_target_in field." The classifier YAML uses **per-entry skip** because one broken regex among thousands of patterns shouldn't kill the rest of classification.
+
+The **per-load success log** column (Reviewer C 2026-05-17) is the operator's positive-side signal — `grep -E "bt_(qca_codenames|banner_cve_pins).yaml loaded" backend.log` returns one line per backend boot when YAML was used; absence of that line means defaults fired.
 
 ---
 
