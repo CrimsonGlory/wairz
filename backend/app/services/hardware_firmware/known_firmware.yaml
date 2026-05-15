@@ -938,3 +938,179 @@ families:
       WLAN firmware). Android fix landed July 2021 ASB; firmware-side
       fix per QSB. Affects every wcn3xx0 / wcn6xx0 WLAN blob shipped
       before mid-2021.
+
+  # ===================================================================
+  # Android host BT stack (Bluedroid / Fluoride) CVE coverage — added
+  # 2026-05-16 per BTFM-correction follow-up rec #3. These are LEGITIMATE
+  # Android host-stack CVEs that complement (not duplicate) the
+  # firmware-side coverage. Sources: Android Security Bulletin
+  # 2023-09 / 2023-10 / 2023-12 / 2024-10 / 2024-12; NVD; AOSP
+  # gerrit commits referenced below.
+  #
+  # vendor: aosp covers libbluetooth.so + bluetooth.default.so +
+  #   libbluetooth_jni.so under /system/lib*/ and the Android 12+ APEX
+  #   /apex/com.android.btservices/lib64/.
+  # Vendor-side fork libraries (libbthost_qti, libbluetooth_qti) match
+  #   via separate vendor=qualcomm entries below — same CVE list, same
+  #   semantics, separate attribution.
+  # ===================================================================
+
+  - name: Bluedroid / Fluoride HID forced-pairing (CVE-2023-45866 / BleedingPodcast)
+    vendor: aosp
+    category: bluetooth
+    cves:
+      - CVE-2023-45866
+    severity: high
+    cvss_score: 7.1
+    notes: |
+      Marc Newlin disclosure 2023-12. BlueZ / Fluoride HID host accepts
+      unauthenticated HID keystrokes from an attacker-controlled HID
+      device that the host believes is already paired. RCE-adjacent
+      (keystroke injection on locked screen). Fix shipped Android
+      2023-12-05 SPL; classic_bonded_only=true enforced in pairing
+      state machine. Devices below 2023-12 patch level: vulnerable.
+
+  - name: Bluedroid / Fluoride GATT build_read_multi_rsp RCE (CVE-2023-40129)
+    vendor: aosp
+    category: bluetooth
+    cves:
+      - CVE-2023-40129
+    severity: critical
+    cvss_score: 8.8
+    notes: |
+      AOSP Bluetooth GATT heap overflow in build_read_multi_rsp().
+      Remote code execution from attacker on adjacent BT controller
+      with no privileges. Fixed in Android 2023-10-05 SPL (AOSP commit
+      c0151aa3ba76c785b32c7f9d16c98febe53017b1). Affects Android 12.0,
+      12.1, 13.0. Devices below 2023-10 patch level: vulnerable.
+
+  - name: Bluedroid / Fluoride GATT integer-overflow precursor (CVE-2023-35673)
+    vendor: aosp
+    category: bluetooth
+    cves:
+      - CVE-2023-35673
+    severity: high
+    cvss_score: 7.8
+    notes: |
+      Integer overflow leading to heap overflow in build_read_multi_rsp.
+      Predecessor finding to CVE-2023-40129; fixed in Android 2023-09-05
+      SPL. Affects Android 11, 12, 12L, 13. Devices below 2023-09 patch
+      level: vulnerable.
+
+  - name: Bluedroid / Fluoride GATT DoS (CVE-2024-43763)
+    vendor: aosp
+    category: bluetooth
+    cves:
+      - CVE-2024-43763
+    severity: medium
+    cvss_score: 5.5
+    notes: |
+      Logic-error variant of the build_read_multi_rsp family; DoS
+      rather than RCE. Fixed in Android 2024-10-05 SPL. Affects
+      Android 13, 14.
+
+  - name: Bluedroid / Fluoride OBEX cross-user disclosure (CVE-2024-49728)
+    vendor: aosp
+    category: bluetooth
+    cves:
+      - CVE-2024-49728
+    severity: high
+    cvss_score: 7.5
+    notes: |
+      OBEX file-sharing service permitted cross-user file disclosure.
+      Fixed in Android 2024-12-05 SPL. Affects Android 12-15.
+      Multi-user devices (tablets, automotive) most affected.
+
+  # ---- Vendor-side BT HAL libraries (Qualcomm fork) ----
+  # libbt-vendor-qti.so / libbluetooth_qti.so are Qualcomm's vendor-fork
+  # of Bluedroid sources. CVEs transfer in principle but at vendor patch
+  # cadence (typically 1-2 months behind AOSP). Re-emitting the same
+  # CVE IDs under vendor=qualcomm so operators get attribution against
+  # both the AOSP-side AND vendor-side libraries.
+  - name: Qualcomm vendor BT HAL (Bluedroid fork) CVE-2023-45866 cluster
+    advisory_id: ADVISORY-QTI-BT-HAL-23
+    vendor: qualcomm
+    category: bluetooth
+    chipset_regex: ".*"
+    cves:
+      - CVE-2023-35673
+      - CVE-2023-40129
+      - CVE-2023-45866
+    severity: high
+    cvss_score: 8.8
+    confidence: medium
+    notes: |
+      Qualcomm vendor BT HAL libraries (libbt-vendor-qti.so /
+      libbluetooth_qti.so) carry a fork of AOSP Bluedroid sources.
+      Patch cadence lags AOSP by 1-2 months; vendor patch status
+      requires QSB consultation. Soft chipset match (any qcom BT HAL).
+
+  # ===================================================================
+  # wpa_supplicant CVE coverage — added 2026-05-16 per BTFM-correction
+  # follow-up rec #4. Sources: NVD, Red Hat RHSA-2024:2517, Gentoo
+  # GLSA-202309-16, Vanhoef Dragonblood research site.
+  #
+  # The wpa_supplicant binary lives under /vendor/bin/hw/ (modern
+  # Android HAL service), /system/bin/ (legacy/GKI), or /usr/sbin/
+  # (OpenWrt / generic Linux). vendor=aosp covers all three locations.
+  # Per-CVE version threshold is documented in notes; operators verify
+  # via `strings <binary> | grep '^wpa_supplicant v'`.
+  # ===================================================================
+
+  - name: wpa_supplicant PEAP-MSCHAPv2 phase-2 bypass (CVE-2023-52160)
+    vendor: aosp
+    category: wifi
+    cves:
+      - CVE-2023-52160
+    severity: medium
+    cvss_score: 6.5
+    notes: |
+      Top10VPN disclosure Feb 2024. wpa_supplicant <= 2.10 with PEAP
+      enabled and TLS server certificate validation disabled accepts
+      attacker-controlled phase-2 authentication, leaking the
+      MSCHAPv2 challenge. Fixed in 2.11. Conditions: PEAP enabled in
+      config AND ca_cert / ca_path NOT set. Android devices: ALL
+      builds shipping wpa_supplicant <= 2.10 are CANDIDATES;
+      exploitability requires the unsafe config.
+
+  - name: wpa_supplicant / hostapd SAE side-channel (CVE-2022-23303)
+    vendor: aosp
+    category: wifi
+    cves:
+      - CVE-2022-23303
+    severity: high
+    cvss_score: 7.5
+    notes: |
+      hostapd + wpa_supplicant < 2.10 SAE implementation leaks password
+      bits via cache access timing. Incomplete fix for CVE-2019-9494
+      Dragonblood. Fixed in 2.10. Affects any WPA3-capable device with
+      wpa_supplicant 2.x < 2.10.
+
+  - name: wpa_supplicant / hostapd EAP-PWD side-channel (CVE-2022-23304)
+    vendor: aosp
+    category: wifi
+    cves:
+      - CVE-2022-23304
+    severity: high
+    cvss_score: 7.5
+    notes: |
+      Companion to CVE-2022-23303 — EAP-PWD implementation leaks
+      password bits via cache timing. Fixed in 2.10.
+
+  - name: wpa_supplicant Dragonblood SAE / EAP-PWD cluster
+    advisory_id: ADVISORY-WPAS-DRAGONBLOOD
+    vendor: aosp
+    category: wifi
+    cves:
+      - CVE-2019-9494
+      - CVE-2019-9495
+      - CVE-2019-9496
+      - CVE-2019-13377
+    severity: high
+    cvss_score: 7.5
+    notes: |
+      Vanhoef + Ronen 2019. WPA3 SAE handshake design flaws + EAP-PWD
+      timing side-channels. CVE-2019-9494 (SAE timing), -9495 (EAP-pwd
+      cache side-channel), -9496 (invalid-curve ECC), -13377 (SAE
+      Brainpool timing). All four fixed by wpa_supplicant 2.9.
+      Affects any pre-2.9 build.

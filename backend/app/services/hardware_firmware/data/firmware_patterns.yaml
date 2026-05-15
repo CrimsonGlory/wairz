@@ -912,3 +912,66 @@ path_contexts:
     product: "Qualcomm bootloader sub-component (extracted ELF)"
     confidence: medium
     priority: 10
+
+  # ---- Android Bluedroid / Fluoride host stack libraries ----
+  # AOSP Bluetooth stack (formerly Bluedroid, now Fluoride) implements
+  # the BR/EDR + BLE host. Lives under system/ on pre-Android-12 builds,
+  # under /apex/com.android.btservices on Android 12+ (APEX module).
+  # Vendor-side forks (libbt-vendor-qti.so, libbluetooth_qti.so) inherit
+  # the same AOSP CVE surface but at vendor patch cadence.
+  #
+  # CVE coverage (see known_firmware.yaml "Bluedroid" entries):
+  #   CVE-2023-45866 (BleedingPodcast HID injection / forced pairing)
+  #   CVE-2023-40129 (GATT build_read_multi_rsp RCE)
+  #   CVE-2023-35673 (GATT integer overflow precursor)
+  #   CVE-2024-43763 (GATT DoS)
+  #   CVE-2024-49728 (OBEX cross-user file disclosure)
+  - path_pattern: "/(?:system|apex/com\\.android\\.bt(?:services)?)/lib(?:64)?/"
+    filename_pattern: "^(?:libbluetooth(?:_jni|_qti)?|bluetooth\\.default)\\.so$"
+    vendor: aosp
+    category: bluetooth
+    product: "Android Bluetooth host stack (Bluedroid / Fluoride)"
+    confidence: high
+    priority: 30
+
+  - path_pattern: "/vendor/lib(?:64)?/"
+    filename_pattern: "^(?:libbt-vendor[a-z0-9_-]*|libbthost[a-z0-9_-]*|libbluetooth_qti)\\.so$"
+    vendor: qualcomm
+    category: bluetooth
+    product: "Qualcomm vendor BT HAL (libbt-vendor-qti / libbthost / libbluetooth_qti)"
+    confidence: high
+    priority: 30
+
+  # Pre-Android-8 monolithic bluetoothd daemon binary.
+  - path_pattern: "/system/bin/"
+    filename_pattern: "^bluetoothd$"
+    vendor: aosp
+    category: bluetooth
+    product: "Android Bluetooth daemon (legacy bluetoothd binary)"
+    confidence: high
+    priority: 30
+
+  # ---- wpa_supplicant (WiFi supplicant) ----
+  # The WPA supplicant lives under /vendor/bin/hw/ on modern Android
+  # (HAL service) or /system/bin/ on legacy / GKI builds. OpenWrt and
+  # generic Linux carry it under /usr/sbin/.
+  #
+  # CVE coverage (see known_firmware.yaml "wpa_supplicant" entries):
+  #   CVE-2023-52160 (PEAP-MSCHAPv2 phase-2 bypass — affects wpa_supplicant <= 2.10)
+  #   Dragonblood cluster: CVE-2019-9494, -9495, -9496, -13377
+  #   CVE-2022-23303, -23304 (SAE/EAP-PWD side-channel)
+  - path_pattern: "/(?:vendor/bin/hw|system/bin|usr/sbin)/"
+    filename_pattern: "^wpa_supplicant$"
+    vendor: aosp
+    category: wifi
+    product: "wpa_supplicant (WPA/WPA2/WPA3 supplicant binary)"
+    confidence: high
+    priority: 30
+
+  - path_pattern: "/(?:vendor|system)/lib(?:64)?/"
+    filename_pattern: "^libwpa_client\\.so$"
+    vendor: aosp
+    category: wifi
+    product: "wpa_supplicant client library (libwpa_client.so)"
+    confidence: high
+    priority: 30

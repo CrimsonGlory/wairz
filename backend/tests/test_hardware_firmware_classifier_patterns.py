@@ -530,9 +530,10 @@ def test_path_contexts_yaml_loads() -> None:
     from app.services.hardware_firmware.patterns_loader import _PATH_CONTEXTS
 
     assert isinstance(_PATH_CONTEXTS, list)
-    assert len(_PATH_CONTEXTS) >= 8, (
-        "expected at least 8 path_contexts entries (radio.img / BTFM / dspso /"
-        " bootloader / RFNV / EFS / FSG / WLAN / GPU / carrier)"
+    assert len(_PATH_CONTEXTS) >= 14, (
+        "expected at least 14 path_contexts entries (radio.img / BTFM / dspso /"
+        " bootloader / RFNV / EFS / FSG / WLAN / GPU / carrier / bluedroid-system"
+        " / bluedroid-vendor / bluedroid-daemon / wpa_supplicant-bin / wpa-libwpa)"
     )
     # Each tuple: (path_rx, filename_rx_or_None, PathContextMatch).
     for path_rx, filename_rx, tmpl in _PATH_CONTEXTS:
@@ -564,6 +565,62 @@ def test_path_context_match_btfm() -> None:
     assert m is not None
     assert m.vendor == "qualcomm"
     assert m.category == "bluetooth"
+
+
+def test_path_context_match_bluedroid_apex() -> None:
+    """libbluetooth.so under Android 12+ APEX → bluetooth/aosp."""
+    p = "/apex/com.android.btservices/lib64/libbluetooth_jni.so"
+    m = match_path_context(p)
+    assert m is not None
+    assert m.vendor == "aosp"
+    assert m.category == "bluetooth"
+    assert m.product is not None and "Bluedroid" in m.product
+
+
+def test_path_context_match_bluedroid_system_lib() -> None:
+    """Pre-Android-12 libbluetooth.so under /system/lib64/ → bluetooth/aosp."""
+    p = "/system/lib64/libbluetooth.so"
+    m = match_path_context(p)
+    assert m is not None
+    assert m.vendor == "aosp"
+    assert m.category == "bluetooth"
+
+
+def test_path_context_match_bluedroid_vendor_qti() -> None:
+    """libbt-vendor-qti.so / libbluetooth_qti.so → bluetooth/qualcomm."""
+    p = "/vendor/lib64/libbt-vendor-qti.so"
+    m = match_path_context(p)
+    assert m is not None
+    assert m.vendor == "qualcomm"
+    assert m.category == "bluetooth"
+
+
+def test_path_context_match_wpa_supplicant_vendor_hw() -> None:
+    """wpa_supplicant under /vendor/bin/hw/ (modern Android HAL) → wifi/aosp."""
+    p = "/vendor/bin/hw/wpa_supplicant"
+    m = match_path_context(p)
+    assert m is not None
+    assert m.vendor == "aosp"
+    assert m.category == "wifi"
+    assert m.product is not None and "wpa_supplicant" in m.product
+
+
+def test_path_context_match_wpa_supplicant_system_bin() -> None:
+    """wpa_supplicant under /system/bin/ (legacy / GKI) → wifi/aosp."""
+    p = "/system/bin/wpa_supplicant"
+    m = match_path_context(p)
+    assert m is not None
+    assert m.vendor == "aosp"
+    assert m.category == "wifi"
+
+
+def test_path_context_match_wpa_supplicant_libwpa_client() -> None:
+    """libwpa_client.so → wifi/aosp."""
+    p = "/system/lib64/libwpa_client.so"
+    m = match_path_context(p)
+    assert m is not None
+    assert m.vendor == "aosp"
+    assert m.category == "wifi"
 
 
 def test_path_context_match_dspso() -> None:

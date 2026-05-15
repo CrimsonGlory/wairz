@@ -58,6 +58,15 @@ vendors:
   - prefix: unknown
     display: "Unknown Vendor"
     aliases: []
+  # Android Open Source Project — host-side libraries originating from
+  # AOSP source tree. Distinct from chip-silicon vendors (qualcomm,
+  # broadcom, …): aosp covers libbluetooth.so / wpa_supplicant /
+  # other OS-level binaries shipping under /system + /apex regardless
+  # of underlying silicon. Added 2026-05-16 for Bluedroid + wpa_supplicant
+  # CVE coverage.
+  - prefix: aosp
+    display: "Android Open Source Project"
+    aliases: [android]
 
   # -----------------------------------------------------------------------
   # Consumer silicon / SoC / chipset

@@ -577,6 +577,73 @@ class TestMatchCurated:
         advisory_ids = {m.cve_id for m in matches}
         assert "ADVISORY-BT-KNOB" not in advisory_ids
 
+    # -----------------------------------------------------------------
+    # Bluedroid / Fluoride host BT stack CVE coverage (rec #3)
+    # -----------------------------------------------------------------
+    def test_bluedroid_aosp_bt_matches_2023_cluster(self) -> None:
+        """vendor=aosp, category=bluetooth → BleedingPodcast + GATT cluster."""
+        blob = _make_blob(vendor="aosp", category="bluetooth")
+        matches = _match_curated(blob, self._families())
+        cve_ids = {m.cve_id for m in matches}
+        assert "CVE-2023-45866" in cve_ids
+        assert "CVE-2023-40129" in cve_ids
+        assert "CVE-2023-35673" in cve_ids
+
+    def test_bluedroid_aosp_includes_2024_disclosures(self) -> None:
+        """vendor=aosp, category=bluetooth → 2024 DoS + OBEX disclosures."""
+        blob = _make_blob(vendor="aosp", category="bluetooth")
+        matches = _match_curated(blob, self._families())
+        cve_ids = {m.cve_id for m in matches}
+        assert "CVE-2024-43763" in cve_ids
+        assert "CVE-2024-49728" in cve_ids
+
+    def test_bluedroid_qti_vendor_hal_matches(self) -> None:
+        """Qualcomm vendor BT HAL (libbt-vendor-qti.so) inherits Bluedroid CVEs."""
+        blob = _make_blob(
+            vendor="qualcomm",
+            category="bluetooth",
+            chipset_target="wcn3990",
+        )
+        matches = _match_curated(blob, self._families())
+        cve_ids = {m.cve_id for m in matches}
+        # Vendor BT HAL fork inherits the 2023 cluster.
+        assert "CVE-2023-45866" in cve_ids
+        assert "CVE-2023-40129" in cve_ids
+        assert "CVE-2023-35673" in cve_ids
+        # AND the existing BRAKTOOTH / spec advisories also fire.
+        assert "CVE-2021-28139" in cve_ids
+        assert "ADVISORY-BT-KNOB" in cve_ids
+
+    # -----------------------------------------------------------------
+    # wpa_supplicant CVE coverage (rec #4)
+    # -----------------------------------------------------------------
+    def test_wpa_supplicant_matches_2023_52160(self) -> None:
+        """vendor=aosp, category=wifi → PEAP bypass + Dragonblood."""
+        blob = _make_blob(vendor="aosp", category="wifi")
+        matches = _match_curated(blob, self._families())
+        cve_ids = {m.cve_id for m in matches}
+        assert "CVE-2023-52160" in cve_ids
+        # Dragonblood cluster
+        assert "CVE-2019-9494" in cve_ids
+        assert "CVE-2019-13377" in cve_ids
+        # SAE / EAP-PWD side-channel
+        assert "CVE-2022-23303" in cve_ids
+        assert "CVE-2022-23304" in cve_ids
+
+    def test_wpa_supplicant_not_fired_on_qcom_wifi(self) -> None:
+        """wpa_supplicant CVEs are vendor=aosp; they must NOT fire on
+        Qualcomm WLAN firmware blobs (different attack surface — the
+        WLAN firmware blob is silicon, the supplicant is host software)."""
+        blob = _make_blob(
+            vendor="qualcomm",
+            category="wifi",
+            chipset_target="wcn3990",
+        )
+        matches = _match_curated(blob, self._families())
+        cve_ids = {m.cve_id for m in matches}
+        assert "CVE-2023-52160" not in cve_ids
+        assert "CVE-2019-9494" not in cve_ids
+
     def test_vendor_regex_scoped_alternation(self) -> None:
         """A scoped vendor_regex (e.g. (qualcomm|broadcom)) matches both
         listed vendors but not others — sanity check on the alternation."""
