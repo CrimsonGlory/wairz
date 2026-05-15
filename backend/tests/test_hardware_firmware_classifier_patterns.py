@@ -22,8 +22,10 @@ from app.services.hardware_firmware.classifier import Classification, classify
 from app.services.hardware_firmware.patterns_loader import (
     VENDOR_DISPLAY,
     VENDORS,
+    PathContextMatch,
     PatternMatch,
     match,
+    match_path_context,
     resolve_vendor,
 )
 
@@ -508,3 +510,188 @@ def test_firmware_patterns_minimum_coverage() -> None:
     # Require at least 40 of the probes to match (we aim for all of them,
     # but some regexes are intentionally conservative).
     assert hits >= 40, f"only {hits}/{len(probes)} probes matched a pattern"
+
+
+# ---------------------------------------------------------------------------
+# Path-context tests — added 2026-05-15 for the DS1 Moto-G32 + G30 fix that
+# rescues / refines blobs in known extraction-tree partitions (radio.img,
+# BTFM.bin, dspso.bin, bootloader.img) using YAML-driven path_contexts:.
+# ---------------------------------------------------------------------------
+
+
+def test_path_contexts_yaml_loads() -> None:
+    """firmware_patterns.yaml::path_contexts must populate the module table."""
+    from app.services.hardware_firmware.patterns_loader import _PATH_CONTEXTS
+
+    assert isinstance(_PATH_CONTEXTS, list)
+    assert len(_PATH_CONTEXTS) >= 8, (
+        "expected at least 8 path_contexts entries (radio.img / BTFM / dspso /"
+        " bootloader / RFNV / EFS / FSG / WLAN / GPU / carrier)"
+    )
+    # Each tuple: (path_rx, filename_rx_or_None, PathContextMatch).
+    for path_rx, filename_rx, tmpl in _PATH_CONTEXTS:
+        assert path_rx is not None
+        assert isinstance(tmpl, PathContextMatch)
+        assert tmpl.category in classifier.CATEGORIES, (
+            f"path-context category {tmpl.category!r} not in CATEGORIES"
+        )
+        assert tmpl.confidence in {"high", "medium", "low"}
+
+
+def test_path_context_match_rfnv() -> None:
+    """RFNV calibration item path → modem (high confidence)."""
+    p = (
+        "/data/firmware/projects/x/firmware/y/extracted/Moto-G32-XT2235-1.zip_extract/"
+        "radio.img_extract/extfs/efs_item_files/nv/item_files/rfnv/00123.bin"
+    )
+    m = match_path_context(p)
+    assert m is not None
+    assert m.vendor == "qualcomm"
+    assert m.category == "modem"
+    assert m.confidence == "high"
+
+
+def test_path_context_match_btfm() -> None:
+    """BTFM.bin tree → bluetooth/broadcom."""
+    p = "/x/Moto-G32-XT2235-1.zip_extract/BTFM.bin_extract/raw.image_extract/image/unknown.tlv"
+    m = match_path_context(p)
+    assert m is not None
+    assert m.vendor == "broadcom"
+    assert m.category == "bluetooth"
+
+
+def test_path_context_match_dspso() -> None:
+    """dspso.bin/adsp and /cdsp must split into audio vs dsp categories."""
+    p_adsp = "/x/Moto-G32-XT2235-1.zip_extract/dspso.bin_extract/adsp/something.bin"
+    p_cdsp = "/x/Moto-G32-XT2235-1.zip_extract/dspso.bin_extract/cdsp/something.bin"
+    m_adsp = match_path_context(p_adsp)
+    m_cdsp = match_path_context(p_cdsp)
+    assert m_adsp is not None and m_adsp.category == "audio"
+    assert m_cdsp is not None and m_cdsp.category == "dsp"
+
+
+def test_path_context_match_wlan_split() -> None:
+    """bdwlan.b0X (Qualcomm WLAN combo split chunk) in radio.img → wifi."""
+    p = "/x/Moto-G32-XT2235-1.zip_extract/radio.img_extract/extfs/bdwlan.b04"
+    m = match_path_context(p)
+    assert m is not None
+    assert m.vendor == "qualcomm"
+    assert m.category == "wifi"
+
+
+def test_path_context_match_carrier_config() -> None:
+    """Carrier-named .mbn (att_usa_volte.mbn) inside radio.img → modem high."""
+    p = (
+        "/x/Moto-G32-XT2235-1.zip_extract/radio.img_extract/extfs/"
+        "carrier_config/att_usa_volte.mbn"
+    )
+    m = match_path_context(p)
+    assert m is not None
+    assert m.vendor == "qualcomm"
+    assert m.category == "modem"
+    assert m.confidence == "high"
+
+
+def test_path_context_no_match_for_random_path() -> None:
+    """Paths outside any known extraction tree must NOT match anything."""
+    assert match_path_context("/data/random/place/something.bin") is None
+    assert match_path_context("/tmp/somerandom/file") is None
+    assert match_path_context("") is None
+    assert match_path_context("/") is None
+
+
+def test_path_context_priority_ordering() -> None:
+    """RFNV (priority=30) must beat the radio.img catch-all (priority=5)."""
+    # Path inside radio.img with the RFNV subpath. Both rules match the path
+    # regex; the higher-priority RFNV rule must win.
+    p = (
+        "/x/Moto-G32-XT2235-1.zip_extract/radio.img_extract/extfs/"
+        "efs_item_files/nv/item_files/rfnv/some.bin"
+    )
+    m = match_path_context(p)
+    assert m is not None
+    # priority=30 entry sets confidence="high" + product mentions RFNV.
+    assert m.priority >= 25
+    assert m.confidence == "high"
+    assert m.product is not None
+    assert "RFNV" in m.product
+
+
+# ---------------------------------------------------------------------------
+# Classifier integration — path-context as REFINE / RESCUE step.
+# ---------------------------------------------------------------------------
+
+
+def test_classify_rescue_rfnv_returns_modem_not_none() -> None:
+    """A raw_bin file in RFNV that filename + magic wouldn't classify gets
+    rescued by path-context into modem/qualcomm — was None before this fix."""
+    p = (
+        "/x/Moto-G32-XT2235-1.zip_extract/radio.img_extract/extfs/"
+        "efs_item_files/nv/item_files/rfnv/00123.bin"
+    )
+    cls = classify(p, _RAW_BIN_MAGIC, 4096)
+    assert cls is not None
+    assert cls.category == "modem"
+    assert cls.vendor == "qualcomm"
+    # Rescue path uses format="raw_bin" because path alone gives no format hint.
+    assert cls.format == "raw_bin"
+
+
+def test_classify_refine_carrier_mbn_moves_other_to_modem() -> None:
+    """A carrier .mbn (e.g. att_usa_volte.mbn) was qualcomm/other under the
+    old qcom-prefix if-chain; path-context refines it to qualcomm/modem."""
+    p = (
+        "/x/Moto-G32-XT2235-1.zip_extract/radio.img_extract/extfs/"
+        "carrier_config/att_usa_volte.mbn"
+    )
+    cls = classify(p, _RAW_BIN_MAGIC, 4096)
+    assert cls is not None
+    assert cls.category == "modem"
+    assert cls.vendor == "qualcomm"
+    # Filename format wins — refine keeps qcom_mbn.
+    assert cls.format == "qcom_mbn"
+
+
+def test_classify_refine_wlan_split_other_to_wifi() -> None:
+    """bdwlan.b04 inside radio.img was qualcomm/other; refines to wifi."""
+    p = "/x/Moto-G32-XT2235-1.zip_extract/radio.img_extract/extfs/bdwlan.b04"
+    cls = classify(p, _RAW_BIN_MAGIC, 4096)
+    assert cls is not None
+    assert cls.category == "wifi"
+    assert cls.vendor == "qualcomm"
+
+
+def test_classify_rescue_btfm_unmatched_sub_blob() -> None:
+    """A file inside BTFM.bin_extract that doesn't match any BTFM filename
+    pattern still gets rescued to bluetooth/broadcom via path-context."""
+    p = "/x/Moto-G32-XT2235-1.zip_extract/BTFM.bin_extract/raw.image_extract/image/unknown.dat"
+    cls = classify(p, _RAW_BIN_MAGIC, 4096)
+    assert cls is not None
+    assert cls.category == "bluetooth"
+    assert cls.vendor == "broadcom"
+
+
+def test_classify_path_context_does_not_demote_specific_category() -> None:
+    """A filename that classifies as (broadcom, bluetooth) via the BTFM
+    YAML pattern must STAY that way — path-context contract says it never
+    overrides a non-"other" category. Regression guard for the precedence
+    rule."""
+    # cmbtfw10.tlv matches firmware_patterns.yaml's
+    # "^[a-z]{2}btfw[0-9]+\\.(tlv|ver)$" with vendor=broadcom + category=bluetooth.
+    p = "/x/Moto-G32-XT2235-1.zip_extract/BTFM.bin_extract/raw.image_extract/image/cmbtfw10.tlv"
+    cls = classify(p, _RAW_BIN_MAGIC, 4096)
+    assert cls is not None
+    assert cls.category == "bluetooth"
+    assert cls.vendor == "broadcom"
+    # Confidence comes from the filename pattern (high), NOT from the path
+    # rule (which would have produced medium). This verifies path-context
+    # did not run on the already-specific filename match.
+    assert cls.confidence == "high"
+
+
+def test_classify_unmatched_path_still_returns_none() -> None:
+    """Paths outside any known partition tree get None (skipped), confirming
+    path-context doesn't over-promote arbitrary files into firmware blobs."""
+    p = "/var/lib/somewhere/random.bin"
+    cls = classify(p, _RAW_BIN_MAGIC, 4096)
+    assert cls is None

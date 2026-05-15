@@ -665,3 +665,150 @@ patterns:
     category: bluetooth
     confidence: high
     source: live-audit-2026-04-17-DPCS10
+
+# =====================================================================
+# PATH-CONTEXT RULES — applied as a FALLBACK after filename classification.
+#
+# Refine blobs whose filename-stage classification returned category="other"
+# by inspecting WHICH EXTRACTION CONTAINER they live in (radio.img, BTFM.bin,
+# dspso.bin/adsp, etc.). Data-driven; vendor- and partition-agnostic; anyone
+# can add a new path → category mapping for their firmware shape without
+# touching Python.
+#
+# Schema (per entry):
+#   path_pattern:      Python regex applied to the LOWERCASED full path
+#                      (separator: '/'). Matches anywhere in the path
+#                      (no anchoring). REQUIRED.
+#   filename_pattern:  Optional regex applied to the basename, for finer
+#                      scoping (e.g. "only .mbn files inside radio.img").
+#   vendor:            Vendor to set on the refined Classification. If
+#                      "unknown", keep the vendor the filename matcher
+#                      inferred (e.g. "qualcomm" via _is_qcom_filename).
+#   category:          Target category. Must be in classifier.CATEGORIES.
+#   product:           Optional human-readable label.
+#   confidence:        high | medium | low. Default "medium".
+#   priority:          Integer (default 0). Higher → evaluated first.
+#                      Use this to disambiguate when multiple path-context
+#                      rules could match the same blob.
+#
+# Discipline — refinement, not override:
+#   path-context ONLY runs when the existing classifier returned
+#   category="other". A filename pattern that produced category="audio"
+#   stays "audio". Path-context cannot demote a specific assignment.
+#
+# Added 2026-05-15 after the DS1 Moto-G32 + Moto-G30 follow-up surfaced
+# 517 qualcomm blobs in radio.img_extract bucketed as "other" because
+# the qcom-prefix if-chain (_category_from_qcom_name) didn't know about
+# RFNV / EFS / FSG / carrier-config shapes. See postmortem-ds1-moto-g32-
+# hardware-firmware-adaptive-detect-2026-05-15 for the bug taxonomy.
+# =====================================================================
+
+path_contexts:
+  # ---- Qualcomm radio.img content (modem partition) ----
+  # Catch-all for ANY content inside a radio.img extraction tree —
+  # carrier-specific .mbn files (att_*, vodafone_*, airtel_*, etc.),
+  # generic NV item files, unrecognized split chunks. Medium confidence
+  # since path alone doesn't guarantee modem semantics; specific rules
+  # below upgrade individual classes.
+  - path_pattern: "/radio\\.img_extract/"
+    vendor: qualcomm
+    category: modem
+    product: "Qualcomm modem firmware (radio partition content)"
+    confidence: medium
+    priority: 5
+
+  # RFNV — Radio Frequency Non-Volatile calibration items. ALWAYS modem,
+  # regardless of filename (RFNV item files have numeric names with no
+  # semantic prefix).
+  - path_pattern: "/efs_item_files/nv/item_files/rfnv"
+    vendor: qualcomm
+    category: modem
+    product: "Qualcomm RFNV calibration item"
+    confidence: high
+    priority: 30
+
+  # Generic EFS item files inside radio.img — modem NV storage tree.
+  - path_pattern: "/efs_item_files/"
+    vendor: qualcomm
+    category: modem
+    product: "Qualcomm EFS modem NV item"
+    confidence: medium
+    priority: 20
+
+  # File System Gateway (FSG) partition — modem config container.
+  - path_pattern: "/fsg\\.img_extract/"
+    vendor: qualcomm
+    category: modem
+    product: "Qualcomm File System Gateway (modem partition config)"
+    confidence: high
+    priority: 25
+
+  # ---- Bluetooth firmware archive (BTFM.bin extraction tree) ----
+  # Anything inside BTFM.bin_extract is Bluetooth firmware by definition,
+  # even sub-components that don't match the BTFM YAML filename patterns
+  # (e.g. unusual chip-rev TLV variants).
+  - path_pattern: "/btfm\\.bin_extract/"
+    vendor: broadcom
+    category: bluetooth
+    product: "Broadcom BTFM Bluetooth firmware archive content"
+    confidence: medium
+    priority: 15
+
+  # ---- Audio + compute DSP partitions (dspso.bin) ----
+  - path_pattern: "/dspso\\.bin_extract/adsp"
+    vendor: qualcomm
+    category: audio
+    product: "Qualcomm audio DSP (aDSP) firmware"
+    confidence: high
+    priority: 25
+
+  - path_pattern: "/dspso\\.bin_extract/cdsp"
+    vendor: qualcomm
+    category: dsp
+    product: "Qualcomm compute DSP (cDSP) firmware"
+    confidence: high
+    priority: 25
+
+  # ---- WLAN split-chunk firmware (bdwlan.b0X under any partition) ----
+  - path_pattern: "/(?:radio|firmware|vendor)\\.img_extract/"
+    filename_pattern: "^bdwlan\\.b[0-9a-f]{2}$"
+    vendor: qualcomm
+    category: wifi
+    product: "Qualcomm WLAN firmware (split chunk)"
+    confidence: medium
+    priority: 20
+
+  # ---- Adreno GPU split files (a610_zap.b01 etc) ----
+  - path_pattern: "/(?:bootloader|firmware|radio|vendor)\\.img_extract/"
+    filename_pattern: "^a[0-9]{3,4}_(zap|sqe|gmu)\\."
+    vendor: qualcomm
+    category: gpu
+    product: "Qualcomm Adreno GPU firmware (split chunk)"
+    confidence: high
+    priority: 25
+
+  # ---- Carrier-config IMS/VoLTE modem entries (large family) ----
+  # Match any .mbn or .b0X file whose basename looks like a carrier
+  # config: short prefix + locale/country code or operator name. The
+  # filename_pattern is intentionally broad (any 3+ char prefix + .mbn)
+  # because the radio partition is FULL of these (Bengal Moto: 100+
+  # carriers). The path_pattern restricts to radio.img to avoid false
+  # positives on look-alike filenames in unrelated partitions.
+  - path_pattern: "/radio\\.img_extract/"
+    filename_pattern: "^[a-z]{2,}([_.][a-z0-9_]+)+\\.(mbn|b[0-9a-f]{2})$"
+    vendor: qualcomm
+    category: modem
+    product: "Qualcomm carrier-config modem firmware"
+    confidence: high
+    priority: 15
+
+  # ---- Bootloader ELF sub-extracts ----
+  # bootloader.img unpacks into per-offset ELF subdirs (xbl, abl, sbl1,
+  # pre-bootloader components). Files inside that match no specific
+  # qcom-stem filename still belong to the bootloader category.
+  - path_pattern: "/bootloader\\.img_extract/.*\\.elf[0-9]+_extract/"
+    vendor: qualcomm
+    category: bootloader
+    product: "Qualcomm bootloader sub-component (extracted ELF)"
+    confidence: medium
+    priority: 10

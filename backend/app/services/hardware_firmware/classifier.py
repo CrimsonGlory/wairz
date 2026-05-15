@@ -6,6 +6,9 @@ from dataclasses import dataclass
 
 from app.services.hardware_firmware.patterns_loader import VENDORS
 from app.services.hardware_firmware.patterns_loader import match as pattern_match
+from app.services.hardware_firmware.patterns_loader import (
+    match_path_context as _path_context_match,
+)
 
 CATEGORIES: set[str] = {
     "modem",
@@ -275,6 +278,59 @@ def _classify_by_magic(magic: bytes) -> Classification | None:
     return None
 
 
+def _apply_path_context(
+    path: str, result: Classification | None
+) -> Classification | None:
+    """Apply YAML-driven path_contexts rules to refine or rescue a result.
+
+    Two modes:
+      1. **Refine** — when ``result.category == "other"``, a matching
+         path-context rule replaces the category (e.g. "other" → "modem").
+         Vendor is taken from the rule unless it says "unknown" (then the
+         filename-inferred vendor is preserved). Format is ALWAYS preserved
+         from the filename match — it captures content shape (qcom_mbn /
+         raw_bin / elf / …) which the path doesn't know about. Confidence
+         and product come from the rule.
+      2. **Rescue** — when ``result is None`` (filename + magic produced no
+         match), a matching path-context rule builds a Classification from
+         scratch with ``format="raw_bin"`` (path alone gives no format hint)
+         and the rule's vendor/category/confidence/product.
+
+    When no path_contexts entry matches, returns the input unchanged
+    (refine → original "other" classification; rescue → ``None``).
+
+    Path-context CANNOT demote a specific (non-"other") filename match —
+    that contract preserves the precedence of filename evidence over path
+    evidence, which is the right call when both signals are available.
+    """
+    if result is not None and result.category != "other":
+        return result
+    pcm = _path_context_match(path)
+    if pcm is None:
+        return result
+    if result is None:
+        # Rescue: no filename match, but path tells us where it lives.
+        new_vendor = pcm.vendor if pcm.vendor and pcm.vendor != "unknown" else "unknown"
+        return Classification(
+            category=pcm.category,
+            vendor=new_vendor,
+            format="raw_bin",
+            confidence=pcm.confidence,
+            product=pcm.product,
+        )
+    # Refine: category="other" → specific via path-context.
+    new_vendor = (
+        pcm.vendor if pcm.vendor and pcm.vendor != "unknown" else result.vendor
+    )
+    return Classification(
+        category=pcm.category,
+        vendor=new_vendor,
+        format=result.format,
+        confidence=pcm.confidence,
+        product=pcm.product or result.product,
+    )
+
+
 def classify(path: str, magic: bytes, size: int) -> Classification | None:
     """Classify a firmware blob candidate; return None to skip.
 
@@ -286,11 +342,37 @@ def classify(path: str, magic: bytes, size: int) -> Classification | None:
       5. Kinibi ``.tlbin`` / MCRegistry — fallback when TRUS magic is absent.
       6. DTB/DTBO by extension — fallback when magic bytes are missing.
       7. Path fallback — any file in a known firmware partition is captured.
+      8. Path-context refinement — for blobs whose filename matched with
+         ``category="other"``, a YAML-driven path_contexts rule can rescue
+         them into a specific category (modem / audio / dsp / bluetooth /
+         gpu / wifi / …) based on the extraction-tree path. See
+         :func:`_refine_via_path_context` for the contract. Data-driven and
+         vendor-agnostic — extend by editing firmware_patterns.yaml's
+         ``path_contexts:`` section, no Python change required.
     """
     name = os.path.basename(path)
     lname = name.lower()
     lpath = path.replace(os.sep, "/").lower()
 
+    def _classify_filename_only() -> Classification | None:
+        return _classify_inner(path, name, lname, lpath, magic)
+
+    result = _classify_filename_only()
+    # Step 8 — path-context: rescue (None → Classification) AND refine
+    # ("other" → specific category). See :func:`_apply_path_context` for
+    # the precedence contract.
+    return _apply_path_context(lpath, result)
+
+
+def _classify_inner(
+    path: str, name: str, lname: str, lpath: str, magic: bytes
+) -> Classification | None:
+    """Filename + magic-only classification (Steps 1–7).
+
+    Extracted so :func:`classify` can wrap the result in a path-context
+    refinement step (Step 8) without per-return entanglement. Returns
+    ``None`` when no classifier rule matches.
+    """
     primary = _classify_by_magic(magic)
     is_elf = len(magic) >= 4 and magic[:4] == b"\x7fELF"
 
