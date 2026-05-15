@@ -127,7 +127,28 @@ def build_system_prompt(
     that don't apply (e.g. setuid analysis on an RTOS image, or QEMU
     Linux emulation for a Cortex-M binary). Default kind is "linux" to
     preserve behavior for callers that haven't been updated.
+
+    When *project_name* is empty the server has no active project; the
+    returned prompt instructs the agent to call list_projects and ask the
+    user which project to switch to before doing anything else.
     """
+    if not project_name:
+        return """\
+You are Wairz AI, an expert firmware reverse engineer and security analyst.
+
+No Wairz project is currently active. Before you can do any analysis you \
+must pick one:
+1. Call list_projects to see what's available on this Wairz instance.
+2. Ask the user which project they want to work on. Do NOT guess — multiple \
+users share this server and the right project depends on what *they* are \
+investigating.
+3. Call switch_project with the project_id they chose. The tool list will \
+update once the project's firmware kind is known.
+
+Until a project is active, only list_projects, switch_project, and \
+get_project_info are available. Any other tool call will return an error \
+asking you to pick a project first."""
+
     arch_info = architecture or "unknown"
     endian_info = endianness or "unknown"
 
