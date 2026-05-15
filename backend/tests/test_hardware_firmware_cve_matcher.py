@@ -272,34 +272,24 @@ class TestMatchParserDetected:
         deliberately NOT pinned — the parser excludes it. This test
         only includes the 3 Qualcomm-DoS CVEs.
         """
-        # Same dict shape the banner parser writes (see
-        # bt_firmware_banner._maybe_pin_braktooth). Per Reviewer B's
-        # forensic audit, only the 3 LMP-handling DoS CVEs apply to
-        # Qualcomm Rome chipsets; the RCE CVE-2021-28139 is ESP32-only.
+        # Same dict shape the banner parser writes via _emit_pins. Per
+        # Reviewer B's forensic audits (2026-05-16 + 2026-05-17), the
+        # SINGLE NVD-CPE-confirmed Qualcomm-CNA BrakTooth-DoS CVE is
+        # CVE-2021-30348. CVE-2021-28139 (ESP32 RCE), -34147 (Cypress),
+        # -31609 (Silicon Labs), -31612 (Zhuhai Jieli) are all in the
+        # BrakTooth disclosure batch but have non-Qualcomm CPE entries
+        # in NVD — they must NOT pin under qca_rome.
         braktooth_records = [
             {
-                "cve_id": "CVE-2021-34147",
+                "cve_id": "CVE-2021-30348",
                 "severity": "medium",
                 "subcomponent": "bluetooth",
                 "confidence": "high",
                 "source": "parser_version_pin",
-                "rationale": "BTFM banner confirms WCN3950 — BrakTooth DoS cluster",
-            },
-            {
-                "cve_id": "CVE-2021-31609",
-                "severity": "medium",
-                "subcomponent": "bluetooth",
-                "confidence": "high",
-                "source": "parser_version_pin",
-                "rationale": "BTFM banner confirms WCN3950 — BrakTooth DoS cluster",
-            },
-            {
-                "cve_id": "CVE-2021-31612",
-                "severity": "medium",
-                "subcomponent": "bluetooth",
-                "confidence": "high",
-                "source": "parser_version_pin",
-                "rationale": "BTFM banner confirms WCN3950 — BrakTooth DoS cluster",
+                "rationale": (
+                    "BTFM banner confirms WCN3950 — Qualcomm BrakTooth "
+                    "LLM utility-timer DoS"
+                ),
             },
         ]
         blob = _make_blob(
@@ -320,15 +310,17 @@ class TestMatchParserDetected:
 
         matches = _match_parser_detected([blob])
 
-        # 3 BrakTooth Qualcomm-DoS CVEs surface as parser_version_pin entries.
+        # Single NVD-CPE-correct Qualcomm-CNA BrakTooth CVE.
         cve_ids = {m.cve_id for m in matches}
-        assert cve_ids == {
-            "CVE-2021-34147",
-            "CVE-2021-31609",
-            "CVE-2021-31612",
-        }
-        # ESP32-only RCE must NOT be in the set.
-        assert "CVE-2021-28139" not in cve_ids
+        assert cve_ids == {"CVE-2021-30348"}
+        # All four non-Qualcomm-CNA disclosure-batch CVEs must NOT pin.
+        for non_qualcomm_cve in (
+            "CVE-2021-28139",  # ESP32 RCE
+            "CVE-2021-34147",  # Cypress
+            "CVE-2021-31609",  # Silicon Labs
+            "CVE-2021-31612",  # Zhuhai Jieli
+        ):
+            assert non_qualcomm_cve not in cve_ids
         for m in matches:
             assert m.blob_id == blob.id
             assert m.tier == "parser_version_pin"
@@ -604,12 +596,19 @@ class TestMatchCurated:
         assert "CVE-2023-45866" not in cve_ids
         assert "CVE-2023-40129" not in cve_ids
         assert "CVE-2023-35673" not in cve_ids
-        # BrakTooth DoS cluster + spec advisories still fire (those are
-        # legit silicon-firmware-level attributions).
-        assert "CVE-2021-34147" in cve_ids
+        # BrakTooth Qualcomm-DoS (CVE-2021-30348) + spec advisories
+        # still fire (legitimate silicon-firmware-level attributions).
+        # Reviewer B 2026-05-17: the single Qualcomm-CNA CVE per NVD CPE
+        # list is CVE-2021-30348; the 3 prior IDs (34147/31609/31612) and
+        # CVE-2021-28139 are NOT Qualcomm-attributed.
+        assert "CVE-2021-30348" in cve_ids
         assert "ADVISORY-BT-KNOB" in cve_ids
-        # ESP32-only RCE never fires.
-        assert "CVE-2021-28139" not in cve_ids
+        # Non-Qualcomm-CNA BrakTooth-batch CVEs never fire on a qca_rome blob.
+        for non_qualcomm_cve in (
+            "CVE-2021-28139", "CVE-2021-34147",
+            "CVE-2021-31609", "CVE-2021-31612",
+        ):
+            assert non_qualcomm_cve not in cve_ids
 
     # -----------------------------------------------------------------
     # wpa_supplicant CVE coverage (rec #4)

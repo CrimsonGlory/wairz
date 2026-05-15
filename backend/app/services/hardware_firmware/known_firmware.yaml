@@ -764,36 +764,48 @@ families:
   # correction header in firmware_patterns.yaml for the full audit).
   # ===================================================================
 
-  - name: Qualcomm Rome BT firmware BrakTooth Qualcomm-DoS cluster
+  - name: Qualcomm Rome BT firmware BrakTooth Qualcomm-DoS (CVE-2021-30348)
     vendor: qualcomm
     category: bluetooth
     chipset_regex: "(?i)^(wcn3[0-9]{3}|wcn39[0-9]{2}|fastconnect3[0-9]{3}).*"
     cves:
-      - CVE-2021-34147
-      - CVE-2021-31609
-      - CVE-2021-31612
+      - CVE-2021-30348
     severity: medium
     cvss_score: 6.5
     notes: |
-      BrakTooth disclosure (Garbelini et al., SUTD ASSET Group 2021).
-      Firmware-layer LMP-handling flaws in Qualcomm Rome BT.
-      CVE-2021-34147 (LMP_timing_accuracy DoS, CVSS 6.5),
-      CVE-2021-31609/31612 (oversized-packet DoS, CVSS 6.5 each).
+      Qualcomm BrakTooth LLM utility-timer availability DoS.
+      CVE-2021-30348 (CVSS 6.5, Qualcomm CNA).
+      NVD CPE list: Snapdragon 845/855/865 + WCN3950/3990/3991/3998 +
+      WCN6750 + QCA6390 + many other Snapdragon SoCs.
+      Reference: https://nvd.nist.gov/vuln/detail/CVE-2021-30348
 
-      EXPLICITLY EXCLUDED: CVE-2021-28139 (BrakTooth RCE, CVSS 8.8)
-      affects ONLY Espressif ESP-IDF / ESP32 hardware per NVD's CPE
-      list — no Qualcomm CPE. Including it here would replicate
-      yesterday's BTFM→Broadcom misattribution failure mode
-      (over-attribution from disclosure-batch association rather
-      than per-CVE evidence). Reviewer B 2026-05-16 caught this.
+      REVIEWER B 2026-05-16 + 2026-05-17 PER-CVE NVD-CPE DISCIPLINE.
+      Originally this entry pinned CVE-2021-34147, CVE-2021-31609, and
+      CVE-2021-31612 alongside CVE-2021-30348. NVD CPE verification on
+      2026-05-17 confirmed those 3 CVEs are attributed to OTHER vendors:
 
-      Affects WCN3990 + WCN3950 explicitly per the ASSET disclosure
-      matrix; WCN3998/3991 included by family inference (same
-      crbtfw*.tlv firmware shape). Patches marked "TBA" by Qualcomm
-      as of 2021; many WCN3xx0 builds in field remain unpatched.
-      Soft chipset matches because blob.chipset_target is rarely
-      populated for QCA Rome BT firmware — the matcher downgrades
-      confidence to medium when chipset_target is NULL.
+        * CVE-2021-34147 → Cypress/Infineon WICED + CYW20735B1
+        * CVE-2021-31609 → Silicon Labs iWRAP + WT32i-A
+        * CVE-2021-31612 → Zhuhai Jieli AC69xx (BR-EDR controllers)
+
+      They are in the BrakTooth disclosure batch but their NVD CPE
+      lists do NOT contain Qualcomm chipsets — pinning them under a
+      Qualcomm vendor entry replicates the same disclosure-batch
+      attribution failure as the original CVE-2021-28139 incident
+      (caught 2026-05-16).
+
+      EXPLICITLY EXCLUDED (same NVD-CPE-mismatch class):
+        * CVE-2021-28139 — Espressif ESP-IDF / ESP32 only
+        * CVE-2021-34147 — Cypress/Infineon only
+        * CVE-2021-31609 — Silicon Labs only
+        * CVE-2021-31612 — Zhuhai Jieli only
+
+      Affects WCN3950 + WCN3990 + WCN3991 + WCN3998 + WCN6750 + QCA6390
+      per NVD CPE list. Patches marked "TBA" by Qualcomm as of 2021;
+      many WCN3xx0 builds in field remain unpatched. Soft chipset
+      matches because blob.chipset_target is rarely populated for QCA
+      Rome BT firmware — the matcher downgrades confidence to medium
+      when chipset_target is NULL.
 
   - name: Qualcomm WCN-family BT firmware CVE cluster (2022-2025)
     advisory_id: ADVISORY-QC-BT-FW
