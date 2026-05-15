@@ -44,7 +44,7 @@ from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.models.sbom import SbomComponent, SbomVulnerability
 from app.services.cpe_dictionary_service import get_cpe_dictionary_service
 from app.services.hardware_firmware import kernel_vulns_index as kvi
-from app.services.hardware_firmware._yaml_cache import MtimeCachedYamlLoader
+from app.utils.yaml_cache import MtimeCachedYamlLoader
 from app.services.jsonb_normalizers import _normalize_hardware_firmware_blobs_metadata
 
 logger = logging.getLogger(__name__)

@@ -23,7 +23,10 @@ from app.services.format_detection import (
     DetectedFormat,
     detect_format,
 )
-from app.services.jsonb_normalizers import _stamp_firmware_device_metadata
+from app.services.jsonb_normalizers import (
+    _normalize_firmware_device_metadata,
+    _stamp_firmware_device_metadata,
+)
 from app.workers.safe_extract import safe_extract_zip
 from app.workers.unpack import (
     _run_hardware_firmware_detection_safe,
@@ -756,11 +759,19 @@ async def _post_process_pipeline(
                     )
 
     # Stamp extraction_diagnostics on device_metadata if any failures
-    # were diagnosed (mirrors the legacy upload behaviour).
+    # were diagnosed (mirrors the legacy upload behaviour). Merge with
+    # existing keys (e.g. detection_roots written by upstream callers)
+    # so this write doesn't clobber prior fields. Reviewer A B1 HIGH
+    # 2026-05-18: pre-existing write-then-overwrite anti-pattern that
+    # the recursion-gate's new nested_extract sub-key made reachable
+    # on the upload happy path.
     if extraction_diagnostics:
-        firmware.device_metadata = _stamp_firmware_device_metadata(
-            {"extraction_diagnostics": extraction_diagnostics}
+        existing = _normalize_firmware_device_metadata(
+            getattr(firmware, "device_metadata", None)
         )
+        merged = dict(existing)
+        merged["extraction_diagnostics"] = extraction_diagnostics
+        firmware.device_metadata = _stamp_firmware_device_metadata(merged)
 
     # ── Stage: analyzing (arch / endian / OS / kernel detection) ─────
     if update_stage:

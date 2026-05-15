@@ -142,7 +142,7 @@ def _is_archive_dense_layout(
     path: str,
     *,
     min_archive_byte_fraction: float = 0.70,
-    min_archive_size_bytes: int = 10 * 1024 * 1024,
+    min_archive_size_bytes: int = 1 * 1024 * 1024,
 ) -> bool:
     """Return True when ``path`` looks like a nested-archive wrapper
     rather than a real rootfs.
@@ -234,12 +234,69 @@ def _is_archive_dense_layout(
             if size > max_archive_size:
                 max_archive_size = size
 
-    if non_sidecar_bytes == 0:
+    if non_sidecar_bytes > 0:
+        if max_archive_size < min_archive_size_bytes:
+            # Top-level archive too small — but maybe subdirs contain
+            # real payloads (`payloads/`, `firmware/`, `images/` shapes).
+            return _probe_subdirs_for_archive_density(
+                entries,
+                min_archive_byte_fraction=min_archive_byte_fraction,
+                min_archive_size_bytes=min_archive_size_bytes,
+            )
+        fraction = archive_bytes / non_sidecar_bytes
+        if fraction >= min_archive_byte_fraction:
+            return True
+
+    # Reviewer C REC-1 2026-05-18: top-level files alone don't satisfy
+    # the gate, BUT the layout may have a few subdirectories that ARE
+    # archive-dense (vendor wrapper convention: payloads/foo.tar.gz +
+    # payloads/bar.tar.gz). Probe each subdir at depth 1 — bounded by
+    # at-most-N subdirs to keep the cost cheap. Adaptability: this
+    # captures external uploaders' subdir-wrapping conventions without
+    # hard-coding `payloads/` or vendor-named subdirs.
+    return _probe_subdirs_for_archive_density(
+        entries,
+        min_archive_byte_fraction=min_archive_byte_fraction,
+        min_archive_size_bytes=min_archive_size_bytes,
+    )
+
+
+def _probe_subdirs_for_archive_density(
+    entries: list,
+    *,
+    min_archive_byte_fraction: float,
+    min_archive_size_bytes: int,
+) -> bool:
+    """Recursive-by-one-level fallback for :func:`_is_archive_dense_layout`.
+
+    Used when the top-level layout fails the dense gate but contains
+    few subdirectories (≤8) and ZERO files. Probes each subdir's
+    contents with the same density test; returns True if ANY subdir
+    is archive-dense.
+
+    Bounded to depth-1 to keep cost predictable. Adversarial inputs
+    can't blow up the probe — at most 8 × O(scandir per subdir).
+    """
+    subdirs = [e for e in entries if e.is_dir(follow_symlinks=False)]
+    files_at_top = [
+        e for e in entries
+        if e.is_file(follow_symlinks=False) and not e.is_symlink()
+    ]
+    # Only probe when top-level is "subdir-only" — files at top mean the
+    # gate already saw the whole picture and decided no.
+    if files_at_top or not subdirs:
         return False
-    if max_archive_size < min_archive_size_bytes:
+    # Bound the breadth-search.
+    if len(subdirs) > 8:
         return False
-    fraction = archive_bytes / non_sidecar_bytes
-    return fraction >= min_archive_byte_fraction
+    for sub in subdirs:
+        if _is_archive_dense_layout(
+            sub.path,
+            min_archive_byte_fraction=min_archive_byte_fraction,
+            min_archive_size_bytes=min_archive_size_bytes,
+        ):
+            return True
+    return False
 
 
 def _recursive_extract_nested(root: str, max_depth: int = 3) -> list[str]:

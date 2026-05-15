@@ -32,7 +32,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services.hardware_firmware import _yaml_cache as YC
+from app.utils import yaml_cache as YC
 from app.services.hardware_firmware import cve_matcher as CM
 from app.services.hardware_firmware import patterns_loader as PL
 
@@ -153,7 +153,7 @@ def test_malformed_reload_keeps_previous_valid_state(
     )
     _bump_mtime(generic_loader.path)
 
-    with caplog.at_level("WARNING", logger="app.services.hardware_firmware._yaml_cache"):
+    with caplog.at_level("WARNING", logger="app.utils.yaml_cache"):
         after = generic_loader.get()
     assert after == {"foo": 1, "bar": 2}, (
         "malformed reload should keep previous state, NOT regress to defaults"
@@ -199,7 +199,7 @@ def test_structural_validation_failure_keeps_previous_state(
     yaml_path.write_text("count: not-an-int\n", encoding="utf-8")
     _bump_mtime(yaml_path)
 
-    with caplog.at_level("WARNING", logger="app.services.hardware_firmware._yaml_cache"):
+    with caplog.at_level("WARNING", logger="app.utils.yaml_cache"):
         second = loader.get()
     assert second == 5, "structural failure should keep previous state, not regress to defaults"
     assert any(
@@ -409,7 +409,7 @@ def test_file_vanish_after_successful_load_keeps_previous_state(
 
     generic_loader.path.unlink()
 
-    with caplog.at_level("WARNING", logger="app.services.hardware_firmware._yaml_cache"):
+    with caplog.at_level("WARNING", logger="app.utils.yaml_cache"):
         after = generic_loader.get()
     assert after == {"foo": 1, "bar": 2}, (
         "file vanish should keep previously loaded state"

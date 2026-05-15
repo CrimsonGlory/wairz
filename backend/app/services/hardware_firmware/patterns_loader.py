@@ -43,7 +43,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from app.services.hardware_firmware._yaml_cache import MtimeCachedYamlLoader
+from app.utils.yaml_cache import MtimeCachedYamlLoader
 
 logger = logging.getLogger(__name__)
 
@@ -1194,11 +1194,43 @@ _VENDORS_LOADER: MtimeCachedYamlLoader[_VendorTable] = MtimeCachedYamlLoader(
     defaults=_VendorTable(
         canonical=_CORE_VENDORS,
         aliases={},
+        # Adaptability seed (Reviewer C CC-1 2026-05-18): proactively
+        # seed display names for chip vendors that already appear in
+        # firmware_patterns.yaml or are likely operator-upload targets.
+        # Each entry is zero-risk — display strings only, no behaviour
+        # change. Operators uploading Allwinner / Rockchip / Marvell /
+        # Espressif / Lattice / Xilinx etc. firmware get a real
+        # display string instead of the title-cased prefix fallback.
         display={
             "qualcomm": "Qualcomm Technologies, Inc.",
             "mediatek": "MediaTek Inc.",
             "nvidia": "NVIDIA Corporation",
             "realtek": "Realtek Semiconductor Corp.",
+            "samsung": "Samsung Electronics",
+            "broadcom": "Broadcom Inc.",
+            "cypress": "Cypress / Infineon Technologies",
+            "apple": "Apple Inc.",
+            "intel": "Intel Corporation",
+            "hisilicon": "HiSilicon (Huawei Technologies)",
+            "unisoc": "UNISOC (Spreadtrum)",
+            "imagination": "Imagination Technologies",
+            "arm": "Arm Limited",
+            "ti": "Texas Instruments",
+            "espressif": "Espressif Systems",
+            "infineon": "Infineon Technologies AG",
+            "nordic": "Nordic Semiconductor",
+            "microchip": "Microchip Technology / Atmel",
+            "allwinner": "Allwinner Technology",
+            "rockchip": "Rockchip Electronics",
+            "marvell": "Marvell Technology Group",
+            "lattice": "Lattice Semiconductor",
+            "xilinx": "Xilinx / AMD Adaptive Computing",
+            "altera": "Altera / Intel FPGA",
+            "renesas": "Renesas Electronics",
+            "stmicro": "STMicroelectronics",
+            "amd": "Advanced Micro Devices",
+            "awinic": "Shanghai Awinic Technology",
+            "aosp": "Android Open Source Project",
             "unknown": "Unknown Vendor",
         },
     ),
