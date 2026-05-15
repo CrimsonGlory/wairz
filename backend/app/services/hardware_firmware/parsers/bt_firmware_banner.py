@@ -97,6 +97,12 @@ import re
 from typing import Any
 
 from app.services.hardware_firmware.parsers.base import ParsedBlob, register_parser
+from app.services.hardware_firmware.patterns_loader import (
+    get_braktooth_chipsets,
+    get_mtk_chips,
+    get_qca_codename_display,
+    get_qca_codename_map,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -151,47 +157,21 @@ _QCA_PATCH_RELEASE_RE = re.compile(
     rb"\s+BUILD=(?P<build_banner>(?:CI_)?BTFM\.[A-Z]{3}\.\d+\.\d+\.\d+-\d+(?:\.\d+)?-QCA[A-Z0-9]+-\d+)"
 )
 
-# Codename → canonical chipset target. Sources (Linux upstream, both
-# headers + driver source code; Yocto meta-qcom; Fairphone 4 BT patches):
-#   * btqca.c qca_uart_setup() switch / btqca.h enum qca_btsoc_type
-#   * patches.linaro.org/project/linux-devicetree/cover/20230421-fp4-bluetooth
-#   * github.com/bgodavar/qca_wcn3990_firmware (CodeAurora reference)
-# The codename column is the FIRST chipset the codename ships on; ranges
-# are recorded in the comment when the same codename spans multiple chips
-# (e.g. Cherokee = WCN3990 + WCN3991 + WCN3998). Emits ``None`` when
-# codename is unrecognised so chipset_target stays NULL rather than
-# guessing wrong.
-_QCA_CODENAME_TO_CHIPSET: dict[str, str] = {
-    "CMC": "wcn3950",   # Comanche → WCN3950 (single-core BT for SDM4xx/6xx)
-    "CHE": "wcn3990",   # Cherokee → WCN3990/3991/3998 (FastConnect 6200)
-    "APA": "wcn3988",   # Apache → WCN3988 UART (Fairphone 4); NOT AR3002 legacy
-    "HAS": "qca6390",   # Hastings → QCA6390
-    "MOS": "wcn6750",   # Moselle → WCN6750
-}
-
-# Codename → human-readable display name for metadata.
-_QCA_CODENAME_DISPLAY: dict[str, str] = {
-    "CMC": "Comanche",
-    "CHE": "Cherokee",
-    "APA": "Apache",
-    "HAS": "Hastings",
-    "MOS": "Moselle",
-}
-
-# BRAKTOOTH Qualcomm DoS cluster (ASSET Group / SUTD disclosure 2021).
-# WCN3990 / WCN3998 in the ASSET vulnerability matrix; WCN3991 included
-# by family inference (same crbtfw*.tlv firmware shape; ASSET PDF lists
-# generic "Cherokee" coverage). Qualcomm marked patches "TBA" in their
-# 2021 PSIRT response; in-field WCN3xx0 BTFM patches remain unpatched.
+# Codename → canonical chipset target + codename → display name + BrakTooth
+# chipset scope are now externalized to ``data/bt_qca_codenames.yaml``
+# (loaded once via ``patterns_loader._load_bt_qca_codenames``; graceful-
+# degrade fallback to in-tree ``_BT_CODENAME_DEFAULTS`` if YAML is
+# missing or malformed — see Rule #34 in CLAUDE.md). The parser reads
+# via the accessors ``get_qca_codename_map`` / ``get_qca_codename_display``
+# / ``get_braktooth_chipsets`` / ``get_mtk_chips`` — operator-supplied
+# YAML additions surface immediately without Python changes.
 #
-# Reviewer B (2026-05-16): CVE-2021-28139 is the BrakTooth RCE on
-# **Espressif ESP32** — NVD CPE list contains ONLY ESP-IDF / ESP32
-# hardware, no Qualcomm. This parser deliberately DOES NOT pin
-# CVE-2021-28139 against Rome chipsets even though it shares the
-# BrakTooth disclosure batch — fresh false-positive attribution would
-# replicate yesterday's BTFM→Broadcom misattribution class. The three
-# CVEs below are the LMP-handling Qualcomm DoS subset confirmed by NVD.
-_BRAKTOOTH_CHIPSETS = frozenset({"wcn3950", "wcn3990", "wcn3991", "wcn3998"})
+# CRITICAL: CVE-2021-28139 (BrakTooth RCE CVSS 8.8) remains hardcoded
+# OUT of ``_BRAKTOOTH_CVES`` below. The CVE is ESP32-only per NVD's CPE
+# list (Reviewer B 2026-05-16); fresh false-positive attribution would
+# replicate yesterday's BTFM→Broadcom misattribution class. The chipset
+# scope is operator-extensible via YAML; the CVE-list is NOT —
+# additions belong in the H2 banner-pin CVE YAML (queued).
 _BRAKTOOTH_CVES: tuple[tuple[str, str], ...] = (
     ("CVE-2021-34147", "medium"),   # LMP_timing_accuracy DoS
     ("CVE-2021-31609", "medium"),   # Oversized-packet DoS
@@ -240,14 +220,12 @@ _MTK_BT_TAG_RES: tuple[re.Pattern[bytes], ...] = (
     re.compile(rb"\bbt_patch_release\b", re.IGNORECASE),
 )
 
-# MediaTek BT chip IDs from upstream linux-firmware mediatek/ + DPCS10
-# corpus survey. Used to disambiguate MT-prefixed chip names from the
-# generic MT regex when the firmware embeds them in the platform tag.
-_MTK_KNOWN_CHIPS = (
-    b"MT7961", b"MT7921", b"MT7922", b"MT7925", b"MT7902", b"MT7927",
-    b"MT7663", b"MT7668", b"MT6620", b"MT6628", b"MT6630", b"MT6632",
-    b"MT6635", b"MT6639", b"MT6789", b"MT6895", b"MT6983", b"MT6985",
-)
+# MediaTek BT chip IDs are externalized to ``data/bt_qca_codenames.yaml``
+# (the file also covers MTK because it owns the BT-vendor-table data;
+# operators extending coverage for new MediaTek silicon edit one file).
+# Loaded via ``patterns_loader.get_mtk_chips()`` which returns
+# ``tuple[bytes, ...]`` (ASCII-encoded once at load time for cheap
+# byte-wise ``in firmware_bytes`` membership tests downstream).
 
 # MediaTek generic chip-id regex — fallback when no known-chip token
 # matched. The classifier already gates this code path to BT files.
@@ -391,14 +369,15 @@ def _build_qca_record(
         f"-{build}-{rom_tag}-{patchn}"
     )
 
-    # Chipset preference: PF= override > codename table > None.
+    # Chipset preference: PF= override > codename table (YAML-driven) > None.
+    codename_map = get_qca_codename_map()
     chipset_target: str | None = None
     chipset_source: str = "none"
     if chip_override:
         chipset_target = chip_override
         chipset_source = "pf_field"
-    elif codename in _QCA_CODENAME_TO_CHIPSET:
-        chipset_target = _QCA_CODENAME_TO_CHIPSET[codename]
+    elif codename in codename_map:
+        chipset_target = codename_map[codename]
         chipset_source = "codename_map"
 
     rec: dict[str, Any] = {
@@ -406,7 +385,7 @@ def _build_qca_record(
         "vendor": "qualcomm",
         "banner": banner,
         "codename": codename,
-        "codename_display": _QCA_CODENAME_DISPLAY.get(codename),
+        "codename_display": get_qca_codename_display().get(codename),
         "version_tuple": [int(major), int(minor), int(patch)],
         "build_id": build,
         "rom_tag": rom_tag,
@@ -644,7 +623,7 @@ def _parse_mediatek_bt(data: bytes, filename: str) -> dict[str, Any] | None:
     # then generic MT regex, then filename fallback.
     chip: str | None = None
     chipset_source = "none"
-    for known in _MTK_KNOWN_CHIPS:
+    for known in get_mtk_chips():
         if known in data:
             chip = known.decode("ascii", errors="replace").lower()
             chipset_source = "content_known_chip"
@@ -708,7 +687,7 @@ def _maybe_pin_braktooth(record: dict[str, Any]) -> list[dict[str, Any]]:
     chipset = (record.get("chipset_target") or "").lower()
     if record.get("family") != "qca_rome":
         return []
-    if chipset not in _BRAKTOOTH_CHIPSETS:
+    if chipset not in get_braktooth_chipsets():
         return []
     banner = record.get("banner", "")
     out: list[dict[str, Any]] = []

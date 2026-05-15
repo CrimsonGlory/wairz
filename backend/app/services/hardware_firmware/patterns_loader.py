@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 import yaml
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 _DATA_DIR = Path(__file__).parent / "data"
 _VENDOR_YAML = _DATA_DIR / "vendor_prefixes.yaml"
 _PATTERNS_YAML = _DATA_DIR / "firmware_patterns.yaml"
+_BT_QCA_CODENAMES_YAML = _DATA_DIR / "bt_qca_codenames.yaml"
 
 # Canonical vendor prefixes Wairz ships with — classifier.py reads this set
 # (via the legacy ``VENDORS`` import) to gate downstream normalization.  The
@@ -365,6 +367,197 @@ def _compile_path_contexts() -> list[
 
 
 # ---------------------------------------------------------------------------
+# BT QCA codename table (bt_qca_codenames.yaml) — externalized 2026-05-17.
+#
+# Owns the QCA Bluetooth codename → chipset map, the BrakTooth-DoS chipset
+# scope, and the MediaTek known-chip allowlist. Consumed by
+# parsers/bt_firmware_banner.py via the public accessors at the bottom of
+# this module. Each accessor reads via @lru_cache so per-call cost is O(1).
+#
+# Loader contract: on a missing or malformed YAML, log a WARNING and return
+# the in-tree ``_BT_CODENAME_DEFAULTS`` so parsing keeps working without
+# operator intervention (Rule #34-style graceful degrade).
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class BtCodenameTable:
+    """Loaded view of bt_qca_codenames.yaml.
+
+    Frozen so accessors can return shared instances safely. Field shapes are
+    chosen to match the parser's existing consumption (dict[str, str] for
+    fast .get / `in` checks; frozenset[str] for chipset membership tests;
+    tuple[bytes, ...] for byte-wise ``in data`` membership against raw
+    firmware bytes).
+    """
+
+    codename_map: dict[str, str] = field(default_factory=dict)
+    codename_display: dict[str, str] = field(default_factory=dict)
+    codename_also_covers: dict[str, frozenset[str]] = field(default_factory=dict)
+    codename_families: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    braktooth_chipsets: frozenset[str] = frozenset()
+    mtk_known_chips: tuple[bytes, ...] = ()
+
+
+# In-tree defaults — fallback when bt_qca_codenames.yaml is missing or
+# malformed. Mirrors the shipping YAML; keeping these as the literal
+# fallback means a future YAML schema regression cannot regress the
+# parser to silently lose all QCA codename / MediaTek chip coverage.
+# Order MUST be kept in lockstep with the shipped YAML (verified by the
+# loader tests).
+_BT_CODENAME_DEFAULTS = BtCodenameTable(
+    codename_map={
+        "CMC": "wcn3950",
+        "CHE": "wcn3990",
+        "APA": "wcn3988",
+        "HAS": "qca6390",
+        "MOS": "wcn6750",
+    },
+    codename_display={
+        "CMC": "Comanche",
+        "CHE": "Cherokee",
+        "APA": "Apache",
+        "HAS": "Hastings",
+        "MOS": "Moselle",
+    },
+    codename_also_covers={
+        "CHE": frozenset({"wcn3991", "wcn3998"}),
+    },
+    codename_families={
+        "CMC": ("Rome",),
+        "CHE": ("Rome",),
+        "APA": ("Rome",),
+        "HAS": ("FastConnect",),
+        "MOS": ("FastConnect",),
+    },
+    braktooth_chipsets=frozenset({"wcn3950", "wcn3990", "wcn3991", "wcn3998"}),
+    mtk_known_chips=(
+        b"MT7961", b"MT7921", b"MT7922", b"MT7925", b"MT7902", b"MT7927",
+        b"MT7663", b"MT7668", b"MT6620", b"MT6628", b"MT6630", b"MT6632",
+        b"MT6635", b"MT6639", b"MT6789", b"MT6895", b"MT6983", b"MT6985",
+    ),
+)
+
+
+def _parse_bt_codename_data(data: dict) -> BtCodenameTable:
+    """Parse a validated YAML dict into a BtCodenameTable.
+
+    Raises ``ValueError`` on any structural issue; the caller
+    (``_load_bt_qca_codenames``) wraps with the graceful-degrade fallback
+    to ``_BT_CODENAME_DEFAULTS``. Loud-on-bad-structure here is the right
+    shape — we want operators editing the YAML to see the error in the
+    backend log, not silently get defaults.
+    """
+    codenames_raw = data.get("codenames")
+    if not isinstance(codenames_raw, list):
+        raise ValueError("'codenames' must be a list")
+
+    codename_map: dict[str, str] = {}
+    codename_display: dict[str, str] = {}
+    codename_also_covers: dict[str, frozenset[str]] = {}
+    codename_families: dict[str, tuple[str, ...]] = {}
+
+    for idx, entry in enumerate(codenames_raw):
+        if not isinstance(entry, dict):
+            raise ValueError(f"codenames[{idx}] must be a mapping, got {type(entry).__name__}")
+        codename = entry.get("codename")
+        chipset = entry.get("chipset")
+        if not (isinstance(codename, str) and codename.strip()):
+            raise ValueError(f"codenames[{idx}]: 'codename' missing or empty")
+        if not (isinstance(chipset, str) and chipset.strip()):
+            raise ValueError(f"codenames[{idx}]: 'chipset' missing or empty")
+        cn = codename.strip().upper()
+        codename_map[cn] = chipset.strip().lower()
+
+        disp = entry.get("display")
+        if isinstance(disp, str) and disp.strip():
+            codename_display[cn] = disp.strip()
+
+        also = entry.get("also_covers")
+        if isinstance(also, list):
+            covers = {
+                str(c).strip().lower()
+                for c in also
+                if isinstance(c, str) and c.strip()
+            }
+            if covers:
+                codename_also_covers[cn] = frozenset(covers)
+
+        fams = entry.get("families")
+        if isinstance(fams, list):
+            families = tuple(
+                str(f).strip() for f in fams if isinstance(f, str) and f.strip()
+            )
+            if families:
+                codename_families[cn] = families
+
+    bt_raw = data.get("braktooth_chipsets")
+    if bt_raw is not None and not isinstance(bt_raw, list):
+        raise ValueError("'braktooth_chipsets' must be a list")
+    braktooth_chipsets = frozenset(
+        str(c).strip().lower()
+        for c in (bt_raw or [])
+        if isinstance(c, str) and c.strip()
+    )
+
+    mtk_raw = data.get("mtk_known_chips")
+    if mtk_raw is not None and not isinstance(mtk_raw, list):
+        raise ValueError("'mtk_known_chips' must be a list")
+    mtk_known_chips: list[bytes] = []
+    for chip in mtk_raw or []:
+        if not isinstance(chip, str) or not chip.strip():
+            continue
+        try:
+            mtk_known_chips.append(chip.strip().encode("ascii"))
+        except UnicodeEncodeError as exc:
+            raise ValueError(
+                f"mtk_known_chips entry {chip!r}: must be ASCII (got {exc})"
+            ) from exc
+
+    return BtCodenameTable(
+        codename_map=codename_map,
+        codename_display=codename_display,
+        codename_also_covers=codename_also_covers,
+        codename_families=codename_families,
+        braktooth_chipsets=braktooth_chipsets,
+        mtk_known_chips=tuple(mtk_known_chips),
+    )
+
+
+@lru_cache(maxsize=1)
+def _load_bt_qca_codenames() -> BtCodenameTable:
+    """Load and validate bt_qca_codenames.yaml.
+
+    Returns the parsed ``BtCodenameTable`` on success; on missing file,
+    YAML syntax error, or structural validation failure, returns
+    ``_BT_CODENAME_DEFAULTS`` and logs a WARNING.
+
+    Cached via ``functools.lru_cache(maxsize=1)``: per-call cost is O(1)
+    after the first invocation. Tests that swap the YAML path MUST call
+    ``_load_bt_qca_codenames.cache_clear()`` to reset state.
+    """
+    data = _safe_load(_BT_QCA_CODENAMES_YAML)
+    if not data:
+        # _safe_load already logged the issue (missing file or YAML syntax
+        # error). Surface the fallback decision at INFO so a stale-default
+        # state is visible to operators tailing the backend log.
+        logger.info(
+            "patterns_loader: using in-tree _BT_CODENAME_DEFAULTS "
+            "(bt_qca_codenames.yaml missing or unparseable)"
+        )
+        return _BT_CODENAME_DEFAULTS
+    try:
+        return _parse_bt_codename_data(data)
+    except (ValueError, TypeError) as exc:
+        logger.warning(
+            "patterns_loader: bt_qca_codenames.yaml structural validation "
+            "failed (%s); falling back to in-tree _BT_CODENAME_DEFAULTS",
+            exc,
+        )
+        return _BT_CODENAME_DEFAULTS
+
+
+# ---------------------------------------------------------------------------
 # Module-level tables (loaded once at import time).
 # ---------------------------------------------------------------------------
 VENDORS, _VENDOR_ALIASES, VENDOR_DISPLAY = _load_vendors()
@@ -437,11 +630,77 @@ def match_path_context(path: str) -> PathContextMatch | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# BT QCA codename accessors. Each call resolves through the lru_cache, so
+# repeated lookups are O(1). Callers (parsers/bt_firmware_banner.py) treat
+# these as authoritative — the parser carries no parallel in-tree copy.
+# ---------------------------------------------------------------------------
+
+
+def get_qca_codename_map() -> dict[str, str]:
+    """3-letter QCA codename (UPPERCASE) → canonical primary chipset (lowercase)."""
+    return _load_bt_qca_codenames().codename_map
+
+
+def get_qca_codename_display() -> dict[str, str]:
+    """QCA codename → human-readable display name (e.g. "CMC" → "Comanche")."""
+    return _load_bt_qca_codenames().codename_display
+
+
+def get_qca_also_covers() -> dict[str, frozenset[str]]:
+    """QCA codename → additional chipsets the same codename can ship on.
+
+    Example: ``{"CHE": frozenset({"wcn3991", "wcn3998"})}`` — Cherokee
+    family covers WCN3990 (primary) + WCN3991 + WCN3998 in the upstream
+    Linux kernel switch. Informational; the parser does not currently
+    consume this beyond surfacing via metadata.
+    """
+    return _load_bt_qca_codenames().codename_also_covers
+
+
+def get_qca_codename_families() -> dict[str, tuple[str, ...]]:
+    """QCA codename → generation tag tuples (e.g. ``("Rome",)``, ``("FastConnect",)``).
+
+    Informational; available for future queries like "list all FastConnect
+    BT codenames" without re-reading the parser source.
+    """
+    return _load_bt_qca_codenames().codename_families
+
+
+def get_braktooth_chipsets() -> frozenset[str]:
+    """Chipsets in scope for the ASSET BrakTooth Qualcomm DoS subset.
+
+    CVE-2021-34147 + CVE-2021-31609 + CVE-2021-31612 fire on any blob
+    whose ``chipset_target`` falls in this set. CVE-2021-28139 (RCE
+    CVSS 8.8) is ESP32-only per NVD and is NOT pinned by this parser
+    despite being part of the BrakTooth disclosure batch — see Reviewer
+    B finding 2026-05-16.
+    """
+    return _load_bt_qca_codenames().braktooth_chipsets
+
+
+def get_mtk_chips() -> tuple[bytes, ...]:
+    """MediaTek BT/WiFi chip-ID allowlist for content scanning.
+
+    Returned as ``tuple[bytes, ...]`` because the parser performs byte-wise
+    ``in firmware_bytes`` membership tests — encoding once at load time is
+    cheaper than encoding on every parser invocation.
+    """
+    return _load_bt_qca_codenames().mtk_known_chips
+
+
 __all__ = [
+    "BtCodenameTable",
     "PathContextMatch",
     "PatternMatch",
     "VENDORS",
     "VENDOR_DISPLAY",
+    "get_braktooth_chipsets",
+    "get_mtk_chips",
+    "get_qca_also_covers",
+    "get_qca_codename_display",
+    "get_qca_codename_families",
+    "get_qca_codename_map",
     "match",
     "match_path_context",
     "resolve_vendor",

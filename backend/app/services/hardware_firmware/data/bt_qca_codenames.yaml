@@ -1,0 +1,124 @@
+# QCA Bluetooth codename → chipset map + BrakTooth scope + MediaTek
+# known-chip allowlist (externalized 2026-05-17 — Reviewer C H1 from
+# postmortem-bt-banner-parser-session-2026-05-16.md).
+#
+# Loaded by patterns_loader._load_bt_qca_codenames() (@lru_cache); consumed
+# by parsers/bt_firmware_banner.py via the public accessors:
+#   patterns_loader.get_qca_codename_map()         → dict[str, str]
+#   patterns_loader.get_qca_codename_display()     → dict[str, str]
+#   patterns_loader.get_qca_also_covers()          → dict[str, frozenset[str]]
+#   patterns_loader.get_qca_codename_families()    → dict[str, tuple[str, ...]]
+#   patterns_loader.get_braktooth_chipsets()       → frozenset[str]
+#   patterns_loader.get_mtk_chips()                → tuple[bytes, ...]
+#
+# Adding a new QCA codename to this YAML is sufficient — NO Python
+# change required. Filename-prefix → codename mapping (cmbtfw/crbtfw/
+# apbtfw/htbtfw/msbtfw → CMC/CHE/APA/HAS/MOS) is intentionally NOT
+# externalized; the filename↔content mismatch flag belongs close to
+# the content parser (Reviewer B M2 2026-05-16 — surfacing the flag
+# is forensic-load-bearing and a small bespoke map keeps the link
+# auditable). If you ADD a new filename prefix, you must also extend
+# _QCA_FILENAME_PREFIX_TO_CODENAME in parsers/bt_firmware_banner.py.
+#
+# Sources for the codename → chipset mappings below:
+#   * drivers/bluetooth/btqca.c qca_uart_setup() switch (Linux upstream)
+#   * drivers/bluetooth/btqca.h enum qca_btsoc_type        (Linux upstream)
+#   * github.com/bgodavar/qca_wcn3990_firmware              (CodeAurora ref)
+#   * patches.linaro.org/.../20230421-fp4-bluetooth         (Fairphone 4 BT)
+#   * linux-firmware /qca/*.tlv banner observation
+#
+# Schema:
+#
+#   codenames:
+#     - codename:    3-letter QCA codename embedded in BTFM banner
+#                    (e.g. "CMC", "CHE"). REQUIRED. Uppercased on load.
+#       chipset:     canonical primary chipset target (lowercase chip
+#                    model, e.g. "wcn3950"). REQUIRED. Lowercased on load.
+#       display:     human-readable codename (e.g. "Comanche"). Optional.
+#       families:    generation tags, informational; e.g. ["Rome"],
+#                    ["FastConnect"]. Optional list of strings.
+#       also_covers: other chipsets the same codename can ship on
+#                    (e.g. CHE / Cherokee covers WCN3990, WCN3991,
+#                    WCN3998 in the Linux kernel switch). Optional
+#                    list of strings; lowercased on load.
+#
+#   braktooth_chipsets:
+#     list of chipsets in scope for the ASSET BrakTooth Qualcomm DoS
+#     subset (CVE-2021-34147 LMP_timing_accuracy + CVE-2021-31609 +
+#     CVE-2021-31612 oversized-packet DoS). **CRITICAL** — CVE-2021-28139
+#     (BrakTooth RCE CVSS 8.8) is ESP32-only per NVD's CPE list and MUST
+#     NOT be added to the banner-pin set; the parser's banner→CVE pin
+#     uses the chipset list below intersected with a hardcoded
+#     _BRAKTOOTH_CVES tuple in bt_firmware_banner.py. See Reviewer B
+#     finding 2026-05-16 + postmortem-bt-banner-parser-session-2026-05-16.md.
+#
+#   mtk_known_chips:
+#     MediaTek BT/WiFi chip-ID allowlist for the chipset extraction
+#     fast path. The MTK content scanner tries this list FIRST (lowest
+#     false-positive — exact byte match) before falling back to the
+#     generic /\bMT\d{4}\b/ regex. ASCII strings; encoded to bytes on
+#     load (case-sensitive byte match downstream).
+#
+# Graceful-degrade fallback (Rule #34-style): if this file is missing,
+# malformed, or fails structural validation, patterns_loader logs a
+# WARNING and returns the in-tree _BT_CODENAME_DEFAULTS so parsing
+# keeps working without operator intervention. Operators are encouraged
+# to extend THIS YAML rather than patch the in-tree defaults.
+
+codenames:
+  - codename: CMC
+    chipset: wcn3950
+    display: Comanche
+    families: [Rome]
+
+  - codename: CHE
+    chipset: wcn3990
+    display: Cherokee
+    families: [Rome]
+    also_covers: [wcn3991, wcn3998]
+
+  - codename: APA
+    chipset: wcn3988
+    display: Apache
+    families: [Rome]
+
+  - codename: HAS
+    chipset: qca6390
+    display: Hastings
+    families: [FastConnect]
+
+  - codename: MOS
+    chipset: wcn6750
+    display: Moselle
+    families: [FastConnect]
+
+braktooth_chipsets:
+  - wcn3950
+  - wcn3990
+  - wcn3991
+  - wcn3998
+
+mtk_known_chips:
+  # Connectivity combo chips (BT + WiFi) — MT79xx (PCIe attach;
+  # FastConnect-class) + MT76xx (UART attach; legacy).
+  - MT7961
+  - MT7921
+  - MT7922
+  - MT7925
+  - MT7902
+  - MT7927
+  - MT7663
+  - MT7668
+  # BT-only / legacy combo (UART, often on smartphones / IoT).
+  - MT6620
+  - MT6628
+  - MT6630
+  - MT6632
+  - MT6635
+  - MT6639
+  # SoC-internal combo identifiers (BT + WiFi tightly integrated;
+  # firmware sometimes embeds the SoC ID rather than the radio ID).
+  - MT6789
+  - MT6895
+  - MT6983
+  - MT6985
