@@ -170,6 +170,23 @@ def test_qca_rome_apache_wcn3988(parser, tmp_path: Path) -> None:
     assert fb["codename"] == "APA"
 
 
+def test_qca_rome_moselle_wcn6750(parser, tmp_path: Path) -> None:
+    """BTFM.MOS.x.y.z-...-QCAMTROM-N → Moselle / WCN6750."""
+    banner = "BTFM.MOS.2.1.0-00027-QCAMTROM-1"
+    blob = _make_qca_tlv(banner)
+    p = tmp_path / "msbtfw20.tlv"
+    n = _write(p, blob)
+
+    result = parser.parse(str(p), _read_magic(p), n)
+
+    assert result.vendor == "qualcomm"
+    assert result.chipset_target == "wcn6750"
+    fb = result.metadata["bt_fw_banner"]
+    assert fb["codename"] == "MOS"
+    assert fb["codename_display"] == "Moselle"
+    assert fb["rom_tag"] == "QCAMTROM"
+
+
 def test_qca_rome_pf_field_wins_over_codename_map(parser, tmp_path: Path) -> None:
     """When PF= and codename disagree, PF= is preferred (more specific)."""
     # PF=WCN3998 with codename CHE — codename map says wcn3990, PF= overrides.
@@ -187,7 +204,12 @@ def test_qca_rome_pf_field_wins_over_codename_map(parser, tmp_path: Path) -> Non
 
 
 def test_qca_rome_braktooth_pin_wcn3950(parser, tmp_path: Path) -> None:
-    """Tier 0 BRAKTOOTH pin fires when banner confirms WCN3950."""
+    """Tier 0 BRAKTOOTH DoS pin fires when banner confirms WCN3950.
+
+    Important: CVE-2021-28139 (BrakTooth RCE) is NOT pinned — per NVD's
+    CPE list it's ESP32-only. Reviewer B 2026-05-16 caught the original
+    parser implementation would have shipped this as a false positive.
+    """
     banner = "BTFM.CMC.1.3.0-00069-QCACHROMZ-1"
     blob = _make_qca_tlv(banner)
     p = tmp_path / "cmbtfw13.tlv"
@@ -197,20 +219,86 @@ def test_qca_rome_braktooth_pin_wcn3950(parser, tmp_path: Path) -> None:
 
     known = result.metadata["known_vulnerabilities"]
     cve_ids = {v["cve_id"] for v in known}
-    # All four BRAKTOOTH CVEs from the ASSET disclosure matrix.
-    assert "CVE-2021-28139" in cve_ids
+    # Three DoS CVEs from the BrakTooth Qualcomm subset.
     assert "CVE-2021-34147" in cve_ids
     assert "CVE-2021-31609" in cve_ids
     assert "CVE-2021-31612" in cve_ids
+    # CVE-2021-28139 is ESP32-only — must NOT be pinned.
+    assert "CVE-2021-28139" not in cve_ids
     # All Tier 0 pins from this parser declare parser_version_pin source.
     for v in known:
         assert v["source"] == "parser_version_pin"
         assert v["confidence"] == "high"
-        assert "BRAKTOOTH" in v["rationale"]
+        assert "BrakTooth" in v["rationale"]
+
+
+def test_qca_rome_braktooth_no_esp32_rce_pin(parser, tmp_path: Path) -> None:
+    """Explicit guard: CVE-2021-28139 (ESP32 RCE) is NEVER pinned by
+    this parser on Qualcomm Rome banners, even on the chipsets that
+    are otherwise BrakTooth-vulnerable.
+
+    Reviewer B 2026-05-16 caught the original implementation included
+    CVE-2021-28139 in _BRAKTOOTH_CVES — would have shipped ~18
+    false-positive RCE-CVSS-8.8 sb_vuln rows per QCA-Rome firmware
+    (replicating yesterday's BleedingTooth misattribution failure mode).
+    """
+    for banner in (
+        "BTFM.CMC.1.3.0-00069-QCACHROMZ-1",
+        "BTFM.CHE.2.0.0-00082-QCACHROMZ-1",
+    ):
+        blob = _make_qca_tlv(banner)
+        p = tmp_path / f"{banner.split('.')[1].lower()}_test.tlv"
+        n = _write(p, blob)
+        result = parser.parse(str(p), _read_magic(p), n)
+        kv = result.metadata.get("known_vulnerabilities", [])
+        cve_ids = {v["cve_id"] for v in kv}
+        assert "CVE-2021-28139" not in cve_ids, (
+            f"banner {banner!r} should NOT pin CVE-2021-28139 — "
+            f"that CVE is ESP32-only per NVD CPE list"
+        )
+
+
+def test_qca_rome_filename_content_mismatch_flagged(parser, tmp_path: Path) -> None:
+    """When filename prefix (e.g. apbtfw*) disagrees with content
+    codename (BTFM.CHE.*), the parser flags it as forensic-interest
+    metadata. Real-world example: G32's apbtfw10.tlv contains a CHE
+    banner (Reviewer B M2 2026-05-16)."""
+    banner = "BTFM.CHE.2.0.0-00082-QCACHROMZ-1"
+    blob = _make_qca_tlv(banner)
+    # Filename prefix `apbtfw` → expected codename APA; content says CHE
+    p = tmp_path / "apbtfw10.tlv"
+    n = _write(p, blob)
+
+    result = parser.parse(str(p), _read_magic(p), n)
+
+    fb = result.metadata["bt_fw_banner"]
+    assert "filename_codename_mismatch" in fb
+    mm = fb["filename_codename_mismatch"]
+    assert mm["filename_codename"] == "APA"
+    assert mm["content_codename"] == "CHE"
+    assert mm["filename"] == "apbtfw10.tlv"
+    # Content remains authoritative.
+    assert fb["codename"] == "CHE"
+    assert result.chipset_target == "wcn3990"
+
+
+def test_qca_rome_filename_content_match_no_mismatch_flag(
+    parser, tmp_path: Path
+) -> None:
+    """Matching filename + content → no mismatch flag emitted."""
+    banner = "BTFM.CMC.1.3.0-00069-QCACHROMZ-1"
+    blob = _make_qca_tlv(banner)
+    p = tmp_path / "cmbtfw13.tlv"  # cmbtfw → CMC, matches banner
+    n = _write(p, blob)
+
+    result = parser.parse(str(p), _read_magic(p), n)
+
+    fb = result.metadata["bt_fw_banner"]
+    assert "filename_codename_mismatch" not in fb
 
 
 def test_qca_rome_braktooth_pin_wcn3990(parser, tmp_path: Path) -> None:
-    """BRAKTOOTH pin also fires for Cherokee → WCN3990."""
+    """BrakTooth DoS pin also fires for Cherokee → WCN3990."""
     banner = "BTFM.CHE.2.0.0-00082-QCACHROMZ-1"
     blob = _make_qca_tlv(banner)
     p = tmp_path / "crbtfw20.tlv"
@@ -219,7 +307,11 @@ def test_qca_rome_braktooth_pin_wcn3990(parser, tmp_path: Path) -> None:
     result = parser.parse(str(p), _read_magic(p), n)
 
     known = result.metadata.get("known_vulnerabilities", [])
-    assert any(v["cve_id"] == "CVE-2021-28139" for v in known)
+    cve_ids = {v["cve_id"] for v in known}
+    # 3 BrakTooth Qualcomm-DoS CVEs.
+    assert "CVE-2021-34147" in cve_ids
+    # CVE-2021-28139 is ESP32-only — must NOT fire on Qualcomm Rome.
+    assert "CVE-2021-28139" not in cve_ids
 
 
 def test_qca_rome_no_braktooth_pin_for_non_rome(parser, tmp_path: Path) -> None:

@@ -1,8 +1,10 @@
 """Bluetooth firmware banner-string parser (content-based vendor attribution).
 
-Handles classifier format ``bt_fw_banner``. Reads up to ``_SCAN_BYTES`` of
-a candidate BT firmware blob and identifies the vendor + chipset + version
-banner from CONTENT, not filename.
+Handles classifier format ``bt_fw_banner``. Reads up to ``_HEAD_SCAN_BYTES``
+from the start AND ``_TAIL_SCAN_BYTES`` from the end of a candidate BT
+firmware blob, identifying vendor + chipset + version banner from
+CONTENT, not filename. (Tail scan is necessary because QCA Rome .tlv
+files place the BTFM banner at the FILE END, not the start.)
 
 This parser exists to make the BTFM→Broadcom misattribution class
 IMPOSSIBLE by construction (see ``.planning/postmortems/postmortem-btfm-
@@ -22,10 +24,12 @@ Supported families:
   patch payloads with ``BTFM.<3-letter-codename>.<major>.<minor>.<patch>
   -<build>-<rom>-N`` banners. Codenames observed in the wild + via
   ``drivers/bluetooth/btqca.c`` upstream Linux: CMC (Comanche → WCN3950),
-  CHE (Cherokee → WCN3990/3991/3998), APA (Apache → WCN3988 / AR3002
-  legacy), HAS (Hastings → QCA6390), MOS (Moselle → WCN6750). The
-  ``Patch Release PF=<chip>ROM=`` ASCII line carries the authoritative
-  chipset name when present.
+  CHE (Cherokee → WCN3990/3991/3998), APA (Apache → WCN3988 UART
+  attached; **NOT** AR3002 — that legacy USB-attached BT chip uses
+  ath3k.ko + a different per-chip OTP firmware format and does NOT
+  carry BTFM banners), HAS (Hastings → QCA6390), MOS (Moselle →
+  WCN6750). The ``Patch Release PF=<chip>ROM=`` ASCII line carries
+  the authoritative chipset name when present.
 
 * **Broadcom / Cypress / Infineon HCD** — concatenated HCI command stream
   with ``BRCMcfgS`` / ``BRCMcfgD`` magic tags in the first 1 KB. Chip ID
@@ -53,15 +57,19 @@ Supported families:
 Tier 0 version-pin output:
 
 * QCA Rome WCN3950 / WCN3990 / WCN3998 builds get a BRAKTOOTH
-  (CVE-2021-28139 cluster) pin populated into
+  DoS cluster (CVE-2021-34147 / 31609 / 31612) pin populated into
   ``metadata.known_vulnerabilities`` with confidence="high".
   Rationale: per the ASSET disclosure matrix (Garbelini et al. 2021),
   Qualcomm marked Rome BT patches "TBA" — the in-field BTFM builds
   remain unpatched, so any banner that confirms a Rome chipset is
-  direct evidence the device participates in the BRAKTOOTH attack
-  surface. The curated YAML Tier 3 also fires this cluster via
-  soft-chipset match; Tier 0 produces the higher-confidence signal
-  because the parser saw the banner directly.
+  direct evidence the device participates in these LMP-handling DoS
+  bugs. **Important:** CVE-2021-28139 is ESP32-only per NVD's CPE
+  list — it is NOT pinned by this parser despite being part of the
+  ASSET BrakTooth disclosure batch (Reviewer B 2026-05-16 caught
+  this would have been a fresh false-positive RCE attribution).
+  The curated YAML Tier 3 also fires this cluster via soft-chipset
+  match; Tier 0 produces the higher-confidence signal because the
+  parser saw the banner directly.
 
 Parser contract reminders:
 
@@ -156,7 +164,7 @@ _QCA_PATCH_RELEASE_RE = re.compile(
 _QCA_CODENAME_TO_CHIPSET: dict[str, str] = {
     "CMC": "wcn3950",   # Comanche → WCN3950 (single-core BT for SDM4xx/6xx)
     "CHE": "wcn3990",   # Cherokee → WCN3990/3991/3998 (FastConnect 6200)
-    "APA": "wcn3988",   # Apache → WCN3988 (Fairphone 4) / AR3002 legacy
+    "APA": "wcn3988",   # Apache → WCN3988 UART (Fairphone 4); NOT AR3002 legacy
     "HAS": "qca6390",   # Hastings → QCA6390
     "MOS": "wcn6750",   # Moselle → WCN6750
 }
@@ -170,15 +178,21 @@ _QCA_CODENAME_DISPLAY: dict[str, str] = {
     "MOS": "Moselle",
 }
 
-# BRAKTOOTH (CVE-2021-28139 cluster, ASSET Group / SUTD disclosure 2021).
-# WCN3990 / WCN3950 / WCN3998 in the ASSET vulnerability matrix.
-# Qualcomm marked patches "TBA" in their 2021 PSIRT response; in-field
-# WCN3xx0 BTFM patches remain unpatched. Any banner that confirms a Rome
-# chipset is direct evidence the device participates in the BRAKTOOTH
-# attack surface.
+# BRAKTOOTH Qualcomm DoS cluster (ASSET Group / SUTD disclosure 2021).
+# WCN3990 / WCN3998 in the ASSET vulnerability matrix; WCN3991 included
+# by family inference (same crbtfw*.tlv firmware shape; ASSET PDF lists
+# generic "Cherokee" coverage). Qualcomm marked patches "TBA" in their
+# 2021 PSIRT response; in-field WCN3xx0 BTFM patches remain unpatched.
+#
+# Reviewer B (2026-05-16): CVE-2021-28139 is the BrakTooth RCE on
+# **Espressif ESP32** — NVD CPE list contains ONLY ESP-IDF / ESP32
+# hardware, no Qualcomm. This parser deliberately DOES NOT pin
+# CVE-2021-28139 against Rome chipsets even though it shares the
+# BrakTooth disclosure batch — fresh false-positive attribution would
+# replicate yesterday's BTFM→Broadcom misattribution class. The three
+# CVEs below are the LMP-handling Qualcomm DoS subset confirmed by NVD.
 _BRAKTOOTH_CHIPSETS = frozenset({"wcn3950", "wcn3990", "wcn3991", "wcn3998"})
 _BRAKTOOTH_CVES: tuple[tuple[str, str], ...] = (
-    ("CVE-2021-28139", "high"),     # RCE via crafted LMP packets (CVSS 8.8)
     ("CVE-2021-34147", "medium"),   # LMP_timing_accuracy DoS
     ("CVE-2021-31609", "medium"),   # Oversized-packet DoS
     ("CVE-2021-31612", "medium"),   # Oversized-packet DoS
@@ -269,7 +283,36 @@ def _read_tail(path: str, size: int, limit: int) -> bytes:
         return b""
 
 
-def _parse_qca_banner(data: bytes) -> dict[str, Any] | None:
+# Filename prefix → codename mapping (per upstream Linux btqca.c).
+# Used to flag filename↔content mismatches as forensic-interest metadata
+# (Reviewer B M2 2026-05-16: e.g. apbtfw10.tlv containing a CHE banner
+# is a real-world filename/content discrepancy worth surfacing).
+_QCA_FILENAME_PREFIX_TO_CODENAME: dict[str, str] = {
+    "cmbtfw": "CMC",   # Comanche
+    "crbtfw": "CHE",   # Cherokee
+    "apbtfw": "APA",   # Apache
+    "htbtfw": "HAS",   # Hastings
+    "msbtfw": "MOS",   # Moselle
+}
+
+
+def _expected_codename_from_filename(path: str) -> str | None:
+    """Look up the codename implied by a QCA BT filename prefix.
+
+    Returns ``None`` if the filename doesn't match a known QCA BT
+    family naming convention (e.g. raw ``btfm.bin`` or unprefixed
+    ``.tlv`` files).
+    """
+    if not path:
+        return None
+    base = os.path.basename(path).lower()
+    for prefix, codename in _QCA_FILENAME_PREFIX_TO_CODENAME.items():
+        if base.startswith(prefix):
+            return codename
+    return None
+
+
+def _parse_qca_banner(data: bytes, filename: str = "") -> dict[str, Any] | None:
     """Parse a QCA Rome BTFM banner from ``data`` (first ~4 KB).
 
     Returns ``None`` if no banner found, else a dict with the structured
@@ -277,6 +320,9 @@ def _parse_qca_banner(data: bytes) -> dict[str, Any] | None:
     line first (carries the authoritative chipset name); falls back to the
     plain ``BTFM.<codename>.x.y.z-...`` regex when only the banner is
     present (typical for .ver companion files).
+
+    ``filename`` is consulted ONLY for the filename↔content mismatch
+    flag — content evidence remains authoritative for vendor / chipset.
     """
     # First try the PF= patch-release line — strongest evidence including chip.
     pr = _QCA_PATCH_RELEASE_RE.search(data)
@@ -288,12 +334,37 @@ def _parse_qca_banner(data: bytes) -> dict[str, Any] | None:
         if bm is None:
             # Shouldn't happen given the regex composition, but fail soft.
             return None
-        return _build_qca_record(bm, chip_override=chip_raw.lower(), rom_rev=rom_rev)
+        rec = _build_qca_record(bm, chip_override=chip_raw.lower(), rom_rev=rom_rev)
+        _annotate_filename_mismatch(rec, filename)
+        return rec
     # Fallback: bare banner anywhere in the scan window.
     bm = _QCA_BANNER_RE.search(data)
     if bm:
-        return _build_qca_record(bm, chip_override=None, rom_rev=None)
+        rec = _build_qca_record(bm, chip_override=None, rom_rev=None)
+        _annotate_filename_mismatch(rec, filename)
+        return rec
     return None
+
+
+def _annotate_filename_mismatch(rec: dict[str, Any], filename: str) -> None:
+    """Stamp a forensic-interest mismatch flag when filename prefix
+    disagrees with the content-banner codename.
+
+    Real-world example: G32's apbtfw10.tlv contains a CHE (Cherokee)
+    banner — content says WCN3990, filename suggests WCN3988 (Apache).
+    Parser trusts content (Rule #19) but surfaces the discrepancy so
+    forensic operators can audit it without re-reading parser source.
+    """
+    if not filename:
+        return
+    expected = _expected_codename_from_filename(filename)
+    content_codename = rec.get("codename")
+    if expected and content_codename and expected != content_codename:
+        rec["filename_codename_mismatch"] = {
+            "filename_codename": expected,
+            "content_codename": content_codename,
+            "filename": os.path.basename(filename),
+        }
 
 
 def _build_qca_record(
@@ -408,7 +479,7 @@ def _parse_broadcom_hcd(
     """Parse a candidate Broadcom HCD file.
 
     Args:
-        head: First ``_SCAN_BYTES`` of the file (always read).
+        head: First ``_HEAD_SCAN_BYTES`` of the file (always read).
         full_data: Full file bytes, OR ``None`` if not loaded. The HCI
             command-stream walk requires the full file; when ``full_data``
             is None we fall back to the BRCMcfgS/BRCMcfgD tag check on
@@ -617,15 +688,22 @@ def _parse_mediatek_bt(data: bytes, filename: str) -> dict[str, Any] | None:
 
 
 def _maybe_pin_braktooth(record: dict[str, Any]) -> list[dict[str, Any]]:
-    """Tier 0 BRAKTOOTH pin for QCA Rome WCN3950 / WCN3990 / WCN3998 banners.
+    """Tier 0 BRAKTOOTH DoS pin for QCA Rome WCN3xx0 banners.
 
-    Per the ASSET Group disclosure (Garbelini et al. 2021), Qualcomm
-    marked Rome BT patches "TBA" in the 2021 PSIRT response and the
-    in-field BTFM builds remain unpatched. When the banner confirms a
-    Rome chipset (WCN3950 / WCN3990 / WCN3991 / WCN3998), the device
-    participates in the BRAKTOOTH attack surface. Tier 0 fires with
-    confidence="high" because the banner is direct evidence of the
-    vulnerable chipset (not just a vendor+category match).
+    Per the ASSET Group BrakTooth disclosure (Garbelini et al. 2021),
+    Qualcomm marked Rome BT patches "TBA" in the 2021 PSIRT response
+    and the in-field BTFM builds remain unpatched. When the banner
+    confirms a Rome chipset (WCN3950 / WCN3990 / WCN3991 / WCN3998),
+    the device participates in the BrakTooth Qualcomm-DoS subset
+    (CVE-2021-34147 LMP_timing_accuracy + CVE-2021-31609/31612
+    oversized-packet DoS). Tier 0 fires with confidence="high" because
+    the banner is direct evidence of the vulnerable chipset (not just
+    a vendor+category match).
+
+    Reviewer B 2026-05-16 evidence: CVE-2021-28139 (RCE CVSS 8.8) is
+    NOT included here — NVD's CPE list for that CVE contains only
+    Espressif ESP-IDF / ESP32 hardware. Including it would have shipped
+    a fresh false-positive class on every QCA-Rome device.
     """
     chipset = (record.get("chipset_target") or "").lower()
     if record.get("family") != "qca_rome":
@@ -643,11 +721,10 @@ def _maybe_pin_braktooth(record: dict[str, Any]) -> list[dict[str, Any]]:
             "source": "parser_version_pin",
             "rationale": (
                 f"BT firmware banner {banner!r} confirms {chipset.upper()} "
-                f"(QCA Rome family). Per the ASSET BRAKTOOTH disclosure "
+                f"(QCA Rome family). Per the ASSET BrakTooth disclosure "
                 f"(Garbelini et al. 2021), Qualcomm marked Rome BT patches "
-                f"'TBA' — in-field BTFM builds remain unpatched. "
-                f"This blob's banner is direct evidence of the vulnerable "
-                f"chipset."
+                f"'TBA' — in-field BTFM builds remain unpatched against "
+                f"the LMP-handling DoS subset."
             ),
             "reference": "https://asset-group.github.io/disclosures/braktooth/",
         })
@@ -682,24 +759,14 @@ class BtFirmwareBannerParser:
             else:
                 qca_scan = head  # file fully in head (head==tail when size<=HEAD)
 
-            # Read full file ONLY if it's small enough for the HCI walk —
-            # the Broadcom HCD validator needs the complete stream to
-            # confirm the LAUNCH_RAM terminator.
-            full_data: bytes | None = None
-            if size <= self._FULL_WALK_MAX_BYTES:
-                try:
-                    with open(path, "rb") as f:
-                        full_data = f.read(size)
-                except OSError:
-                    full_data = None
-
             # Family detection — order matters. QCA Rome FIRST because
             # its TLV header byte (0x01) collides with HCI command byte
             # but the banner regex is unambiguous and cheap to evaluate.
-            # Broadcom HCD second — the walker rejects non-HCI streams
-            # in O(commands) time. MediaTek last as the "everything
-            # else BT" fallback.
-            qca = _parse_qca_banner(qca_scan)
+            # Broadcom HCD second — requires reading the full file for
+            # the HCI walker (lazy-read deferred until QCA + MediaTek
+            # rule out — Reviewer A M2 2026-05-16: defers a 4 MB read in
+            # the common QCA-hit case). MediaTek third as the BT-fallback.
+            qca = _parse_qca_banner(qca_scan, filename=path)
             if qca:
                 meta["bt_fw_banner"] = qca
                 version = qca.get("banner")
@@ -715,6 +782,32 @@ class BtFirmwareBannerParser:
                     metadata=meta,
                 )
 
+            # Try MediaTek BEFORE Broadcom HCD — MTK detection uses head
+            # only, no full-file read. Broadcom HCD's HCI walker is the
+            # expensive case so we defer it until last to avoid a wasted
+            # 4 MB allocation on non-HCD inputs.
+            mtk = _parse_mediatek_bt(head, path)
+            if mtk:
+                meta["bt_fw_banner"] = mtk
+                return ParsedBlob(
+                    version=mtk.get("banner"),
+                    chipset_target=mtk.get("chipset_target"),
+                    vendor=mtk.get("vendor"),
+                    metadata=meta,
+                )
+
+            # Lazy full-file read ONLY for the HCD walker (Reviewer A M2).
+            # The Broadcom HCD validator needs the complete stream to
+            # confirm the LAUNCH_RAM terminator. Cap at _FULL_WALK_MAX_BYTES
+            # to bound memory cost.
+            full_data: bytes | None = None
+            if size <= self._FULL_WALK_MAX_BYTES:
+                try:
+                    with open(path, "rb") as f:
+                        full_data = f.read(size)
+                except OSError:
+                    full_data = None
+
             bcm = _parse_broadcom_hcd(head, full_data, size)
             if bcm:
                 meta["bt_fw_banner"] = bcm
@@ -723,16 +816,6 @@ class BtFirmwareBannerParser:
                     signed="unsigned",  # BCM/CYW HCDs are unsigned HCI streams
                     chipset_target=bcm.get("chipset_target"),
                     vendor=bcm.get("vendor"),
-                    metadata=meta,
-                )
-
-            mtk = _parse_mediatek_bt(head, path)
-            if mtk:
-                meta["bt_fw_banner"] = mtk
-                return ParsedBlob(
-                    version=mtk.get("banner"),
-                    chipset_target=mtk.get("chipset_target"),
-                    vendor=mtk.get("vendor"),
                     metadata=meta,
                 )
 

@@ -260,39 +260,30 @@ class TestMatchParserDetected:
     def test_bt_banner_parser_braktooth_pin_projects_into_tier0(self) -> None:
         """End-to-end Tier 0 contract: when the BT banner parser populates
         ``metadata.known_vulnerabilities`` for a QCA Rome BTFM blob
-        (BRAKTOOTH cluster), ``_match_parser_detected`` projects every
-        record into a parser_version_pin CveMatch.
+        (BrakTooth Qualcomm-DoS subset), ``_match_parser_detected``
+        projects every record into a parser_version_pin CveMatch.
 
         Pins the integration shape between
         ``app.services.hardware_firmware.parsers.bt_firmware_banner`` and
         ``_match_parser_detected`` so future refactors of either side
         can't silently break the pipeline.
+
+        Reviewer B 2026-05-16: CVE-2021-28139 (ESP32 RCE per NVD) is
+        deliberately NOT pinned — the parser excludes it. This test
+        only includes the 3 Qualcomm-DoS CVEs.
         """
         # Same dict shape the banner parser writes (see
-        # bt_firmware_banner._maybe_pin_braktooth).
+        # bt_firmware_banner._maybe_pin_braktooth). Per Reviewer B's
+        # forensic audit, only the 3 LMP-handling DoS CVEs apply to
+        # Qualcomm Rome chipsets; the RCE CVE-2021-28139 is ESP32-only.
         braktooth_records = [
-            {
-                "cve_id": "CVE-2021-28139",
-                "severity": "high",
-                "subcomponent": "bluetooth",
-                "confidence": "high",
-                "source": "parser_version_pin",
-                "rationale": (
-                    "BT firmware banner 'BTFM.CMC.1.3.0-00069-QCACHROMZ-1' "
-                    "confirms WCN3950 (QCA Rome family). Per the ASSET "
-                    "BRAKTOOTH disclosure (Garbelini et al. 2021), "
-                    "Qualcomm marked Rome BT patches 'TBA' — in-field "
-                    "BTFM builds remain unpatched."
-                ),
-                "reference": "https://asset-group.github.io/disclosures/braktooth/",
-            },
             {
                 "cve_id": "CVE-2021-34147",
                 "severity": "medium",
                 "subcomponent": "bluetooth",
                 "confidence": "high",
                 "source": "parser_version_pin",
-                "rationale": "BTFM banner confirms WCN3950 — BRAKTOOTH cluster",
+                "rationale": "BTFM banner confirms WCN3950 — BrakTooth DoS cluster",
             },
             {
                 "cve_id": "CVE-2021-31609",
@@ -300,7 +291,7 @@ class TestMatchParserDetected:
                 "subcomponent": "bluetooth",
                 "confidence": "high",
                 "source": "parser_version_pin",
-                "rationale": "BTFM banner confirms WCN3950 — BRAKTOOTH cluster",
+                "rationale": "BTFM banner confirms WCN3950 — BrakTooth DoS cluster",
             },
             {
                 "cve_id": "CVE-2021-31612",
@@ -308,7 +299,7 @@ class TestMatchParserDetected:
                 "subcomponent": "bluetooth",
                 "confidence": "high",
                 "source": "parser_version_pin",
-                "rationale": "BTFM banner confirms WCN3950 — BRAKTOOTH cluster",
+                "rationale": "BTFM banner confirms WCN3950 — BrakTooth DoS cluster",
             },
         ]
         blob = _make_blob(
@@ -329,22 +320,19 @@ class TestMatchParserDetected:
 
         matches = _match_parser_detected([blob])
 
-        # All 4 BRAKTOOTH CVEs surface as parser_version_pin entries.
+        # 3 BrakTooth Qualcomm-DoS CVEs surface as parser_version_pin entries.
         cve_ids = {m.cve_id for m in matches}
         assert cve_ids == {
-            "CVE-2021-28139",
             "CVE-2021-34147",
             "CVE-2021-31609",
             "CVE-2021-31612",
         }
+        # ESP32-only RCE must NOT be in the set.
+        assert "CVE-2021-28139" not in cve_ids
         for m in matches:
             assert m.blob_id == blob.id
             assert m.tier == "parser_version_pin"
             assert m.confidence == "high"
-        # Severity is preserved per-record (28139=high; others=medium).
-        sev_by_cve = {m.cve_id: m.severity for m in matches}
-        assert sev_by_cve["CVE-2021-28139"] == "high"
-        assert sev_by_cve["CVE-2021-34147"] == "medium"
 
     def test_multiple_cves_on_one_blob(self) -> None:
         blob = _make_blob(
@@ -597,8 +585,14 @@ class TestMatchCurated:
         assert "CVE-2024-43763" in cve_ids
         assert "CVE-2024-49728" in cve_ids
 
-    def test_bluedroid_qti_vendor_hal_matches(self) -> None:
-        """Qualcomm vendor BT HAL (libbt-vendor-qti.so) inherits Bluedroid CVEs."""
+    def test_bluedroid_cves_do_not_fire_on_qcom_bt_blob(self) -> None:
+        """Reviewer B M4 (2026-05-16): Bluedroid CVEs are AOSP host-stack
+        bugs; libbt-vendor-qti.so is a different code surface (HAL
+        adapter). Qualcomm BT blobs MUST NOT inherit Bluedroid CVEs
+        via a duplicate vendor-fork entry — that was over-attribution.
+
+        BrakTooth DoS cluster + spec-level advisories DO fire (those
+        are silicon-firmware-level, not host-stack)."""
         blob = _make_blob(
             vendor="qualcomm",
             category="bluetooth",
@@ -606,13 +600,16 @@ class TestMatchCurated:
         )
         matches = _match_curated(blob, self._families())
         cve_ids = {m.cve_id for m in matches}
-        # Vendor BT HAL fork inherits the 2023 cluster.
-        assert "CVE-2023-45866" in cve_ids
-        assert "CVE-2023-40129" in cve_ids
-        assert "CVE-2023-35673" in cve_ids
-        # AND the existing BRAKTOOTH / spec advisories also fire.
-        assert "CVE-2021-28139" in cve_ids
+        # Bluedroid CVEs do NOT fire on Qualcomm BT blobs.
+        assert "CVE-2023-45866" not in cve_ids
+        assert "CVE-2023-40129" not in cve_ids
+        assert "CVE-2023-35673" not in cve_ids
+        # BrakTooth DoS cluster + spec advisories still fire (those are
+        # legit silicon-firmware-level attributions).
+        assert "CVE-2021-34147" in cve_ids
         assert "ADVISORY-BT-KNOB" in cve_ids
+        # ESP32-only RCE never fires.
+        assert "CVE-2021-28139" not in cve_ids
 
     # -----------------------------------------------------------------
     # wpa_supplicant CVE coverage (rec #4)

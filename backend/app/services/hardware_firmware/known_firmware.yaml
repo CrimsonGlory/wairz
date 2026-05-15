@@ -764,29 +764,36 @@ families:
   # correction header in firmware_patterns.yaml for the full audit).
   # ===================================================================
 
-  - name: Qualcomm Rome BT firmware BRAKTOOTH cluster
+  - name: Qualcomm Rome BT firmware BrakTooth Qualcomm-DoS cluster
     vendor: qualcomm
     category: bluetooth
     chipset_regex: "(?i)^(wcn3[0-9]{3}|wcn39[0-9]{2}|fastconnect3[0-9]{3}).*"
     cves:
-      - CVE-2021-28139
       - CVE-2021-34147
       - CVE-2021-31609
       - CVE-2021-31612
-    severity: high
-    cvss_score: 8.8
+    severity: medium
+    cvss_score: 6.5
     notes: |
-      BRAKTOOTH disclosure (Garbelini et al., SUTD ASSET Group 2021).
-      Firmware-layer flaws in Qualcomm Rome BT Link Manager Protocol
-      (LMP) parsing: CVE-2021-28139 (RCE via crafted LMP packets,
-      CVSS 8.8), CVE-2021-34147 (LMP_timing_accuracy DoS, CVSS 6.5),
+      BrakTooth disclosure (Garbelini et al., SUTD ASSET Group 2021).
+      Firmware-layer LMP-handling flaws in Qualcomm Rome BT.
+      CVE-2021-34147 (LMP_timing_accuracy DoS, CVSS 6.5),
       CVE-2021-31609/31612 (oversized-packet DoS, CVSS 6.5 each).
+
+      EXPLICITLY EXCLUDED: CVE-2021-28139 (BrakTooth RCE, CVSS 8.8)
+      affects ONLY Espressif ESP-IDF / ESP32 hardware per NVD's CPE
+      list — no Qualcomm CPE. Including it here would replicate
+      yesterday's BTFM→Broadcom misattribution failure mode
+      (over-attribution from disclosure-batch association rather
+      than per-CVE evidence). Reviewer B 2026-05-16 caught this.
+
       Affects WCN3990 + WCN3950 explicitly per the ASSET disclosure
-      matrix. Patches marked "TBA" by Qualcomm as of 2021; many
-      WCN3xx0 builds in field remain unpatched. Soft chipset matches
-      because blob.chipset_target is rarely populated for QCA Rome BT
-      firmware — the matcher downgrades confidence to medium when
-      chipset_target is NULL.
+      matrix; WCN3998/3991 included by family inference (same
+      crbtfw*.tlv firmware shape). Patches marked "TBA" by Qualcomm
+      as of 2021; many WCN3xx0 builds in field remain unpatched.
+      Soft chipset matches because blob.chipset_target is rarely
+      populated for QCA Rome BT firmware — the matcher downgrades
+      confidence to medium when chipset_target is NULL.
 
   - name: Qualcomm WCN-family BT firmware CVE cluster (2022-2025)
     advisory_id: ADVISORY-QC-BT-FW
@@ -884,22 +891,29 @@ families:
   # bdwlan, wcnss_*, wcn3xxx_qcom_*).
   # ===================================================================
 
-  - name: Qualcomm WCN3950/WCN3990 WLAN firmware memory corruption (CVE-2023-28581)
+  - name: Qualcomm FastConnect WLAN firmware memory corruption (CVE-2023-28581)
     vendor: qualcomm
     category: wifi
-    chipset_regex: "(?i)^(wcn3[0-9]{3}|wcn39[0-9]{2}|sm6225|sm4350).*"
+    # Reviewer B 2026-05-16: NVD CVE-2023-28581 CPE list contains
+    # FastConnect 6800/6900/7800, QCA6391/6426/6436, Snapdragon
+    # 865 (SM8250) / 870 / 8 Gen 1 (SM8450), AR2 Gen 1, XR2 5G,
+    # WCN6740, WSA, WCD9380/9385 — explicitly NOT WCN3950 / WCN3990.
+    # Original chipset_regex matched wcn3*** + sm6225 + sm4350; that
+    # was an over-attribution. Retargeted to the actual NVD CPE list.
+    chipset_regex: "(?i)^(fastconnect6[89]00|fastconnect7800|qca639[16]|qca64[23]6|wcn6740|sm8(250|450)|wcd938[05]).*"
     cves:
       - CVE-2023-28581
     severity: critical
     cvss_score: 8.1
     notes: |
       Qualcomm Security Bulletin Sept 2023. Remote unauthenticated
-      memory corruption in WLAN firmware on WCN3950 / WCN3990 + several
-      other WCN/WSA chipsets. The QSB explicitly lists "wcn3950" and
-      "wcn3990" as affected CPEs. WLAN firmware lives in modem_a.img's
-      WLAN section / wlanmdsp.mbn — not BTFM.bin. G32 (SM6225) + G30
-      (SM4350) both ship WCN3950 / WCN3990-class WLAN, both pre-Sept-
-      2023 patch level.
+      memory corruption in WLAN firmware on FastConnect 6800/6900/
+      7800 + QCA6391/6426/6436 + Snapdragon 865 / 870 / 8 Gen 1
+      + WCN6740 + WSA/WCD9380/9385 — per NVD CPE list.
+      EXCLUDED: G32 (SM6225 / WCN3950) + G30 (SM4350 / WCN3990) are
+      NOT in the CPE list. The original entry mis-included those
+      chipsets based on family-name approximation; corrected
+      2026-05-16 per Reviewer B forensic-domain audit.
 
   - name: Qualcomm WCN WLAN firmware CVE cluster (2023-2025)
     advisory_id: ADVISORY-QC-WLAN-FW
@@ -1021,29 +1035,19 @@ families:
       Fixed in Android 2024-12-05 SPL. Affects Android 12-15.
       Multi-user devices (tablets, automotive) most affected.
 
-  # ---- Vendor-side BT HAL libraries (Qualcomm fork) ----
-  # libbt-vendor-qti.so / libbluetooth_qti.so are Qualcomm's vendor-fork
-  # of Bluedroid sources. CVEs transfer in principle but at vendor patch
-  # cadence (typically 1-2 months behind AOSP). Re-emitting the same
-  # CVE IDs under vendor=qualcomm so operators get attribution against
-  # both the AOSP-side AND vendor-side libraries.
-  - name: Qualcomm vendor BT HAL (Bluedroid fork) CVE-2023-45866 cluster
-    advisory_id: ADVISORY-QTI-BT-HAL-23
-    vendor: qualcomm
-    category: bluetooth
-    chipset_regex: ".*"
-    cves:
-      - CVE-2023-35673
-      - CVE-2023-40129
-      - CVE-2023-45866
-    severity: high
-    cvss_score: 8.8
-    confidence: medium
-    notes: |
-      Qualcomm vendor BT HAL libraries (libbt-vendor-qti.so /
-      libbluetooth_qti.so) carry a fork of AOSP Bluedroid sources.
-      Patch cadence lags AOSP by 1-2 months; vendor patch status
-      requires QSB consultation. Soft chipset match (any qcom BT HAL).
+  # NOTE 2026-05-16 (Reviewer B M4): the previous
+  # ADV-QTI-BT-HAL-2023 entry duplicating CVE-2023-35673 /
+  # CVE-2023-40129 / CVE-2023-45866 under vendor=qualcomm has been
+  # REMOVED. AOSP-side coverage (vendor=aosp entries above) already
+  # fires on libbluetooth.so / bluetooth.default.so / libbluetooth_jni
+  # via path_contexts; the libbt-vendor-qti.so / libbluetooth_qti.so
+  # vendor-fork libraries get attribution through the SAME path-context
+  # rule that classifies them as bluetooth/qualcomm. A separate
+  # advisory was double-counting the CVEs without operational value
+  # (vendor patch lag is real but not per-CVE actionable from static
+  # analysis). If vendor-fork-specific divergence shipped, a future
+  # entry would target a SPECIFIC vendor-patch-lag CVE (e.g. "QSB
+  # 2024-03 omitted CVE-X fix") rather than re-emit AOSP IDs.
 
   # ===================================================================
   # wpa_supplicant CVE coverage — added 2026-05-16 per BTFM-correction
@@ -1098,7 +1102,11 @@ families:
       password bits via cache timing. Fixed in 2.10.
 
   - name: wpa_supplicant Dragonblood SAE / EAP-PWD cluster
-    advisory_id: ADVISORY-WPAS-DRAGONBLOOD
+    # Advisory_id ≤20 chars per Rule #15 / VARCHAR(20) cve_id column.
+    # Reviewer A L5 (2026-05-16): shortened from ADVISORY-WPAS-DRAGONBLOOD
+    # (25 chars) so the schema validator doesn't warn + matches the
+    # at-use clip behaviour explicitly.
+    advisory_id: ADV-WPAS-DRAGONBLD
     vendor: aosp
     category: wifi
     cves:
