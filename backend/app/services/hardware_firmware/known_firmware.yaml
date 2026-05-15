@@ -742,7 +742,7 @@ families:
     advisory_id: ADVISORY-QC-ADSP
     vendor: qualcomm
     category: audio
-    chipset_regex: "(?i)^(sm|sdm|qcm)(4[0-9]{3}|6[0-9]{3}|7[0-9]{3}|8[0-9]{3}).*"
+    chipset_regex: "(?i)^(sm|sdm|qcm|sa)(4[0-9]{3}|6[0-9]{3}|7[0-9]{3}|8[0-9]{3}).*"
     cves: []
     severity: medium
     cvss_score: 5.0
@@ -752,3 +752,175 @@ families:
       by Hexagon Achilles + FastRPC ICAlloc entries above.  This advisory
       flags presence to recommend BSP-current builds; pairs with the
       specific Achilles cluster CVEs when the audio category matches.
+
+  # ===================================================================
+  # Qualcomm WCN/Rome Bluetooth firmware coverage — sourced 2026-05-15
+  # from BRAKTOOTH disclosure (ASSET group / SUTD), NVD, and Qualcomm
+  # Security Bulletins. These are the LEGITIMATE Qualcomm BT firmware
+  # CVEs that DO apply to BTFM.bin Comanche/Cherokee patch sets on
+  # WCN3950, WCN3990, WCN3998 chipsets. Replaces the previously false
+  # BleedingTooth attribution (which was Linux kernel BlueZ, not
+  # firmware — see the BleedingTooth advisory entry above + the BTFM
+  # correction header in firmware_patterns.yaml for the full audit).
+  # ===================================================================
+
+  - name: Qualcomm Rome BT firmware BRAKTOOTH cluster
+    vendor: qualcomm
+    category: bluetooth
+    chipset_regex: "(?i)^(wcn3[0-9]{3}|wcn39[0-9]{2}|fastconnect3[0-9]{3}).*"
+    cves:
+      - CVE-2021-28139
+      - CVE-2021-34147
+      - CVE-2021-31609
+      - CVE-2021-31612
+    severity: high
+    cvss_score: 8.8
+    notes: |
+      BRAKTOOTH disclosure (Garbelini et al., SUTD ASSET Group 2021).
+      Firmware-layer flaws in Qualcomm Rome BT Link Manager Protocol
+      (LMP) parsing: CVE-2021-28139 (RCE via crafted LMP packets,
+      CVSS 8.8), CVE-2021-34147 (LMP_timing_accuracy DoS, CVSS 6.5),
+      CVE-2021-31609/31612 (oversized-packet DoS, CVSS 6.5 each).
+      Affects WCN3990 + WCN3950 explicitly per the ASSET disclosure
+      matrix. Patches marked "TBA" by Qualcomm as of 2021; many
+      WCN3xx0 builds in field remain unpatched. Soft chipset matches
+      because blob.chipset_target is rarely populated for QCA Rome BT
+      firmware — the matcher downgrades confidence to medium when
+      chipset_target is NULL.
+
+  - name: Qualcomm WCN-family BT firmware CVE cluster (2022-2025)
+    advisory_id: ADVISORY-QC-BT-FW
+    vendor: qualcomm
+    category: bluetooth
+    chipset_regex: "(?i)^(wcn3[0-9]{3}|wcn39[0-9]{2}|wcn6[0-9]{3}|fastconnect).*"
+    cves: []
+    severity: high
+    cvss_score: 7.5
+    notes: |
+      Aggregate advisory for Qualcomm-disclosed WCN-family BT firmware
+      CVEs across monthly bulletins 2022-2025. Examples (non-exhaustive):
+      CVE-2022-22063, CVE-2022-25658, CVE-2022-25663, CVE-2022-33218,
+      CVE-2023-21645, CVE-2023-21655, CVE-2023-28565, CVE-2023-33078,
+      CVE-2023-33023, CVE-2024-21476, CVE-2024-23351, CVE-2025-21434.
+      Per-CVE attribution requires matching the bulletin's "affected
+      chipsets" list against the device's BTFM build banner; for static
+      analysis without OTA history this advisory flags presence so
+      operators can verify patch status against QSB.
+
+  # ---- Bluetooth specification-level attacks (firmware participates) ----
+
+  - name: Bluetooth KNOB attack (CVE-2019-9506)
+    advisory_id: ADVISORY-BT-KNOB
+    vendor: unknown
+    category: bluetooth
+    cves: []
+    severity: high
+    cvss_score: 8.1
+    notes: |
+      Antonioli, Tippenhauer, Rasmussen 2019. BT Core spec (through 5.1)
+      permits encryption-key entropy negotiation down to 1 octet. Vendor
+      mitigation = enforce minimum 7-octet key in firmware link-key
+      negotiation. Bluetooth SIG enforces >=7 octets in spec 5.1+.
+      Advisory-shape because per-firmware patch status is rarely
+      externally observable from the blob.
+
+  - name: Bluetooth BLUFFS attack (CVE-2023-24023)
+    advisory_id: ADVISORY-BT-BLUFFS
+    vendor: unknown
+    category: bluetooth
+    cves: []
+    severity: medium
+    cvss_score: 6.8
+    notes: |
+      Antonioli 2023. Bluetooth Secure Connections session-key derivation
+      flaw across spec 4.2-5.4. MITM between paired devices can downgrade
+      to weaker session keys (forward/future secrecy break). WCN3990
+      confirmed vulnerable per the original BLUFFS paper.
+
+  - name: Bluetooth BIAS attack (CVE-2020-10135)
+    advisory_id: ADVISORY-BT-BIAS
+    vendor: unknown
+    category: bluetooth
+    cves: []
+    severity: medium
+    cvss_score: 6.8
+    notes: |
+      Antonioli, Tippenhauer, Rasmussen 2020. Pre-paired-device
+      impersonation via missing mutual-authentication during BR/EDR
+      legacy pairing. Vendor mitigation = enforce mutual auth in
+      firmware even for legacy pairing handshakes.
+
+  - name: Bluetooth BLURtooth CTKD attack (CVE-2020-15802)
+    advisory_id: ADVISORY-BT-BLUR
+    vendor: unknown
+    category: bluetooth
+    cves: []
+    severity: medium
+    cvss_score: 6.5
+    notes: |
+      Bluetooth SIG 2020. Cross-Transport Key Derivation (CTKD) in BT
+      4.2-5.0 permits key overwrite when both BR/EDR and LE coexist.
+      Mitigation in BT 5.1+ spec. WCN3xx0 + FastConnect chips
+      participate in CTKD.
+
+  # ===================================================================
+  # Qualcomm WCN-family WLAN firmware CVE coverage — sourced 2026-05-15
+  # from Qualcomm Security Bulletins + NVD. Covers WCN3xx0 + WCN6xx0
+  # combo chips' WLAN firmware blobs (the .b0X chunks named wlanmdsp,
+  # bdwlan, wcnss_*, wcn3xxx_qcom_*).
+  # ===================================================================
+
+  - name: Qualcomm WCN3950/WCN3990 WLAN firmware memory corruption (CVE-2023-28581)
+    vendor: qualcomm
+    category: wifi
+    chipset_regex: "(?i)^(wcn3[0-9]{3}|wcn39[0-9]{2}|sm6225|sm4350).*"
+    cves:
+      - CVE-2023-28581
+    severity: critical
+    cvss_score: 8.1
+    notes: |
+      Qualcomm Security Bulletin Sept 2023. Remote unauthenticated
+      memory corruption in WLAN firmware on WCN3950 / WCN3990 + several
+      other WCN/WSA chipsets. The QSB explicitly lists "wcn3950" and
+      "wcn3990" as affected CPEs. WLAN firmware lives in modem_a.img's
+      WLAN section / wlanmdsp.mbn — not BTFM.bin. G32 (SM6225) + G30
+      (SM4350) both ship WCN3950 / WCN3990-class WLAN, both pre-Sept-
+      2023 patch level.
+
+  - name: Qualcomm WCN WLAN firmware CVE cluster (2023-2025)
+    advisory_id: ADVISORY-QC-WLAN-FW
+    vendor: qualcomm
+    category: wifi
+    chipset_regex: "(?i)^(wcn3[0-9]{3}|wcn39[0-9]{2}|wcn6[0-9]{3}|sm[0-9]{4}|sdm[0-9]{3,4}).*"
+    cves: []
+    severity: high
+    cvss_score: 7.8
+    notes: |
+      Aggregate advisory for Qualcomm WLAN-firmware CVEs disclosed
+      across monthly QSB 2023-2025. Examples: CVE-2023-33036,
+      CVE-2023-33038, CVE-2023-33060, CVE-2024-23351, CVE-2024-23373,
+      CVE-2024-23386, CVE-2025-21434, CVE-2025-22394. Per-CVE
+      attribution requires matching the bulletin's affected-chipset
+      list. Advisory-shape on any qcom WLAN firmware blob.
+
+  # ---- FragAttacks WLAN spec/implementation cluster ----
+
+  - name: FragAttacks WLAN cluster (CVE-2020-2458x)
+    advisory_id: ADVISORY-WLAN-FRAGATK
+    vendor: qualcomm
+    category: wifi
+    chipset_regex: "(?i)^(wcn3[0-9]{3}|wcn39[0-9]{2}|wcn6[0-9]{3}).*"
+    cves:
+      - CVE-2020-24586
+      - CVE-2020-24587
+      - CVE-2020-24588
+    severity: medium
+    cvss_score: 6.5
+    notes: |
+      Mathy Vanhoef 2020-2021. 802.11 frame-aggregation + fragmentation
+      design flaws bypassing WPA/WPA2/WPA3 link-layer integrity. CVE-
+      2020-24586/24587/24588 are SPEC-level. Companion CVE-2020-26139..
+      -26147 are IMPLEMENTATION-level (Linux kernel, Windows, Qualcomm
+      WLAN firmware). Android fix landed July 2021 ASB; firmware-side
+      fix per QSB. Affects every wcn3xx0 / wcn6xx0 WLAN blob shipped
+      before mid-2021.
