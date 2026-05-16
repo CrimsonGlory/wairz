@@ -1972,6 +1972,222 @@ def test_tegra_cve_pins_cvss_scores_match_nvd_primary() -> None:
 
 
 # ---------------------------------------------------------------------------
+# MediaTek modem CDMA PPP RCE (CVE-2023-20819) version-regex narrowing —
+# Reviewer B 2026-05-15-PM HIGH carried-forward from postmortem
+# hw-firmware-tegra-activation-2026-05-15. NVD CPE narrows the CVE to
+# exactly 6 MediaTek modem-OS families: lr11 / lr12a / lr13 / nr15 /
+# nr16 / nr17 (cpe:2.3:o:mediatek:<family>:-:* lines per the NVD JSON).
+# Pre-narrowing the entry fired on every MediaTek modem blob (20 rows
+# currently); post-narrowing the version_regex hard-rejects blobs whose
+# `version` field doesn't match one of the 6 families.
+#
+# Forward-prepared per the Tegra precedent (Pattern #3 from postmortem-
+# hw-firmware-tegra-activation-2026-05-15) — mtk_modem parser does not
+# yet harvest MOLY family banners from modem.img blobs. Once it does,
+# this pin activates without further changes. Until then, the entry
+# emits zero CVE rows (better than the 20 over-attributed pre-narrowing
+# rows per Reviewer B's NVD-CPE evidence).
+# ---------------------------------------------------------------------------
+
+
+def test_cve_2023_20819_version_regex_present_and_matches_six_families() -> None:
+    """The CVE-2023-20819 entry carries a version_regex covering exactly
+    the 6 NVD-CPE-affected MediaTek modem-OS families.
+
+    Per Rule #19 recursive NVD-CPE verification — the regex's enumerated
+    values (lr11/lr12a/lr13/nr15/nr16/nr17) are NVD-CPE-derived from
+    direct WebFetch on services.nvd.nist.gov/.../cves/2.0?cveId=
+    CVE-2023-20819 (not intuition).
+    """
+    import re as _re
+
+    families = _load_known_firmware()
+    fam = _find_family_by_cve(list(families), "CVE-2023-20819")
+    assert fam is not None, "CVE-2023-20819 entry missing from YAML"
+    version_re = fam.get("version_regex")
+    assert version_re, (
+        "CVE-2023-20819 entry missing version_regex — Reviewer B 2026-"
+        "05-15-PM HIGH realignment regression. NVD CPE narrows to 6 "
+        "specific modem-OS families; entry without version_regex fires "
+        "on every MediaTek modem blob"
+    )
+    patt = _re.compile(version_re, _re.IGNORECASE)
+
+    # Positive — the 6 NVD-CPE-affected families, in real-world MOLY
+    # banner shapes the mtk_modem parser will eventually emit:
+    positive_cases = (
+        "MOLY.LR11.R2.MP.V42",
+        "MOLY.LR12A.R3.MP.V101",
+        "MOLY.LR13.R1.MP.V1",
+        "MOLY.NR15.R1.MP.V1",
+        "MOLY.NR16.R1.MP.V1",
+        "MOLY.NR17.R1.MP.V1",
+        # bare lowercase forms (defensive — operator-supplied banners
+        # may not preserve case)
+        "lr12a",
+        "nr16",
+        # underscore-separated form (some parser banners use _ separator)
+        "MOLY_NR16_R1",
+    )
+    for s in positive_cases:
+        assert patt.search(s), (
+            f"version_regex missed NVD-scope family in {s!r} — should "
+            "match one of (lr11/lr12a/lr13/nr15/nr16/nr17)"
+        )
+
+    # Negative — out-of-scope families that NVD does NOT list:
+    negative_cases = (
+        "MOLY.LR18.MP.V1",
+        "MOLY.NR18.MP.V1",
+        "MOLY.NR12.MP.V1",
+        # Confused-substring guards — boundary regex must NOT match
+        # these even though the family token appears as a substring:
+        "somewhere_nr155_else",  # nr155 is not nr15
+        "somewhere_lr12abc",  # lr12abc is not lr12a
+        # Pre-MOLY blobs (no version evidence)
+        "",
+    )
+    for s in negative_cases:
+        assert not patt.search(s), (
+            f"version_regex over-matched out-of-scope family in {s!r} — "
+            "NVD CPE only enumerates 6 families; this regex must not "
+            "fire on other tokens. Risk: re-introducing over-attribution "
+            "Reviewer B 2026-05-15-PM flagged"
+        )
+
+
+def test_cve_2023_20819_hard_rejects_blob_with_null_version() -> None:
+    """Rule #46 gate-canary: confirms the matcher HARD-REJECTS
+    CVE-2023-20819 on a blob without an extractable MOLY family.
+
+    cve_matcher version_regex semantics are HARD-REJECT — when set, the
+    matcher requires version evidence to fire (cve_matcher.py lines
+    ~480-491; ``Stays STRICT — when present, version evidence MUST be
+    found``). Soft-fallback applies to chipset_regex only. This test
+    confirms the gate's hard-reject path actually fires; without it, a
+    silent semantics regression to soft-fallback (which would re-
+    introduce the over-attribution Reviewer B caught) would go
+    undetected.
+
+    Forward-prepared: today the mtk_modem parser does NOT populate
+    blob.version with the MOLY banner; this test asserts the CVE row
+    is suppressed. When parser shipment lands, a paired positive-arm
+    test should land alongside (operator-targeted naming:
+    test_cve_2023_20819_fires_when_mtk_modem_emits_lr12a).
+    """
+    blob = _make_blob(
+        vendor="mediatek",
+        category="modem",
+        version=None,  # mtk_modem parser doesn't populate this today
+        chipset_target=None,
+        metadata={},
+    )
+    matches = _match_curated(blob, _load_known_firmware())
+    cve_ids = {m.cve_id for m in matches}
+    assert "CVE-2023-20819" not in cve_ids, (
+        "CVE-2023-20819 fired on a MediaTek modem blob WITHOUT MOLY "
+        "version evidence — Reviewer B 2026-05-15-PM realignment "
+        "regression. version_regex must HARD-REJECT on NULL version "
+        "to prevent over-attribution on the 20 modem blobs currently "
+        "in corpus that have NULL version_extracted. Investigate "
+        "whether matcher semantics regressed from hard-reject to "
+        "soft-fallback"
+    )
+
+
+def test_cve_2023_20819_fires_when_version_contains_lr12a() -> None:
+    """Rule #46 positive-arm canary: when blob.version contains an
+    NVD-CPE-affected family token, the CVE row IS emitted.
+
+    Forward-prepared shape: this test synthesizes the expected blob
+    state once the mtk_modem parser harvests MOLY banners. Confirms
+    the version_regex correctly fires on the in-scope shape; without
+    it, a regex bug that silently dropped all matches would go
+    undetected.
+    """
+    blob = _make_blob(
+        vendor="mediatek",
+        category="modem",
+        version="MOLY.LR12A.R3.MP.V101",
+        chipset_target=None,
+        metadata={},
+    )
+    matches = _match_curated(blob, _load_known_firmware())
+    cve_ids = {m.cve_id for m in matches}
+    assert "CVE-2023-20819" in cve_ids, (
+        "CVE-2023-20819 did NOT fire on a MediaTek modem blob with "
+        "MOLY.LR12A version evidence — version_regex shape may have "
+        "regressed; NVD CPE explicitly lists lr12a as in-scope"
+    )
+
+
+def test_cve_2023_20819_excludes_out_of_scope_family_versions() -> None:
+    """Rule #46 negative-arm canary: blobs with out-of-NVD-scope family
+    (e.g. LR18 / NR18 / LR14) MUST NOT fire CVE-2023-20819.
+
+    The over-attribution risk Reviewer B flagged is firing on EVERY
+    MediaTek modem blob; this test asserts the in-corpus shape where
+    a blob HAS a MOLY family but it's outside NVD scope still produces
+    zero CVE-2023-20819 rows.
+    """
+    for out_of_scope_version in (
+        "MOLY.LR18.MP.V1",
+        "MOLY.NR18.MP.V1",
+        "MOLY.LR14.MP.V1",
+    ):
+        blob = _make_blob(
+            vendor="mediatek",
+            category="modem",
+            version=out_of_scope_version,
+            chipset_target=None,
+            metadata={},
+        )
+        matches = _match_curated(blob, _load_known_firmware())
+        cve_ids = {m.cve_id for m in matches}
+        assert "CVE-2023-20819" not in cve_ids, (
+            f"CVE-2023-20819 fired on blob with out-of-NVD-scope "
+            f"version {out_of_scope_version!r} — version_regex "
+            "appears to over-match beyond NVD's 6-family scope "
+            "(lr11/lr12a/lr13/nr15/nr16/nr17)"
+        )
+
+
+def test_cve_2023_20819_entry_satisfies_f_forensic_10_gate() -> None:
+    """Rule #46 gate-confirmation canary: the CVE-2023-20819 entry's
+    version_regex is one of the 4 narrowing-field allowlist members,
+    so the F-FORENSIC-10 gate accepts the entry at load time.
+
+    Confirms the realignment doesn't accidentally land in a shape
+    that the gate would silently reject (which would cause
+    CVE-2023-20819 to disappear from the loaded family list, NOT
+    fire on any blob, and silently regress the curated coverage).
+    """
+    families = _load_known_firmware()
+    fam = _find_family_by_cve(list(families), "CVE-2023-20819")
+    assert fam is not None, (
+        "CVE-2023-20819 entry was REJECTED by the F-FORENSIC-10 gate "
+        "at load time — version_regex isn't satisfying the narrowing "
+        "requirement. Re-check the entry shape"
+    )
+    from app.services.hardware_firmware.cve_matcher import (
+        _KNOWN_FIRMWARE_NARROWING_FIELDS,
+    )
+
+    has_narrowing = any(
+        fam.get(field) is not None
+        for field in _KNOWN_FIRMWARE_NARROWING_FIELDS
+    )
+    assert has_narrowing, (
+        "CVE-2023-20819 entry shipped without ANY narrowing field — "
+        "F-FORENSIC-10 gate would reject"
+    )
+    assert fam.get("version_regex"), (
+        "CVE-2023-20819 entry should carry the version_regex specifically "
+        "(per Reviewer B 2026-05-15-PM NVD-CPE-derived narrowing)"
+    )
+
+
+# ---------------------------------------------------------------------------
 # F-FORENSIC-10 schema gate analog (Reviewer B B1 2026-05-15) — CVE-bearing
 # entries MUST set at least one narrowing field beyond vendor + category
 # exact match. Mirrors patterns_loader._parse_banner_cve_pin's family-only

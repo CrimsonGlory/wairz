@@ -394,6 +394,26 @@ families:
     vendor: mediatek
     category: modem
     category_regex: "^modem$"
+    # Reviewer B 2026-05-15-PM HIGH: NVD CPE narrows CVE-2023-20819 to
+    # exactly 6 MediaTek modem-OS families (lr11, lr12a, lr13, nr15,
+    # nr16, nr17). NVD lists 66 hardware chipset CPEs (MT2731..MT8798)
+    # as sibling AND-nodes describing the runtime substrate, not as
+    # version anchors. version_regex below is HARD-REJECT (cve_matcher
+    # version_regex semantics, lines ~480-491) — gate fires zero matches
+    # until the mtk_modem parser populates blob.version with the MOLY
+    # banner (e.g. ``MOLY.LR12A.R3.MP.V101``) OR a metadata string
+    # carrying the family token. Forward-prepared per Tegra precedent
+    # (postmortem-hw-firmware-tegra-activation-2026-05-15 Pattern #3 —
+    # forward-prepared CVE pins ship with documented activation
+    # conditions; activate via N follow-up commits when extraction
+    # infrastructure lands).
+    # Per Rule #19 recursive NVD-CPE verification: 6 family values are
+    # NVD-CPE-derived (cpe:2.3:o:mediatek:{lr11,lr12a,lr13,nr15,nr16,
+    # nr17}:-:*) NOT intuition. Eliminates the over-attribution risk
+    # surfaced by Reviewer B: pre-narrowing, every MediaTek modem blob
+    # fired CVE-2023-20819 (20 rows) regardless of family — post-
+    # narrowing, only blobs with one of the 6 affected families fire.
+    version_regex: "(?i)(?:^|[^a-z0-9])(lr11|lr12a|lr13|nr15|nr16|nr17)(?:[^a-z0-9]|$)"
     cves:
       - CVE-2023-20819
     severity: critical
@@ -403,6 +423,7 @@ families:
       from malicious base station.  LR11/LR12a/LR13/NR15/NR16/NR17
       firmware branches affected; no extractable banner without DbgInfo
       sidecar (cyrozap mediatek-lte-baseband-re notes).
+      Reference: https://nvd.nist.gov/vuln/detail/CVE-2023-20819
 
   - name: MediaTek modem 5G NAS RCE cluster (Feb 2024)
     vendor: mediatek
