@@ -109,30 +109,64 @@ class MatchResult:
         return NotImplemented
 
 
+# F-FORENSIC-10 (Reviewer B 2026-05-18 originally caught at the BT YAML
+# layer — see patterns_loader._parse_banner_cve_pin lines ~1024-1051)
+# narrowing-field allowlist: a CVE-bearing curated entry MUST set at
+# least one of these fields beyond the base vendor + category exact
+# match. Without one, the entry replicates the disclosure-batch
+# antipattern at the curated tier — every CVE in the entry fires on
+# every blob matching just (vendor, category), which over-attributes
+# when NVD CPE narrows to a specific chipset family or version range.
+#
+# Mirror to keep the BT layer + the curated layer consistent at the
+# schema-gate level; alignment-test discipline (Rule #46) catches
+# drift if either side adds a new narrowing field.
+_KNOWN_FIRMWARE_NARROWING_FIELDS: tuple[str, ...] = (
+    "chipset_regex",
+    "category_regex",
+    "version_regex",
+    "vendor_regex",
+)
+
+
 def _parse_known_firmware_data(raw: dict) -> list[dict]:
     """Parse known_firmware.yaml's families list with schema validation.
 
     Performs the same lightweight WARN-only validation that the legacy
-    ``_load_known_firmware`` did:
+    ``_load_known_firmware`` did, AND a F-FORENSIC-10 schema gate analog
+    on top:
+
       - Advisory-only entries (``cves: []`` or missing ``cves``) MUST
         carry an ``advisory_id`` key (Reviewer A H1 2026-05-15).
       - ``advisory_id`` (when present) MUST be ≤20 chars to fit the
         column constraint.
+      - **CVE-bearing entries MUST set at least one of the narrowing
+        fields** ``chipset_regex`` / ``category_regex`` /
+        ``version_regex`` / ``vendor_regex`` beyond the base vendor +
+        category exact match — Reviewer B B1 (postmortem 2026-05-15)
+        F-FORENSIC-10 invariant analog. Entries failing the gate are
+        REJECTED + WARN-logged so operators see why their pin silently
+        stopped matching, mirroring the BT YAML layer's
+        ``_parse_banner_cve_pin`` rejection shape (commit ``51db3c8``
+        2026-05-18).
 
-    Malformed entries still load (so a YAML typo doesn't gate every CVE
-    match) but the warning surfaces in logs for the operator to fix.
+    Malformed advisory-id entries still load (so a YAML typo doesn't
+    gate every CVE match) but the warning surfaces in logs for the
+    operator to fix. Family-only CVE entries are SKIPPED — the gate
+    is the disclosure-batch antipattern prevention, not soft advice.
 
     Hot-reload contract: this parser is the per-load callable handed to
     ``MtimeCachedYamlLoader`` — it runs on first access AND on every
     subsequent disk-mtime-change. Raises only on FATAL whole-load
     issues (top-level 'families' not a list); per-entry issues become
-    warnings.
+    warnings + skips.
     """
     families = raw.get("families", []) if raw else []
     if not isinstance(families, list):
         raise ValueError("'families' must be a list")
 
     seen_advisory_ids: set[str] = set()
+    accepted: list[dict] = []
     for idx, fam in enumerate(families):
         if not isinstance(fam, dict):
             continue
@@ -166,7 +200,41 @@ def _parse_known_firmware_data(raw: dict) -> list[dict]:
                         adv_id,
                     )
                 seen_advisory_ids.add(adv_id)
-    return families
+            accepted.append(fam)
+            continue
+
+        # F-FORENSIC-10 analog: CVE-bearing pins require a narrowing
+        # field beyond vendor + category exact match. Mirrors the
+        # patterns_loader._parse_banner_cve_pin family-only rejection
+        # shape (commit 51db3c8 2026-05-18) at the curated tier.
+        # Reviewer B 2026-05-18 invariant, deferred to 2026-05-15 per
+        # postmortem-hw-firmware-mcp-tegra-2026-05-15 Recommendation #1.
+        has_narrowing = any(
+            fam.get(field) is not None
+            for field in _KNOWN_FIRMWARE_NARROWING_FIELDS
+        )
+        if not has_narrowing:
+            logger.warning(
+                "known_firmware.yaml entry #%d (%r, cves=%r) — CVE-bearing "
+                "family with NONE of %s set — SKIPPED to prevent "
+                "disclosure-batch CVE over-attribution across the "
+                "(vendor=%r, category=%r) combo. Per Reviewer B 2026-05-18 "
+                "F-FORENSIC-10 invariant analog. Action: add a narrowing "
+                "field (chipset_regex matching the NVD CPE scope, OR "
+                "category_regex / version_regex / vendor_regex preserving "
+                "existing match semantics) OR convert to advisory-only "
+                "(cves: []).",
+                idx,
+                fam.get("name", "<unnamed>"),
+                cves,
+                _KNOWN_FIRMWARE_NARROWING_FIELDS,
+                fam.get("vendor"),
+                fam.get("category"),
+            )
+            continue
+
+        accepted.append(fam)
+    return accepted
 
 
 def _summary_known_firmware(families: list[dict]) -> str:

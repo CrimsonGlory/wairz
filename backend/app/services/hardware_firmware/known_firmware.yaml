@@ -207,6 +207,8 @@ families:
   - name: Qualcomm EDL leaked programmers
     vendor: qualcomm
     category: bootloader
+    chipset_regex: "(?i)^(msm|mdm|sdm|sda|sd[0-9]|sm[0-9]|sa[0-9]|qcs|qcm|qm[0-9]|sdx|snapdragon|bengal|kona|lahaina|waipio|niobe|holi|sun|magpie|moorea|saipan)"
+    strict_chipset: false
     cves:
       - CVE-2017-18159
     severity: high
@@ -214,10 +216,20 @@ families:
     notes: |
       Aleph Security 2017-2018.  Leaked OEM firehose programmers (Xiaomi,
       Nokia) enabled permanent unlock + implant.
+      NVD CPE: cpe:2.3:o:google:android:-:*:*:*:*:*:*:* (no specific
+      Snapdragon SoCs enumerated). NVD description: "Android for MSM,
+      QRD Android, Firefox OS for MSM" — MSM = Snapdragon family.
+      chipset_regex matches the Snapdragon naming surface (MSM/SDM/SDA/
+      SD/SM/SA/QCS/QCM/QM/SDX prefixes + marketing names) per F-FORENSIC-
+      10 narrowing requirement (Reviewer B B1 2026-05-15). strict_chipset:
+      false → soft fallback for blobs with NULL chipset_target (typical
+      for Qualcomm bootloaders pre-2026-05-15 detection improvements).
+      Reference: https://nvd.nist.gov/vuln/detail/CVE-2017-18159
 
   - name: FragAttacks
     vendor: broadcom
     category: wifi
+    category_regex: "^wifi$"
     cves:
       - CVE-2020-24586
       - CVE-2020-24587
@@ -227,6 +239,11 @@ families:
     notes: |
       Vanhoef 2021.  802.11 fragmentation parsing bugs in Broadcom/
       MediaTek Wi-Fi firmware.
+      F-FORENSIC-10 narrowing satisfied via category_regex preserving
+      existing exact-match semantics (Reviewer B B1 2026-05-15). Future
+      enhancement: per-NVD-CPE chipset_regex matching specific Broadcom
+      WiFi chips (e.g. BCM43XX family) per recursive verification
+      discipline.
 
   # ===================================================================
   # MediaTek subsystem coverage — sourced 2026-04-17 from Android
@@ -355,9 +372,15 @@ families:
   # These entries will fire on every modem blob; acceptable noise vs
   # missing 20+ CVEs entirely.  Future modem chipset extraction lands
   # via a dedicated mtk_modem parser.
+  #
+  # F-FORENSIC-10 narrowing satisfied via category_regex preserving
+  # existing exact-match semantics (Reviewer B B1 2026-05-15). Future
+  # enhancement: per-version chipset_regex once mtk_modem parser
+  # populates blob.chipset_target.
   - name: MediaTek modem CDMA PPP RCE (CVE-2023-20819)
     vendor: mediatek
     category: modem
+    category_regex: "^modem$"
     cves:
       - CVE-2023-20819
     severity: critical
@@ -371,6 +394,7 @@ families:
   - name: MediaTek modem 5G NAS RCE cluster (Feb 2024)
     vendor: mediatek
     category: modem
+    category_regex: "^modem$"
     cves:
       - CVE-2023-32841
       - CVE-2023-32842
@@ -386,6 +410,7 @@ families:
   - name: MediaTek modem remote DoS cluster (2024-2026)
     vendor: mediatek
     category: modem
+    category_regex: "^modem$"
     cves:
       - CVE-2024-20094
       - CVE-2024-20150
@@ -480,6 +505,7 @@ families:
   - name: MediaTek Download Agent OOB cluster
     vendor: mediatek
     category: bootloader
+    category_regex: "^bootloader$"
     cves:
       - CVE-2024-20006
       - CVE-2024-20141
@@ -497,6 +523,10 @@ families:
       ASB recurring 2024-2025.  V6/V5 Download Agent OOB writes.
       Physical-attacker LPE during flashing.  Companion to the
       kamakiri BROM advisory; DA runs after BROM hands off.
+      F-FORENSIC-10 narrowing satisfied via category_regex preserving
+      existing exact-match semantics (Reviewer B B1 2026-05-15). Future
+      enhancement: per-DA-version chipset_regex matching MediaTek
+      bootloader chip family.
 
   # MediaTek WLAN driver (kernel module) RCE — distinct from firmware blob
   - name: MediaTek WLAN driver RCE (CVE-2024-20100 cluster)
@@ -725,6 +755,8 @@ families:
   - name: Qualcomm bootloader / EDL firehose advisory
     vendor: qualcomm
     category: bootloader
+    chipset_regex: "(?i)^(msm|mdm|sdm|sda|sd[0-9]|sm[0-9]|sa[0-9]|qcs|qcm|qm[0-9]|sdx|snapdragon|bengal|kona|lahaina|waipio|niobe|holi|sun|magpie|moorea|saipan)"
+    strict_chipset: false
     cves:
       - CVE-2017-18159
     severity: high
@@ -737,6 +769,10 @@ families:
       "Qualcomm EDL leaked programmers" entry; re-stated here under the
       systematic-debugging-2026-05-15 expansion for closeness with the
       other Qualcomm advisories (no functional change).
+      F-FORENSIC-10 narrowing matches the duplicate entry — chipset_regex
+      covers the Snapdragon naming surface per NVD CPE description "MSM
+      family" (Reviewer B B1 2026-05-15). strict_chipset: false → soft
+      fallback for blobs with NULL chipset_target.
 
   - name: Qualcomm audio DSP general advisory
     advisory_id: ADVISORY-QC-ADSP
@@ -991,9 +1027,17 @@ families:
   #   semantics, separate attribution.
   # ===================================================================
 
+  # F-FORENSIC-10 narrowing for AOSP-host Bluetooth entries: framework
+  # code is chipset-agnostic; per-NVD scope is "Android Bluetooth host
+  # stack" without enumerated chipsets. Minimum-impact category_regex
+  # preserves exact-match semantics + satisfies the gate (Reviewer B B1
+  # 2026-05-15). Future enhancement: per-Android-version version_regex
+  # once vendor=aosp blobs surface a parseable version banner.
+
   - name: Bluedroid / Fluoride HID forced-pairing (CVE-2023-45866 / BleedingPodcast)
     vendor: aosp
     category: bluetooth
+    category_regex: "^bluetooth$"
     cves:
       - CVE-2023-45866
     severity: high
@@ -1009,6 +1053,7 @@ families:
   - name: Bluedroid / Fluoride GATT build_read_multi_rsp RCE (CVE-2023-40129)
     vendor: aosp
     category: bluetooth
+    category_regex: "^bluetooth$"
     cves:
       - CVE-2023-40129
     severity: critical
@@ -1023,6 +1068,7 @@ families:
   - name: Bluedroid / Fluoride GATT integer-overflow precursor (CVE-2023-35673)
     vendor: aosp
     category: bluetooth
+    category_regex: "^bluetooth$"
     cves:
       - CVE-2023-35673
     severity: high
@@ -1036,6 +1082,7 @@ families:
   - name: Bluedroid / Fluoride GATT DoS (CVE-2024-43763)
     vendor: aosp
     category: bluetooth
+    category_regex: "^bluetooth$"
     cves:
       - CVE-2024-43763
     severity: medium
@@ -1048,6 +1095,7 @@ families:
   - name: Bluedroid / Fluoride OBEX cross-user disclosure (CVE-2024-49728)
     vendor: aosp
     category: bluetooth
+    category_regex: "^bluetooth$"
     cves:
       - CVE-2024-49728
     severity: high
@@ -1083,9 +1131,17 @@ families:
   # via `strings <binary> | grep '^wpa_supplicant v'`.
   # ===================================================================
 
+  # F-FORENSIC-10 narrowing for AOSP wpa_supplicant entries: AOSP-host
+  # framework code; per-NVD scope is wpa_supplicant version-banner
+  # gated, not chipset gated. Minimum-impact category_regex preserves
+  # exact-match semantics + satisfies the gate (Reviewer B B1 2026-05-15).
+  # Future enhancement: per-version version_regex once the wpa_supplicant
+  # version banner is parsed from binary strings.
+
   - name: wpa_supplicant PEAP-MSCHAPv2 phase-2 bypass (CVE-2023-52160)
     vendor: aosp
     category: wifi
+    category_regex: "^wifi$"
     cves:
       - CVE-2023-52160
     severity: medium
@@ -1102,6 +1158,7 @@ families:
   - name: wpa_supplicant / hostapd SAE side-channel (CVE-2022-23303)
     vendor: aosp
     category: wifi
+    category_regex: "^wifi$"
     cves:
       - CVE-2022-23303
     severity: high
@@ -1115,6 +1172,7 @@ families:
   - name: wpa_supplicant / hostapd EAP-PWD side-channel (CVE-2022-23304)
     vendor: aosp
     category: wifi
+    category_regex: "^wifi$"
     cves:
       - CVE-2022-23304
     severity: high
@@ -1131,6 +1189,7 @@ families:
     advisory_id: ADV-WPAS-DRAGONBLD
     vendor: aosp
     category: wifi
+    category_regex: "^wifi$"
     cves:
       - CVE-2019-9494
       - CVE-2019-9495

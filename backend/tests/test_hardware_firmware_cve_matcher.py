@@ -1788,3 +1788,303 @@ def test_tegra_cve_pins_cvss_scores_match_nvd_primary() -> None:
             f"{cve} cvss_score drift: got {fam['cvss_score']}, "
             f"expected {expected_cvss} per NVD primary"
         )
+
+
+# ---------------------------------------------------------------------------
+# F-FORENSIC-10 schema gate analog (Reviewer B B1 2026-05-15) — CVE-bearing
+# entries MUST set at least one narrowing field beyond vendor + category
+# exact match. Mirrors patterns_loader._parse_banner_cve_pin's family-only
+# rejection (commit 51db3c8 2026-05-18).
+# ---------------------------------------------------------------------------
+
+
+def test_f_forensic_10_gate_rejects_family_only_cve_entry() -> None:
+    """SYNTHESIZED VIOLATION canary: a CVE-bearing family with no
+    chipset_regex / category_regex / version_regex / vendor_regex
+    MUST be SKIPPED + WARN-logged.
+
+    Per Reviewer B 2026-05-18 invariant analog (Reviewer B B1 deferred
+    from postmortem 2026-05-15). Mirrors the BT YAML layer's
+    ``_parse_banner_cve_pin`` family-only rejection at the curated tier.
+    """
+    import logging
+    from app.services.hardware_firmware.cve_matcher import (
+        _parse_known_firmware_data,
+    )
+
+    raw = {
+        "families": [
+            # Acceptable entry — has narrowing.
+            {
+                "name": "good-entry",
+                "vendor": "qualcomm",
+                "category": "modem",
+                "chipset_regex": "(?i)^(sm|sdm)",
+                "cves": ["CVE-9999-00001"],
+            },
+            # Rejected entry — vendor+category only (no narrowing).
+            {
+                "name": "bad-disclosure-batch",
+                "vendor": "qualcomm",
+                "category": "modem",
+                "cves": ["CVE-9999-00099"],
+            },
+            # Acceptable entry — advisory-only is OK.
+            {
+                "name": "advisory-entry",
+                "advisory_id": "ADV-TEST",
+                "vendor": "qualcomm",
+                "category": "modem",
+                "cves": [],
+            },
+        ],
+    }
+
+    logger_name = "app.services.hardware_firmware.cve_matcher"
+    with caplog_at(logger_name) as records:
+        accepted = _parse_known_firmware_data(raw)
+
+    accepted_names = {fam.get("name") for fam in accepted}
+    assert "good-entry" in accepted_names, "narrowed entry should pass"
+    assert "advisory-entry" in accepted_names, "advisory should pass"
+    assert "bad-disclosure-batch" not in accepted_names, (
+        "F-FORENSIC-10 gate FAILED: family-only CVE entry not rejected"
+    )
+
+    warn_messages = [
+        r.message
+        for r in records
+        if r.levelno >= logging.WARNING
+    ]
+    assert any(
+        "bad-disclosure-batch" in m for m in warn_messages
+    ), (
+        "F-FORENSIC-10 gate did not log a WARN with the rejected "
+        "entry name. Operators need the actionable WARN to fix their "
+        f"YAML. Got messages: {warn_messages!r}"
+    )
+
+
+def test_f_forensic_10_gate_accepts_each_narrowing_field() -> None:
+    """Rule #46 paired-canary: each of the 4 qualified narrowing fields
+    individually satisfies the gate.
+
+    chipset_regex / category_regex / version_regex / vendor_regex —
+    exactly the set hard-coded in
+    ``cve_matcher._KNOWN_FIRMWARE_NARROWING_FIELDS``. If a future
+    refactor narrows the allowlist (e.g. drops vendor_regex), this
+    test fails — telling the developer the change broke an entry shape.
+    """
+    from app.services.hardware_firmware.cve_matcher import (
+        _parse_known_firmware_data,
+    )
+
+    narrowing_fields = [
+        ("chipset_regex", "(?i)^foo"),
+        ("category_regex", "^modem$"),
+        ("version_regex", "^1\\.0$"),
+        ("vendor_regex", "(?i)^qualcomm$"),
+    ]
+
+    for field_name, field_value in narrowing_fields:
+        raw = {
+            "families": [
+                {
+                    "name": f"entry-with-{field_name}",
+                    "vendor": "qualcomm",
+                    "category": "modem",
+                    field_name: field_value,
+                    "cves": ["CVE-9999-00010"],
+                },
+            ],
+        }
+        accepted = _parse_known_firmware_data(raw)
+        accepted_names = {fam.get("name") for fam in accepted}
+        assert f"entry-with-{field_name}" in accepted_names, (
+            f"F-FORENSIC-10 gate REJECTED a valid entry narrowed via "
+            f"{field_name!r} — the allowlist may have drifted from the "
+            "Reviewer B 2026-05-18 invariant analog spec"
+        )
+
+
+def test_f_forensic_10_gate_canary_synthesized_violation_actually_fires() -> (
+    None
+):
+    """Rule #46 META-CANARY: the gate's WARN message is operator-actionable.
+
+    Without this canary, the gate could rebuild silently (e.g. if a
+    future refactor flipped the conditional from ``not has_narrowing``
+    to ``has_narrowing``). Synthesizes a known-bad entry + asserts
+    the WARN message contains all 4 narrowing-field names so the
+    operator knows exactly what to add.
+    """
+    import logging
+    from app.services.hardware_firmware.cve_matcher import (
+        _parse_known_firmware_data,
+    )
+
+    raw = {
+        "families": [
+            {
+                "name": "synthesized-violation",
+                "vendor": "broadcom",
+                "category": "wifi",
+                "cves": ["CVE-9999-99999"],
+            },
+        ],
+    }
+
+    logger_name = "app.services.hardware_firmware.cve_matcher"
+    with caplog_at(logger_name) as records:
+        accepted = _parse_known_firmware_data(raw)
+
+    assert accepted == [], (
+        "Synthesized violation should be rejected — gate appears broken"
+    )
+    warn_records = [r for r in records if r.levelno >= logging.WARNING]
+    assert warn_records, "Gate did not emit any WARN log"
+    full_warn_text = " ".join(r.message for r in warn_records)
+    for field in (
+        "chipset_regex",
+        "category_regex",
+        "version_regex",
+        "vendor_regex",
+    ):
+        assert field in full_warn_text, (
+            f"Operator-actionable WARN missing field name {field!r} — "
+            "operators need the full narrowing-field allowlist to know "
+            "what to add"
+        )
+
+
+def test_no_currently_loaded_yaml_entry_is_rejected_by_gate() -> None:
+    """Regression canary for the 2026-05-15 pre-narrowing pass: every
+    CVE-bearing entry currently in the shipped known_firmware.yaml MUST
+    pass the F-FORENSIC-10 gate.
+
+    Pre-narrowing audit at 2026-05-15 found 16 entries that would have
+    been rejected — each got minimum-impact narrowing (chipset_regex
+    matching NVD scope for CVE-2017-18159; category_regex preserving
+    exact-match semantics for the other 14). This canary fails fast
+    if a future YAML edit re-introduces the disclosure-batch shape.
+    """
+    families = _load_known_firmware()
+    assert isinstance(families, list)
+    rejected_predict: list[str] = []
+    for fam in families:
+        cves = fam.get("cves") or []
+        if not cves:
+            continue
+        has_narrowing = any(
+            fam.get(field) is not None
+            for field in (
+                "chipset_regex",
+                "category_regex",
+                "version_regex",
+                "vendor_regex",
+            )
+        )
+        if not has_narrowing:
+            rejected_predict.append(fam.get("name", "<unnamed>"))
+    assert not rejected_predict, (
+        "F-FORENSIC-10 gate WOULD reject these CVE-bearing entries "
+        "if the loader reloaded right now (post-load filter already "
+        "stripped them — _load_known_firmware returned only accepted "
+        f"entries). Re-introduced family-only entries: {rejected_predict!r}"
+    )
+
+
+def test_cve_2017_18159_chipset_regex_matches_snapdragon_family() -> None:
+    """CVE-2017-18159 chipset_regex narrowing — Snapdragon family per
+    NVD CPE description "Android for MSM, QRD Android, Firefox OS for
+    MSM" (MSM = Snapdragon naming family).
+
+    Positive cases include common chipset_target values: SM6225 (G32),
+    MSM8937 (older Snapdragon), SDM660 (mid-tier), SD888 / SM8550
+    (modern), QCS610 (IoT), bengal (SM6225 marketing name). Negative
+    cases: non-Qualcomm chipsets that should NOT match.
+
+    Per Rule #19 recursive NVD-CPE verification + Reviewer B B1
+    2026-05-15 F-FORENSIC-10 narrowing requirement.
+    """
+    import re as _re
+
+    families = _load_known_firmware()
+    fam = _find_family_by_cve(list(families), "CVE-2017-18159")
+    assert fam is not None
+    chipset_re = fam["chipset_regex"]
+
+    positive_cases = (
+        "msm8937",
+        "MSM8937",
+        "sdm660",
+        "SDM845",
+        "sd888",
+        "sm6225",
+        "SM6225",
+        "sm8550",
+        "qcs610",
+        "QCS605",
+        "qcm2150",
+        "sa8155p",
+        "sdx55",
+        "snapdragon-865",
+        "bengal",
+        "kona",
+        "lahaina",
+    )
+    for cs in positive_cases:
+        assert _re.search(chipset_re, cs), (
+            f"CVE-2017-18159 chipset_regex rejected Snapdragon chipset "
+            f"{cs!r} — NVD CPE description includes MSM family"
+        )
+
+    negative_cases = (
+        "mt6765",  # MediaTek
+        "mt6873",
+        "exynos9820",  # Samsung
+        "tegra210",  # NVIDIA
+        "bcm47xx",  # Broadcom
+        "rk3399",  # Rockchip
+    )
+    for cs in negative_cases:
+        assert not _re.search(chipset_re, cs), (
+            f"CVE-2017-18159 chipset_regex over-matched non-Snapdragon "
+            f"chipset {cs!r} — over-attribution risk"
+        )
+
+
+# Helper for caplog-style log capture in non-async contexts.
+import contextlib  # noqa: E402
+
+
+@contextlib.contextmanager
+def caplog_at(logger_name: str):
+    """Capture log records from the named logger via a temporary handler.
+
+    Mirror of pytest's caplog without requiring the fixture wiring (the
+    F-FORENSIC-10 gate tests above are sync); appends LogRecord objects
+    to a list yielded to the caller.
+    """
+    import logging
+
+    captured: list[logging.LogRecord] = []
+
+    class _ListHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            try:
+                record.message = record.getMessage()
+            except Exception:  # noqa: BLE001
+                record.message = record.msg
+            captured.append(record)
+
+    handler = _ListHandler(level=logging.DEBUG)
+    logger = logging.getLogger(logger_name)
+    prev_level = logger.level
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(handler)
+    try:
+        yield captured
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(prev_level)
