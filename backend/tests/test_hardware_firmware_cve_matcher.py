@@ -1752,3 +1752,39 @@ def test_tegra_cve_pins_carry_nvd_url_reference() -> None:
         assert cve in notes, (
             f"{cve} pin notes do not cite the CVE ID itself"
         )
+
+
+def test_tegra_cve_pins_cvss_scores_match_nvd_primary() -> None:
+    """Reviewer B 2026-05-15 fixup canary — each Tegra pin's CVSS
+    score MUST match the NVD primary CVSS 3.1 base score (NVD-CNA
+    or NIST, whichever is primary per NVD). Initial commit shipped
+    CVE-2021-1111 with cvss=6.0 (NVD primary: 6.7) and CVE-2021-34397
+    with severity=medium/cvss=5.5 (NVD primary: severity=low/cvss=2.3).
+    Reviewer B caught both; recursive-verification confirmed via
+    independent NVD WebFetch.
+
+    This test fails fast if a future edit drifts the CVSS values
+    away from NVD primary without an explanatory note (preventing
+    casual editor-driven drift).
+    """
+    families = _load_known_firmware()
+    expected = {
+        # (CVE, severity, cvss_score) per NVD primary CVSS 3.1.
+        "CVE-2019-5680": ("high", 6.7),
+        "CVE-2021-1111": ("medium", 6.7),  # CNA primary
+        "CVE-2021-34372": ("high", 7.8),
+        "CVE-2021-34397": ("low", 2.3),  # NIST primary
+        "CVE-2022-42269": ("high", 7.9),
+        "CVE-2022-42270": ("high", 7.8),
+    }
+    for cve, (expected_sev, expected_cvss) in expected.items():
+        fam = _find_family_by_cve(list(families), cve)
+        assert fam is not None, f"{cve} family not found"
+        assert fam["severity"] == expected_sev, (
+            f"{cve} severity drift: got {fam['severity']}, "
+            f"expected {expected_sev} per NVD primary"
+        )
+        assert abs(fam["cvss_score"] - expected_cvss) < 0.05, (
+            f"{cve} cvss_score drift: got {fam['cvss_score']}, "
+            f"expected {expected_cvss} per NVD primary"
+        )

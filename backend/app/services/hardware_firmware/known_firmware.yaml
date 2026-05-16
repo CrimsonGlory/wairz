@@ -1218,7 +1218,7 @@ families:
     cves:
       - CVE-2021-1111
     severity: medium
-    cvss_score: 6.0
+    cvss_score: 6.7
     notes: |
       NV3P recovery-mode bounds-check failure (USB physical access).
       NVD CPE: jetson_linux versionStartIncluding=32.1 AND
@@ -1227,6 +1227,8 @@ families:
       EXCLUDED per NVD (contradicts session-prompt's "ALL Jetsons"
       claim — NVD wins per Rule #19 evidence-first).
       Fix in L4T R32.6.1 (Aug 2021).
+      CVSS 3.1 Base Score 6.7 MEDIUM per NVIDIA CNA (NVD primary);
+      legacy CVSS 2.0 = 4.6 MEDIUM (NIST secondary).
       Reference: https://nvd.nist.gov/vuln/detail/CVE-2021-1111
 
   - name: Tegra Trusty OTE integer overflow (CVE-2021-34372)
@@ -1258,14 +1260,21 @@ families:
     strict_chipset: false
     cves:
       - CVE-2021-34397
-    severity: medium
-    cvss_score: 5.5
+    severity: low
+    cvss_score: 2.3
     notes: |
       MB2 bootloader free-the-wrong-heap → limited DoS. NVD CPE:
       jetson_linux versionEndExcluding=32.5.1. Hardware anchors =
       AGX-Xavier (8/16/32GB) + TX2 (incl. 4GB/i/NX) + Xavier-NX
       (dev/prod). TX1 + Nano EXPLICITLY EXCLUDED per NVD.
       Fix in L4T R32.5.1.
+      CVSS 3.1 Base Score 2.3 LOW per NIST (NVD primary; AV:L/AC:L/
+      PR:H/UI:N/S:U/C:N/I:N/A:L); NVIDIA CNA secondary = 1.9 LOW.
+      Limited DoS only — requires local high-privilege access; no
+      info disclosure or integrity impact. Reviewer B 2026-05-15
+      caught initial pin shipped with overrated severity=medium /
+      cvss=5.5 (the per-CVE NVD primary check is the authoritative
+      source for both attribution AND severity grading per Rule #19).
       Reference: https://nvd.nist.gov/vuln/detail/CVE-2021-34397
 
   - name: Tegra Trusty SMC input validation (CVE-2022-42269)
