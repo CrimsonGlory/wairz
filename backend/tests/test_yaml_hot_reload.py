@@ -356,6 +356,58 @@ def test_last_warning_cleared_by_cache_clear(
     assert generic_loader.last_warning is None
 
 
+def test_last_warning_populated_when_file_vanishes_after_successful_load(
+    generic_loader: YC.MtimeCachedYamlLoader[dict],
+) -> None:
+    """Reviewer A A1 (2026-05-15) — file vanish-after-load is the 5th
+    failure path that belongs in last_warning. Without this fix, the
+    MCP list_extension_points tool reports status='loaded' /
+    last_warning=null on a vanished YAML, silently contradicting
+    HOT-2's operator-visibility goal.
+
+    Pairs with test_file_vanish_after_successful_load_keeps_previous_state
+    above (which only tests state preservation) — this canary adds the
+    last_warning assertion.
+    """
+    # Successfully load YAML.
+    result = generic_loader.get()
+    assert result == {"foo": 1, "bar": 2}
+    assert generic_loader.last_warning is None
+
+    # Operator deletes the YAML (e.g. mid-edit accident).
+    generic_loader.path.unlink()
+    # Next call falls through _handle_missing with _loaded_from_yaml=True.
+    result_after_vanish = generic_loader.get()
+
+    # Previous-state contract: still returns the prior valid load.
+    assert result_after_vanish == {"foo": 1, "bar": 2}
+    # last_warning is populated so MCP can surface the operator-
+    # visible failure mode.
+    assert generic_loader.last_warning is not None
+    assert "vanished" in generic_loader.last_warning
+    assert str(generic_loader.path) in generic_loader.last_warning
+
+
+def test_last_warning_cleared_when_vanished_file_is_restored(
+    generic_loader: YC.MtimeCachedYamlLoader[dict],
+) -> None:
+    """When operator restores a vanished file (e.g. undo-delete or
+    re-save), last_warning clears on the next successful reload."""
+    # Establish baseline + vanish.
+    generic_loader.get()
+    generic_loader.path.unlink()
+    generic_loader.get()
+    assert generic_loader.last_warning is not None
+
+    # Operator restores the YAML.
+    generic_loader.path.write_text("foo: 1\nbar: 2\nbaz: 3\n", encoding="utf-8")
+    _bump_mtime(generic_loader.path)
+    result = generic_loader.get()
+
+    assert result == {"foo": 1, "bar": 2, "baz": 3}
+    assert generic_loader.last_warning is None
+
+
 # ---------------------------------------------------------------------------
 # YAML loader registry — operator-queryable MCP surface.
 # ---------------------------------------------------------------------------

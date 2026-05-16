@@ -193,6 +193,15 @@ class MtimeCachedYamlLoader(Generic[T]):
                     current_path,
                 )
                 self._warned_missing = True
+            # Reviewer A A1 (2026-05-15): file-vanish IS an operator-visible
+            # failure path that belongs alongside parse/structural failures
+            # in last_warning. Without this, the MCP list_extension_points
+            # tool reports status="loaded" / last_warning=null on a vanished
+            # YAML — silently contradicting HOT-2's "operators see WHY their
+            # state silently fell back" goal.
+            self.last_warning = (
+                f"file vanished after successful load: {current_path}"
+            )
             return self._cached
         # First-call with missing file — use defaults.
         if not self._logged_initial_default:
