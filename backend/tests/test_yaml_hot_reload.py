@@ -532,6 +532,8 @@ def test_bt_banner_cve_pins_yaml_hot_reload(
 ) -> None:
     """Editing bt_banner_cve_pins.yaml lands within one get_banner_cve_pins() call."""
     yaml_path = tmp_path / "bt_banner_cve_pins.yaml"
+    # Each pin pairs family with a narrowing gate per the F-FORENSIC-10
+    # invariant (2026-05-18): family alone is insufficient.
     yaml_path.write_text(
         textwrap.dedent(
             """\
@@ -539,6 +541,7 @@ def test_bt_banner_cve_pins_yaml_hot_reload(
               - id: test-pin-1
                 description: Synthetic test pin
                 family: qca_rome
+                chipset_target_in: [wcn3950]
                 cves:
                   - id: CVE-9999-0001
                     severity: low
@@ -561,6 +564,7 @@ def test_bt_banner_cve_pins_yaml_hot_reload(
               - id: test-pin-1
                 description: Synthetic test pin
                 family: qca_rome
+                chipset_target_in: [wcn3950]
                 cves:
                   - id: CVE-9999-0001
                     severity: low
@@ -568,6 +572,7 @@ def test_bt_banner_cve_pins_yaml_hot_reload(
               - id: test-pin-2
                 description: Second synthetic
                 family: broadcom_hcd
+                chipset_target_in: [bcm4345c0]
                 cves:
                   - id: CVE-9999-0002
                     severity: low

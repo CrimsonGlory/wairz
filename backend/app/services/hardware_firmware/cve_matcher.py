@@ -333,6 +333,24 @@ def _match_curated(
     as alternatives, not both — YAML clarity + author-intent precision.
     """
     matches: list[CveMatch] = []
+    # Reviewer B F-FORENSIC-11 HIGH 2026-05-18: gate curated-tier
+    # attribution on detection_confidence >= medium. A LOW-confidence
+    # blob (e.g. Realtek BT parser's soft-fallback path: any
+    # `[Rr]ealte[ck]` ASCII in the head window → vendor=realtek,
+    # confidence=low) would otherwise produce CVE rows for ANY
+    # `vendor: realtek` curated entry — including the RTL8762E SDK
+    # CVEs that NVD attributes only to that specific chipset. The
+    # confidence floor prevents soft-evidence vendor matches from
+    # polluting curated CVE attribution.
+    blob_conf = (blob.detection_confidence or "medium").lower()
+    if blob_conf == "low":
+        logger.debug(
+            "cve-match: blob %s skipped curated-tier match "
+            "(detection_confidence=low; soft-evidence vendor)",
+            blob.id,
+        )
+        return matches
+
     blob_vendor = (blob.vendor or "").lower()
     blob_category = (blob.category or "").lower()
     blob_version = blob.version or ""

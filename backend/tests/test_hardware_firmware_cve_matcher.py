@@ -36,6 +36,7 @@ def _make_blob(
     chipset_target: str | None = None,
     metadata: dict | None = None,
     blob_id: uuid.UUID | None = None,
+    detection_confidence: str = "medium",
 ) -> MagicMock:
     """Build a HardwareFirmwareBlob-shaped mock."""
     blob = MagicMock(spec=HardwareFirmwareBlob)
@@ -45,7 +46,60 @@ def _make_blob(
     blob.version = version
     blob.chipset_target = chipset_target
     blob.metadata_ = metadata or {}
+    blob.detection_confidence = detection_confidence
     return blob
+
+
+# ---------------------------------------------------------------------------
+# F-FORENSIC-11 (Reviewer B 2026-05-18) — curated-tier confidence floor.
+# A LOW-confidence blob (e.g. Realtek BT parser's soft-fallback path)
+# MUST NOT trigger curated YAML CVE attribution. Prevents soft-evidence
+# vendor matches from polluting curated CVE rows.
+# ---------------------------------------------------------------------------
+
+
+def test_match_curated_skips_low_confidence_blob() -> None:
+    """A LOW-confidence blob with vendor=realtek + category=bluetooth
+    that otherwise matches a curated entry must produce ZERO rows."""
+    families = [
+        {
+            "name": "realtek-test-cve",
+            "vendor": "realtek",
+            "category": "bluetooth",
+            "cves": ["CVE-9999-0042"],
+        },
+    ]
+    low_conf_blob = _make_blob(
+        vendor="realtek",
+        category="bluetooth",
+        detection_confidence="low",
+    )
+    matches = _match_curated(low_conf_blob, families)
+    assert matches == [], (
+        "low-confidence vendor evidence must NOT trigger curated tier "
+        "(F-FORENSIC-11 Reviewer B 2026-05-18 invariant)"
+    )
+
+
+def test_match_curated_fires_on_medium_confidence_blob() -> None:
+    """Rule #46 negative canary: medium-confidence blob SHOULD trigger
+    the curated tier — proves the F-FORENSIC-11 gate doesn't over-skip."""
+    families = [
+        {
+            "name": "realtek-test-cve",
+            "vendor": "realtek",
+            "category": "bluetooth",
+            "cves": ["CVE-9999-0042"],
+        },
+    ]
+    med_conf_blob = _make_blob(
+        vendor="realtek",
+        category="bluetooth",
+        detection_confidence="medium",
+    )
+    matches = _match_curated(med_conf_blob, families)
+    assert len(matches) == 1
+    assert matches[0].cve_id == "CVE-9999-0042"
 
 
 def _mock_db_for_matcher(

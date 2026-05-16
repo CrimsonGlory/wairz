@@ -524,12 +524,75 @@ def test_extending_yaml_with_banner_regex_and_date(
     assert p.cves[0].confidence == "medium"
 
 
+def test_family_only_pin_rejected_per_forensic_invariant(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """F-FORENSIC-10 (Reviewer B 2026-05-18 CRITICAL): a pin with ONLY
+    `family:` set (no chipset / codename / banner / version narrowing)
+    is the disclosure-batch antipattern that the BTFM/BrakTooth
+    incidents shipped. Schema gate MUST reject such pins.
+
+    Rule #46 paired canary: synthesise the forbidden shape + verify
+    the gate fires + the loader keeps previous state (defaults).
+    """
+    yaml_content = textwrap.dedent("""\
+        pins:
+          - id: family-only-antipattern
+            description: Synthetic disclosure-batch antipattern
+            family: realtek_bt
+            cves:
+              - id: CVE-9999-9999
+                severity: high
+                rationale: would fire on ALL realtek_bt chipsets
+    """)
+    yaml_path = tmp_path / "bt_banner_cve_pins.yaml"
+    yaml_path.write_text(yaml_content)
+    monkeypatch.setattr(PL, "_BT_BANNER_CVE_PINS_YAML", yaml_path)
+    PL._load_banner_cve_pins.cache_clear()
+
+    pins = PL.get_banner_cve_pins()
+    # Falls back to defaults (the in-tree BRAKTOOTH pin) — does NOT
+    # accept the family-only antipattern.
+    assert len(pins) == 1
+    assert pins[0].pin_id == "qualcomm-braktooth-qca-rome-dos-cve-2021-30348"
+
+
+def test_family_paired_with_chipset_in_accepted(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Rule #46 negative canary: family + chipset_target_in IS the
+    correct shape — must load cleanly."""
+    yaml_content = textwrap.dedent("""\
+        pins:
+          - id: family-with-chipset-narrowing
+            description: Correctly narrowed pin
+            family: realtek_bt
+            chipset_target_in: [rtl8761b]
+            cves:
+              - id: CVE-9999-0001
+                severity: low
+                rationale: pin fires only on rtl8761b
+    """)
+    yaml_path = tmp_path / "bt_banner_cve_pins.yaml"
+    yaml_path.write_text(yaml_content)
+    monkeypatch.setattr(PL, "_BT_BANNER_CVE_PINS_YAML", yaml_path)
+    PL._load_banner_cve_pins.cache_clear()
+
+    pins = PL.get_banner_cve_pins()
+    assert len(pins) == 1
+    assert pins[0].pin_id == "family-with-chipset-narrowing"
+    assert pins[0].chipset_target_in == frozenset({"rtl8761b"})
+
+
 def test_multiple_pins_load_in_yaml_order(tmp_path: Path, monkeypatch) -> None:
+    # Each pin pairs family with a narrowing gate per the F-FORENSIC-10
+    # invariant (2026-05-18): family alone is insufficient.
     yaml_content = textwrap.dedent("""\
         pins:
           - id: first
             description: first pin
             family: qca_rome
+            chipset_target_in: [wcn3950]
             cves:
               - id: CVE-A
                 severity: low
@@ -537,6 +600,7 @@ def test_multiple_pins_load_in_yaml_order(tmp_path: Path, monkeypatch) -> None:
           - id: second
             description: second pin
             family: broadcom_hcd
+            chipset_target_in: [bcm4345c0]
             cves:
               - id: CVE-B
                 severity: low

@@ -1021,6 +1021,35 @@ def _parse_banner_cve_pin(idx: int, entry: dict) -> BannerCvePin:
             "build_date_before / build_id_lt / signed_eq)"
         )
 
+    # Reviewer B F-FORENSIC-10 CRITICAL 2026-05-18: a pin with ONLY
+    # `family:` set (no chipset / codename / banner / version
+    # narrowing) replicates the disclosure-batch antipattern. Future
+    # operators writing `family: realtek_bt + cves: [CVE-2024-48290,
+    # ...]` would fire RTL8762E SDK CVEs across ALL 17 Realtek
+    # chipsets per the bt_realtek_project_ids.yaml map — even though
+    # NVD CPE limits those CVEs to the RTL8762E variant only. Per
+    # Reviewer B 2026-05-15..17 per-CVE NVD-CPE discipline applied
+    # at the SCHEMA gate. The narrowing requirement IS the
+    # antipattern-prevention.
+    family_only = (
+        family is not None
+        and codename_in is None
+        and chipset_target_in is None
+        and banner_re is None
+        and build_date_before is None
+        and build_id_lt is None
+        and signed_eq is None
+    )
+    if family_only:
+        raise ValueError(
+            f"pins[{idx}] {pin_id!r}: 'family' alone is insufficient — "
+            "pins with `family:` set MUST also gate on at least one of "
+            "codename_in / chipset_target_in / banner_match / "
+            "build_date_before / build_id_lt / signed_eq to prevent "
+            "disclosure-batch CVE over-attribution across the family's "
+            "full chipset surface (Reviewer B 2026-05-18 invariant)"
+        )
+
     cves_raw = entry.get("cves")
     if not isinstance(cves_raw, list) or not cves_raw:
         raise ValueError(
