@@ -251,6 +251,36 @@ _L4T_RELEASE_BANNER_RE = re.compile(
     re.IGNORECASE,
 )
 
+# L4T BSP tarball / extraction-path naming convention: NVIDIA distributes
+# the BSP as ``L4T_BSP_SecureBoot.R32.3.1.tar.gz`` / ``Jetson_Linux_R35.4.1
+# _aarch64.tbz2`` etc. The L4T release is encoded in the FILENAME of the
+# distribution archive. Per the 2026-05-15 DS1 corpus analysis, standalone
+# bootloader / DTB / MCU blobs do NOT carry the banner inline — the
+# banner lives only in /etc/nv_tegra_release in the rootfs OR in the
+# BSP archive's directory name after unblob/unpack.
+#
+# This regex captures the path-derived form so that operator-renamed
+# bootloader blobs landed under an L4T BSP extraction directory STILL
+# pick up the L4T release via path inference. Activation pre-req for
+# the 6 forward-prepared NVIDIA Tegra CVE pins on the DS1-class corpus
+# (Jetson firmware shipped as L4T BSP archives, not as rootfs images).
+#
+# Matches ``R<N>.<x>.<y>`` or ``R<N>.<x>`` patterns anywhere in the
+# path. Uses non-alphanumeric lookarounds (NOT ``\b``) because path
+# segments are typically underscore-separated (e.g.
+# ``Tegra210_Linux_R28.2_aarch64``) — ``_`` IS a word character in
+# Python regex, so ``\bR`` between ``_`` and ``R`` fails (both are
+# word chars). Negative lookbehind for alphanumeric permits ``_``,
+# ``/``, ``-``, ``.`` as preceding separators. Negative lookahead for
+# ``.<digit>`` prevents matching ``R28.2`` when ``R28.2.3`` is the
+# real string. The triple form is preferred over the pair form via
+# the alternation order — first match wins in Python re.search.
+_L4T_RELEASE_PATH_RE = re.compile(
+    r"(?<![A-Za-z0-9])R(\d{2,3})\.(\d+)\.(\d+)(?!\.?\d)"
+    r"|(?<![A-Za-z0-9])R(\d{2,3})\.(\d+)(?!\.?\d)",
+    re.IGNORECASE,
+)
+
 
 def _extract_l4t_release(head: bytes) -> str | None:
     """Scan ``head`` for the /etc/nv_tegra_release banner string.
@@ -274,6 +304,41 @@ def _extract_l4t_release(head: bytes) -> str | None:
     revision_x = m.group(2).decode("ascii", errors="replace")
     revision_y = m.group(3).decode("ascii", errors="replace")
     return f"R{major}.{revision_x}.{revision_y}"
+
+
+def _extract_l4t_release_from_path(path: str) -> str | None:
+    """Infer the L4T release from the blob's extraction-tree path.
+
+    Complementary fallback to ``_extract_l4t_release`` — kicks in when
+    the blob's head bytes don't carry the banner inline (typical for
+    standalone bootloader / DTB / MCU blobs) but the blob lives under
+    an L4T BSP extraction directory like ``L4T_BSP_SecureBoot.R32.3.1.tar.
+    gz_extracted/``.
+
+    Returns ``"R<N>.<x>.<y>"`` (concatenated form, e.g. ``"R32.3.1"``)
+    when the path encodes a full triple. Returns ``"R<N>.<x>"`` when
+    only major.minor is present (e.g. ``"R28.2"`` for JetPack 3.2). The
+    output format matches the 6 forward-prepared pin version_regex
+    patterns regardless of which form lands.
+
+    Activation pre-req for the 6 forward-prepared NVIDIA Tegra CVE
+    pins on DS1-class corpus (operator-rebagged BSP archives where
+    the L4T release is encoded in the archive filename).
+    """
+    if not path:
+        return None
+    m = _L4T_RELEASE_PATH_RE.search(path)
+    if not m:
+        return None
+    # Two alternation arms — group 1+2+3 for triple, group 4+5 for pair.
+    if m.group(1) is not None:
+        major = m.group(1)
+        revision_x = m.group(2)
+        revision_y = m.group(3)
+        return f"R{major}.{revision_x}.{revision_y}"
+    major = m.group(4)
+    revision_x = m.group(5)
+    return f"R{major}.{revision_x}"
 
 
 def _read_head(path: str, limit: int) -> bytes:
@@ -360,7 +425,10 @@ def _parse_tegra_elf(path: str, head: bytes) -> ParsedBlob | None:
     # so cve_matcher's one-level-deep _stringify_metadata walker
     # reaches it. Activates the 6 forward-prepared Tegra CVE pins
     # in known_firmware.yaml when the version_regex matches.
-    l4t_release = _extract_l4t_release(head)
+    # Two-stage: content-banner first, then path-inference fallback
+    # (typical for operator-renamed bootloader blobs landed under an
+    # L4T BSP archive directory).
+    l4t_release = _extract_l4t_release(head) or _extract_l4t_release_from_path(path)
     if l4t_release is not None:
         metadata["l4t_release"] = l4t_release
 
@@ -401,7 +469,8 @@ def _parse_tegra_fdt(path: str, head: bytes) -> ParsedBlob | None:
     # L4T release: TOP-LEVEL string per Reviewer B B4 (2026-05-15).
     # FDT property strings (chosen.bootargs / chosen/nvidia,bootloader)
     # often carry the L4T BSP banner in u-boot-flashed Jetson images.
-    l4t_release = _extract_l4t_release(head)
+    # Two-stage: content-banner first, then path-inference fallback.
+    l4t_release = _extract_l4t_release(head) or _extract_l4t_release_from_path(path)
     if l4t_release is not None:
         metadata["l4t_release"] = l4t_release
 
@@ -444,7 +513,8 @@ def _parse_tegra_android_bootimg(
     }
     # L4T release: TOP-LEVEL string per Reviewer B B4 (2026-05-15).
     # Jetson Linux boot.img cmdline often embeds the BSP release tag.
-    l4t_release = _extract_l4t_release(head)
+    # Two-stage: content-banner first, then path-inference fallback.
+    l4t_release = _extract_l4t_release(head) or _extract_l4t_release_from_path(path)
     if l4t_release is not None:
         metadata["l4t_release"] = l4t_release
 

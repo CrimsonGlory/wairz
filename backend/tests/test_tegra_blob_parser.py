@@ -747,6 +747,103 @@ def test_l4t_release_reaches_cve_matcher_stringify_metadata() -> None:
     )
 
 
+def test_l4t_release_path_inference_extracts_from_bsp_archive_dirname(
+    tmp_path: Path,
+) -> None:
+    """Operator-renamed bootloader blob landed under an L4T BSP archive
+    extraction directory (e.g. ``L4T_BSP_SecureBoot.R32.3.1.tar.gz_
+    extracted/bootloader/bpmp_t194.bin``) MUST extract the L4T release
+    via PATH INFERENCE when the blob bytes don't carry the banner.
+
+    Activation pre-req for the 6 forward-prepared Tegra CVE pins on
+    DS1-class corpora (Jetson firmware shipped as L4T BSP archives,
+    not as rootfs images with /etc/nv_tegra_release).
+    """
+    bsp_dir = tmp_path / "L4T_BSP_SecureBoot.R32.3.1.tar.gz_extracted" / "bootloader"
+    bsp_dir.mkdir(parents=True)
+    fixture = bsp_dir / "bpmp_t194.bin"
+    # Tegra ELF evidence (section_name) without inline banner.
+    _write_elf_with_tegra_section(fixture, b"nvidia,tegra194")
+
+    magic = _read_magic(fixture)
+    result = parse_tegra_blob(str(fixture), magic, fixture.stat().st_size)
+
+    assert result is not None
+    assert result.vendor == "nvidia"
+    assert result.metadata.get("l4t_release") == "R32.3.1", (
+        "Path-inference fallback should extract R32.3.1 from the BSP "
+        f"archive directory name — got {result.metadata.get('l4t_release')!r}"
+    )
+
+
+def test_l4t_release_path_inference_handles_major_minor_only(
+    tmp_path: Path,
+) -> None:
+    """Older JetPack release naming used ``R28.2`` (no Y-component
+    revision). Parser MUST extract ``R28.2`` for path-inference."""
+    older_dir = tmp_path / "Tegra210_Linux_R28.2_aarch64" / "bootloader"
+    older_dir.mkdir(parents=True)
+    fixture = older_dir / "cboot_t210.bin"
+    _write_elf_with_tegra_section(fixture, b"nvidia,tegra210")
+
+    magic = _read_magic(fixture)
+    result = parse_tegra_blob(str(fixture), magic, fixture.stat().st_size)
+
+    assert result is not None
+    assert result.metadata.get("l4t_release") == "R28.2", (
+        f"R28.2 path inference failed — got "
+        f"{result.metadata.get('l4t_release')!r}"
+    )
+
+
+def test_l4t_release_path_inference_does_not_match_arbitrary_substrings(
+    tmp_path: Path,
+) -> None:
+    """Negative canary: paths that happen to contain ``R12`` or
+    ``r34`` substrings inside other words (e.g. ``project_R12-bsp``)
+    MUST NOT match. The regex requires word-boundary anchors.
+    """
+    benign_dir = tmp_path / "RasperPi3_kernel" / "boot"
+    benign_dir.mkdir(parents=True)
+    fixture = benign_dir / "tegra_test.bin"
+    _write_elf_with_tegra_section(fixture, b"nvidia,tegra186")
+
+    magic = _read_magic(fixture)
+    result = parse_tegra_blob(str(fixture), magic, fixture.stat().st_size)
+
+    assert result is not None
+    # No ``R<N>.<x>`` pattern in path; absent.
+    assert result.metadata.get("l4t_release") is None, (
+        "Path-inference over-matched arbitrary substring — got "
+        f"{result.metadata.get('l4t_release')!r}"
+    )
+
+
+def test_l4t_release_content_banner_wins_over_path_inference(
+    tmp_path: Path,
+) -> None:
+    """When BOTH content banner AND path inference are available, the
+    content banner wins (more authoritative — actually inside the
+    blob). Per Rule #19 evidence-first.
+    """
+    # Path encodes R28.2 BUT the blob bytes carry R32.3.1.
+    bsp_dir = tmp_path / "L4T_BSP_R28.2_extracted" / "bootloader"
+    bsp_dir.mkdir(parents=True)
+    fixture = bsp_dir / "bpmp.bin"
+    _write_elf_with_l4t_banner(fixture, banner=(
+        b"# R32 (release), REVISION: 3.1, GCID: 12345\n"
+    ))
+
+    magic = _read_magic(fixture)
+    result = parse_tegra_blob(str(fixture), magic, fixture.stat().st_size)
+
+    assert result is not None
+    assert result.metadata.get("l4t_release") == "R32.3.1", (
+        "Content banner MUST win over path inference per Rule #19 — "
+        f"got {result.metadata.get('l4t_release')!r}"
+    )
+
+
 def test_l4t_release_paired_with_tegra_cve_pins_version_regex_format() -> (
     None
 ):
