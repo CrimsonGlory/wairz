@@ -231,24 +231,32 @@ families:
       blob rows where chipset_target is NULL).
       Reference: https://nvd.nist.gov/vuln/detail/CVE-2017-18159
 
-  - name: FragAttacks
+  - name: FragAttacks (Broadcom WiFi advisory)
+    advisory_id: ADVISORY-FRAGATTACK
     vendor: broadcom
     category: wifi
     category_regex: "^wifi$"
-    cves:
-      - CVE-2020-24586
-      - CVE-2020-24587
-      - CVE-2020-24588
+    cves: []
     severity: medium
     cvss_score: 6.5
     notes: |
-      Vanhoef 2021.  802.11 fragmentation parsing bugs in Broadcom/
-      MediaTek Wi-Fi firmware.
-      F-FORENSIC-10 narrowing satisfied via category_regex preserving
-      existing exact-match semantics (Reviewer B B1 2026-05-15). Future
-      enhancement: per-NVD-CPE chipset_regex matching specific Broadcom
-      WiFi chips (e.g. BCM43XX family) per recursive verification
-      discipline.
+      Mathy Vanhoef 2020-2021 FragAttacks. 802.11 SPEC-level
+      fragmentation/aggregation design flaws (CVE-2020-24586/24587/
+      24588). Reviewer B 2026-05-15-PM NVD-CPE verification: ZERO
+      Broadcom CPEs across all 3 CVEs (NVD lists vendors ieee /
+      linux / debian / arista / cisco / intel / microsoft / siemens
+      only — no SoftMAC SoC vendor enumerated). Per Rule #19
+      recursive NVD-CPE discipline, converted from curated CVE pin
+      → advisory tier — preserves forensic visibility on broadcom
+      WiFi blobs (one ADVISORY-FRAGATTACK row per blob) while
+      respecting the strict NVD CPE attribution scope.
+      Converged advisory_id with the qualcomm wcn3xxx/wcn6xxx entry
+      below (same shared advisory_id; matcher dedupes per
+      (firmware_id, blob_id, cve_id) UNIQUE).
+      Reference: https://www.fragattacks.com  +
+        https://nvd.nist.gov/vuln/detail/CVE-2020-24586
+        https://nvd.nist.gov/vuln/detail/CVE-2020-24587
+        https://nvd.nist.gov/vuln/detail/CVE-2020-24588
 
   # ===================================================================
   # MediaTek subsystem coverage — sourced 2026-04-17 from Android
@@ -997,25 +1005,35 @@ families:
 
   # ---- FragAttacks WLAN spec/implementation cluster ----
 
-  - name: FragAttacks WLAN cluster (CVE-2020-2458x)
-    advisory_id: ADVISORY-WLAN-FRAGATK
+  - name: FragAttacks WLAN cluster (Qualcomm wcn3xxx/6xxx advisory)
+    advisory_id: ADVISORY-FRAGATTACK
     vendor: qualcomm
     category: wifi
     chipset_regex: "(?i)^(wcn3[0-9]{3}|wcn39[0-9]{2}|wcn6[0-9]{3}).*"
-    cves:
-      - CVE-2020-24586
-      - CVE-2020-24587
-      - CVE-2020-24588
+    cves: []
     severity: medium
     cvss_score: 6.5
     notes: |
-      Mathy Vanhoef 2020-2021. 802.11 frame-aggregation + fragmentation
-      design flaws bypassing WPA/WPA2/WPA3 link-layer integrity. CVE-
-      2020-24586/24587/24588 are SPEC-level. Companion CVE-2020-26139..
-      -26147 are IMPLEMENTATION-level (Linux kernel, Windows, Qualcomm
-      WLAN firmware). Android fix landed July 2021 ASB; firmware-side
-      fix per QSB. Affects every wcn3xx0 / wcn6xx0 WLAN blob shipped
-      before mid-2021.
+      Mathy Vanhoef 2020-2021 FragAttacks. 802.11 frame-aggregation +
+      fragmentation design flaws bypassing WPA/WPA2/WPA3 link-layer
+      integrity. CVE-2020-24586/24587/24588 are SPEC-level (companion
+      CVE-2020-26139..26147 are IMPLEMENTATION-level — Linux kernel,
+      Windows, etc.). Reviewer B 2026-05-15-PM NVD-CPE verification:
+      ZERO Qualcomm CPEs across all 3 SPEC-level CVEs (NVD vendors:
+      ieee / linux / debian / arista / cisco / intel / microsoft /
+      siemens — no SoftMAC SoC vendor enumerated). Per Rule #19
+      recursive NVD-CPE discipline, converted from curated CVE pin
+      → advisory tier (advisory_id converged from
+      ADVISORY-WLAN-FRAGATK → ADVISORY-FRAGATTACK; shared with the
+      broadcom FragAttacks entry above; matcher dedupes per
+      (firmware_id, blob_id, cve_id) UNIQUE).
+      Android fix landed July 2021 ASB; firmware-side fix per QSB.
+      Advisory shape on every wcn3xx0 / wcn6xx0 WLAN blob preserves
+      operator visibility while respecting NVD CPE attribution scope.
+      Reference: https://www.fragattacks.com  +
+        https://nvd.nist.gov/vuln/detail/CVE-2020-24586
+        https://nvd.nist.gov/vuln/detail/CVE-2020-24587
+        https://nvd.nist.gov/vuln/detail/CVE-2020-24588
 
   # ===================================================================
   # Android host BT stack (Bluedroid / Fluoride) CVE coverage — added

@@ -1479,6 +1479,187 @@ def test_match_curated_qualcomm_audio_advisory_via_category_regex() -> None:
 
 
 # ---------------------------------------------------------------------------
+# FragAttacks NVD-CPE realignment (Reviewer B 2026-05-15-PM HIGH) — the
+# 3 SPEC-level FragAttacks CVEs (CVE-2020-24586/24587/24588) carry ZERO
+# Broadcom and ZERO Qualcomm CPEs per NVD (vendors listed are ieee /
+# linux / debian / arista / cisco / intel / microsoft / siemens only —
+# no SoftMAC SoC vendor enumerated). The curated tier's broadcom +
+# qualcomm wcn3xxx/6xxx FragAttacks entries were over-attributing
+# beyond NVD direct CPE scope. Per Rule #19 recursive NVD-CPE
+# verification, both were converted from curated CVE pin → advisory
+# tier with a shared advisory_id ADVISORY-FRAGATTACK so operators
+# retain forensic visibility on WiFi blobs while the strict NVD CPE
+# attribution scope is respected.
+# ---------------------------------------------------------------------------
+
+
+def test_fragattacks_broadcom_wifi_emits_advisory_not_cve() -> None:
+    """A broadcom WiFi blob produces ADVISORY-FRAGATTACK, not the
+    CVE-2020-2458x curated CVE rows that the entry shipped pre-
+    2026-05-15-PM realignment.
+
+    Rule #46 paired-canary: positive arm asserts advisory present;
+    negative arm asserts the SPEC-level CVE IDs are absent from the
+    curated tier output (Reviewer B 2026-05-15-PM HIGH).
+    """
+    blob = _make_blob(
+        vendor="broadcom",
+        category="wifi",
+        version=None,
+        chipset_target="bcm4358",
+    )
+    families = _load_known_firmware()
+    matches = _match_curated(blob, families)
+    advisory_ids = {m.cve_id for m in matches}
+    assert "ADVISORY-FRAGATTACK" in advisory_ids, (
+        "ADVISORY-FRAGATTACK missing on broadcom wifi blob — broadcom "
+        "FragAttacks advisory entry not firing"
+    )
+    for spec_cve in (
+        "CVE-2020-24586",
+        "CVE-2020-24587",
+        "CVE-2020-24588",
+    ):
+        assert spec_cve not in advisory_ids, (
+            f"{spec_cve} fired on broadcom wifi blob via the curated "
+            "tier — Reviewer B NVD-CPE realignment regression "
+            "(NVD lists ZERO Broadcom CPEs for FragAttacks SPEC-level "
+            "CVEs)"
+        )
+
+
+def test_fragattacks_qualcomm_wcn3xxx_emits_advisory_not_cve() -> None:
+    """A qualcomm wcn3xxx WiFi blob produces ADVISORY-FRAGATTACK, not
+    the CVE-2020-2458x curated CVE rows.
+
+    Reviewer B 2026-05-15-PM independently NVD-CPE-verified ZERO
+    Qualcomm CPEs across all 3 SPEC-level FragAttacks CVEs. Same
+    realignment shape as the broadcom entry; tests separately because
+    matcher routes differ (broadcom via category_regex narrowing,
+    qualcomm via chipset_regex narrowing on the wcn3xxx/6xxx family).
+    """
+    blob = _make_blob(
+        vendor="qualcomm",
+        category="wifi",
+        version=None,
+        chipset_target="wcn3990",
+    )
+    families = _load_known_firmware()
+    matches = _match_curated(blob, families)
+    advisory_ids = {m.cve_id for m in matches}
+    assert "ADVISORY-FRAGATTACK" in advisory_ids, (
+        "ADVISORY-FRAGATTACK missing on qualcomm/wcn3990 wifi blob — "
+        "qualcomm FragAttacks advisory entry not firing"
+    )
+    for spec_cve in (
+        "CVE-2020-24586",
+        "CVE-2020-24587",
+        "CVE-2020-24588",
+    ):
+        assert spec_cve not in advisory_ids, (
+            f"{spec_cve} fired on qualcomm wcn3xxx wifi blob via the "
+            "curated tier — Reviewer B NVD-CPE realignment regression "
+            "(NVD lists ZERO Qualcomm CPEs for FragAttacks SPEC-level "
+            "CVEs)"
+        )
+
+
+def test_no_curated_entry_emits_fragattacks_spec_level_cves() -> None:
+    """Cross-corpus regression canary: NO curated YAML entry pins the
+    FragAttacks SPEC-level CVEs as direct CVE attributions post-
+    2026-05-15-PM realignment.
+
+    If a future YAML edit re-introduces the over-attribution shape
+    (e.g. by adding a third FragAttacks entry that pins
+    CVE-2020-24586/87/88 directly), this fails fast and surfaces the
+    regression — operator-actionable hint pointing back to the
+    Reviewer B finding.
+    """
+    families = _load_known_firmware()
+    leaked: list[tuple[str, str]] = []
+    for fam in families:
+        for cve in fam.get("cves") or []:
+            if cve in (
+                "CVE-2020-24586",
+                "CVE-2020-24587",
+                "CVE-2020-24588",
+            ):
+                leaked.append((fam.get("name", "<unnamed>"), cve))
+    assert not leaked, (
+        "FragAttacks SPEC-level CVE leaked back into the curated tier "
+        "as a direct CVE attribution — NVD CPE lists ZERO Broadcom/"
+        "Qualcomm/MediaTek vendors for these CVEs. Re-introduce as "
+        "advisory-only via shared advisory_id ADVISORY-FRAGATTACK. "
+        f"Offending entries: {leaked!r}"
+    )
+
+
+def test_fragattacks_advisory_id_canonical_and_fits_varchar_20() -> None:
+    """advisory_id ADVISORY-FRAGATTACK is the canonical shared ID
+    across the broadcom + qualcomm FragAttacks advisory entries.
+
+    Pinned literal: ``ADVISORY-FRAGATTACK`` (19 chars; fits the
+    VARCHAR(20) cap in the sbom_vulnerabilities.cve_id column with
+    1 char of margin). A future rename must update this test AND
+    every YAML reference; the test catches an accidental partial
+    rename.
+    """
+    canonical = "ADVISORY-FRAGATTACK"
+    assert len(canonical) <= 20, (
+        f"advisory_id {canonical!r} exceeds the VARCHAR(20) cap "
+        f"({len(canonical)} chars) — matcher would truncate; pick a "
+        "shorter ID"
+    )
+    families = _load_known_firmware()
+    fragattacks_entries = [
+        fam
+        for fam in families
+        if fam.get("advisory_id") == canonical
+    ]
+    assert len(fragattacks_entries) == 2, (
+        f"Expected exactly 2 entries with advisory_id={canonical!r} "
+        f"(broadcom wifi + qualcomm wcn3xxx); got "
+        f"{len(fragattacks_entries)}. Names: "
+        f"{[f.get('name') for f in fragattacks_entries]!r}"
+    )
+    vendors = {fam.get("vendor") for fam in fragattacks_entries}
+    assert vendors == {"broadcom", "qualcomm"}, (
+        f"FragAttacks advisory entries must cover broadcom + qualcomm; "
+        f"got vendors {vendors!r}"
+    )
+
+
+def test_fragattacks_advisory_entries_pass_forensic10_gate() -> None:
+    """Rule #46 gate-confirmation canary: both FragAttacks entries
+    pass the F-FORENSIC-10 schema gate via the advisory-only bypass
+    path (cves: [] → narrowing-field-presence check skipped).
+
+    Confirms the realignment preserves loader behavior; if a future
+    refactor accidentally drops the advisory-only bypass, this test
+    fires.
+    """
+    families = _load_known_firmware()
+    fragattacks_entries = [
+        fam
+        for fam in families
+        if fam.get("advisory_id") == "ADVISORY-FRAGATTACK"
+    ]
+    # Both entries survived the load filter (which runs the F-FORENSIC-10
+    # gate); reaching this assertion means the gate accepted them.
+    assert len(fragattacks_entries) == 2, (
+        "FragAttacks advisory entries dropped by the F-FORENSIC-10 gate "
+        "at load — Reviewer B realignment regression"
+    )
+    # Sanity check: both must have cves: [] (advisory-only).
+    for fam in fragattacks_entries:
+        cves = fam.get("cves") or []
+        assert cves == [], (
+            f"FragAttacks entry {fam.get('name')!r} has non-empty cves "
+            f"{cves!r} — advisory-only conversion incomplete"
+        )
+
+
+# ---------------------------------------------------------------------------
 # NVIDIA Tegra / L4T CVE cluster — added 2026-05-15 per postmortem
 # hw-firmware-adaptive-session-2026-05-18 Rec #3. Each pin's
 # chipset_regex + version_regex is verified against the NVD CPE list
