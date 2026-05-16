@@ -1994,18 +1994,30 @@ def test_no_currently_loaded_yaml_entry_is_rejected_by_gate() -> None:
     )
 
 
-def test_cve_2017_18159_chipset_regex_matches_snapdragon_family() -> None:
-    """CVE-2017-18159 chipset_regex narrowing — Snapdragon family per
-    NVD CPE description "Android for MSM, QRD Android, Firefox OS for
-    MSM" (MSM = Snapdragon naming family).
+def test_cve_2017_18159_chipset_regex_restricted_to_2018_caf_msm_family() -> (
+    None
+):
+    """CVE-2017-18159 chipset_regex narrowing — MSM-family naming that
+    EXISTED in the 2018-06-05 CAF kernel cohort.
 
-    Positive cases include common chipset_target values: SM6225 (G32),
-    MSM8937 (older Snapdragon), SDM660 (mid-tier), SD888 / SM8550
-    (modern), QCS610 (IoT), bengal (SM6225 marketing name). Negative
-    cases: non-Qualcomm chipsets that should NOT match.
+    Per Reviewer B 2026-05-15 review of the initial chipset_regex landing:
+    over-broad inclusion of post-2018 Snapdragon codenames (bengal /
+    kona / lahaina / waipio / niobe / sun / etc.) would over-attribute
+    CVE-2017-18159 on 2020+ XBL blobs that NVD CPE does NOT list as
+    affected. NVD CPE: ``cpe:2.3:o:google:android:-:*`` (no specific
+    SoCs); NVD description scope: "Android for MSM, QRD Android,
+    Firefox OS for MSM" (CAF kernels through 2018-06-05 SPL).
 
-    Per Rule #19 recursive NVD-CPE verification + Reviewer B B1
-    2026-05-15 F-FORENSIC-10 narrowing requirement.
+    Tightened regex covers the 2018-cohort MSM-family prefixes only:
+    ``msm`` / ``mdm`` / ``qm[0-9]`` / ``sdm[0-9]{3}`` / ``sd[0-9]{3}``
+    / ``sda[0-9]{3}``.
+
+    Per Rule #19 recursive NVD-CPE verification — chipset_regex contents
+    are now NVD-derived, not derived from intuition about Qualcomm
+    naming families. The recursive discipline (originally targeting
+    attribution scope + CVSS field values) extended this session to
+    chipset_regex ENUMERATED VALUES too — every value in the regex
+    needs NVD-CPE provenance.
     """
     import re as _re
 
@@ -2014,32 +2026,54 @@ def test_cve_2017_18159_chipset_regex_matches_snapdragon_family() -> None:
     assert fam is not None
     chipset_re = fam["chipset_regex"]
 
+    # Positive — 2018 CAF MSM cohort that NVD CPE description scope
+    # ("Android for MSM, QRD Android, Firefox OS for MSM") includes.
     positive_cases = (
         "msm8937",
         "MSM8937",
+        "msm8953",
+        "msm8916",
+        "msm8996",
+        "mdm9607",
         "sdm660",
         "SDM845",
+        "sdm636",
+        "sdm710",
         "sd888",
-        "sm6225",
-        "SM6225",
-        "sm8550",
-        "qcs610",
-        "QCS605",
-        "qcm2150",
-        "sa8155p",
-        "sdx55",
-        "snapdragon-865",
-        "bengal",
-        "kona",
-        "lahaina",
+        "sd765",
+        "sda660",
+        "qm215",
     )
     for cs in positive_cases:
         assert _re.search(chipset_re, cs), (
-            f"CVE-2017-18159 chipset_regex rejected Snapdragon chipset "
-            f"{cs!r} — NVD CPE description includes MSM family"
+            f"CVE-2017-18159 chipset_regex rejected 2018-cohort MSM "
+            f"chipset {cs!r}"
         )
 
-    negative_cases = (
+    # Negative — post-2018 Snapdragon codenames. Per Reviewer B 2026-
+    # 05-15: these post-date the 2018-06-05 CAF patch and are NOT in
+    # NVD scope. Including them would over-attribute CVE-2017-18159
+    # on modern firmware that NVD does not list as affected.
+    post_2018_codenames = (
+        "bengal",  # SM6225 marketing — 2020 launch
+        "kona",  # SM8250 — Snapdragon 865, 2019
+        "lahaina",  # SM8350 — Snapdragon 888, 2020
+        "waipio",  # SM8450 — Snapdragon 8 Gen 1, 2021
+        "niobe",  # 2023 launch
+        "magpie",  # 2024
+        "moorea",  # 2024
+        "saipan",  # 2025
+        "snapdragon-865",  # marketing name
+    )
+    for cs in post_2018_codenames:
+        assert not _re.search(chipset_re, cs), (
+            f"CVE-2017-18159 chipset_regex matched post-2018 codename "
+            f"{cs!r} — would over-attribute on 2020+ blobs not in NVD "
+            "scope (Reviewer B 2026-05-15 forensic-correctness fix)"
+        )
+
+    # Negative — non-Qualcomm vendors.
+    other_vendors = (
         "mt6765",  # MediaTek
         "mt6873",
         "exynos9820",  # Samsung
@@ -2047,9 +2081,9 @@ def test_cve_2017_18159_chipset_regex_matches_snapdragon_family() -> None:
         "bcm47xx",  # Broadcom
         "rk3399",  # Rockchip
     )
-    for cs in negative_cases:
+    for cs in other_vendors:
         assert not _re.search(chipset_re, cs), (
-            f"CVE-2017-18159 chipset_regex over-matched non-Snapdragon "
+            f"CVE-2017-18159 chipset_regex over-matched non-Qualcomm "
             f"chipset {cs!r} — over-attribution risk"
         )
 

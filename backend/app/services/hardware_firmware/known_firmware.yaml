@@ -207,7 +207,7 @@ families:
   - name: Qualcomm EDL leaked programmers
     vendor: qualcomm
     category: bootloader
-    chipset_regex: "(?i)^(msm|mdm|sdm|sda|sd[0-9]|sm[0-9]|sa[0-9]|qcs|qcm|qm[0-9]|sdx|snapdragon|bengal|kona|lahaina|waipio|niobe|holi|sun|magpie|moorea|saipan)"
+    chipset_regex: "(?i)^(msm|mdm|qm[0-9]|sdm[0-9]{3}|sd[0-9]{3}|sda[0-9]{3})"
     strict_chipset: false
     cves:
       - CVE-2017-18159
@@ -218,12 +218,17 @@ families:
       Nokia) enabled permanent unlock + implant.
       NVD CPE: cpe:2.3:o:google:android:-:*:*:*:*:*:*:* (no specific
       Snapdragon SoCs enumerated). NVD description: "Android for MSM,
-      QRD Android, Firefox OS for MSM" — MSM = Snapdragon family.
-      chipset_regex matches the Snapdragon naming surface (MSM/SDM/SDA/
-      SD/SM/SA/QCS/QCM/QM/SDX prefixes + marketing names) per F-FORENSIC-
-      10 narrowing requirement (Reviewer B B1 2026-05-15). strict_chipset:
-      false → soft fallback for blobs with NULL chipset_target (typical
-      for Qualcomm bootloaders pre-2026-05-15 detection improvements).
+      QRD Android, Firefox OS for MSM" — MSM family (CAF kernels through
+      June 2018-06-05 security patch).
+      chipset_regex tightened per Reviewer B 2026-05-15 — restricted to
+      MSM-family naming that EXISTED in the 2018-06-05 CAF kernel cohort
+      (msm/mdm/qm/sdm-NNN/sd-NNN/sda-NNN). EXCLUDES post-2018 Snapdragon
+      codenames (bengal/kona/lahaina/waipio/niobe/sun/etc.) which would
+      over-attribute on 2020+ XBL blobs that NVD does not list as
+      affected. strict_chipset: false → soft fallback for blobs with
+      NULL chipset_target (typical for Qualcomm bootloaders pre-2026-
+      05-15 detection improvements; preserves the 144 currently-firing
+      blob rows where chipset_target is NULL).
       Reference: https://nvd.nist.gov/vuln/detail/CVE-2017-18159
 
   - name: FragAttacks
@@ -755,7 +760,7 @@ families:
   - name: Qualcomm bootloader / EDL firehose advisory
     vendor: qualcomm
     category: bootloader
-    chipset_regex: "(?i)^(msm|mdm|sdm|sda|sd[0-9]|sm[0-9]|sa[0-9]|qcs|qcm|qm[0-9]|sdx|snapdragon|bengal|kona|lahaina|waipio|niobe|holi|sun|magpie|moorea|saipan)"
+    chipset_regex: "(?i)^(msm|mdm|qm[0-9]|sdm[0-9]{3}|sd[0-9]{3}|sda[0-9]{3})"
     strict_chipset: false
     cves:
       - CVE-2017-18159
@@ -770,9 +775,10 @@ families:
       systematic-debugging-2026-05-15 expansion for closeness with the
       other Qualcomm advisories (no functional change).
       F-FORENSIC-10 narrowing matches the duplicate entry — chipset_regex
-      covers the Snapdragon naming surface per NVD CPE description "MSM
-      family" (Reviewer B B1 2026-05-15). strict_chipset: false → soft
-      fallback for blobs with NULL chipset_target.
+      tightened per Reviewer B 2026-05-15 to MSM-family naming that
+      EXISTED in the 2018-06-05 CAF kernel cohort (excludes post-2018
+      Snapdragon codenames). strict_chipset: false → soft fallback for
+      blobs with NULL chipset_target.
 
   - name: Qualcomm audio DSP general advisory
     advisory_id: ADVISORY-QC-ADSP
