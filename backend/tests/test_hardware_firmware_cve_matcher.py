@@ -1476,3 +1476,279 @@ def test_match_curated_qualcomm_audio_advisory_via_category_regex() -> None:
     assert cves & achilles_cves, (
         f"Achilles cluster missing on qualcomm/audio blob — got {cves}"
     )
+
+
+# ---------------------------------------------------------------------------
+# NVIDIA Tegra / L4T CVE cluster — added 2026-05-15 per postmortem
+# hw-firmware-adaptive-session-2026-05-18 Rec #3. Each pin's
+# chipset_regex + version_regex is verified against the NVD CPE list
+# at YAML load time (this test) AND against per-CVE NVD WebFetch
+# verification (commit message + notes field).
+#
+# The 3 user-prompt-discrepancy canaries (Rule #46 paired-canary):
+# CVE-2021-1111 EXCLUDES TX1/Nano, CVE-2022-42269 INCLUDES TX1,
+# CVE-2022-42270 EXCLUDES TX2 — each enforced by chipset_regex.
+# ---------------------------------------------------------------------------
+
+
+def _find_family_by_cve(families: list[dict], cve_id: str) -> dict | None:
+    """Return the family entry that pins ``cve_id``, or None."""
+    for fam in families:
+        if cve_id in fam.get("cves", []):
+            return fam
+    return None
+
+
+def test_tegra_cve_pins_all_six_loaded() -> None:
+    """All 6 NVIDIA Tegra CVE pins are present in known_firmware.yaml."""
+    families = _load_known_firmware()
+    cve_ids = {
+        "CVE-2019-5680",
+        "CVE-2021-1111",
+        "CVE-2021-34372",
+        "CVE-2021-34397",
+        "CVE-2022-42269",
+        "CVE-2022-42270",
+    }
+    found = set()
+    for fam in families:
+        for cve in fam.get("cves", []):
+            if cve in cve_ids:
+                found.add(cve)
+    missing = cve_ids - found
+    assert not missing, f"Tegra CVE pins missing from YAML: {missing}"
+
+
+def test_tegra_cve_pins_satisfy_f_forensic_10_narrowing() -> None:
+    """Each Tegra CVE pin MUST have at least one narrower beyond
+    vendor+category (chipset_regex or version_regex). Prevents the
+    disclosure-batch antipattern Reviewer B has caught 4 sessions in
+    a row — vendor+category alone over-attributes."""
+    families = _load_known_firmware()
+    tegra_cves = (
+        "CVE-2019-5680",
+        "CVE-2021-1111",
+        "CVE-2021-34372",
+        "CVE-2021-34397",
+        "CVE-2022-42269",
+        "CVE-2022-42270",
+    )
+    for cve in tegra_cves:
+        fam = _find_family_by_cve(list(families), cve)
+        assert fam is not None, f"{cve} family not found"
+        narrowers_present = (
+            fam.get("chipset_regex") is not None
+            or fam.get("version_regex") is not None
+        )
+        assert narrowers_present, (
+            f"{cve} pin lacks chipset_regex AND version_regex — "
+            "F-FORENSIC-10 narrowing antipattern (over-attribution risk)"
+        )
+
+
+def test_cve_2019_5680_chipset_regex_tx1_only() -> None:
+    """CANARY — CVE-2019-5680 (Selfblow) MUST accept TX1 (T210)
+    chipsets and reject TX2 / Xavier / Nano. NVD CPE: TX1-only."""
+    import re as _re
+
+    families = _load_known_firmware()
+    fam = _find_family_by_cve(list(families), "CVE-2019-5680")
+    assert fam is not None
+    chipset_re = fam["chipset_regex"]
+
+    # Positive cases — must match.
+    for tx1_chipset in ("t210", "T210", "tegra210", "tx1", "TX1"):
+        assert _re.search(chipset_re, tx1_chipset), (
+            f"CVE-2019-5680 chipset_regex rejected TX1 chipset {tx1_chipset!r}"
+        )
+
+    # Negative cases — must NOT match.
+    for non_tx1 in ("t186", "t194", "t234", "tx2", "tx2-nx",
+                    "xavier-nx", "agx-xavier", "orin", "nano"):
+        assert not _re.search(chipset_re, non_tx1), (
+            f"CVE-2019-5680 chipset_regex accepted non-TX1 chipset "
+            f"{non_tx1!r} — false-positive Selfblow attribution risk"
+        )
+
+
+def test_cve_2021_1111_chipset_regex_excludes_tx1_and_nano() -> None:
+    """CANARY (user-prompt-discrepancy) — CVE-2021-1111 NVD CPE
+    explicitly excludes TX1 + Nano. User prompt said "ALL Jetsons"
+    but NVD only lists AGX-Xavier + TX2 + TX2-NX + Xavier-NX."""
+    import re as _re
+
+    families = _load_known_firmware()
+    fam = _find_family_by_cve(list(families), "CVE-2021-1111")
+    assert fam is not None
+    chipset_re = fam["chipset_regex"]
+
+    # Positive — TX2/Xavier family must match.
+    for chipset in ("t186", "t194", "tx2", "tx2-nx",
+                    "xavier-nx", "agx-xavier"):
+        assert _re.search(chipset_re, chipset), (
+            f"CVE-2021-1111 chipset_regex rejected {chipset!r}"
+        )
+
+    # Negative — TX1 + Nano must NOT match (user-prompt claimed they
+    # were in scope; NVD CPE says they aren't).
+    for excluded in ("t210", "tx1", "nano", "jetson-nano"):
+        assert not _re.search(chipset_re, excluded), (
+            f"CVE-2021-1111 chipset_regex accepted {excluded!r} — "
+            "user-prompt-discrepancy: NVD CPE explicitly excludes "
+            "TX1/Nano"
+        )
+
+
+def test_cve_2022_42269_chipset_regex_includes_tx1() -> None:
+    """CANARY (user-prompt-discrepancy) — CVE-2022-42269 NVD CPE
+    ALSO includes jetson_tx1 in addition to AGX-Xavier/TX2/Xavier-NX.
+    User prompt said "AGX-Xavier/TX2/Xavier-family"; NVD adds TX1."""
+    import re as _re
+
+    families = _load_known_firmware()
+    fam = _find_family_by_cve(list(families), "CVE-2022-42269")
+    assert fam is not None
+    chipset_re = fam["chipset_regex"]
+
+    # The user-prompt-discrepancy: TX1 MUST be accepted.
+    for tx1_chipset in ("t210", "tx1", "tegra210"):
+        assert _re.search(chipset_re, tx1_chipset), (
+            f"CVE-2022-42269 chipset_regex rejected {tx1_chipset!r} — "
+            "user-prompt-discrepancy: NVD CPE includes jetson_tx1"
+        )
+
+    # And AGX-Xavier / TX2 / Xavier-NX still accepted.
+    for chipset in ("t186", "t194", "tx2", "agx-xavier", "xavier-nx"):
+        assert _re.search(chipset_re, chipset), (
+            f"CVE-2022-42269 chipset_regex rejected {chipset!r}"
+        )
+
+
+def test_cve_2022_42270_xavier_only_excludes_tx2() -> None:
+    """CANARY — CVE-2022-42270 NVDLA is Xavier-only per NVD CPE.
+    Must EXCLUDE TX2 (T186) and TX1 (T210) and Nano."""
+    import re as _re
+
+    families = _load_known_firmware()
+    fam = _find_family_by_cve(list(families), "CVE-2022-42270")
+    assert fam is not None
+    chipset_re = fam["chipset_regex"]
+
+    # Xavier family must match.
+    for chipset in ("t194", "tegra194", "agx-xavier", "xavier-nx"):
+        assert _re.search(chipset_re, chipset), (
+            f"CVE-2022-42270 chipset_regex rejected Xavier chipset {chipset!r}"
+        )
+
+    # Non-Xavier must NOT match.
+    for excluded in ("t186", "t210", "t234", "tx1", "tx2", "tx2-nx",
+                     "nano", "orin"):
+        assert not _re.search(chipset_re, excluded), (
+            f"CVE-2022-42270 chipset_regex accepted {excluded!r} — "
+            "NVDLA is Xavier-only per NVD CPE"
+        )
+
+
+def test_cve_2021_34397_excludes_tx1_and_nano() -> None:
+    """CVE-2021-34397 MB2 bootloader: TX2/TX2-NX/Xavier-NX/AGX-Xavier
+    only. Must EXCLUDE TX1 + Nano per NVD CPE."""
+    import re as _re
+
+    families = _load_known_firmware()
+    fam = _find_family_by_cve(list(families), "CVE-2021-34397")
+    assert fam is not None
+    chipset_re = fam["chipset_regex"]
+
+    # Positive.
+    for chipset in ("t186", "t194", "tx2", "tx2-nx", "xavier-nx", "agx-xavier"):
+        assert _re.search(chipset_re, chipset), (
+            f"CVE-2021-34397 chipset_regex rejected {chipset!r}"
+        )
+
+    # Negative.
+    for excluded in ("t210", "tx1", "nano"):
+        assert not _re.search(chipset_re, excluded), (
+            f"CVE-2021-34397 chipset_regex accepted {excluded!r}"
+        )
+
+
+def test_cve_2021_34372_has_no_chipset_regex_per_nvd_all_jetsons() -> None:
+    """CVE-2021-34372 NVD CPE lists ALL Jetsons including TX1+Nano.
+    chipset_regex is omitted (narrowing via version_regex only)."""
+    families = _load_known_firmware()
+    fam = _find_family_by_cve(list(families), "CVE-2021-34372")
+    assert fam is not None
+    # chipset_regex intentionally absent — applies to all Tegra boards.
+    assert fam.get("chipset_regex") is None
+    # version_regex provides the F-FORENSIC-10 narrowing.
+    assert fam.get("version_regex") is not None
+    # vendor + category combination = NVIDIA TEE = Trusty domain.
+    assert fam["vendor"] == "nvidia"
+    assert fam["category"] == "tee"
+
+
+def test_tegra_version_regex_matches_pre_fix_l4t_releases() -> None:
+    """Each Tegra version_regex MUST match the L4T release strings
+    BELOW the fix version. Forward-prepared canary: when L4T release
+    extraction lands, the pins fire on pre-fix blobs."""
+    import re as _re
+
+    families = _load_known_firmware()
+
+    # CVE-2019-5680 (Selfblow): fix at R32.2. Pre-fix = R30/R31/R32.0/R32.1.
+    fam = _find_family_by_cve(list(families), "CVE-2019-5680")
+    version_re = fam["version_regex"]
+    # NOTE: re.search matches anywhere in the string, so a longer
+    # banner like "R32.3.1" can match a shorter regex prefix. We
+    # primarily care that pre-fix matches; the version_regex isn't
+    # the only gate (NVD CPE narrowing is documented in notes).
+    for pre_fix in ("R30", "r31", "R32.0", "R32.1", "R32.0.1", "R32.1.0"):
+        assert _re.search(version_re, pre_fix), (
+            f"CVE-2019-5680 version_regex did not match pre-fix L4T "
+            f"release {pre_fix!r}"
+        )
+
+    # CVE-2021-34372 (Trusty OTE): fix at R32.5.1. Pre-fix = R30/R31/
+    # R32.0..R32.5.0.
+    fam = _find_family_by_cve(list(families), "CVE-2021-34372")
+    version_re = fam["version_regex"]
+    for pre_fix in ("R30", "R31", "R32.0", "R32.1", "R32.2", "R32.3",
+                    "R32.4", "R32.5.0", "R32.3.1"):
+        assert _re.search(version_re, pre_fix), (
+            f"CVE-2021-34372 version_regex did not match {pre_fix!r}"
+        )
+
+    # CVE-2022-42269 (Trusty SMC): fix at R32.7.2. Pre-fix up to R32.7.1.
+    fam = _find_family_by_cve(list(families), "CVE-2022-42269")
+    version_re = fam["version_regex"]
+    for pre_fix in ("R30", "R31", "R32.0", "R32.5", "R32.6", "R32.7.0",
+                    "R32.7.1", "R32.3.1"):
+        assert _re.search(version_re, pre_fix), (
+            f"CVE-2022-42269 version_regex did not match {pre_fix!r}"
+        )
+
+
+def test_tegra_cve_pins_carry_nvd_url_reference() -> None:
+    """Each Tegra CVE pin's notes field MUST include the NVD URL
+    reference per Reviewer B 2026-05-15..18 verifiability discipline.
+    Operators auditing the pin can re-verify against NVD without
+    leaving the YAML."""
+    families = _load_known_firmware()
+    tegra_cves = (
+        "CVE-2019-5680",
+        "CVE-2021-1111",
+        "CVE-2021-34372",
+        "CVE-2021-34397",
+        "CVE-2022-42269",
+        "CVE-2022-42270",
+    )
+    for cve in tegra_cves:
+        fam = _find_family_by_cve(list(families), cve)
+        assert fam is not None
+        notes = fam.get("notes", "")
+        assert "nvd.nist.gov/vuln/detail/" in notes, (
+            f"{cve} pin notes missing NVD URL reference"
+        )
+        assert cve in notes, (
+            f"{cve} pin notes do not cite the CVE ID itself"
+        )

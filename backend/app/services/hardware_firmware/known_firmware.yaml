@@ -1144,3 +1144,170 @@ families:
       cache side-channel), -9496 (invalid-curve ECC), -13377 (SAE
       Brainpool timing). All four fixed by wpa_supplicant 2.9.
       Affects any pre-2.9 build.
+
+  # ===================================================================
+  # NVIDIA Tegra / L4T BSP CVE cluster — added 2026-05-15 per
+  # postmortem hw-firmware-adaptive-session-2026-05-18 Rec #3
+  # (Reviewer A C2 + Reviewer B F-FORENSIC-03 deferred). Each pin
+  # verified against NVD CPE list via direct WebFetch on
+  # services.nvd.nist.gov/rest/json/cves/2.0?cveId=<CVE>. Recursive-
+  # verification discipline (Reviewer B 2026-05-15..18) applied:
+  # Scout report's per-CVE CPE claims independently re-fetched
+  # before commit.
+  #
+  # 3 of 6 had user-prompt-discrepancies that NVD overruled:
+  #   * CVE-2021-1111  — user said "ALL Jetsons"; NVD CPE EXCLUDES
+  #                      TX1/Nano (only AGX-Xavier+TX2+TX2-NX+Xavier-NX).
+  #   * CVE-2021-34372 — user said product=tegra_tos_trusty; NVD CPE
+  #                      uses product=jetson_linux. wairz curated
+  #                      schema has no `product` field; we narrow via
+  #                      vendor=nvidia + category=tee instead.
+  #   * CVE-2022-42269 — user said "AGX-Xavier/TX2/Xavier-family";
+  #                      NVD CPE ALSO includes jetson_tx1 (T210).
+  #
+  # NVD wins per Rule #19 evidence-first in all 3 cases.
+  #
+  # FORWARD-PREPARED NOTE: version_regex requires L4T BSP release
+  # string ("R32.3.1" etc.) to appear in blob.version OR any blob
+  # metadata value. The current Tegra parser (parsers/tegra_blob.py,
+  # shipped commit 8054d22 2026-05-15) does NOT yet extract L4T
+  # release from blob content. These pins will fire when a future
+  # enhancement adds L4T release extraction (e.g. parse
+  # /etc/nv_tegra_release on the firmware tree → populate
+  # firmware.device_metadata["l4t_release"], OR scan Tegra-blob
+  # head for "R<N> (release), REVISION: <x.y>" banner string and
+  # store in blob.metadata). Until then the pins are documented
+  # forward-prepared entries — strict version_regex prevents
+  # over-attribution (Reviewer B 2026-05-18 discipline).
+  #
+  # OUT OF SCOPE this session per user direction: CVE-2021-34373..
+  # 34396 from the same NVIDIA security bulletin disclosure batch.
+  # The per-NVD-CPE recipe applies recursively for any future session
+  # extending Tegra coverage — DO NOT batch-extrapolate. Each CVE
+  # gets its own NVD WebFetch verification before pinning.
+  #
+  # Tegra chipset codes: T210 = TX1/Nano (Maxwell), T186 = TX2
+  # (Pascal), T194 = Xavier (Volta), T234 = Orin (Ampere; not
+  # affected by any of these 6 CVEs per NVD CPE).
+  # ===================================================================
+
+  - name: Tegra TX1 nvtboot Selfblow (CVE-2019-5680)
+    vendor: nvidia
+    category: bootloader
+    chipset_regex: "(?i)^(t210|tegra210|tx1)$"
+    version_regex: "(?i)(r3[01]\\b|r32\\.[01]\\b|r32\\.0\\.|r32\\.1\\.)"
+    strict_chipset: false
+    cves:
+      - CVE-2019-5680
+    severity: high
+    cvss_score: 6.7
+    notes: |
+      nvtboot load-address validation bypass on Tegra TX1 (T210).
+      NVD CPE: jetson_tx1_firmware versionEndExcluding=r32.2.
+      TX1-ONLY — explicitly EXCLUDES TX2 / Xavier / Nano.
+      Fix landed in L4T R32.2 (June 2019); R32.2 IS the fix cohort
+      (Reviewer B 2026-05-18 caught earlier R32.3.1 mis-attribution).
+      Reference: https://nvd.nist.gov/vuln/detail/CVE-2019-5680
+
+  - name: Tegra NV3P USB recovery bounds-check (CVE-2021-1111)
+    vendor: nvidia
+    category: bootloader
+    chipset_regex: "(?i)^(t186|t194|tegra186|tegra194|tx2|tx2-nx|tx2nx|xavier-nx|xaviernx|agx-xavier|agxxavier)$"
+    version_regex: "(?i)(r32\\.[1-5]\\b|r32\\.6\\.0\\b|r32\\.[1-5]\\.|r32\\.6\\.0\\.)"
+    strict_chipset: false
+    cves:
+      - CVE-2021-1111
+    severity: medium
+    cvss_score: 6.0
+    notes: |
+      NV3P recovery-mode bounds-check failure (USB physical access).
+      NVD CPE: jetson_linux versionStartIncluding=32.1 AND
+      versionEndExcluding=32.6.1. Hardware = AGX-Xavier + TX2 +
+      TX2-NX + Xavier-NX ONLY. TX1 + Nano + Nano-2GB EXPLICITLY
+      EXCLUDED per NVD (contradicts session-prompt's "ALL Jetsons"
+      claim — NVD wins per Rule #19 evidence-first).
+      Fix in L4T R32.6.1 (Aug 2021).
+      Reference: https://nvd.nist.gov/vuln/detail/CVE-2021-1111
+
+  - name: Tegra Trusty OTE integer overflow (CVE-2021-34372)
+    vendor: nvidia
+    category: tee
+    version_regex: "(?i)(r3[01]\\b|r32\\.[0-4]\\b|r32\\.5\\.0\\b|r3[01]\\.|r32\\.[0-4]\\.|r32\\.5\\.0\\.)"
+    strict_chipset: false
+    cves:
+      - CVE-2021-34372
+    severity: high
+    cvss_score: 7.8
+    notes: |
+      Integer overflow in malloc() size calc in Trusty OS OTE
+      protocol parser. NVD CPE: jetson_linux versionEndExcluding=
+      32.5.1. Hardware list = ALL Jetsons (TX1 + TX2 family + AGX-
+      Xavier + Xavier-NX + Nano + Nano-2GB) — the broadest scope of
+      the 6 Tegra CVEs.
+      Session prompt claimed product=tegra_tos_trusty; NVD CPE uses
+      product=jetson_linux (NVD wins per Rule #19). wairz curated
+      schema has no `product` field; we narrow via vendor=nvidia +
+      category=tee instead. Fix in L4T R32.5.1.
+      Reference: https://nvd.nist.gov/vuln/detail/CVE-2021-34372
+
+  - name: Tegra MB2 free-the-wrong-heap (CVE-2021-34397)
+    vendor: nvidia
+    category: bootloader
+    chipset_regex: "(?i)^(t186|t194|tegra186|tegra194|tx2|tx2-4gb|tx2-nx|tx2nx|tx2i|xavier-nx|xaviernx|agx-xavier|agxxavier)$"
+    version_regex: "(?i)(r3[01]\\b|r32\\.[0-4]\\b|r32\\.5\\.0\\b|r3[01]\\.|r32\\.[0-4]\\.|r32\\.5\\.0\\.)"
+    strict_chipset: false
+    cves:
+      - CVE-2021-34397
+    severity: medium
+    cvss_score: 5.5
+    notes: |
+      MB2 bootloader free-the-wrong-heap → limited DoS. NVD CPE:
+      jetson_linux versionEndExcluding=32.5.1. Hardware anchors =
+      AGX-Xavier (8/16/32GB) + TX2 (incl. 4GB/i/NX) + Xavier-NX
+      (dev/prod). TX1 + Nano EXPLICITLY EXCLUDED per NVD.
+      Fix in L4T R32.5.1.
+      Reference: https://nvd.nist.gov/vuln/detail/CVE-2021-34397
+
+  - name: Tegra Trusty SMC input validation (CVE-2022-42269)
+    vendor: nvidia
+    category: tee
+    chipset_regex: "(?i)^(t210|t186|t194|tegra210|tegra186|tegra194|tx1|tx2|tx2-4gb|tx2-nx|tx2nx|tx2i|xavier-nx|xaviernx|xavier-nx-16gb|agx-xavier|agxxavier|agx-xavier-8gb|agx-xavier-16gb|agx-xavier-32gb|agx-xavier-64gb|agx-xavier-industrial)$"
+    version_regex: "(?i)(r3[01]\\b|r32\\.[0-6]\\b|r32\\.7\\.[01]\\b|r3[01]\\.|r32\\.[0-6]\\.|r32\\.7\\.[01]\\.)"
+    strict_chipset: false
+    cves:
+      - CVE-2022-42269
+    severity: high
+    cvss_score: 7.9
+    notes: |
+      Trusty OS SMC handler missing input validation → info disclosure
+      + integrity compromise. NVD CPE: jetson_linux versionEnd
+      Excluding=32.7.2. Hardware anchors INCLUDE jetson_tx1 in
+      addition to AGX-Xavier (6 SKUs) + TX2 (4 SKUs incl. TX2-NX) +
+      Xavier-NX (2 SKUs) — contradicts session-prompt's
+      "AGX-Xavier/TX2/Xavier-family" scope which omitted TX1.
+      NVD wins per Rule #19 evidence-first; TX1 added to
+      chipset_regex. Jetson Nano (also T210 but a different
+      hardware anchor) is NOT in the NVD CPE list and is excluded.
+      Fix in L4T R32.7.2 (Aug 2022).
+      Reference: https://nvd.nist.gov/vuln/detail/CVE-2022-42269
+
+  - name: NVDLA emu_task_submit Xavier-only (CVE-2022-42270)
+    vendor: nvidia
+    category: kernel_module
+    chipset_regex: "(?i)^(t194|tegra194|xavier-nx|xaviernx|xavier-nx-16gb|agx-xavier|agxxavier|agx-xavier-8gb|agx-xavier-16gb|agx-xavier-32gb|agx-xavier-64gb|agx-xavier-industrial)$"
+    version_regex: "(?i)(r3[01]\\b|r32\\.[0-6]\\b|r32\\.7\\.[01]\\b|r3[01]\\.|r32\\.[0-6]\\.|r32\\.7\\.[01]\\.)"
+    strict_chipset: false
+    cves:
+      - CVE-2022-42270
+    severity: high
+    cvss_score: 7.8
+    notes: |
+      NVDLA emu_task_submit stack-based buffer overflow. NVD CPE:
+      jetson_linux versionEndExcluding=32.7.2. Xavier-ONLY: NVDLA
+      Deep Learning Accelerator is only on T194/Xavier silicon.
+      Hardware anchors = AGX-Xavier (6 SKUs) + Xavier-NX (2 SKUs).
+      TX1 / TX2 / Nano EXPLICITLY EXCLUDED per NVD.
+      category=kernel_module because NVDLA driver lives in
+      nvidia.ko / nvgpu kernel module.
+      Fix in L4T R32.7.2.
+      Reference: https://nvd.nist.gov/vuln/detail/CVE-2022-42270
