@@ -369,6 +369,30 @@
         "pattern": "\\b(detect_hardware_firmware|cve_match_firmware)\\b",
         "filePattern": "docs/**/*.md",
         "message": "Learned from campaign bt-yaml-externalization-session-2026-05-17: detect_hardware_firmware and cve_match_firmware are NOT registered MCP tools in wairz. Actual hardware-firmware tools: analyze_hardware_firmware, check_firmware_cves, run_vulnerability_scan (backend/app/ai/tools/{hardware_firmware,sbom}.py). For re-trigger paths, use the POST /api/v1/projects/.../hardware-firmware/cve-match REST endpoint (Rule #33 .a 202+polling)."
+      },
+      {
+        "name": "auto-hw-firmware-adaptive-2026-05-18-device-metadata-overwrite",
+        "pattern": "firmware\\.device_metadata\\s*=\\s*_stamp_firmware_device_metadata\\(\\s*\\{",
+        "filePattern": "backend/app/services/**/*.py",
+        "message": "Learned from campaign hw-firmware-adaptive-session-2026-05-18: assigning a fresh dict to firmware.device_metadata OVERWRITES prior keys (e.g. detection_roots written by upstream callers). Mirror the merge-then-stamp pattern at firmware_paths.py:787-791 — load existing via _normalize_firmware_device_metadata, dict-copy, set the new key, stamp. Reviewer A B1-HIGH 2026-05-18."
+      },
+      {
+        "name": "auto-hw-firmware-adaptive-2026-05-18-realtek-offset-8-project-id",
+        "pattern": "(?i)project_id.{0,80}offset\\s*=?\\s*[\"']?8",
+        "filePattern": "{backend/**,docs/**}/*.{py,md}",
+        "message": "Learned from campaign hw-firmware-adaptive-session-2026-05-18: Realtek BT firmware project_id is NOT at offset 8 per upstream drivers/bluetooth/btrtl.h. Offset 8..11 is __le32 fw_version (v1) or __u8 fw_version[8] (v2). project_id is encoded as TLV records at the FILE TAIL — reverse-scan for (opcode=0, length=1, data=PID). Use _scan_realtek_project_id_from_tail in parsers/bt_firmware_banner.py. Scout C 2026-05-18 catch."
+      },
+      {
+        "name": "auto-hw-firmware-adaptive-2026-05-18-yaml-cache-hw-firmware-import",
+        "pattern": "from\\s+app\\.services\\.hardware_firmware\\._yaml_cache",
+        "filePattern": "backend/**/*.py",
+        "message": "Learned from campaign hw-firmware-adaptive-session-2026-05-18: _yaml_cache moved to app/utils/yaml_cache (Reviewer A A1-HIGH 2026-05-18). The generic MtimeCachedYamlLoader[T] now lives at backend/app/utils/yaml_cache.py — use `from app.utils.yaml_cache import MtimeCachedYamlLoader` instead. Old hw-firmware path is gone."
+      },
+      {
+        "name": "auto-hw-firmware-adaptive-2026-05-18-low-confidence-curated-tier",
+        "pattern": "detection_confidence\\s*==\\s*[\"']low[\"'].*\\|\\|.*_match_curated",
+        "filePattern": "backend/app/services/hardware_firmware/cve_matcher.py",
+        "message": "Learned from campaign hw-firmware-adaptive-session-2026-05-18: _match_curated MUST skip blobs with detection_confidence='low' (F-FORENSIC-11 Reviewer B 2026-05-18). The Realtek BT parser's soft-fallback path emits vendor=realtek/confidence=low for any [Rr]ealte[ck] ASCII match — these blobs MUST NOT receive curated-tier CVE attribution. Test: test_match_curated_skips_low_confidence_blob."
       }
     ]
   },
@@ -431,7 +455,7 @@
     "sessions": 0,
     "campaigns": 0,
     "override": null,
-    "sessions_completed": 200
+    "sessions_completed": 201
   },
   "consent": {
     "externalActions": "session-allow"
