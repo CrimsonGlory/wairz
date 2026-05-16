@@ -46,12 +46,25 @@ def _components_with_vuln_counts_stmt(
     type_filter: str | None = None,
     name_filter: str | None = None,
 ):
-    """Build the composite SELECT for components + per-component vuln count."""
+    """Build the composite SELECT for components + per-component vuln count.
+
+    PERF FIX 2026-05-18: the vuln-count subquery MUST filter by
+    firmware_id. Without it the GROUP BY aggregates the entire
+    sbom_vulnerabilities table (7.5M+ rows in production), turning
+    every SBOM-page render + every vuln-scan-poll into a 7-second
+    parallel-seq-scan. The SBOM page polls every 2 s during a scan,
+    so after ~4 polls the SQLAlchemy connection pool (size=10 +
+    overflow=20 = 30 max) is exhausted and every endpoint returns
+    `QueuePool limit ... connection timed out` until the in-flight
+    queries drain. The `idx_sbom_vulns_firmware` index makes the
+    filtered subquery O(per-firmware-rows) instead of O(full table).
+    """
     vuln_count_sq = (
         select(
             SbomVulnerability.component_id,
             func.count(SbomVulnerability.id).label("vuln_count"),
         )
+        .where(SbomVulnerability.firmware_id == firmware_id)
         .group_by(SbomVulnerability.component_id)
         .subquery()
     )

@@ -944,6 +944,147 @@ class TestVulnScanStatusLiveCanary:
     c1d2e3f4a5b6.
     """
 
+    def test_components_with_vuln_counts_subquery_has_firmware_filter(
+        self,
+    ):
+        """REGRESSION 2026-05-18: compile the statement + assert the
+        vuln-count subquery's compiled SQL contains a firmware_id
+        WHERE clause.
+
+        This test doesn't need make_live_db — it inspects the
+        SQLAlchemy-compiled SQL string. A pre-fix call site would
+        produce a subquery WHERE-less, scanning the full
+        sbom_vulnerabilities table (7.5M rows on production); the
+        post-fix call site filters the subquery by firmware_id so the
+        index `ix_sbom_vulnerabilities_firmware_id` is used.
+        """
+        from app.routers.sbom import _components_with_vuln_counts_stmt
+
+        fw_id = uuid.uuid4()
+        stmt = _components_with_vuln_counts_stmt(fw_id)
+        compiled = str(
+            stmt.compile(compile_kwargs={"literal_binds": True})
+        )
+        # Count UUID-bind occurrences: SQLAlchemy strips dashes when
+        # binding UUIDs as SQL literals, so check the hex form. Two
+        # occurrences = outer (SbomComponent.firmware_id) + inner
+        # (subquery's SbomVulnerability.firmware_id).
+        firmware_id_hex = fw_id.hex
+        occurrences = compiled.count(firmware_id_hex)
+        assert occurrences >= 2, (
+            f"vuln-count subquery is not firmware-scoped — the "
+            f"compiled SQL only references firmware_id "
+            f"{occurrences} time(s) (expected 2: outer + inner "
+            f"subquery filter). Compiled SQL:\n{compiled}"
+        )
+        # Belt-and-suspenders: the subquery's FROM contains
+        # sbom_vulnerabilities AND a WHERE clause filtering on
+        # firmware_id within the subquery's scope.
+        assert "sbom_vulnerabilities.firmware_id" in compiled, (
+            "subquery WHERE clause on sbom_vulnerabilities.firmware_id "
+            "is missing — query will full-scan the table"
+        )
+
+    @pytest.mark.asyncio
+    async def test_components_with_vuln_counts_subquery_filtered_by_firmware(
+        self,
+    ):
+        """REGRESSION 2026-05-18: the vuln-count subquery in
+        _components_with_vuln_counts_stmt MUST filter by firmware_id.
+
+        Without the filter, the GROUP BY aggregates the FULL
+        sbom_vulnerabilities table (7.5M+ rows in production). Each
+        SBOM-page render + every vuln-scan-poll became a 7-second
+        parallel-seq-scan, exhausting the 30-connection SQLAlchemy
+        pool within ~4 polls. Symptom: every endpoint returned
+        `QueuePool limit ... connection timed out` until the in-flight
+        queries drained.
+
+        Live-canary contract: build a 2-firmware fixture where vulns
+        belonging to firmware_A would over-count if the subquery
+        leaked, then run the actual router statement against the live
+        SQLite session and verify the counts are firmware-scoped.
+        """
+        from app.routers.sbom import _components_with_vuln_counts_stmt
+
+        async with make_live_db() as db:
+            pid = uuid.uuid4()
+            project = Project(id=pid, name="vuln-perf-canary", status="ready")
+            db.add(project)
+            await db.flush()
+
+            # Two firmwares with overlapping component sets.
+            fw_a = Firmware(
+                id=uuid.uuid4(),
+                project_id=pid,
+                sha256="a" * 64,
+                extracted_path="/tmp/a",
+                extraction_dir="/tmp/a",
+                original_filename="a.bin",
+            )
+            fw_b = Firmware(
+                id=uuid.uuid4(),
+                project_id=pid,
+                sha256="b" * 64,
+                extracted_path="/tmp/b",
+                extraction_dir="/tmp/b",
+                original_filename="b.bin",
+            )
+            db.add_all([fw_a, fw_b])
+            await db.flush()
+
+            # 1 component on each firmware.
+            comp_a = SbomComponent(
+                firmware_id=fw_a.id,
+                name="libcurl",
+                version="7.81.0",
+                type="library",
+                detection_source="manual",
+                detection_confidence="high",
+            )
+            comp_b = SbomComponent(
+                firmware_id=fw_b.id,
+                name="libcurl",
+                version="7.81.0",
+                type="library",
+                detection_source="manual",
+                detection_confidence="high",
+            )
+            db.add_all([comp_a, comp_b])
+            await db.flush()
+
+            # 3 vulns on firmware_B's component. If the subquery leaks
+            # (pre-fix), these would inflate firmware_A's vuln count.
+            for cve in ("CVE-9999-0001", "CVE-9999-0002", "CVE-9999-0003"):
+                db.add(
+                    SbomVulnerability(
+                        firmware_id=fw_b.id,
+                        component_id=comp_b.id,
+                        cve_id=cve,
+                        severity="medium",
+                        description=f"test {cve}",
+                    )
+                )
+            await db.flush()
+
+            # Query firmware_A — vuln count MUST be 0 (firmware_B's
+            # vulns are scoped out by the firmware-filtered subquery).
+            stmt = _components_with_vuln_counts_stmt(fw_a.id)
+            rows = (await db.execute(stmt)).all()
+            assert len(rows) == 1
+            assert rows[0][0].id == comp_a.id
+            assert (rows[0][1] or 0) == 0, (
+                "vuln count for firmware_A's component leaked vulns "
+                "from firmware_B — subquery is not firmware-scoped"
+            )
+
+            # Query firmware_B — vuln count MUST be 3.
+            stmt_b = _components_with_vuln_counts_stmt(fw_b.id)
+            rows_b = (await db.execute(stmt_b)).all()
+            assert len(rows_b) == 1
+            assert rows_b[0][0].id == comp_b.id
+            assert (rows_b[0][1] or 0) == 3
+
     @pytest.mark.asyncio
     async def test_status_field_round_trips_through_live_db(self):
         async with make_live_db() as db:
