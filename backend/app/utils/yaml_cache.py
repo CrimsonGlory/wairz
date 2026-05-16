@@ -114,6 +114,17 @@ class MtimeCachedYamlLoader(Generic[T]):
         # Counters for test instrumentation.
         self.stat_count: int = 0
         self.reload_count: int = 0
+        # Most recent reload-failure message, queryable from the MCP
+        # ``list_extension_points`` tool. ``None`` when the last reload
+        # succeeded OR no reload has been attempted; populated with a
+        # one-line ``"<ExceptionType>: <message>"`` on every failed
+        # reload (read error, parse error, structural validation, stat
+        # OSError); cleared on a subsequent successful reload + on
+        # ``cache_clear()``. Pairs with the "keep previous on malformed"
+        # contract so operators see why their YAML edit silently fell
+        # back to the previous valid state, without shelling into the
+        # container to grep the WARN log.
+        self.last_warning: str | None = None
 
     @property
     def path(self) -> Path:
@@ -155,6 +166,7 @@ class MtimeCachedYamlLoader(Generic[T]):
                     current_path,
                     exc,
                 )
+                self.last_warning = f"{type(exc).__name__}: {exc}"
                 return self._cached
 
             # File exists. Same-mtime fast path requires that we've
@@ -206,6 +218,7 @@ class MtimeCachedYamlLoader(Generic[T]):
                 current_path,
                 exc,
             )
+            self.last_warning = f"{type(exc).__name__}: {exc}"
             # Advance the mtime cursor so subsequent accessors don't
             # retry the same broken file on every call — the operator
             # must save the file again (bumping mtime) to retry.
@@ -225,6 +238,9 @@ class MtimeCachedYamlLoader(Generic[T]):
                 current_path,
                 type(raw).__name__,
             )
+            self.last_warning = (
+                f"top-level must be a mapping, got {type(raw).__name__}"
+            )
             self._cached_mtime_ns = mtime_ns
             return self._cached
 
@@ -238,6 +254,7 @@ class MtimeCachedYamlLoader(Generic[T]):
                 current_path,
                 exc,
             )
+            self.last_warning = f"{type(exc).__name__}: {exc}"
             self._cached_mtime_ns = mtime_ns
             return self._cached
 
@@ -251,6 +268,10 @@ class MtimeCachedYamlLoader(Generic[T]):
         # Reset the missing-warning flag — a successful load means the
         # operator may have restored the file after a deletion.
         self._warned_missing = False
+        # Clear last_warning on successful reload so an operator who
+        # fixed their malformed YAML sees the warning disappear on the
+        # next mtime-triggered reload.
+        self.last_warning = None
         if previously_loaded:
             logger.info(
                 "%s: %s reloaded due to mtime change (%s)",
@@ -292,6 +313,46 @@ class MtimeCachedYamlLoader(Generic[T]):
             self._logged_initial_default = False
             self.stat_count = 0
             self.reload_count = 0
+            self.last_warning = None
 
 
-__all__ = ["MtimeCachedYamlLoader"]
+# Module-level registry of named loaders for MCP discovery.
+#
+# Consumers (patterns_loader, cve_matcher, future YAML surfaces) call
+# ``register_loader(surface_name, loader)`` at import time AFTER the
+# loader is instantiated. The MCP ``list_extension_points`` tool walks
+# this registry to enumerate currently-active extension surfaces +
+# return per-loader load state (path, last_load_ts, entries,
+# reload_count, last_warning).
+#
+# Surface names are kebab-case lowercase per wairz convention
+# (``bt_qca_codenames`` / ``firmware_patterns`` / ``known_firmware``).
+# Registration is idempotent — re-registering the same surface_name
+# replaces the loader reference (typically only happens under pytest
+# when modules are reimported).
+_yaml_loader_registry: dict[str, MtimeCachedYamlLoader] = {}
+
+
+def register_loader(surface_name: str, loader: MtimeCachedYamlLoader) -> None:
+    """Register ``loader`` under ``surface_name`` for MCP discovery.
+
+    Idempotent — re-registration replaces the prior reference (pytest-
+    safe under module reload).
+    """
+    _yaml_loader_registry[surface_name] = loader
+
+
+def list_registered_loaders() -> dict[str, MtimeCachedYamlLoader]:
+    """Return a snapshot of currently-registered YAML loaders.
+
+    Returns a dict copy so callers can iterate safely without holding
+    the registry under mutation from concurrent registrations.
+    """
+    return dict(_yaml_loader_registry)
+
+
+__all__ = [
+    "MtimeCachedYamlLoader",
+    "register_loader",
+    "list_registered_loaders",
+]

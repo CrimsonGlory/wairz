@@ -237,6 +237,192 @@ def test_malformed_mtime_advanced_so_no_retry_storm(
 
 
 # ---------------------------------------------------------------------------
+# last_warning observability surface — operator-queryable via MCP.
+#
+# Paired-canary discipline per Rule #46: every "asserts ABSENCE of X"
+# gate ships with a paired canary that synthesizes a violation and
+# confirms the gate fires. Here the gate IS the absence-on-success
+# behaviour — `assert last_warning is None` after a clean load — and
+# the canary IS the populated-on-malformed test which proves the
+# absence-assertion would catch a real malformed-YAML regression.
+# ---------------------------------------------------------------------------
+
+
+def test_last_warning_is_none_initially(
+    generic_loader: YC.MtimeCachedYamlLoader[dict],
+) -> None:
+    """A freshly-constructed loader with valid YAML has last_warning=None."""
+    assert generic_loader.last_warning is None
+    generic_loader.get()
+    assert generic_loader.last_warning is None
+
+
+def test_last_warning_populated_on_malformed_yaml(
+    generic_loader: YC.MtimeCachedYamlLoader[dict],
+) -> None:
+    """CANARY — malformed YAML on reload populates last_warning with a
+    string containing the exception type name.
+
+    Pairs with test_last_warning_is_none_initially: this canary proves
+    that the "None after success" assertion in other tests would catch
+    a regression where last_warning failed to clear on the success path.
+    """
+    generic_loader.get()
+    assert generic_loader.last_warning is None
+
+    # Synthesize a malformed YAML reload.
+    generic_loader.path.write_text("bad: [unclosed\n", encoding="utf-8")
+    _bump_mtime(generic_loader.path)
+    result = generic_loader.get()
+
+    # Previous-state contract still holds — kept the old dict.
+    assert result == {"foo": 1, "bar": 2}
+    # AND last_warning is now populated with a one-line "<Type>: <msg>".
+    assert generic_loader.last_warning is not None
+    assert isinstance(generic_loader.last_warning, str)
+    # YAMLError surfaces as some subclass-name (ScannerError / ParserError);
+    # accept any yaml.*Error class name so we're robust to libyaml vs
+    # pure-python YAML lib differences across Python versions.
+    assert "Error" in generic_loader.last_warning
+
+
+def test_last_warning_cleared_on_successful_reload(
+    generic_loader: YC.MtimeCachedYamlLoader[dict],
+) -> None:
+    """After a malformed reload sets last_warning, a subsequent
+    successful reload (operator fixes the YAML) clears it back to None."""
+    # Start with a clean load.
+    generic_loader.get()
+    assert generic_loader.last_warning is None
+
+    # Break the YAML.
+    generic_loader.path.write_text("bad: [unclosed\n", encoding="utf-8")
+    _bump_mtime(generic_loader.path)
+    generic_loader.get()
+    assert generic_loader.last_warning is not None
+    failed_reload_count = generic_loader.reload_count
+
+    # Fix the YAML.
+    generic_loader.path.write_text("foo: 1\nbar: 2\nbaz: 3\n", encoding="utf-8")
+    _bump_mtime(generic_loader.path)
+    result = generic_loader.get()
+
+    assert result == {"foo": 1, "bar": 2, "baz": 3}
+    assert generic_loader.last_warning is None
+    assert generic_loader.reload_count == failed_reload_count + 1
+
+
+def test_last_warning_populated_on_structural_validation_failure(
+    tmp_path: Path,
+) -> None:
+    """Structural validation failure (parser raises) also populates
+    last_warning — separate path from the YAML-parse failure."""
+    yaml_path = tmp_path / "loader_test.yaml"
+    yaml_path.write_text("foo: 1\n", encoding="utf-8")
+
+    def _strict_parser(raw: dict) -> dict:
+        if "required_key" not in raw:
+            raise ValueError("required_key absent")
+        return dict(raw)
+
+    loader: YC.MtimeCachedYamlLoader[dict] = YC.MtimeCachedYamlLoader(
+        path=yaml_path,
+        parser=_strict_parser,
+        defaults={"_default": True},
+        name="strict-test-loader",
+        summary=lambda v: f"{len(v)} keys",
+    )
+
+    # First call falls back to defaults because the strict parser
+    # rejects the YAML's shape — last_warning populated with the
+    # ValueError message.
+    result = loader.get()
+    assert result == {"_default": True}
+    assert loader.last_warning is not None
+    assert "ValueError" in loader.last_warning
+    assert "required_key" in loader.last_warning
+
+
+def test_last_warning_cleared_by_cache_clear(
+    generic_loader: YC.MtimeCachedYamlLoader[dict],
+) -> None:
+    """cache_clear() resets last_warning to None (pytest-friendly reset)."""
+    generic_loader.path.write_text("bad: [unclosed\n", encoding="utf-8")
+    _bump_mtime(generic_loader.path)
+    generic_loader.get()
+    assert generic_loader.last_warning is not None
+
+    generic_loader.cache_clear()
+    assert generic_loader.last_warning is None
+
+
+# ---------------------------------------------------------------------------
+# YAML loader registry — operator-queryable MCP surface.
+# ---------------------------------------------------------------------------
+
+
+def test_register_loader_makes_loader_discoverable(
+    generic_loader: YC.MtimeCachedYamlLoader[dict],
+) -> None:
+    """register_loader() adds the loader to the registry under its name;
+    list_registered_loaders() returns a dict-snapshot containing it."""
+    surface_name = "test-registry-surface-canary"
+    # Defensive — clean any prior test residue (registry is module-level).
+    YC._yaml_loader_registry.pop(surface_name, None)
+    assert surface_name not in YC.list_registered_loaders()
+
+    YC.register_loader(surface_name, generic_loader)
+    snap = YC.list_registered_loaders()
+    assert surface_name in snap
+    assert snap[surface_name] is generic_loader
+
+    # Cleanup — registry is module-level so we don't leak into other tests.
+    YC._yaml_loader_registry.pop(surface_name, None)
+
+
+def test_list_registered_loaders_excludes_unregistered(
+    generic_loader: YC.MtimeCachedYamlLoader[dict],
+) -> None:
+    """NEGATIVE CANARY — a loader created but never registered does NOT
+    appear in list_registered_loaders(). Confirms the registry isn't
+    discovering loaders via some unintended mechanism (e.g. instance
+    tracking via __init_subclass__)."""
+    surface_name = "test-registry-negative-canary"
+    YC._yaml_loader_registry.pop(surface_name, None)
+    # generic_loader exists but was never registered under this name.
+    snap = YC.list_registered_loaders()
+    assert surface_name not in snap
+
+
+def test_register_loader_is_idempotent(
+    generic_loader: YC.MtimeCachedYamlLoader[dict],
+    tmp_path: Path,
+) -> None:
+    """Re-registering the same surface_name replaces the prior reference
+    (pytest-safe under module reload)."""
+    surface_name = "test-registry-idempotent-canary"
+    YC._yaml_loader_registry.pop(surface_name, None)
+    YC.register_loader(surface_name, generic_loader)
+
+    other_yaml = tmp_path / "other.yaml"
+    other_yaml.write_text("x: 1\n", encoding="utf-8")
+    other_loader: YC.MtimeCachedYamlLoader[dict] = YC.MtimeCachedYamlLoader(
+        path=other_yaml,
+        parser=lambda raw: dict(raw),
+        defaults={},
+        name="other-test-loader",
+        summary=lambda v: f"{len(v)} keys",
+    )
+    YC.register_loader(surface_name, other_loader)
+
+    snap = YC.list_registered_loaders()
+    assert snap[surface_name] is other_loader
+    assert snap[surface_name] is not generic_loader
+
+    YC._yaml_loader_registry.pop(surface_name, None)
+
+
+# ---------------------------------------------------------------------------
 # Invariant 4 — thread-safety: concurrent accessors don't see torn state.
 # ---------------------------------------------------------------------------
 
