@@ -38,7 +38,7 @@ import logging
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 import yaml
 
@@ -324,6 +324,116 @@ class MtimeCachedYamlLoader(Generic[T]):
             self.reload_count = 0
             self.last_warning = None
 
+    def state_snapshot(self) -> dict[str, Any]:
+        """Return a JSON-shaped snapshot of the loader's current state.
+
+        Public abstraction-boundary method — replaces the
+        ``getattr(loader, "_cached_mtime_ns", None)``-style private-attr
+        reads previously scattered across ``tools/hardware_firmware.py``
+        ``_surface_state_payload``. Reviewer A A6+A7 (postmortem 2026-05-15)
+        deferred fix — the defensive ``getattr(..., None)`` shape silently
+        masked refactor signals (any rename of ``_cached_mtime_ns`` →
+        ``_atomic_mtime`` would have surfaced as
+        ``yaml_mtime_iso=null/status=defaults`` without an exception).
+
+        Keys (stable contract for MCP consumers):
+
+          * ``path`` (str): resolved YAML path at the time of call.
+          * ``loaded_from_yaml`` (bool): whether a successful YAML load
+            has completed (vs falling back to defaults).
+          * ``yaml_mtime_ns`` (int | None): ``st_mtime_ns`` of the
+            cached YAML on disk; None when no successful load.
+          * ``yaml_mtime_iso`` (str | None): ISO-8601 UTC timestamp of
+            the cached YAML's mtime; None when no successful load.
+          * ``summary`` (str): output of the loader's summary callable
+            against the currently-cached value; "" when summary is None
+            or the value is None; "<summary unavailable>" when the
+            callable raises.
+          * ``last_warning`` (str | None): the most recent reload-failure
+            message; None on initial-load success or never-attempted.
+          * ``reload_count`` (int): number of successful reloads since
+            instantiation OR since the last ``cache_clear()``.
+          * ``stat_count`` (int): number of ``get()`` calls since
+            instantiation OR since the last ``cache_clear()``.
+
+        Thread-safe via the existing RLock — a concurrent reload either
+        completes before snapshot or after, never torn-mid-update. The
+        snapshot itself is a fresh dict with no shared references to
+        the cached value.
+        """
+        with self._lock:
+            mtime_ns = self._cached_mtime_ns
+            if mtime_ns is not None:
+                import datetime as _dt
+
+                mtime_iso: str | None = _dt.datetime.fromtimestamp(
+                    mtime_ns / 1_000_000_000, tz=_dt.timezone.utc,
+                ).isoformat()
+            else:
+                mtime_iso = None
+
+            cached_value = self._cached
+            try:
+                summary = (
+                    self._summary(cached_value)
+                    if cached_value is not None
+                    else ""
+                )
+            except Exception:  # noqa: BLE001 — summary failures must surface
+                summary = "<summary unavailable>"
+
+            return {
+                "path": str(self._path_resolver()),
+                "loaded_from_yaml": bool(self._loaded_from_yaml),
+                "yaml_mtime_ns": mtime_ns,
+                "yaml_mtime_iso": mtime_iso,
+                "summary": summary,
+                "last_warning": self.last_warning,
+                "reload_count": int(self.reload_count),
+                "stat_count": int(self.stat_count),
+            }
+
+
+def surface_state_payload(
+    surface_name: str, loader: MtimeCachedYamlLoader[Any],
+) -> dict[str, Any]:
+    """Build the MCP-tool JSON state payload for one registered loader.
+
+    Cross-domain helper (Reviewer A A7 2026-05-15) — moved here from
+    ``app/ai/tools/hardware_firmware.py`` because the shape is generic
+    over the YAML-cache class and not hw-firmware-specific. New
+    consumers (SBOM metadata cache, future binary-analysis pattern
+    cache) can reuse this helper without touching the hw-firmware
+    subpackage.
+
+    Wraps the loader's ``state_snapshot()`` (Reviewer A A6 2026-05-15)
+    and adds ``surface_name`` + a derived ``status`` field:
+
+      * ``status="malformed_fallback"`` when ``last_warning`` is set —
+        the loader is serving a previously-loaded valid state because
+        the latest reload failed.
+      * ``status="loaded"`` when ``loaded_from_yaml`` is True and
+        ``last_warning`` is None — the loader is serving valid YAML.
+      * ``status="defaults"`` when ``loaded_from_yaml`` is False — the
+        loader has never completed a successful YAML load.
+
+    The returned dict shape is stable for MCP consumers; downstream
+    callers (e.g. ``tools/hardware_firmware._handle_list_extension_points``)
+    pass it directly to ``json.dumps`` for tool output.
+    """
+    snap = loader.state_snapshot()
+    last_warning = snap.get("last_warning")
+    loaded_from_yaml = snap.get("loaded_from_yaml", False)
+    return {
+        "surface_name": surface_name,
+        **snap,
+        "status": (
+            "malformed_fallback"
+            if last_warning is not None
+            else ("loaded" if loaded_from_yaml else "defaults")
+        ),
+    }
+
 
 # Module-level registry of named loaders for MCP discovery.
 #
@@ -364,4 +474,5 @@ __all__ = [
     "MtimeCachedYamlLoader",
     "register_loader",
     "list_registered_loaders",
+    "surface_state_payload",
 ]

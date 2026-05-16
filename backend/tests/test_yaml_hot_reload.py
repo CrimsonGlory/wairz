@@ -926,12 +926,18 @@ def test_known_firmware_yaml_hot_reload(
 ) -> None:
     """Editing known_firmware.yaml lands within one _load_known_firmware() call."""
     yaml_path = tmp_path / "known_firmware.yaml"
+    # Synthetic family entries include a `category_regex` narrowing field
+    # to satisfy the F-FORENSIC-10 schema gate (Reviewer B B1 2026-05-15).
+    # Without a narrowing field the entry would be SKIPPED at load time
+    # and not surface in the returned list.
     yaml_path.write_text(
         textwrap.dedent(
             """\
             families:
               - name: synthetic-family-1
                 vendor: testvendor
+                category: testcat
+                category_regex: "^testcat$"
                 cves:
                   - id: CVE-9999-1111
                     severity: low
@@ -955,11 +961,15 @@ def test_known_firmware_yaml_hot_reload(
             families:
               - name: synthetic-family-1
                 vendor: testvendor
+                category: testcat
+                category_regex: "^testcat$"
                 cves:
                   - id: CVE-9999-1111
                     severity: low
               - name: synthetic-family-2
                 vendor: testvendor2
+                category: testcat2
+                category_regex: "^testcat2$"
                 cves:
                   - id: CVE-9999-2222
                     severity: medium
@@ -974,3 +984,305 @@ def test_known_firmware_yaml_hot_reload(
         "synthetic-family-1",
         "synthetic-family-2",
     }
+
+
+# ---------------------------------------------------------------------------
+# state_snapshot() public method on MtimeCachedYamlLoader (Reviewer A A6
+# 2026-05-15) — replaces the abstraction-boundary-violating private-attr
+# reads in tools/hardware_firmware._surface_state_payload that masked
+# refactor signals via defensive getattr(..., None).
+# ---------------------------------------------------------------------------
+
+
+def test_state_snapshot_returns_expected_keys(tmp_path: Path) -> None:
+    """Snapshot dict contains the documented stable contract keys."""
+    yaml_path = tmp_path / "snapshot.yaml"
+    yaml_path.write_text("foo: 1\nbar: 2\n", encoding="utf-8")
+    loader: YC.MtimeCachedYamlLoader[dict] = YC.MtimeCachedYamlLoader(
+        path=yaml_path,
+        parser=lambda raw: dict(raw),
+        defaults={},
+        name="snapshot-test",
+        summary=lambda v: f"{len(v)} keys",
+    )
+    loader.get()  # successful load
+
+    snap = loader.state_snapshot()
+
+    expected_keys = {
+        "path",
+        "loaded_from_yaml",
+        "yaml_mtime_ns",
+        "yaml_mtime_iso",
+        "summary",
+        "last_warning",
+        "reload_count",
+        "stat_count",
+    }
+    assert set(snap.keys()) == expected_keys, (
+        f"state_snapshot key drift: got {set(snap.keys())}, "
+        f"expected {expected_keys}"
+    )
+    assert snap["path"] == str(yaml_path)
+    assert snap["loaded_from_yaml"] is True
+    assert isinstance(snap["yaml_mtime_ns"], int)
+    assert snap["yaml_mtime_iso"] is not None
+    assert "Z" in snap["yaml_mtime_iso"] or "+00:00" in snap["yaml_mtime_iso"]
+    assert snap["summary"] == "2 keys"
+    assert snap["last_warning"] is None
+    assert snap["reload_count"] == 1
+    assert snap["stat_count"] == 1
+
+
+def test_state_snapshot_reflects_initial_defaults_state(
+    tmp_path: Path,
+) -> None:
+    """Loader instantiated WITHOUT a successful load → snapshot shows
+    loaded_from_yaml=False + null mtime."""
+    yaml_path = tmp_path / "missing.yaml"
+    loader: YC.MtimeCachedYamlLoader[dict] = YC.MtimeCachedYamlLoader(
+        path=yaml_path,
+        parser=lambda raw: dict(raw),
+        defaults={"default": "yes"},
+        name="defaults-test",
+        summary=lambda v: f"{len(v)} keys",
+    )
+
+    snap = loader.state_snapshot()
+
+    assert snap["loaded_from_yaml"] is False
+    assert snap["yaml_mtime_ns"] is None
+    assert snap["yaml_mtime_iso"] is None
+    assert snap["last_warning"] is None
+    assert snap["reload_count"] == 0
+    assert snap["stat_count"] == 0
+
+
+def test_state_snapshot_reflects_malformed_fallback_state(
+    tmp_path: Path,
+) -> None:
+    """After malformed reload → snapshot shows last_warning + previous
+    cached value preserved."""
+    import os
+    import time
+
+    yaml_path = tmp_path / "malformed.yaml"
+    yaml_path.write_text("foo: 1\n", encoding="utf-8")
+    loader: YC.MtimeCachedYamlLoader[dict] = YC.MtimeCachedYamlLoader(
+        path=yaml_path,
+        parser=lambda raw: dict(raw),
+        defaults={},
+        name="malformed-test",
+        summary=lambda v: f"{len(v)} keys",
+    )
+    loader.get()
+
+    snap_clean = loader.state_snapshot()
+    assert snap_clean["last_warning"] is None
+    assert snap_clean["loaded_from_yaml"] is True
+
+    yaml_path.write_text("[unclosed\n", encoding="utf-8")
+    now = time.time()
+    os.utime(yaml_path, (now + 1.0, now + 1.0))
+    loader.get()  # malformed reload
+
+    snap_malformed = loader.state_snapshot()
+    assert snap_malformed["last_warning"] is not None
+    assert "YAMLError" in snap_malformed["last_warning"] or (
+        "ScannerError" in snap_malformed["last_warning"]
+    ) or "ParserError" in snap_malformed["last_warning"]
+    assert snap_malformed["loaded_from_yaml"] is True
+
+
+def test_state_snapshot_summary_unavailable_on_callable_raise(
+    tmp_path: Path,
+) -> None:
+    """If the summary callable raises at snapshot time, the snapshot
+    returns the documented fallback string rather than propagating.
+
+    Loader uses a working summary at load time (so the success-path
+    INFO log doesn't blow up), then the summary callable is swapped
+    to a raising one before snapshot. Confirms the snapshot's
+    try-except defends against drift in summary-callable behaviour
+    over the loader's lifetime.
+    """
+    yaml_path = tmp_path / "summary_raises.yaml"
+    yaml_path.write_text("foo: 1\n", encoding="utf-8")
+
+    loader: YC.MtimeCachedYamlLoader[dict] = YC.MtimeCachedYamlLoader(
+        path=yaml_path,
+        parser=lambda raw: dict(raw),
+        defaults={},
+        name="summary-raises-test",
+        summary=lambda v: f"{len(v)} keys",
+    )
+    loader.get()
+
+    def _raises(_v: dict) -> str:
+        raise RuntimeError("summary boom")
+
+    loader._summary = _raises  # type: ignore[assignment]
+    snap = loader.state_snapshot()
+
+    assert snap["summary"] == "<summary unavailable>"
+
+
+def test_state_snapshot_thread_safety_under_concurrent_get(
+    tmp_path: Path,
+) -> None:
+    """Snapshot taken concurrently with a get() reload either reflects
+    the FULL previous state or the FULL new state — never torn.
+    """
+    import os
+    import threading
+    import time
+
+    yaml_path = tmp_path / "concurrent.yaml"
+    yaml_path.write_text("a: 1\nb: 2\n", encoding="utf-8")
+    loader: YC.MtimeCachedYamlLoader[dict] = YC.MtimeCachedYamlLoader(
+        path=yaml_path,
+        parser=lambda raw: dict(raw),
+        defaults={},
+        name="concurrent-test",
+        summary=lambda v: f"{len(v)} keys",
+    )
+    loader.get()
+
+    snapshots: list[dict] = []
+    stop_flag = threading.Event()
+
+    def _snap_loop() -> None:
+        while not stop_flag.is_set():
+            snapshots.append(loader.state_snapshot())
+
+    snap_thread = threading.Thread(target=_snap_loop)
+    snap_thread.start()
+
+    try:
+        for i in range(5):
+            yaml_path.write_text(
+                f"a: {i}\nb: {i+1}\nc: {i+2}\n", encoding="utf-8",
+            )
+            now = time.time()
+            os.utime(yaml_path, (now + i + 1.0, now + i + 1.0))
+            loader.get()
+    finally:
+        stop_flag.set()
+        snap_thread.join(timeout=5.0)
+
+    # Each snapshot must have internally-consistent state — if mtime_ns
+    # is set, summary must also be populated.
+    for snap in snapshots:
+        if snap["yaml_mtime_ns"] is not None:
+            assert snap["summary"] != "", (
+                "torn snapshot: mtime_ns set but summary empty"
+            )
+
+
+# ---------------------------------------------------------------------------
+# surface_state_payload() helper — moved to app/utils/yaml_cache from
+# app/ai/tools/hardware_firmware (Reviewer A A7 2026-05-15 cross-domain
+# placement).
+# ---------------------------------------------------------------------------
+
+
+def test_surface_state_payload_status_loaded(tmp_path: Path) -> None:
+    """Successful load → status='loaded'."""
+    yaml_path = tmp_path / "loaded.yaml"
+    yaml_path.write_text("a: 1\n", encoding="utf-8")
+    loader: YC.MtimeCachedYamlLoader[dict] = YC.MtimeCachedYamlLoader(
+        path=yaml_path,
+        parser=lambda raw: dict(raw),
+        defaults={},
+        name="loaded-test",
+        summary=lambda v: f"{len(v)} keys",
+    )
+    loader.get()
+
+    payload = YC.surface_state_payload("test_surface", loader)
+
+    assert payload["surface_name"] == "test_surface"
+    assert payload["status"] == "loaded"
+    assert payload["loaded_from_yaml"] is True
+    assert payload["last_warning"] is None
+    assert payload["path"] == str(yaml_path)
+
+
+def test_surface_state_payload_status_defaults_when_missing(
+    tmp_path: Path,
+) -> None:
+    """Missing file (no successful load) → status='defaults'."""
+    yaml_path = tmp_path / "missing.yaml"
+    loader: YC.MtimeCachedYamlLoader[dict] = YC.MtimeCachedYamlLoader(
+        path=yaml_path,
+        parser=lambda raw: dict(raw),
+        defaults={"default": "yes"},
+        name="missing-test",
+        summary=lambda v: f"{len(v)} keys",
+    )
+    loader.get()  # falls back to defaults
+
+    payload = YC.surface_state_payload("missing_surface", loader)
+
+    assert payload["status"] == "defaults"
+    assert payload["loaded_from_yaml"] is False
+    assert payload["last_warning"] is None
+
+
+def test_surface_state_payload_status_malformed_fallback(
+    tmp_path: Path,
+) -> None:
+    """Malformed reload → status='malformed_fallback'."""
+    import os
+    import time
+
+    yaml_path = tmp_path / "fallback.yaml"
+    yaml_path.write_text("a: 1\n", encoding="utf-8")
+    loader: YC.MtimeCachedYamlLoader[dict] = YC.MtimeCachedYamlLoader(
+        path=yaml_path,
+        parser=lambda raw: dict(raw),
+        defaults={},
+        name="fallback-test",
+        summary=lambda v: f"{len(v)} keys",
+    )
+    loader.get()
+
+    yaml_path.write_text("[bad-yaml\n", encoding="utf-8")
+    now = time.time()
+    os.utime(yaml_path, (now + 1.0, now + 1.0))
+    loader.get()  # WARN + keep previous + populate last_warning
+
+    payload = YC.surface_state_payload("fallback_surface", loader)
+
+    assert payload["status"] == "malformed_fallback"
+    assert payload["loaded_from_yaml"] is True  # previous-load preserved
+    assert payload["last_warning"] is not None
+
+
+def test_surface_state_payload_no_private_attr_access_required() -> None:
+    """Rule #46 META-CANARY for the Reviewer A A6 abstraction-boundary
+    fix: confirm the public state_snapshot() method exists + the helper
+    works against a public interface only.
+
+    A future refactor that renames _cached_mtime_ns → _atomic_mtime
+    MUST not silently break the MCP tool — state_snapshot() forces an
+    AttributeError or test failure rather than getattr-masked silent
+    nulls.
+    """
+    # If state_snapshot() were missing, this would AttributeError —
+    # that's the load-bearing contract.
+    method = getattr(
+        YC.MtimeCachedYamlLoader, "state_snapshot", None,
+    )
+    assert callable(method), (
+        "Reviewer A A6 abstraction-boundary contract VIOLATED: "
+        "MtimeCachedYamlLoader.state_snapshot is missing — the MCP "
+        "list_extension_points tool depends on this public method"
+    )
+
+    helper = getattr(YC, "surface_state_payload", None)
+    assert callable(helper), (
+        "Reviewer A A7 cross-domain placement VIOLATED: "
+        "yaml_cache.surface_state_payload is missing — should not "
+        "be re-introduced into app/ai/tools/hardware_firmware.py"
+    )
