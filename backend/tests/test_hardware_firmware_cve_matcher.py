@@ -1629,6 +1629,49 @@ def test_fragattacks_advisory_id_canonical_and_fits_varchar_20() -> None:
     )
 
 
+def test_fragattacks_cvss_matches_nvd_primary_per_recursive_discipline() -> None:
+    """Reviewer B 2026-05-15-PM independent NVD WebFetch verification:
+    the 3 SPEC-level FragAttacks CVEs each carry NVD primary CVSS 3.1
+    scores of LOW severity (3.5 / 2.6 / 3.5), NOT the medium 6.5 that
+    pre-realignment shipped.
+
+    Per Rule #19 recursive NVD-CPE verification extended to CVSS field
+    values (Pattern #2 from postmortem-hw-firmware-mcp-tegra-2026-05-15:
+    "CVSS field values get the per-NVD discipline too, not just
+    attribution scope"). Both FragAttacks advisory entries must reflect
+    NVD primary scoring; aggregate cvss_score is the worst-case
+    individual CVE (3.5 — the higher of 3.5/2.6/3.5).
+
+    NVD primary CVSS 3.1 baseScore + baseSeverity per
+    https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=...:
+      - CVE-2020-24586: 3.5 LOW
+      - CVE-2020-24587: 2.6 LOW
+      - CVE-2020-24588: 3.5 LOW
+    """
+    families = _load_known_firmware()
+    fragattacks_entries = [
+        fam
+        for fam in families
+        if fam.get("advisory_id") == "ADVISORY-FRAGATTACK"
+    ]
+    assert len(fragattacks_entries) == 2, (
+        f"Expected 2 ADVISORY-FRAGATTACK entries (broadcom + qualcomm); "
+        f"got {len(fragattacks_entries)}"
+    )
+    for fam in fragattacks_entries:
+        assert fam.get("severity") == "low", (
+            f"FragAttacks entry {fam.get('name')!r} severity drift: "
+            f"got {fam.get('severity')!r}, expected 'low' per NVD "
+            "primary CVSS 3.1 (all 3 SPEC-level CVEs are LOW)"
+        )
+        assert abs(fam.get("cvss_score", 0) - 3.5) < 0.05, (
+            f"FragAttacks entry {fam.get('name')!r} cvss_score drift: "
+            f"got {fam.get('cvss_score')!r}, expected 3.5 per NVD "
+            "primary CVSS 3.1 (worst-case of 3.5/2.6/3.5 across the "
+            "3 SPEC-level CVEs)"
+        )
+
+
 def test_fragattacks_advisory_entries_pass_forensic10_gate() -> None:
     """Rule #46 gate-confirmation canary: both FragAttacks entries
     pass the F-FORENSIC-10 schema gate via the advisory-only bypass
