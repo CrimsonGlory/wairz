@@ -341,6 +341,56 @@ def _extract_l4t_release_from_path(path: str) -> str | None:
     return f"R{major}.{revision_x}"
 
 
+# Path-context tokens that gate the magic-byte-bypass path-inference
+# fallback. Without this gate, the 5th fallback path would apply
+# l4t_release to ANY blob whose filesystem path happens to contain
+# an R<N>.<x>.<y> substring (e.g. a project named "Recovery_R32.3.1
+# _backup" that's completely unrelated to NVIDIA Tegra). Requiring
+# at least one Tegra/L4T context token in the path prevents false-
+# positive l4t_release attribution on non-Tegra blobs.
+_TEGRA_PATH_CONTEXT_TOKENS: tuple[str, ...] = (
+    "l4t",
+    "tegra",
+    "jetson",
+    "bpmp",
+    "cboot",
+    "nvtboot",
+)
+
+
+def _has_tegra_path_context(path: str) -> bool:
+    """Check if any path component containing the L4T release substring
+    ALSO carries a Tegra/L4T context token.
+
+    Per-component check (NOT whole-path substring) — prevents false-
+    positive attribution when a path component upstream of the
+    release-bearing component happens to contain a Tegra token (e.g.
+    test fixture paths like ``/tmp/pytest/test_l4t_release/MyProject_
+    R32.3.1_backup/`` where "l4t" is in the test name far from the
+    release substring).
+
+    The release-bearing component itself MUST carry one of the Tegra
+    context tokens for attribution to fire — typical real-world shape:
+    ``L4T_BSP_SecureBoot.R32.3.1.tar.gz_extracted/`` has both
+    "L4T" / "BSP" + "R32.3.1" in the SAME component.
+    """
+    import os.path as _ospath
+
+    if not path:
+        return False
+    # Split on both / and \ to handle absolute Linux paths + Windows.
+    components = path.replace("\\", "/").split("/")
+    for comp in components:
+        comp_lower = comp.lower()
+        if not _L4T_RELEASE_PATH_RE.search(comp):
+            continue
+        # This component HAS the release substring; check if it ALSO
+        # has a Tegra/L4T context token.
+        if any(token in comp_lower for token in _TEGRA_PATH_CONTEXT_TOKENS):
+            return True
+    return False
+
+
 def _read_head(path: str, limit: int) -> bytes:
     """Read up to ``limit`` bytes from ``path``. Empty bytes on any OSError.
 
@@ -605,7 +655,23 @@ def parse_tegra_blob(
 
         # No Tegra-eligible magic. NVIDIA wrapper (mb1/tos) and BUP
         # container magics are TBD — caller's filename-stage decision
-        # carries for those subsets until magic is pinned.
+        # carries for those subsets until magic is pinned. HOWEVER:
+        # if the blob's path carries Tegra context (L4T_BSP_* /
+        # tegra* / jetson* / bpmp* / cboot* / nvtboot*) AND the path
+        # encodes an L4T release string, surface ``l4t_release`` so
+        # the matcher's version_regex can activate the forward-
+        # prepared Tegra CVE pins on raw_bin Tegra-wrapper blobs
+        # whose magic is one of the deferred-TBD subsets. Returns
+        # vendor=None so merge_tegra_evidence preserves the
+        # filename-stage vendor without override.
+        if _has_tegra_path_context(path):
+            l4t_release = _extract_l4t_release_from_path(path)
+            if l4t_release is not None:
+                return ParsedBlob(
+                    vendor=None,
+                    metadata={"l4t_release": l4t_release},
+                )
+
         return None
 
     except Exception as exc:  # noqa: BLE001 — parser contract: don't raise

@@ -747,6 +747,81 @@ def test_l4t_release_reaches_cve_matcher_stringify_metadata() -> None:
     )
 
 
+def test_l4t_release_5th_fallback_fires_on_raw_bin_tegra_blob(
+    tmp_path: Path,
+) -> None:
+    """Raw-binary Tegra-wrapper blob (mb1.bin / cboot.bin / nvtboot.bin)
+    with magic that doesn't match any of the 4 in-scope formats —
+    parser MUST still surface l4t_release via the 5th path-context
+    fallback when the path encodes the L4T release AND contains a
+    Tegra/L4T context token.
+
+    Critical for DS1-class corpus: ~30 of 99 DS1 blobs are NVIDIA
+    raw-binary wrappers (mb1_t194_prod.bin, cboot_t194.bin, etc.)
+    that filename-stage classifies as vendor=nvidia category=bootloader
+    but whose magic doesn't match ELF / FDT / Android / Deb. Without
+    the 5th fallback the L4T release isn't propagated to these blobs
+    and the CVE pins don't activate.
+    """
+    bsp_dir = tmp_path / "L4T_BSP_SecureBoot.R32.3.1.tar.gz_extracted" / "bootloader"
+    bsp_dir.mkdir(parents=True)
+    fixture = bsp_dir / "mb1_t194_prod.bin"
+    # Raw-binary wrapper — magic doesn't match any of the 4 subsets.
+    fixture.write_bytes(b"\x00\x01\x02\x03" + b"\x00" * 256)
+
+    magic = _read_magic(fixture)
+    result = parse_tegra_blob(str(fixture), magic, fixture.stat().st_size)
+
+    assert result is not None, (
+        "5th fallback FAILED: raw-binary Tegra blob in BSP path "
+        "should still surface l4t_release"
+    )
+    # vendor=None — let the filename-stage classifier own the vendor
+    # decision; the 5th fallback only contributes the l4t_release.
+    assert result.vendor is None
+    assert result.metadata["l4t_release"] == "R32.3.1"
+
+
+def test_l4t_release_5th_fallback_does_not_fire_without_path_context(
+    tmp_path: Path,
+) -> None:
+    """5th fallback MUST require both an R<N>.<x>.<y> path encoding
+    AND a Tegra/L4T context token. A path with R<N>.<x>.<y> but no
+    Tegra context (e.g. a random project's backup directory) MUST NOT
+    receive a spurious l4t_release attribution.
+    """
+    benign_dir = tmp_path / "MyProject_R32.3.1_backup" / "data"
+    benign_dir.mkdir(parents=True)
+    fixture = benign_dir / "random.bin"
+    fixture.write_bytes(b"\x00" * 256)
+
+    magic = _read_magic(fixture)
+    result = parse_tegra_blob(str(fixture), magic, fixture.stat().st_size)
+
+    assert result is None, (
+        "5th fallback over-fired: non-Tegra path with R<N>.<x>.<y> "
+        "substring got spurious l4t_release attribution. Path-context "
+        "gate (L4T / tegra / jetson / bpmp / cboot / nvtboot) is "
+        "load-bearing."
+    )
+
+
+def test_l4t_release_5th_fallback_no_release_in_path_returns_none(
+    tmp_path: Path,
+) -> None:
+    """Tegra-context path WITHOUT an R<N>.<x>.<y> encoding MUST NOT
+    fire the 5th fallback (no release string available to surface)."""
+    tegra_dir = tmp_path / "L4T_BSP_no_version_in_path" / "bootloader"
+    tegra_dir.mkdir(parents=True)
+    fixture = tegra_dir / "bpmp.bin"
+    fixture.write_bytes(b"\x00" * 256)
+
+    magic = _read_magic(fixture)
+    result = parse_tegra_blob(str(fixture), magic, fixture.stat().st_size)
+
+    assert result is None
+
+
 def test_l4t_release_path_inference_extracts_from_bsp_archive_dirname(
     tmp_path: Path,
 ) -> None:
