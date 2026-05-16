@@ -164,6 +164,52 @@ _SAFE_FORMATTER = _SafeRationaleFormatter()
 _HEAD_SCAN_BYTES = 4 * 1024
 _TAIL_SCAN_BYTES = 8 * 1024
 
+
+# Public table of BT family parsers — operator-facing surface used by
+# the ``list_extension_points`` MCP tool (Reviewer C CC-3 / HOT-1 /
+# HOT-2 closed 2026-05-15). Each entry names a family the in-tree
+# BtFirmwareBannerParser dispatches to. Adding a 5th BT family means:
+# (a) implementing the family parser below; (b) appending an entry
+# here. The MCP tool reads this tuple directly so the new family
+# becomes operator-discoverable in the same commit.
+BT_PARSER_FAMILIES: tuple[dict[str, str], ...] = (
+    {
+        "family": "qca_rome",
+        "description": (
+            "Qualcomm Atheros Rome / WCN3xxx / FastConnect TLV-wrapped "
+            "BTFM patches with 'BTFM.<codename>.x.y.z-<build>-QCA*ROM*-N' "
+            "banners. Codenames: CMC (Comanche/WCN3950), CHE (Cherokee/"
+            "WCN3990/3991/3998), APA (Apache/WCN3988), HAS (Hastings/"
+            "QCA6390), MOS (Moselle/WCN6750)."
+        ),
+    },
+    {
+        "family": "broadcom_hcd",
+        "description": (
+            "Broadcom / Cypress / Infineon HCD — concatenated HCI "
+            "command stream with BRCMcfgS / BRCMcfgD magic tags. "
+            "Chip ID encoded as BCM43xxx / CYW43xxx ASCII string."
+        ),
+    },
+    {
+        "family": "mediatek_bt",
+        "description": (
+            "MediaTek WMT / btmtk patches with 32-byte btmtk_patch_header "
+            "(datetime[16] + platform[4] + hwver/swver + magicnum). "
+            "BT vs WLAN disambiguated by WMT/btmtk/BT_FW markers."
+        ),
+    },
+    {
+        "family": "realtek_bt",
+        "description": (
+            "Realtek Bluetooth firmware — rtl_epatch_header v1 "
+            "('Realtech' magic + __le32 fw_version + __le16 num_patches) "
+            "or v2 ('RTBTCore' magic + __u8 fw_version[8] + __le32 "
+            "num_sections). project_id read from trailing TLV records."
+        ),
+    },
+)
+
 # Broadcom config-block magic — anchors HCD verdicts.
 _BRCM_CFG_TAGS = (b"BRCMcfgS", b"BRCMcfgD")
 

@@ -339,6 +339,113 @@ async def _handle_export_hardware_firmware_hbom(
     return json.dumps(hbom, indent=2, default=str)
 
 
+def _surface_state_payload(surface_name: str, loader) -> dict:
+    """Build the JSON-shaped state dict for one registered loader.
+
+    Held outside the handler so a unit test can drive it directly
+    against a synthesized loader without going through the MCP dispatch
+    layer. ``loader`` is intentionally untyped to keep this helper
+    insulated from yaml_cache type imports at call time.
+    """
+    mtime_ns = getattr(loader, "_cached_mtime_ns", None)
+    loaded_from_yaml = getattr(loader, "_loaded_from_yaml", False)
+    cached_value = getattr(loader, "_cached", None)
+    summary_callable = getattr(loader, "_summary", None)
+    try:
+        summary = (
+            summary_callable(cached_value)
+            if callable(summary_callable) and cached_value is not None
+            else ""
+        )
+    except Exception:  # noqa: BLE001 — surface summary failures as strings
+        summary = "<summary unavailable>"
+
+    if mtime_ns is not None:
+        import datetime as _dt
+        mtime_iso = _dt.datetime.fromtimestamp(
+            mtime_ns / 1_000_000_000, tz=_dt.timezone.utc
+        ).isoformat()
+    else:
+        mtime_iso = None
+
+    return {
+        "surface_name": surface_name,
+        "path": str(loader.path),
+        "loaded_from_yaml": bool(loaded_from_yaml),
+        "yaml_mtime_iso": mtime_iso,
+        "summary": summary,
+        "reload_count": int(getattr(loader, "reload_count", 0)),
+        "stat_count": int(getattr(loader, "stat_count", 0)),
+        "last_warning": getattr(loader, "last_warning", None),
+        "status": (
+            "malformed_fallback"
+            if getattr(loader, "last_warning", None) is not None
+            else ("loaded" if loaded_from_yaml else "defaults")
+        ),
+    }
+
+
+async def _handle_list_extension_points(input: dict, context: ToolContext) -> str:
+    """List operator-extension points (YAML surfaces + parser/family maps).
+
+    Returns one entry per loader currently registered with the global
+    ``yaml_cache.register_loader`` registry — load timestamp, entry
+    summary, reload count, and last_warning (queryable so operators
+    can confirm their YAML edits landed without shelling into the
+    container to grep WARN logs).
+
+    Plus two top-level maps:
+    - parser_format_map — which parser handles which classifier format
+      string (walked from the PARSER_REGISTRY at call time, so a new
+      parser self-registering surfaces here without any tool change).
+    - bt_parser_families — the BT-specific dispatch table (qca_rome /
+      broadcom_hcd / mediatek_bt / realtek_bt) verbatim from
+      ``parsers/bt_firmware_banner.BT_PARSER_FAMILIES``.
+
+    Operators use this tool to:
+    - Discover the 6+ YAML extension surfaces without reading docs.
+    - Verify their YAML edit was actually loaded (vs silently falling
+      back to in-tree defaults).
+    - See the latest YAML parse error (`last_warning`) so they can fix
+      a typo without context-switching to the container shell.
+    """
+    from app.services.hardware_firmware.parsers import PARSER_REGISTRY
+    from app.services.hardware_firmware.parsers.bt_firmware_banner import (
+        BT_PARSER_FAMILIES,
+    )
+    from app.utils.yaml_cache import list_registered_loaders
+
+    surface_filter = input.get("surface_filter")
+    loaders = list_registered_loaders()
+
+    if surface_filter:
+        import re as _re
+        try:
+            rx = _re.compile(surface_filter, _re.IGNORECASE)
+        except _re.error as exc:
+            return f"Error: invalid surface_filter regex: {exc}"
+        loaders = {
+            name: ld for name, ld in loaders.items() if rx.search(name)
+        }
+
+    extension_surfaces = [
+        _surface_state_payload(name, ld)
+        for name, ld in sorted(loaders.items())
+    ]
+
+    parser_format_map = {
+        fmt: parser.__class__.__name__
+        for fmt, parser in sorted(PARSER_REGISTRY.items())
+    }
+
+    payload = {
+        "extension_surfaces": extension_surfaces,
+        "parser_format_map": parser_format_map,
+        "bt_parser_families": list(BT_PARSER_FAMILIES),
+    }
+    return json.dumps(payload, indent=2, default=str, sort_keys=False)
+
+
 async def _handle_check_firmware_cves(input: dict, context: ToolContext) -> str:
     """Run the three-tier CVE matcher against all detected hw-firmware blobs."""
     from app.services.hardware_firmware.cve_matcher import match_firmware_cves
@@ -547,4 +654,33 @@ def register_hardware_firmware_tools(registry: ToolRegistry) -> None:
             "required": ["dtb_path"],
         },
         handler=_handle_extract_dtb,
+    )
+
+    registry.register(
+        name="list_extension_points",
+        description=(
+            "List all operator-extension points the wairz hardware-firmware "
+            "classifier respects: YAML surfaces (vendor_prefixes, firmware_"
+            "patterns, bt_qca_codenames, bt_banner_cve_pins, bt_realtek_project_"
+            "ids, known_firmware, …) plus the parser-format → handler map and "
+            "the BT family dispatch table. Per-surface state includes path, "
+            "load timestamp, entry summary, reload count, AND last_warning "
+            "(the most recent malformed-YAML message — non-null means your "
+            "YAML edit silently fell back to the prior valid state). Use "
+            "this to verify your YAML edits actually loaded without shelling "
+            "into the container."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "surface_filter": {
+                    "type": "string",
+                    "description": (
+                        "Optional case-insensitive regex to filter surfaces "
+                        "by name (e.g. 'bt_' for BT-only surfaces)."
+                    ),
+                },
+            },
+        },
+        handler=_handle_list_extension_points,
     )

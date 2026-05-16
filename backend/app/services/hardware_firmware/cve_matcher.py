@@ -44,7 +44,7 @@ from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.models.sbom import SbomComponent, SbomVulnerability
 from app.services.cpe_dictionary_service import get_cpe_dictionary_service
 from app.services.hardware_firmware import kernel_vulns_index as kvi
-from app.utils.yaml_cache import MtimeCachedYamlLoader
+from app.utils.yaml_cache import MtimeCachedYamlLoader, register_loader
 from app.services.jsonb_normalizers import _normalize_hardware_firmware_blobs_metadata
 
 logger = logging.getLogger(__name__)
@@ -200,6 +200,7 @@ _KNOWN_FIRMWARE_LOADER: MtimeCachedYamlLoader[list[dict]] = MtimeCachedYamlLoade
     name="cve_matcher",
     summary=_summary_known_firmware,
 )
+register_loader("known_firmware", _KNOWN_FIRMWARE_LOADER)
 
 
 def _load_known_firmware() -> list[dict]:

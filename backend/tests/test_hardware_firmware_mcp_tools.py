@@ -16,6 +16,7 @@ from app.ai.tool_registry import ToolContext
 from app.ai.tools.hardware_firmware import (
     _handle_extract_dtb,
     _handle_find_unsigned_firmware,
+    _handle_list_extension_points,
 )
 from app.models.hardware_firmware import HardwareFirmwareBlob
 
@@ -172,3 +173,179 @@ async def test_extract_dtb_missing_file_returns_error(
     )
     out = await _handle_extract_dtb({"dtb_path": "/does-not-exist.dtb"}, ctx)
     assert "not a file" in out
+
+
+# ---------------------------------------------------------------------------
+# list_extension_points — operator-facing YAML / parser discovery tool.
+#
+# Closes Reviewer C CC-3 / HOT-1 / HOT-2 from postmortem 2026-05-18.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_extension_points_returns_registered_yamls() -> None:
+    """All 7 YAML surfaces registered via register_loader() must appear."""
+    import json as _json
+
+    db = AsyncMock()
+    ctx = _make_context(db)
+
+    # Import patterns_loader + cve_matcher to trigger their module-level
+    # register_loader() calls (no-op if already imported by another test).
+    import app.services.hardware_firmware.cve_matcher  # noqa: F401
+    import app.services.hardware_firmware.patterns_loader  # noqa: F401
+
+    out = await _handle_list_extension_points({}, ctx)
+    payload = _json.loads(out)
+
+    surface_names = {s["surface_name"] for s in payload["extension_surfaces"]}
+    expected = {
+        "vendor_prefixes",
+        "firmware_patterns",
+        "firmware_patterns_contexts",
+        "bt_qca_codenames",
+        "bt_banner_cve_pins",
+        "bt_realtek_project_ids",
+        "known_firmware",
+    }
+    assert expected.issubset(surface_names), (
+        f"missing: {expected - surface_names}"
+    )
+
+    # Each surface entry has the required shape.
+    for entry in payload["extension_surfaces"]:
+        assert "surface_name" in entry
+        assert "path" in entry
+        assert "loaded_from_yaml" in entry
+        assert "yaml_mtime_iso" in entry  # may be None
+        assert "summary" in entry
+        assert "reload_count" in entry
+        assert "last_warning" in entry  # may be None
+        assert "status" in entry
+
+    # parser_format_map walks PARSER_REGISTRY — bt_fw_banner must appear.
+    assert "bt_fw_banner" in payload["parser_format_map"]
+    assert (
+        payload["parser_format_map"]["bt_fw_banner"]
+        == "BtFirmwareBannerParser"
+    )
+
+    # bt_parser_families table is verbatim from bt_firmware_banner.
+    family_names = {f["family"] for f in payload["bt_parser_families"]}
+    assert family_names == {
+        "qca_rome",
+        "broadcom_hcd",
+        "mediatek_bt",
+        "realtek_bt",
+    }
+
+
+@pytest.mark.asyncio
+async def test_list_extension_points_excludes_unregistered_loader() -> None:
+    """NEGATIVE CANARY (Rule #46) — a loader created in-test but never
+    registered via register_loader() must NOT appear in the output."""
+    import json as _json
+
+    from app.utils import yaml_cache as YC
+
+    db = AsyncMock()
+    ctx = _make_context(db)
+
+    # Synthesize a loader without registering it.
+    not_registered_name = "test-list-extension-points-negative-canary"
+    YC._yaml_loader_registry.pop(not_registered_name, None)
+
+    out = await _handle_list_extension_points({}, ctx)
+    payload = _json.loads(out)
+    surface_names = {s["surface_name"] for s in payload["extension_surfaces"]}
+    assert not_registered_name not in surface_names
+
+
+@pytest.mark.asyncio
+async def test_list_extension_points_surface_filter_narrows_results() -> None:
+    """surface_filter regex restricts the returned surfaces."""
+    import json as _json
+
+    db = AsyncMock()
+    ctx = _make_context(db)
+
+    import app.services.hardware_firmware.patterns_loader  # noqa: F401
+
+    out = await _handle_list_extension_points({"surface_filter": "^bt_"}, ctx)
+    payload = _json.loads(out)
+    surface_names = {s["surface_name"] for s in payload["extension_surfaces"]}
+    # All matches start with bt_.
+    assert all(name.startswith("bt_") for name in surface_names)
+    # And the BT surfaces ARE included.
+    assert "bt_qca_codenames" in surface_names
+
+
+@pytest.mark.asyncio
+async def test_list_extension_points_surface_filter_invalid_regex_returns_error() -> None:
+    """Malformed regex returns an Error: message rather than crashing."""
+    db = AsyncMock()
+    ctx = _make_context(db)
+    out = await _handle_list_extension_points({"surface_filter": "["}, ctx)
+    assert out.startswith("Error: invalid surface_filter regex")
+
+
+@pytest.mark.asyncio
+async def test_list_extension_points_surfaces_last_warning_after_malformed_yaml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End-to-end canary: a malformed YAML edit produces a non-null
+    last_warning in the MCP tool output (the operator-visible surface
+    of HOT-2). Synthesizes the failure against a real registered loader
+    and confirms the tool reflects the WARN state."""
+    import json as _json
+    import os
+    import time
+
+    from app.utils import yaml_cache as YC
+
+    db = AsyncMock()
+    ctx = _make_context(db)
+
+    yaml_path = tmp_path / "canary_surface.yaml"
+    yaml_path.write_text("foo: 1\n", encoding="utf-8")
+    loader: YC.MtimeCachedYamlLoader[dict] = YC.MtimeCachedYamlLoader(
+        path=yaml_path,
+        parser=lambda raw: dict(raw),
+        defaults={},
+        name="canary",
+        summary=lambda v: f"{len(v)} keys",
+    )
+    surface_name = "list_extension_points_canary_surface"
+    YC.register_loader(surface_name, loader)
+    try:
+        loader.get()  # successful load
+        out = await _handle_list_extension_points(
+            {"surface_filter": surface_name}, ctx,
+        )
+        payload = _json.loads(out)
+        entry = next(
+            s for s in payload["extension_surfaces"]
+            if s["surface_name"] == surface_name
+        )
+        assert entry["last_warning"] is None
+        assert entry["status"] == "loaded"
+
+        # Break the YAML and bump mtime.
+        yaml_path.write_text("bad: [unclosed\n", encoding="utf-8")
+        now = time.time()
+        os.utime(yaml_path, (now + 1.0, now + 1.0))
+        loader.get()  # failed reload — keeps previous + populates last_warning
+
+        out2 = await _handle_list_extension_points(
+            {"surface_filter": surface_name}, ctx,
+        )
+        payload2 = _json.loads(out2)
+        entry2 = next(
+            s for s in payload2["extension_surfaces"]
+            if s["surface_name"] == surface_name
+        )
+        assert entry2["last_warning"] is not None
+        assert "Error" in entry2["last_warning"]
+        assert entry2["status"] == "malformed_fallback"
+    finally:
+        YC._yaml_loader_registry.pop(surface_name, None)

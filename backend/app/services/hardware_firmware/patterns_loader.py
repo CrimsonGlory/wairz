@@ -43,7 +43,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from app.utils.yaml_cache import MtimeCachedYamlLoader
+from app.utils.yaml_cache import MtimeCachedYamlLoader, register_loader
 
 logger = logging.getLogger(__name__)
 
@@ -1312,6 +1312,18 @@ _REALTEK_LOADER: MtimeCachedYamlLoader[tuple[RealtekChipsetEntry, ...]] = (
         summary=_summary_realtek_chipsets,
     )
 )
+
+
+# MCP observability — register each loader under a stable kebab-case
+# surface name so the ``list_extension_points`` MCP tool can enumerate
+# them at call time. Adding a future YAML surface requires only one
+# new register_loader() line; the tool itself has no hard-coded list.
+register_loader("vendor_prefixes", _VENDORS_LOADER)
+register_loader("firmware_patterns", _PATTERNS_LOADER)
+register_loader("firmware_patterns_contexts", _PATH_CONTEXTS_LOADER)
+register_loader("bt_qca_codenames", _BT_CODENAMES_LOADER)
+register_loader("bt_banner_cve_pins", _BANNER_CVE_PINS_LOADER)
+register_loader("bt_realtek_project_ids", _REALTEK_LOADER)
 
 
 # Backward-compat shims for the H1 + H2 unit tests that call
