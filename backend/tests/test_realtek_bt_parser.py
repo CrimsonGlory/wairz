@@ -353,6 +353,42 @@ def test_realtek_bt_family_registered_in_parser_families() -> None:
     assert "realtek_bt" in PL._BT_PARSER_FAMILIES
 
 
+def test_bt_parser_families_stay_in_sync_with_public_tuple() -> None:
+    """Reviewer C C1+C3 (2026-05-15) cross-stack alignment canary —
+    the hard-coded ``patterns_loader._BT_PARSER_FAMILIES`` validation
+    set MUST stay in sync with the public
+    ``parsers.bt_firmware_banner.BT_PARSER_FAMILIES`` tuple (the
+    source of truth surfaced by the ``list_extension_points`` MCP
+    tool).
+
+    Drift here means: (a) a new BT family added to the parser tuple
+    silently rejects YAML pins that reference it (the validation gate
+    in _parse_banner_cve_pin doesn't know about the new family); or
+    (b) the MCP tool reports a family that the YAML schema rejects.
+
+    Future contributors adding a 5th BT family parser MUST update
+    BOTH bt_firmware_banner.BT_PARSER_FAMILIES AND patterns_loader.
+    _BT_PARSER_FAMILIES (or refactor to a runtime-derived shape; a
+    lazy-init wrapper avoids the circular import between the two
+    modules but is heavier than the test-time alignment check).
+
+    Pairs with the existing test that asserts realtek_bt is present.
+    """
+    from app.services.hardware_firmware.parsers.bt_firmware_banner import (
+        BT_PARSER_FAMILIES,
+    )
+    public_families = frozenset(
+        entry["family"] for entry in BT_PARSER_FAMILIES
+    )
+    assert PL._BT_PARSER_FAMILIES == public_families, (
+        f"BT parser-family sets drifted between patterns_loader._BT_"
+        f"PARSER_FAMILIES ({sorted(PL._BT_PARSER_FAMILIES)}) and "
+        f"parsers.bt_firmware_banner.BT_PARSER_FAMILIES "
+        f"({sorted(public_families)}). Update both modules together "
+        f"or refactor to a lazy-init wrapper."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Classifier_pattern — rtl87XX_fw.bin routes to bt_fw_banner format.
 # ---------------------------------------------------------------------------
