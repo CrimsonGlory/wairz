@@ -19,6 +19,10 @@ from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.services.firmware_paths import get_detection_roots
 from app.services.hardware_firmware.classifier import classify
 from app.services.hardware_firmware.parsers import ParsedBlob, get_parser
+from app.services.hardware_firmware.parsers.tegra_blob import (
+    merge_tegra_evidence,
+    parse_tegra_blob,
+)
 from app.services.jsonb_normalizers import (
     _normalize_firmware_device_metadata,
     _normalize_hardware_firmware_blobs_metadata,
@@ -213,6 +217,26 @@ def _walk_and_classify(extracted_path: str) -> list[dict]:
                                 exc_info=True,
                             )
                             parsed = ParsedBlob(metadata={"error": "parser raised"})
+
+                    # Tegra content-evidence second pass: operator-renamed
+                    # Tegra blobs may pass through the filename-stage parser
+                    # as raw_bin/elf without vendor=nvidia attribution. The
+                    # Tegra parser reads ELF section names / FDT compatibles
+                    # / Android boot.img cmdline / Debian ar magic to apply
+                    # vendor=nvidia + chipset_target refinement when content
+                    # supports it. Returns None (cheap) on non-Tegra magic.
+                    try:
+                        tegra_evidence = parse_tegra_blob(
+                            entry.path, magic, size,
+                        )
+                        if tegra_evidence is not None:
+                            parsed = merge_tegra_evidence(parsed, tegra_evidence)
+                    except Exception:  # noqa: BLE001
+                        logger.debug(
+                            "Tegra second-pass raised on %s",
+                            entry.path,
+                            exc_info=True,
+                        )
 
                     partition = _detect_partition(extracted_path, entry.path)
                     # Vendor precedence: parser-derived (content evidence)

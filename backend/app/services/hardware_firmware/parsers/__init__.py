@@ -25,6 +25,7 @@ from app.services.hardware_firmware.parsers import (  # noqa: F401,E402
     mediatek_wifi,
     qualcomm_mbn,
     raw_bin,
+    tegra_blob,
 )
 from app.services.hardware_firmware.parsers.base import (
     PARSER_REGISTRY,
