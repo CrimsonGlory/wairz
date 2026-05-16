@@ -472,3 +472,340 @@ def test_negative_gate_canary_a_section_name_fires(tmp_path: Path) -> None:
         "silently broken"
     )
     assert result.vendor == "nvidia"
+
+
+# ---------------------------------------------------------------------------
+# L4T release banner extraction (Reviewer B B4 follow-through 2026-05-15).
+# Top-level metadata["l4t_release"] activation pre-req for the 6 forward-
+# prepared NVIDIA Tegra CVE pins (CVE-2019-5680 / CVE-2021-1111 /
+# CVE-2021-34372 / CVE-2021-34397 / CVE-2022-42269 / CVE-2022-42270).
+# ---------------------------------------------------------------------------
+
+
+def _write_elf_with_l4t_banner(
+    path: Path,
+    soc_token: bytes = b"nvidia,tegra186",
+    banner: bytes = (
+        b"# R32 (release), REVISION: 3.1, GCID: 18186506, "
+        b"BOARD: t186ref, EABI: aarch64, "
+        b"DATE: Mon Mar 26 13:53:37 UTC 2018\n"
+    ),
+) -> None:
+    """Synthesize an ELF blob with Tegra evidence + L4T release banner."""
+    payload = bytearray()
+    payload += _ELF_MAGIC
+    payload += b"\x02\x01\x01\x00" + b"\x00" * 8
+    payload += struct.pack("<H", 2)
+    payload += struct.pack("<H", 0xB7)
+    payload += struct.pack("<I", 1)
+    payload += b"\x00" * 256
+    payload += b".bpmp_fw\x00"
+    payload += b"\x00" * 1024
+    payload += banner
+    payload += b"\x00" * 1024
+    payload += soc_token + b"\x00"
+    payload += b"\x00" * 1024
+    path.write_bytes(bytes(payload))
+
+
+def test_elf_with_l4t_banner_populates_top_level_l4t_release(
+    tmp_path: Path,
+) -> None:
+    """Banner ``# R32 (release), REVISION: 3.1, ...`` →
+    ``blob.metadata["l4t_release"] == "R32.3.1"`` AT TOP LEVEL.
+
+    Per Reviewer B B4 (postmortem 2026-05-15): the field MUST be
+    top-level so cve_matcher's one-level-deep ``_stringify_metadata``
+    walker reaches it. This is the activation pre-req for the 6
+    forward-prepared NVIDIA Tegra CVE pins shipped commit ``6bc1c1d``.
+    """
+    fixture = tmp_path / "bpmp_with_banner.bin"
+    _write_elf_with_l4t_banner(fixture)
+    magic = _read_magic(fixture)
+
+    result = parse_tegra_blob(str(fixture), magic, fixture.stat().st_size)
+
+    assert result is not None
+    assert result.vendor == "nvidia"
+    assert result.metadata["l4t_release"] == "R32.3.1", (
+        "L4T release MUST be R32.3.1 — got "
+        f"{result.metadata.get('l4t_release')!r}"
+    )
+    # Reviewer B B4: top-level placement is load-bearing — nested
+    # storage would silently defeat the version_regex match path.
+    assert "l4t_release" not in result.metadata.get("tegra_blob", {}), (
+        "Reviewer B B4 violation: l4t_release stored under nested "
+        "tegra_blob dict where _stringify_metadata cannot reach it"
+    )
+
+
+def test_l4t_banner_extraction_handles_multiple_releases(
+    tmp_path: Path,
+) -> None:
+    """Sanity-check banner extraction across the JetPack-major series.
+
+    Real-world banner samples per `/etc/nv_tegra_release` from each
+    release: R28 (Pascal/Tegra X1+X2), R32 (TX2/Xavier line), R35
+    (Orin AGX line), R36 (Orin Nano series).
+    """
+    cases = [
+        (
+            b"# R28 (release), REVISION: 1.0, GCID: 6080610, "
+            b"BOARD: t210ref, EABI: aarch64",
+            "R28.1.0",
+        ),
+        (
+            b"# R32 (release), REVISION: 6.1, GCID: 27863751, "
+            b"BOARD: t186ref, EABI: aarch64",
+            "R32.6.1",
+        ),
+        (
+            b"# R35 (release), REVISION: 4.1, GCID: 33958178, "
+            b"BOARD: t186ref, EABI: aarch64",
+            "R35.4.1",
+        ),
+        (
+            b"# R36 (release), REVISION: 4.0, GCID: 37537400, "
+            b"BOARD: generic, EABI: aarch64",
+            "R36.4.0",
+        ),
+    ]
+    for idx, (banner, expected) in enumerate(cases):
+        fixture = tmp_path / f"variant_{idx}_{expected}.bin"
+        _write_elf_with_l4t_banner(fixture, banner=banner)
+        magic = _read_magic(fixture)
+        result = parse_tegra_blob(
+            str(fixture), magic, fixture.stat().st_size,
+        )
+        assert result is not None
+        assert result.metadata.get("l4t_release") == expected, (
+            f"Banner {banner!r} produced "
+            f"{result.metadata.get('l4t_release')!r}, expected {expected!r}"
+        )
+
+
+def test_l4t_banner_extraction_handles_bare_no_comment_prefix(
+    tmp_path: Path,
+) -> None:
+    """Some BSP scripts strip the leading ``#`` when copying the banner
+    into .rodata strings or DT chosen-bootargs. The regex tolerates
+    the bare form (``R32 (release), REVISION: 3.1, ...``)."""
+    fixture = tmp_path / "no_hash.bin"
+    _write_elf_with_l4t_banner(
+        fixture,
+        banner=(
+            b"R32 (release), REVISION: 3.1, GCID: 18186506, "
+            b"BOARD: t186ref"
+        ),
+    )
+    magic = _read_magic(fixture)
+    result = parse_tegra_blob(str(fixture), magic, fixture.stat().st_size)
+    assert result is not None
+    assert result.metadata.get("l4t_release") == "R32.3.1"
+
+
+def test_l4t_release_absent_when_no_banner(tmp_path: Path) -> None:
+    """ELF with Tegra evidence but NO L4T banner → l4t_release MUST
+    NOT be in metadata. Negative canary for the regex's positive-match
+    discipline (Rule #46 paired-canary).
+    """
+    fixture = tmp_path / "no_banner.bin"
+    _write_elf_with_tegra_section(fixture, b"nvidia,tegra186")
+    magic = _read_magic(fixture)
+
+    result = parse_tegra_blob(str(fixture), magic, fixture.stat().st_size)
+
+    assert result is not None
+    assert result.vendor == "nvidia"
+    assert "l4t_release" not in result.metadata, (
+        f"l4t_release should be absent without banner — got "
+        f"{result.metadata.get('l4t_release')!r}"
+    )
+
+
+def test_l4t_release_negative_canary_synthesized_banner_fires(
+    tmp_path: Path,
+) -> None:
+    """Rule #46 PAIRED CANARY for the absence test above —
+    SYNTHESIZED a valid banner into an otherwise-clean ELF MUST
+    populate l4t_release. Without this canary, the absence test
+    is structurally indistinguishable from a regex that never
+    matches anything (silent-pass per Rule #17).
+    """
+    fixture = tmp_path / "synthesized_banner.bin"
+    _write_elf_with_l4t_banner(
+        fixture,
+        banner=b"# R32 (release), REVISION: 3.1\n",
+    )
+    magic = _read_magic(fixture)
+
+    result = parse_tegra_blob(str(fixture), magic, fixture.stat().st_size)
+
+    assert result is not None
+    assert result.metadata.get("l4t_release") == "R32.3.1", (
+        "Rule #46 canary FAILED: synthesized banner did not populate "
+        "l4t_release — the regex is silently broken"
+    )
+
+
+def test_fdt_with_l4t_banner_populates_top_level_l4t_release(
+    tmp_path: Path,
+) -> None:
+    """L4T release also extractable from FDT subset (chosen.bootargs
+    / nvidia,bootloader-build property strings often carry the
+    banner)."""
+    fixture = tmp_path / "tegra234.dtb"
+    payload = bytearray()
+    payload += _FDT_MAGIC
+    payload += b"\x00" * 8
+    payload += b"nvidia,tegra234\x00"
+    payload += b"\x00" * 64
+    payload += b"NVIDIA Jetson Orin\x00"
+    payload += b"\x00" * 1024
+    payload += (
+        b"# R35 (release), REVISION: 4.1, GCID: 33958178, "
+        b"BOARD: t186ref, EABI: aarch64\n"
+    )
+    payload += b"\x00" * 1024
+    fixture.write_bytes(bytes(payload))
+    magic = _read_magic(fixture)
+
+    result = parse_tegra_blob(str(fixture), magic, fixture.stat().st_size)
+
+    assert result is not None
+    assert result.vendor == "nvidia"
+    assert result.metadata["tegra_blob"]["subset"] == "fdt"
+    assert result.metadata.get("l4t_release") == "R35.4.1"
+
+
+def test_merge_preserves_top_level_l4t_release() -> None:
+    """``merge_tegra_evidence`` MUST preserve top-level ``l4t_release``
+    when merging Tegra second-pass evidence into an existing ParsedBlob.
+
+    Cross-check that the existing all-keys-merge loop in
+    ``merge_tegra_evidence`` actually reaches non-tegra_blob top-level
+    keys. Regression canary against any future refactor that narrows
+    the merge to only the ``tegra_blob`` sub-key.
+    """
+    parsed = ParsedBlob(
+        vendor=None,
+        metadata={"existing_key": "existing_value"},
+    )
+    tegra_ev = ParsedBlob(
+        vendor="nvidia",
+        metadata={
+            "tegra_blob": {"subset": "elf", "soc_token": "t186"},
+            "l4t_release": "R32.3.1",
+        },
+    )
+    merged = merge_tegra_evidence(parsed, tegra_ev)
+
+    assert merged.metadata is not None
+    assert merged.metadata["l4t_release"] == "R32.3.1"
+    assert merged.metadata["existing_key"] == "existing_value"
+    assert merged.metadata["tegra_blob"]["subset"] == "elf"
+
+
+def test_l4t_release_reaches_cve_matcher_stringify_metadata() -> None:
+    """END-TO-END Rule #46 paired-canary: confirm L4T release placed
+    at TOP-LEVEL is reachable by ``cve_matcher._stringify_metadata``
+    (one-level-deep walker).
+
+    This is the LOAD-BEARING contract per Reviewer B B4 (2026-05-15):
+    if a future refactor stores l4t_release nested under tegra_blob,
+    THIS test FAILS — telling the developer the change silently
+    broke the Tegra CVE pin activation path. Without this canary the
+    breakage would only surface at corpus cve-match time (operator-
+    invisible until a Jetson firmware is processed).
+    """
+    from app.services.hardware_firmware.cve_matcher import _stringify_metadata
+
+    # Top-level placement (correct per Reviewer B B4).
+    metadata_correct = {
+        "tegra_blob": {"subset": "elf", "soc_token": "t186"},
+        "l4t_release": "R32.3.1",
+    }
+    strings_correct = _stringify_metadata(metadata_correct)
+    assert "R32.3.1" in strings_correct, (
+        "Reviewer B B4 contract VIOLATED: top-level l4t_release "
+        "MUST be reachable by _stringify_metadata"
+    )
+
+    # Negative canary — nested placement (incorrect) is invisible.
+    metadata_incorrect = {
+        "tegra_blob": {
+            "subset": "elf",
+            "soc_token": "t186",
+            "l4t_release": "R32.3.1",  # nested = wrong
+        },
+    }
+    strings_incorrect = _stringify_metadata(metadata_incorrect)
+    assert "R32.3.1" not in strings_incorrect, (
+        "Cross-stack assumption VIOLATED: _stringify_metadata "
+        "is no longer one-level-deep — the L4T release activation "
+        "contract may need re-evaluating"
+    )
+
+
+def test_l4t_release_paired_with_tegra_cve_pins_version_regex_format() -> (
+    None
+):
+    """Rule #46 cross-stack alignment: the L4T release output format
+    "R<N>.<x>.<y>" MUST match the version_regex patterns shipped in
+    the 6 forward-prepared NVIDIA Tegra CVE pins (commit 6bc1c1d).
+
+    If a future change to ``_extract_l4t_release`` outputs a different
+    format (e.g. "R32-3-1" with dashes, or "32.3.1" without the R prefix),
+    the pins would silently stop firing — operator-invisible until
+    cve-match output is inspected. This canary forces the contract.
+    """
+    import re
+
+    # Sample L4T release strings the parser emits — chosen to span the
+    # JetPack-major series each pin covers. Pre-fix and post-fix samples
+    # for pins that have a "<fix" version_regex shape.
+    samples_in_scope = [
+        "R28.1.0",  # CVE-2019-5680 affected (r3[01]\b matches R28? no — R28 not r30/r31)
+        "R30.4.0",  # CVE-2019-5680 r3[01]\b match
+        "R31.0.2",  # CVE-2019-5680 r3[01]\b match
+        "R32.1.0",  # CVE-2019-5680 + CVE-2021-1111 affected
+        "R32.3.1",  # CVE-2021-1111 affected (r32\.[1-5]\.)
+        "R32.5.2",  # CVE-2021-1111 affected
+        "R32.6.0",  # CVE-2021-1111 affected (just before fix)
+    ]
+    # Verbatim version_regex patterns from the 6 Tegra CVE pins
+    # (known_firmware.yaml as of commit 6bc1c1d). Each MUST match
+    # SOMETHING in the sample set; the alignment test checks the
+    # output format pairs with at least one expected pin's regex.
+    pin_regexes = [
+        # CVE-2019-5680 — versions through r32.1
+        r"(?i)(r3[01]\b|r32\.[01]\b|r32\.0\.|r32\.1\.)",
+        # CVE-2021-1111 — versions r32.1..r32.6.0 (fix in 6.1)
+        r"(?i)(r32\.[1-5]\b|r32\.6\.0\b|r32\.[1-5]\.|r32\.6\.0\.)",
+    ]
+
+    matched_count = 0
+    for pattern in pin_regexes:
+        rx = re.compile(pattern)
+        for sample in samples_in_scope:
+            if rx.search(sample):
+                matched_count += 1
+                break  # this pin has at least one matching sample
+
+    assert matched_count == len(pin_regexes), (
+        "Rule #46 cross-stack alignment FAILED: at least one Tegra "
+        "CVE pin's version_regex did not match ANY sample L4T release "
+        "string emitted by the parser. The output format may have "
+        "drifted from the pin schema."
+    )
+
+    # Negative half: post-fix samples MUST NOT match the affected
+    # version_regex (otherwise the pin would over-attribute on R32.6.1+
+    # firmware which IS the fixed cohort).
+    samples_post_fix = ["R32.6.1", "R32.7.4", "R35.4.1", "R36.4.0"]
+    cve_2021_1111_rx = re.compile(pin_regexes[1])
+    for sample in samples_post_fix:
+        assert not cve_2021_1111_rx.search(sample), (
+            f"CVE-2021-1111 version_regex over-matches post-fix L4T "
+            f"release {sample!r} — would over-attribute on FIXED firmware"
+        )

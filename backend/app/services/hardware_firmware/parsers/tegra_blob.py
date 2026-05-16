@@ -9,6 +9,15 @@ operator-renamed cases where content evidence — ELF section names,
 FDT compatibles, Android boot.img cmdline, Debian ar magic — confirms
 ``vendor=nvidia`` regardless of filename.
 
+Also extracts the L4T BSP release string ("R32.3.1" etc.) from the
+``/etc/nv_tegra_release``-style banner when present in the blob's
+head window. The release string is surfaced as TOP-LEVEL
+``blob.metadata["l4t_release"]`` (NOT nested under the ``tegra_blob``
+dict) so that cve_matcher's one-level-deep ``_stringify_metadata``
+walker reaches it — this is the activation pre-req for the 6
+forward-prepared NVIDIA Tegra CVE pins shipped 2026-05-15 (commit
+``6bc1c1d``) per Reviewer B B4 finding from postmortem 2026-05-15.
+
 Per user direction 2026-05-18 ("we won't be the only ones ingesting
 files... don't hard-code strict formats"), the parser must be
 adaptive: content always wins over filename, and the confidence
@@ -128,6 +137,7 @@ Confidence ladder
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from app.services.hardware_firmware.parsers.base import ParsedBlob
@@ -223,6 +233,49 @@ _TEGRA_BOOTIMG_TOKENS: tuple[bytes, ...] = (
 )
 
 
+# L4T BSP release banner per NVIDIA's ``/etc/nv_tegra_release`` format:
+#   ``# R32 (release), REVISION: 3.1, GCID: <id>, BOARD: <board>, EABI:
+#   aarch64, DATE: <ts>``
+#
+# Captures the major release number (R28 / R31 / R32 / R35 / R36 — the
+# JetPack-major series) and the dotted revision (e.g. 3.1) for
+# concatenation as ``R<major>.<rev_x>.<rev_y>`` (``R32.3.1``).
+#
+# Pattern handles the canonical comment-prefixed form AND the bare
+# (no leading ``#``) form sometimes embedded in BSP scripts / .rodata.
+# Optional whitespace around ``,`` and ``:`` per L4T BSP authoring.
+# Re-checked on real R32.3.1 / R32.6.1 / R35.4.1 / R36.4.0 banner
+# samples per Rule #19 (evidence-first).
+_L4T_RELEASE_BANNER_RE = re.compile(
+    rb"#?\s*R(\d{2,3})\s*\(release\)\s*,\s*REVISION:\s*(\d+)\.(\d+)",
+    re.IGNORECASE,
+)
+
+
+def _extract_l4t_release(head: bytes) -> str | None:
+    """Scan ``head`` for the /etc/nv_tegra_release banner string.
+
+    Returns ``"R<N>.<x>.<y>"`` (e.g. ``"R32.3.1"``) on hit, or ``None``
+    if no banner is found. The output format matches the version_regex
+    patterns in the 6 forward-prepared NVIDIA Tegra CVE pins
+    (``r32\\.3\\.``, ``r3[01]\\b``, etc.) shipped 2026-05-15 in
+    ``known_firmware.yaml``.
+
+    Per Reviewer B B4 (postmortem 2026-05-15), the caller MUST store
+    this string at TOP-LEVEL ``blob.metadata["l4t_release"]`` — NOT
+    inside the nested ``tegra_blob`` dict — so cve_matcher's
+    one-level-deep ``_stringify_metadata`` walker reaches it. Storing
+    nested would silently defeat the version_regex match path.
+    """
+    m = _L4T_RELEASE_BANNER_RE.search(head)
+    if not m:
+        return None
+    major = m.group(1).decode("ascii", errors="replace")
+    revision_x = m.group(2).decode("ascii", errors="replace")
+    revision_y = m.group(3).decode("ascii", errors="replace")
+    return f"R{major}.{revision_x}.{revision_y}"
+
+
 def _read_head(path: str, limit: int) -> bytes:
     """Read up to ``limit`` bytes from ``path``. Empty bytes on any OSError.
 
@@ -295,17 +348,26 @@ def _parse_tegra_elf(path: str, head: bytes) -> ParsedBlob | None:
     )
     confidence = "high" if has_canonical else "medium"
 
+    metadata: dict[str, Any] = {
+        "tegra_blob": {
+            "subset": "elf",
+            "soc_token": chipset,
+            "evidence_tokens": evidence_tokens[:8],
+            "confidence": confidence,
+        },
+    }
+    # L4T release: TOP-LEVEL string per Reviewer B B4 (2026-05-15)
+    # so cve_matcher's one-level-deep _stringify_metadata walker
+    # reaches it. Activates the 6 forward-prepared Tegra CVE pins
+    # in known_firmware.yaml when the version_regex matches.
+    l4t_release = _extract_l4t_release(head)
+    if l4t_release is not None:
+        metadata["l4t_release"] = l4t_release
+
     return ParsedBlob(
         vendor="nvidia",
         chipset_target=chipset,
-        metadata={
-            "tegra_blob": {
-                "subset": "elf",
-                "soc_token": chipset,
-                "evidence_tokens": evidence_tokens[:8],
-                "confidence": confidence,
-            },
-        },
+        metadata=metadata,
     )
 
 
@@ -328,17 +390,25 @@ def _parse_tegra_fdt(path: str, head: bytes) -> ParsedBlob | None:
 
     chipset = _detect_soc_from_tokens(head)
 
+    metadata: dict[str, Any] = {
+        "tegra_blob": {
+            "subset": "fdt",
+            "soc_token": chipset,
+            "evidence_tokens": matched_tokens[:8],
+            "confidence": "high",
+        },
+    }
+    # L4T release: TOP-LEVEL string per Reviewer B B4 (2026-05-15).
+    # FDT property strings (chosen.bootargs / chosen/nvidia,bootloader)
+    # often carry the L4T BSP banner in u-boot-flashed Jetson images.
+    l4t_release = _extract_l4t_release(head)
+    if l4t_release is not None:
+        metadata["l4t_release"] = l4t_release
+
     return ParsedBlob(
         vendor="nvidia",
         chipset_target=chipset,
-        metadata={
-            "tegra_blob": {
-                "subset": "fdt",
-                "soc_token": chipset,
-                "evidence_tokens": matched_tokens[:8],
-                "confidence": "high",
-            },
-        },
+        metadata=metadata,
     )
 
 
@@ -364,17 +434,24 @@ def _parse_tegra_android_bootimg(
 
     chipset = _detect_soc_from_tokens(head)
 
+    metadata: dict[str, Any] = {
+        "tegra_blob": {
+            "subset": "android_bootimg",
+            "soc_token": chipset,
+            "evidence_tokens": hint_tokens[:8],
+            "confidence": "medium",
+        },
+    }
+    # L4T release: TOP-LEVEL string per Reviewer B B4 (2026-05-15).
+    # Jetson Linux boot.img cmdline often embeds the BSP release tag.
+    l4t_release = _extract_l4t_release(head)
+    if l4t_release is not None:
+        metadata["l4t_release"] = l4t_release
+
     return ParsedBlob(
         vendor="nvidia",
         chipset_target=chipset,
-        metadata={
-            "tegra_blob": {
-                "subset": "android_bootimg",
-                "soc_token": chipset,
-                "evidence_tokens": hint_tokens[:8],
-                "confidence": "medium",
-            },
-        },
+        metadata=metadata,
     )
 
 
