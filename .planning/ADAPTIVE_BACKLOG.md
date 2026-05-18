@@ -33,7 +33,7 @@
 > additional source-session sigil; later-session re-mentions appear as
 > `also: <later-session>:<reviewer-ABC-NN>` in the Notes column.
 >
-> **Last updated:** 2026-05-18 (consolidation pass per evening:RvwC-C12).
+> **Last updated:** 2026-05-18 evening (rate-limit campaign — 9 commits f6dbc7b..b24a4d8 + Rule #51 promotion at 4616501 + Citadel multi-scout review across security/infra/UX/test/observability personas). Prior 2026-05-18 update: consolidation pass per evening:RvwC-C12.
 
 ---
 
@@ -59,6 +59,23 @@
 ---
 
 ## 3. Open — MEDIUM severity
+
+### 3.0 Rate-limit campaign deferred items (2026-05-18)
+
+These are explicit punts from the rate-limit Citadel review (commits
+`f6dbc7b..b24a4d8` + Rule #51 promotion `4616501`). Each was identified
+by one of the 5 expert-persona scouts but scoped OUT of the
+shipping batch to limit blast radius. Documented rationale in commit
+chain + Rule #51 worked-example evidence.
+
+| ID | Severity | Source | Item | Effort | Notes |
+|----|---------|--------|------|--------|-------|
+| `ratelimit-2026-05-18:scout1-xff` | MEDIUM | scout1-security | X-Forwarded-For extraction in `rate_limit.py` `get_remote_address` callback | ~30 LOC + tests | Per-IP keying via slowapi default `get_remote_address` reads the immediate-peer IP. Behind a TLS-terminating reverse proxy (nginx / ALB / Cloudflare), all clients collapse to the proxy IP. Add `X-Forwarded-For`-aware callback gated by a `TRUST_FORWARDED_FOR` config flag (default `False`; operator opts in when deploying behind a trusted proxy). Out of scope for the f6dbc7b campaign because it's a DEPLOYMENT-shape change, not a same-deployment fix. |
+| `ratelimit-2026-05-18:scout1-apk-comparison-tiers` | MEDIUM | scout1-security | Apply rate-limit tiers to `apk_scan.py` (3 endpoints) + `comparison.py` (5 endpoints) + `attack_surface.py` (1 endpoint) | ~20 LOC + test updates | Scout 1 audit found 68 unlimited expensive POST endpoints; the f6dbc7b/C7 sweep handled only the 2 highest-leverage (firmware-unpack + device-dumps). The next 9 endpoints are all CPU-bound static-analysis / diff operations that fit TIER_A_LIGHT_ACK or are conversion candidates for Rule #33 if currently synchronous. |
+| `ratelimit-2026-05-18:scout2-cleanup-task` | MEDIUM | scout1-security | Emulation container cleanup background task (GC containers older than `emulation_timeout_minutes`) | ~80 LOC + test | TIER_B_DOCKER 20/hour bounds spawn rate but doesn't reap zombies. Operator runs 20 emulation sessions and forgets to stop → containers accumulate over days. Add an arq cron-style task to delete containers older than the configured timeout. Out of scope for this campaign (separate feature, not 429 UX). |
+| `ratelimit-2026-05-18:scout2-prometheus` | MEDIUM | scout2-infra + scout5-obs | Custom Prometheus metrics for rate-limit hits + background-task queue depth | ~50 LOC | The `event_type=rate_limit_exceeded` structured log (commit 616e89d) covers operator log-shipper greppability. A Prometheus counter `rate_limit_exceeded_total{endpoint, tier}` + gauge `vuln_scan_tasks_active` would enable dashboards. Out of scope: the existing prometheus-fastapi-instrumentator gives request-count + status-code metrics today; rate-limit hits show up as 429 there. Dedicated counters wait for Prometheus integration becoming first-class. |
+| `ratelimit-2026-05-18:scout3-useratelimitedmutation` | MEDIUM | scout3-frontend-ux | Refactor pages to `useRateLimitedMutation` hook with Retry-After countdown + button disable | ~150 LOC | The C2 axios interceptor (commit ca5a64f) sets a module-scope `_rateLimitedUntilMs` + exports `isRateLimited()` / `rateLimitRemainingMs()`. A reusable hook would: (a) wrap the POST, (b) read the cooldown timestamp, (c) disable the button + show "Try again in Ns" countdown, (d) auto-re-enable when cooldown clears. Refactoring 5 pages (SbomPage / SecurityScanPage / HardwareFirmwarePage / EmulationPage / FuzzingPage). Out of scope: works correctly with the existing pages via the axios global toast; the hook is polish. |
+| `ratelimit-2026-05-18:scout5-rate-limit-endpoint` | LOW | scout5-obs | `/api/v1/rate-limit-status` GET endpoint returning per-IP remaining budget per tier | ~40 LOC + frontend integration | Lets the frontend pro-actively show "X/30 scans left this hour" instead of waiting for the 429 round-trip. Cute UX win, low priority — operators rarely run multi-scan sequences that benefit from foreknowledge. |
 
 ### 3.a Refactor / documentation hygiene
 
@@ -113,6 +130,7 @@
 
 | ID | Severity | Source | Item | Shipped in | Notes |
 |----|---------|--------|------|-----------|-------|
+| `ratelimit-2026-05-18:campaign` | HIGH | operator-report (DS1 429) + Citadel 5-scout review | Rate-limit tier split + structured 429 handler + frontend UX + DB pool headroom + orphan reaper + new rate limits + dynamic test + Rule #51 promotion | `2026-05-18: f6dbc7b → 69ed1dd → ca5a64f → 616e89d → 3d2454b → 58a6f54 → 8766710 → afa23a9 → b24a4d8 → 4616501` (10 commits) | 9-commit per-Rule-#25 sweep across backend (tier split / structured handler / pool / orphan reaper / 2 new decorated endpoints / test trio) + frontend (extractErrorMessage / axios interceptor) + docs (Rule #51 + conventions.md mirror per Rule #21). Verified end-to-end: Rule #11 import smoke + Rule #35b live canary (POST DS1 vuln-scan → 202; POST /firmware/{id}/unpack 6× → 5×409 + 1×429 with structured body `tier=TIER_A_HEAVY`, `retry_after_seconds=3600`, `Retry-After: 3600`); Rule #46 META-CANARY trio in `test_rate_limit_tiers.py` (6 tests, all PASS). Companion failure modes Rule #51 documents: orphan reaper / frontend 429 handler / structured body / pool headroom. Rule #20 caveat: backend was iterated via `docker cp + restart`; next session should rebuild backend for durable state via `docker compose up -d --build backend worker`. |
 | `evening:RvwC-C12` | MEDIUM | evening → consolidation-2026-05-18 | `.planning/ADAPTIVE_BACKLOG.md` — single source of truth | `2026-05-18:533bb72` | Walked + deduplicated ~50 items across morning + afternoon + evening 2026-05-15 postmortems. PRIORITY per user direction. |
 | `evening:RvwC-C2` | HIGH | evening → consolidation-2026-05-18 | `.mex/patterns/cross-stack-alignment-test.md` recipe | `2026-05-18:105a888` | Rule-of-Nine durable beyond debate; recipe codifies 5-part test shape + 2 commit shapes + asymmetry tolerance. |
 | `evening:RvwC-C7` | HIGH | evening → consolidation-2026-05-18 | `.mex/patterns/forward-prepared-cve-pin.md` recipe | `2026-05-18:b8f6e95` | Rule-of-Two pattern; HARD-REJECT version_regex contract at `cve_matcher.py:477-491`; activation commit-chain plan. |
