@@ -16,7 +16,7 @@ edges:
     condition: when adding, modifying, or debugging MCP tool handlers
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-05-05
+last_updated: 2026-05-18
 ---
 
 # Session Bootstrap
@@ -80,6 +80,7 @@ Load the relevant file based on the current task. Always load `context/architect
 | Making a design decision | `context/decisions.md` |
 | Setting up or running the project | `context/setup.md` |
 | Adding or debugging an MCP tool | `context/mcp-tools.md` |
+| **Continuing a hw-firmware adaptive-detection session** | **`/home/dustin/code/wairz/.planning/ADAPTIVE_BACKLOG.md`** — single source of truth for ~50 carry-forward items across the 3 most-recent hw-firmware postmortems; spot-check section 1 "In-Progress" against the live commit log as the first action of any continuation session (per file's own methodology section) |
 | Any specific task | Check `patterns/INDEX.md` for a matching pattern |
 
 ## Behavioural Contract
