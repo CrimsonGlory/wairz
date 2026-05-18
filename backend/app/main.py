@@ -173,6 +173,50 @@ async def lifespan(app: FastAPI):
             exc_info=True,
         )
 
+    # Reap orphan vuln-scan firmware rows. Identical shape to the
+    # cve-match reaper above (Rule #33a idempotency check returns 409
+    # while ``vuln_scan_status`` sits in 'queued'/'running'). The
+    # background runner ``_run_vuln_scan_background`` in
+    # ``app/routers/sbom.py`` is asyncio.create_task fire-and-forget; a
+    # backend restart loses the in-memory task and orphans the row.
+    # Without this reaper, the first POST /sbom/vulnerabilities/scan
+    # after restart 409s forever until manual DB cleanup. Scout 2's
+    # findings (2026-05-18 audit of f6dbc7b) flagged this as a HIGH
+    # gap — the device-dump and cve-match reapers existed but vuln-scan
+    # was missed when the row's state machine was added.
+    try:
+        from datetime import datetime
+
+        from sqlalchemy import update
+
+        from app.database import async_session_factory
+        from app.models.firmware import Firmware
+
+        async with async_session_factory() as db:
+            res = await db.execute(
+                update(Firmware)
+                .where(Firmware.vuln_scan_status.in_(("queued", "running")))
+                .values(
+                    vuln_scan_status="failed",
+                    vuln_scan_error="Backend restarted; runner state lost",
+                    vuln_scan_finished_at=datetime.now(UTC),
+                )
+            )
+            await db.commit()
+            if res.rowcount:
+                import logging
+                logging.getLogger(__name__).info(
+                    "Reaped %d orphan vuln-scan firmware row(s) on startup",
+                    res.rowcount,
+                )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning(
+            "vuln-scan orphan reaper failed — phantom rows may block new "
+            "vuln-scan runs until the next startup",
+            exc_info=True,
+        )
+
     # Probe the offline UEFI Secure Boot DBX bundle (Phase β.10 / Rule #37
     # candidate). The bundle is baked into the image at build time
     # (backend/Dockerfile + backend/ms-anchors/dbxupdate.bin); the worker's
