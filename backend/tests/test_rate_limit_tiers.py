@@ -21,12 +21,23 @@ from pathlib import Path
 
 _REPO_BACKEND = Path(__file__).parent.parent
 
-# Map each (router file, endpoint regex marker) → expected tier constant
+# Map each (router file, endpoint regex marker) → expected tier constant.
+#
+# Tier assignment per rate_limit.py module docstring:
+# - TIER_A_HEAVY (5/hour): sync OR ≥5-min ack-bound runs (security audit
+#   is synchronous; cve-match is 202+polling but pins the event loop on
+#   bulk SQL inserts for ~7 min on Yocto-scale corpora).
+# - TIER_A_LIGHT_ACK (30/hour): 202+polling endpoints whose detached work
+#   completes in ≤2 min (SBOM generate / vuln-scan / authenticode-chain).
+#   Originally rode TIER_A_HEAVY pre-2026-05-18 split; see commit message
+#   for derivation against scout-investigation evidence.
+# - TIER_B_DOCKER (20/hour): Docker-spawn jobs (emulation, fuzzing).
 _EXPECTED_TIERS: dict[tuple[str, str], str] = {
     ("app/routers/security_audit.py", r'@router\.post\("/audit"'): "TIER_A_HEAVY",
-    ("app/routers/sbom.py", r'@router\.post\("/generate"'): "TIER_A_HEAVY",
-    ("app/routers/sbom.py", r'@router\.post\(\s*\n?\s*"/vulnerabilities/scan"'): "TIER_A_HEAVY",
     ("app/routers/hardware_firmware.py", r'@router\.post\("/cve-match"'): "TIER_A_HEAVY",
+    ("app/routers/sbom.py", r'@router\.post\("/generate"'): "TIER_A_LIGHT_ACK",
+    ("app/routers/sbom.py", r'@router\.post\(\s*\n?\s*"/vulnerabilities/scan"'): "TIER_A_LIGHT_ACK",
+    ("app/routers/hardware_firmware.py", r'@router\.post\(\s*\n?\s*"/authenticode-chain"'): "TIER_A_LIGHT_ACK",
     ("app/routers/fuzzing.py", r'@router\.post\(\s*\n?\s*"/campaigns/\{campaign_id\}/start"'): "TIER_B_DOCKER",
     ("app/routers/emulation.py", r'@router\.post\("/start"'): "TIER_B_DOCKER",
     ("app/routers/emulation.py", r'@router\.post\(\s*\n?\s*"/system"'): "TIER_B_DOCKER",

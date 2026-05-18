@@ -33,7 +33,7 @@ from app.models.firmware import Firmware
 from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.models.sbom import SbomVulnerability
 from app.models.windows_pe_signature import WindowsPESignature
-from app.rate_limit import TIER_A_HEAVY, limiter
+from app.rate_limit import TIER_A_HEAVY, TIER_A_LIGHT_ACK, limiter
 from app.routers.deps import resolve_firmware as _resolve_firmware
 from app.schemas.hardware_firmware import (
     AuthenticodeChainAggregate,
@@ -704,7 +704,7 @@ def _firmware_to_authenticode_status(
     response_model=AuthenticodeChainStatusResponse,
     status_code=202,
 )
-@limiter.limit(TIER_A_HEAVY)
+@limiter.limit(TIER_A_LIGHT_ACK)
 async def run_authenticode_chain(
     request: Request,
     firmware=Depends(_resolve_firmware),

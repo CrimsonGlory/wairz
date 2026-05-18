@@ -18,7 +18,7 @@ from starlette.requests import Request
 from app.database import async_session_factory, get_db
 from app.models.firmware import Firmware
 from app.models.sbom import SbomComponent, SbomVulnerability
-from app.rate_limit import TIER_A_HEAVY, limiter
+from app.rate_limit import TIER_A_LIGHT_ACK, limiter
 from app.routers.deps import resolve_firmware as _resolve_firmware
 from app.schemas.pagination import Page
 from app.schemas.sbom import (
@@ -113,7 +113,7 @@ async def _get_components_with_vuln_counts(
 
 
 @router.post("/generate", response_model=SbomGenerateResponse)
-@limiter.limit(TIER_A_HEAVY)
+@limiter.limit(TIER_A_LIGHT_ACK)
 async def generate_sbom(
     request: Request,
     force_rescan: bool = Query(False),
@@ -524,7 +524,7 @@ async def _run_vuln_scan_background(
     response_model=VulnerabilityScanStatusResponse,
     status_code=202,
 )
-@limiter.limit(TIER_A_HEAVY)
+@limiter.limit(TIER_A_LIGHT_ACK)
 async def scan_vulnerabilities(
     request: Request,
     project_id: uuid.UUID,

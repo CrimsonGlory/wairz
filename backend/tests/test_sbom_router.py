@@ -3,7 +3,7 @@
 Mirrors the shape of ``test_security_audit_router.py``: dependency overrides
 on ``get_db`` + ``_resolve_firmware`` keep the FastAPI route exercised
 without needing real firmware on disk. The slowapi rate limiter is disabled
-in an autouse fixture so the 5/hour ``TIER_A_HEAVY`` budget on the
+in an autouse fixture so the 30/hour ``TIER_A_LIGHT_ACK`` budget on the
 ``POST /generate`` and ``POST /vulnerabilities/scan`` endpoints does not
 bleed across test cases.
 
@@ -66,7 +66,7 @@ def _disable_api_key_auth(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _disable_rate_limit():
-    """Disable the slowapi limiter so the 5/hour TIER_A_HEAVY cap on
+    """Disable the slowapi limiter so the 30/hour TIER_A_LIGHT_ACK cap on
     ``POST /generate`` and ``POST /vulnerabilities/scan`` does not bleed
     between tests."""
     prior = limiter.enabled
