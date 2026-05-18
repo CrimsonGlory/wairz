@@ -39,12 +39,11 @@
 
 ## 1. In-Progress (this session — 2026-05-18 docs/patterns/rules cycle)
 
+*(Empty at session close — all 4 in-flight items shipped and promoted to section 5 below.)*
+
 | ID | Severity | Source | Item | Effort | Notes |
 |----|---------|--------|------|--------|-------|
-| `evening:RvwC-C12` | MEDIUM | evening | `.planning/ADAPTIVE_BACKLOG.md` — single source of truth for ~50 carry-forward items across recent postmortems | ~10 min, ~150 LOC markdown | **PRIORITY** per user direction; this file. |
-| `evening:RvwC-C2` | HIGH | evening | `.mex/patterns/cross-stack-alignment-test.md` recipe — codify Rule-of-Nine cross-stack alignment discipline | ~30 min, ~120 LOC | TARGET 1 this session; rule-of-Nine durable beyond debate (CLAUDE.md Rule #25 single-slice exception #2 has 8 + evening's `d641f28` = 9). |
-| `evening:RvwC-C7` | HIGH | evening | `.mex/patterns/forward-prepared-cve-pin.md` recipe — Rule-of-Two pattern with HARD-REJECT version_regex | ~30 min, ~100 LOC | TARGET 2 this session; Rule-of-Two evidence (Tegra `6bc1c1d` morning + MediaTek modem `e45a74c` evening). |
-| `evening:RvwC-C14` | HIGH | evening | CLAUDE.md Rule-of-Three promotion — cross-stack-alignment + forward-prepared-CVE-pin + shared-advisory_id | ~1-2 hr, ~80 LOC | TARGET 3 this session; single Rule #25 cross-stack-alignment commit updating CLAUDE.md + `.mex/context/conventions.md` Verify Checklist per Rule #21. |
+| _none — see section 5 for this session's completions_ |
 
 ---
 
@@ -71,7 +70,7 @@
 | `evening:RvwC-C9` | MEDIUM | evening | NVD CPE refresh cadence recipe | ~30 LOC | Codify quarterly NVD-CPE audit cron for `version_regex` pins (analog of Rule #37 anchor-refresh cron). |
 | `afternoon:RvwC-MED-clar` | MEDIUM | afternoon | F-FORENSIC-10 WARN message clarity | ~20 LOC clarity | Restructure the WARN to lead with the affected entry + a scannable bullet list of fix options. Operators currently scan a single-line message. |
 | `afternoon:RvwC-MED-ceremonial-note` | MEDIUM | afternoon | CLAUDE.md note on ceremonial vs genuine narrowing | ~60 LOC documentation | Explain WHEN ceremonial `category_regex: ^<existing>$` is acceptable (gate-satisfying placeholder) vs WHEN genuine NVD-derived narrowing is required. Reference the 14 entries deferred for per-CVE NVD derivation. |
-| `morning:RvwC-CC-5 (orig 2026-05-18)` | MEDIUM | morning | Docs refresh — `docs/features/extending-firmware-patterns.md` Surface 6 + 6-surface table | ~40 LOC | Re-aligns operator docs with the post-`list_extension_points` reality. |
+| `prior-2026-05-18:RvwC-CC-5` | MEDIUM | morning (carry) | Docs refresh — `docs/features/extending-firmware-patterns.md` Surface 6 + 6-surface table | ~40 LOC | Originally Reviewer C CC-5 in `postmortem-hw-firmware-adaptive-session-2026-05-18.md` (prior-adaptive session); carried via morning's `## Recommendations Carried Forward`. Re-aligns operator docs with the post-`list_extension_points` reality. |
 | `morning:Rule-#28-watch` | MEDIUM | morning | `patterns_loader.py` Rule #28 watch — re-measure before next refactor | ~1 hr re-measure + scope decision | Was 1437 LOC pre-morning; ~1440 LOC post-`register_loader()` additions. Per Rule #28 intakes drift +14-22% — re-measure before scoping a refactor. Next growth: extract Realtek block per Rule #27 N+1. |
 
 ### 3.b Adaptability + content-evidence extension
@@ -91,12 +90,12 @@
 
 | ID | Severity | Source | Item | Effort | Notes |
 |----|---------|--------|------|--------|-------|
-| `morning+afternoon:RvwC-REC-2 (orig 2026-05-18)` | MEDIUM | morning, afternoon | Tier A archive-suffix additions — `.7z` / `.tar.zst` / `.zst` / `.deb` | ~50 LOC + Dockerfile apt deps | Small extraction cases. Validates Tier A's adaptability claim. |
-| `morning+afternoon:RvwC-CC-2 (orig 2026-05-18)` | MEDIUM | morning, afternoon | `extraction_strategy` enum | ~30 LOC + alembic migration | Replace `extracted_via_shortcut: bool` with `Literal["shortcut_clean", "shortcut_recursed", "unblob"]`. Improves operator observability. |
-| `morning+afternoon:RvwC-CC-4 (orig 2026-05-18)` | MEDIUM | morning, afternoon | `conftest.py` `loader_with_tmp_yaml` fixture helper | ~15 LOC | 8-line wrapper for the `monkeypatch+cache_clear` scaffolding currently duplicated across YAML-cache tests. |
+| `prior-2026-05-18:RvwC-REC-2` | MEDIUM | morning, afternoon (carry) | Tier A archive-suffix additions — `.7z` / `.tar.zst` / `.zst` / `.deb` | ~50 LOC + Dockerfile apt deps | Originally Reviewer C REC-2 in prior-adaptive 2026-05-18 session; carried via morning + afternoon postmortems' carry-forward lists. Small extraction cases. Validates Tier A's adaptability claim. |
+| `prior-2026-05-18:RvwC-CC-2` | MEDIUM | morning, afternoon (carry) | `extraction_strategy` enum | ~30 LOC + alembic migration | Originally Reviewer C CC-2 in prior-adaptive 2026-05-18 session; carried via morning + afternoon postmortems. Replace `extracted_via_shortcut: bool` with `Literal["shortcut_clean", "shortcut_recursed", "unblob"]`. Improves operator observability. |
+| `prior-2026-05-18:RvwC-CC-4` | MEDIUM | morning, afternoon (carry) | `conftest.py` `loader_with_tmp_yaml` fixture helper | ~15 LOC | Originally Reviewer C CC-4 in prior-adaptive 2026-05-18 session; carried via morning + afternoon postmortems. 8-line wrapper for the `monkeypatch+cache_clear` scaffolding currently duplicated across YAML-cache tests. |
 | `morning:RvwC-make_live_db-FK` | MEDIUM | morning | `make_live_db()` FK breakage on `volatility_injection_records → memory_dump_image` | ~30 LOC + canary sweep | 3 tests in `test_sbom_router.py` blocked + likely more. Find via `pytest -k Canary --tb=line` sweep. |
-| `morning:RvwC-RTL-3 (orig 2026-05-18)` | LOW | morning | Realtek `bt_banner_cve_pins.yaml` worked example | ~15 LOC YAML | Ship a commented-out example pin under `family: realtek_bt`. Pairs with the parser's existing realtek_bt support. |
-| `morning:RvwC-RTL-2 (orig 2026-05-18)` | LOW | morning | `RealtekChipsetEntry.extra: dict` field | ~10 LOC schema | Operator-supplied freeform metadata pass-through. |
+| `prior-2026-05-18:RvwC-RTL-3` | LOW | morning (carry) | Realtek `bt_banner_cve_pins.yaml` worked example | ~15 LOC YAML | Originally Reviewer C RTL-3 in prior-adaptive 2026-05-18 session; carried via morning postmortem. Ship a commented-out example pin under `family: realtek_bt`. Pairs with the parser's existing realtek_bt support. |
+| `prior-2026-05-18:RvwC-RTL-2` | LOW | morning (carry) | `RealtekChipsetEntry.extra: dict` field | ~10 LOC schema | Originally Reviewer C RTL-2 in prior-adaptive 2026-05-18 session; carried via morning postmortem. Operator-supplied freeform metadata pass-through. |
 | `afternoon:RvwC-LOW-taint-llm` | LOW | afternoon | `state_snapshot()` adoption: taint_llm YAML loaders | ~30 LOC | `app/ai/tools/taint_llm.py:78-101` uses `@lru_cache` on YAML loaders — cold-cache shape (process-lifetime once only). Migrate to `MtimeCachedYamlLoader` for hot-reload. |
 | `afternoon:RvwC-LOW-debian-l4t` | LOW | afternoon | Debian ar L4T extraction post-unblob | ~30 LOC | When unblob unpacks a `.deb` containing `/etc/nv_tegra_release` (e.g. `nvidia-l4t-bootloader_32.3.1-20191209230245_arm64.deb`), the extracted text file gets `vendor=unknown` and L4T metadata is lost. Add detector-layer check + propagate to firmware-level metadata. |
 
@@ -114,6 +113,11 @@
 
 | ID | Severity | Source | Item | Shipped in | Notes |
 |----|---------|--------|------|-----------|-------|
+| `evening:RvwC-C12` | MEDIUM | evening → consolidation-2026-05-18 | `.planning/ADAPTIVE_BACKLOG.md` — single source of truth | `2026-05-18:533bb72` | Walked + deduplicated ~50 items across morning + afternoon + evening 2026-05-15 postmortems. PRIORITY per user direction. |
+| `evening:RvwC-C2` | HIGH | evening → consolidation-2026-05-18 | `.mex/patterns/cross-stack-alignment-test.md` recipe | `2026-05-18:105a888` | Rule-of-Nine durable beyond debate; recipe codifies 5-part test shape + 2 commit shapes + asymmetry tolerance. |
+| `evening:RvwC-C7` | HIGH | evening → consolidation-2026-05-18 | `.mex/patterns/forward-prepared-cve-pin.md` recipe | `2026-05-18:b8f6e95` | Rule-of-Two pattern; HARD-REJECT version_regex contract at `cve_matcher.py:477-491`; activation commit-chain plan. |
+| `evening:RvwC-C14` | HIGH | evening → consolidation-2026-05-18 | CLAUDE.md Rules #48-50 promotion + Rule #25 Rule-of-Eight → Rule-of-Nine | `2026-05-18:294fa3a` (CLAUDE.md + conventions.md mirror per Rule #21) + Reviewer A HIGH fixup `2026-05-18:17959a6` (correct Rule #50 dedup-mechanic claim — NO DB UniqueConstraint exists, app-side `existing`-set lookup at `cve_matcher.py:905,989,1042`) | Single Rule #25 cross-stack-alignment commit shape per Rule #48 Shape 1. |
+| `evening:RvwC-C01` | HIGH | (this session's reviewer C-01) | `.mex/ROUTER.md` routing-table row + last_updated bump → ADAPTIVE_BACKLOG surfaced to future-session openers | `2026-05-18:14f4357` | Closed the future-session-affordance loop. Fresh session opener loading ROUTER.md per Behavioural Contract now discovers the backlog. |
 | `morning:RvwB-B1 (F-FORENSIC-10 gate)` | HIGH | morning → afternoon | F-FORENSIC-10 schema gate analog for `known_firmware.yaml` + 16-entry pre-narrowing | `afternoon:5398f16` | Pre-implementation width-canary audit caught 16-entry scope vs user-prompt's named 1 (Rule #31 applied to YAML edits). |
 | `morning:RvwA-A6 + A7 (state_snapshot)` | HIGH | morning → afternoon | `state_snapshot()` public method on `MtimeCachedYamlLoader` + cross-domain helper move | `afternoon:bbaef3b` | Abstraction-boundary fix replacing defensive `getattr` reads that masked refactor signals. |
 | `morning:L4T-extraction` | HIGH | morning → afternoon | L4T release extraction in Tegra parser (3-stage: content-banner + path-inference + raw_bin 5th fallback) | `afternoon:f54d415 + 0a901f2 + 338f95b` | Activated 4-of-6 forward-prepared Tegra CVE pins on DS1; 63/99 blobs got `l4t_release=R32.3.1`. |
