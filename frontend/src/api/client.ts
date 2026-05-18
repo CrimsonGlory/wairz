@@ -49,12 +49,12 @@ apiClient.interceptors.request.use((config) => {
 // identical "Authentication failed" toasts — cosmetically bad and
 // drowns out any useful signal from the first one.
 //
-// Keys: 'network' | 'auth' | 'forbidden' | 'server'.
+// Keys: 'network' | 'auth' | 'forbidden' | 'server' | 'rateLimit'.
 const TOAST_DEDUPE_WINDOW_MS = 10_000
 const lastToastAt: Record<string, number> = {}
 
 function toastOnce(
-  key: 'network' | 'auth' | 'forbidden' | 'server',
+  key: 'network' | 'auth' | 'forbidden' | 'server' | 'rateLimit',
   title: string,
   description: string,
 ): void {
@@ -63,6 +63,22 @@ function toastOnce(
   if (now - last < TOAST_DEDUPE_WINDOW_MS) return
   lastToastAt[key] = now
   toast.error(title, { description })
+}
+
+// Module-scope "we're rate-limited until X" cooldown so per-page handlers
+// can short-circuit a redundant POST before it leaves the browser. Reads
+// the standard `Retry-After` header (slowapi sets seconds-since-now) and
+// gates by epoch-ms. Pages don't have to call this — the axios interceptor
+// updates it on every 429; pages can OPT IN by importing `rateLimitedUntil`.
+let _rateLimitedUntilMs = 0
+export function rateLimitedUntil(): number {
+  return _rateLimitedUntilMs
+}
+export function isRateLimited(): boolean {
+  return Date.now() < _rateLimitedUntilMs
+}
+export function rateLimitRemainingMs(): number {
+  return Math.max(0, _rateLimitedUntilMs - Date.now())
 }
 
 apiClient.interceptors.response.use(
@@ -90,14 +106,32 @@ apiClient.interceptors.response.use(
         )
       } else if (status === 403) {
         toastOnce('forbidden', 'Forbidden', 'You do not have access to this resource.')
+      } else if (status === 429) {
+        // SlowAPI sets Retry-After as integer seconds. Fallback to 60s if
+        // the header is missing or unparseable (defensive — the upstream
+        // contract IS to set the header, but axios headers are stringly).
+        const retryAfterHeader = error.response.headers?.['retry-after']
+        const retryAfterRaw = typeof retryAfterHeader === 'string' ? parseInt(retryAfterHeader, 10) : NaN
+        const retryAfterSec = Number.isFinite(retryAfterRaw) && retryAfterRaw > 0 ? retryAfterRaw : 60
+        _rateLimitedUntilMs = Date.now() + retryAfterSec * 1000
+        // The custom handler in backend/app/main.py sets data.hint to an
+        // operator-friendly string; data.error is slowapi's raw form.
+        const data = error.response.data as { hint?: string; error?: string; tier?: string } | undefined
+        const description =
+          data?.hint
+          ?? data?.error
+          ?? `Rate limit exceeded. Try again in ~${retryAfterSec}s.`
+        toastOnce('rateLimit', 'Rate limit reached', description)
       } else if (status >= 500) {
         toastOnce('server', 'Server error', `HTTP ${status} — check backend logs.`)
       }
     }
     // Keep the console breadcrumb for devtools debugging.
-    const detailRaw = (error.response?.data as { detail?: unknown } | undefined)?.detail
-    const detail = typeof detailRaw === 'string' ? detailRaw : undefined
-    const message = detail ?? error.message ?? 'An error occurred'
+    const data = error.response?.data as { detail?: unknown; error?: unknown; hint?: unknown } | undefined
+    const detail = typeof data?.detail === 'string' ? data.detail : undefined
+    const errMsg = typeof data?.error === 'string' ? data.error : undefined
+    const hint = typeof data?.hint === 'string' ? data.hint : undefined
+    const message = hint ?? detail ?? errMsg ?? error.message ?? 'An error occurred'
     console.error('[API Error]', message)
     return Promise.reject(error)
   },
