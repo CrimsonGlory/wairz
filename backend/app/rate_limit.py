@@ -70,6 +70,7 @@ SlowAPIMiddleware applies it to every route).
 import logging
 
 from fastapi.responses import JSONResponse
+from limits import parse as _parse_limit
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -86,15 +87,33 @@ TIER_A_LIGHT_ACK = "30/hour"
 TIER_B_DOCKER = "20/hour"
 TIER_C_DEFAULT = "100/minute"
 
-# Reverse map: "5/hour" → "TIER_A_HEAVY". Values are unique across tiers,
-# so this is unambiguous. Used by custom_rate_limit_exceeded_handler below
-# to surface the tier NAME (not just the limit string) to operators.
-_TIER_BY_LIMIT_STRING: dict[str, str] = {
-    TIER_A_HEAVY: "TIER_A_HEAVY",
-    TIER_A_LIGHT_ACK: "TIER_A_LIGHT_ACK",
-    TIER_B_DOCKER: "TIER_B_DOCKER",
-    TIER_C_DEFAULT: "TIER_C_DEFAULT",
-}
+# Reverse map for the custom 429 handler so an operator sees the tier NAME
+# (not just the limit string) in the response body + log event. Includes
+# BOTH the input form ("5/hour") AND slowapi's parsed-canonical form
+# ("5 per 1 hour" via str(limits.parse(...))) because slowapi's
+# RateLimitExceeded carries the parsed form in `exc.detail`. Without the
+# parsed form, the live canary showed tier="unknown" on every 429 even
+# though the limit was correctly attributed.
+def _build_tier_reverse_map() -> dict[str, str]:
+    pairs = (
+        (TIER_A_HEAVY, "TIER_A_HEAVY"),
+        (TIER_A_LIGHT_ACK, "TIER_A_LIGHT_ACK"),
+        (TIER_B_DOCKER, "TIER_B_DOCKER"),
+        (TIER_C_DEFAULT, "TIER_C_DEFAULT"),
+    )
+    m: dict[str, str] = {}
+    for limit_str, tier_name in pairs:
+        m[limit_str] = tier_name
+        try:
+            m[str(_parse_limit(limit_str))] = tier_name
+        except Exception:
+            # Defensive: if limits.parse ever fails for an exotic tier, the
+            # input-form key still covers the legitimate decorator-set value.
+            pass
+    return m
+
+
+_TIER_BY_LIMIT_STRING: dict[str, str] = _build_tier_reverse_map()
 
 _log = logging.getLogger("app.rate_limit")
 
@@ -133,19 +152,38 @@ def custom_rate_limit_exceeded_handler(
     Sync function (matches slowapi's default signature; FastAPI dispatches
     sync exception handlers in a threadpool).
     """
-    # Get slowapi's canonical response — handles Retry-After + X-RateLimit-*
-    # via the existing _inject_headers private method. Reusing it means we
-    # don't have to know which slowapi version exposes which header.
+    # Get slowapi's canonical response — handles X-RateLimit-* via the
+    # existing _inject_headers private method. Reusing it means we don't
+    # have to know which slowapi version exposes which header. Note:
+    # slowapi's default does NOT set Retry-After (verified 2026-05-18 via
+    # live canary on POST /firmware/{id}/unpack — no Retry-After header
+    # on the response); we compute and add it manually below.
     base = _rate_limit_exceeded_handler(request, exc)
 
-    # Parse Retry-After back from the base response. slowapi sets it to an
-    # int string in seconds; fall back to 60 if the header is missing or
-    # unparseable (defensive — the upstream contract IS to set it).
-    retry_after_header = base.headers.get("Retry-After", "60")
-    try:
-        retry_after_seconds = int(retry_after_header)
-    except (TypeError, ValueError):
-        retry_after_seconds = 60
+    # Compute Retry-After. Prefer slowapi's header if it's there (some
+    # versions / configs DO set it); else derive from the limit's window
+    # size via the parsed `limits.RateLimitItem.get_expiry()`. This is an
+    # OVER-estimate (the real wait is time-until-oldest-request-in-window
+    # leaves the window, not the full window size), but slightly-too-long
+    # is the safe direction — the operator will retry slightly later than
+    # they could have, never sooner.
+    retry_after_header = base.headers.get("Retry-After")
+    retry_after_seconds = 60  # default if everything below fails
+    if retry_after_header:
+        try:
+            retry_after_seconds = int(retry_after_header)
+        except (TypeError, ValueError):
+            pass
+    else:
+        # exc.limit is a slowapi Limit wrapper; its .limit attribute is the
+        # underlying limits.RateLimitItem with get_expiry().
+        try:
+            underlying = getattr(exc.limit, "limit", None) or exc.limit
+            expiry = underlying.get_expiry()
+            if isinstance(expiry, int) and expiry > 0:
+                retry_after_seconds = expiry
+        except Exception:
+            pass  # keep 60s default
 
     limit_str = str(exc.detail)
     tier_name = _TIER_BY_LIMIT_STRING.get(limit_str, "unknown")
@@ -180,10 +218,15 @@ def custom_rate_limit_exceeded_handler(
         "hint": hint,
     }
     response = JSONResponse(status_code=429, content=body)
-    # Carry forward every header slowapi set (Retry-After, X-RateLimit-*).
-    # Skip content-* because the new JSONResponse computes its own.
+    # Carry forward every header slowapi set (X-RateLimit-*). Skip
+    # content-* because the new JSONResponse computes its own.
     for header_name, header_value in base.headers.items():
         if header_name.lower() in ("content-type", "content-length"):
             continue
         response.headers[header_name] = header_value
+    # Always set Retry-After. slowapi's default _rate_limit_exceeded_handler
+    # does NOT set this header (verified empirically); we add it here per
+    # RFC 7231 §7.1.3 so HTTP-compliant clients + reverse proxies can act
+    # on it without parsing the JSON body.
+    response.headers["Retry-After"] = str(retry_after_seconds)
     return response
