@@ -5,7 +5,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.requests import Request
@@ -21,7 +20,7 @@ from app.middleware.asgi_auth import APIKeyASGIMiddleware
 configure_logging(level=os.environ.get("LOG_LEVEL", "INFO"))
 from datetime import UTC
 
-from app.rate_limit import limiter  # shared rate-limiter instance (B.1.b)
+from app.rate_limit import custom_rate_limit_exceeded_handler, limiter  # shared rate-limiter instance (B.1.b)
 from app.routers import (
     analysis,
     apk_scan,
@@ -269,9 +268,12 @@ app = FastAPI(
 
 # Attach rate limiter state, 429 handler, and SlowAPI middleware (B.1.b).
 # SlowAPIMiddleware intercepts requests and checks @limiter.limit() decorators.
-# The exception handler converts RateLimitExceeded → HTTP 429 JSON response.
+# custom_rate_limit_exceeded_handler wraps slowapi's default with structured
+# JSON body (tier name + retry_after_seconds + operator-friendly hint) and a
+# structured log event so operators don't need to read backend stdout to
+# diagnose a frontend "Rate limit reached" toast.
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, custom_rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
 _cors_origins = (

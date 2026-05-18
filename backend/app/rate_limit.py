@@ -67,8 +67,13 @@ SlowAPIMiddleware applies it to every route).
   tiers slot in naturally.
 """
 
-from slowapi import Limiter
+import logging
+
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from starlette.requests import Request
 
 # In-memory storage is fine for single-instance deployments.
 # To enable distributed rate limiting across multiple replicas, pass:
@@ -80,3 +85,105 @@ TIER_A_HEAVY = "5/hour"
 TIER_A_LIGHT_ACK = "30/hour"
 TIER_B_DOCKER = "20/hour"
 TIER_C_DEFAULT = "100/minute"
+
+# Reverse map: "5/hour" → "TIER_A_HEAVY". Values are unique across tiers,
+# so this is unambiguous. Used by custom_rate_limit_exceeded_handler below
+# to surface the tier NAME (not just the limit string) to operators.
+_TIER_BY_LIMIT_STRING: dict[str, str] = {
+    TIER_A_HEAVY: "TIER_A_HEAVY",
+    TIER_A_LIGHT_ACK: "TIER_A_LIGHT_ACK",
+    TIER_B_DOCKER: "TIER_B_DOCKER",
+    TIER_C_DEFAULT: "TIER_C_DEFAULT",
+}
+
+_log = logging.getLogger("app.rate_limit")
+
+
+def custom_rate_limit_exceeded_handler(
+    request: Request, exc: RateLimitExceeded,
+) -> JSONResponse:
+    """Custom 429 handler — augments slowapi's default with structured fields.
+
+    Wraps :func:`slowapi._rate_limit_exceeded_handler` so all standard
+    headers (``Retry-After``, ``X-RateLimit-Limit``, ``X-RateLimit-Remaining``,
+    ``X-RateLimit-Reset``) are preserved unchanged. Replaces the JSON body
+    so frontends + log scrapers + operator tooling have a stable shape with
+    semantic fields, not a free-form string.
+
+    Body shape::
+
+        {
+          "detail": "Rate limit reached: <limit_string> on <path>. Try again in ~Ns.",
+          "error":  "Rate limit exceeded: <limit_string>",  # slowapi compat
+          "tier":   "TIER_A_HEAVY" | "TIER_A_LIGHT_ACK" | ... | "unknown",
+          "retry_after_seconds": <int>,
+          "hint":   <same string as detail, for the frontend's hint-first lookup>
+        }
+
+    The ``detail`` key keeps FastAPI/HTTPException-compat client code working
+    (``extractErrorMessage`` in the frontend reads ``data.detail`` first).
+    The ``hint`` key is what ``frontend/src/utils/error.ts`` reads in priority
+    order (commit ``69ed1dd``).
+
+    Also emits a structured log line at WARNING level so operators have a
+    queryable event without parsing slowapi's stdlib log format. The
+    structured log replaces having to ``docker compose logs backend`` to
+    diagnose a frontend "rate limit reached" toast.
+
+    Sync function (matches slowapi's default signature; FastAPI dispatches
+    sync exception handlers in a threadpool).
+    """
+    # Get slowapi's canonical response — handles Retry-After + X-RateLimit-*
+    # via the existing _inject_headers private method. Reusing it means we
+    # don't have to know which slowapi version exposes which header.
+    base = _rate_limit_exceeded_handler(request, exc)
+
+    # Parse Retry-After back from the base response. slowapi sets it to an
+    # int string in seconds; fall back to 60 if the header is missing or
+    # unparseable (defensive — the upstream contract IS to set it).
+    retry_after_header = base.headers.get("Retry-After", "60")
+    try:
+        retry_after_seconds = int(retry_after_header)
+    except (TypeError, ValueError):
+        retry_after_seconds = 60
+
+    limit_str = str(exc.detail)
+    tier_name = _TIER_BY_LIMIT_STRING.get(limit_str, "unknown")
+    path = request.url.path
+    hint = (
+        f"Rate limit reached: {limit_str} on {path}. "
+        f"Try again in ~{retry_after_seconds}s."
+    )
+
+    # Structured log — lets operators grep with ``event_type:rate_limit_exceeded``
+    # in their log shipper. The ``extra`` dict survives through structlog's
+    # stdlib processor (configured in logging_config.py).
+    client_ip = request.client.host if request.client else "unknown"
+    _log.warning(
+        "rate_limit_exceeded endpoint=%s tier=%s limit=%s retry_after=%ds ip=%s",
+        path, tier_name, limit_str, retry_after_seconds, client_ip,
+        extra={
+            "event_type": "rate_limit_exceeded",
+            "endpoint": path,
+            "tier": tier_name,
+            "limit": limit_str,
+            "retry_after_seconds": retry_after_seconds,
+            "client_ip": client_ip,
+        },
+    )
+
+    body = {
+        "detail": hint,
+        "error": f"Rate limit exceeded: {limit_str}",
+        "tier": tier_name,
+        "retry_after_seconds": retry_after_seconds,
+        "hint": hint,
+    }
+    response = JSONResponse(status_code=429, content=body)
+    # Carry forward every header slowapi set (Retry-After, X-RateLimit-*).
+    # Skip content-* because the new JSONResponse computes its own.
+    for header_name, header_value in base.headers.items():
+        if header_name.lower() in ("content-type", "content-length"):
+            continue
+        response.headers[header_name] = header_value
+    return response
