@@ -5,8 +5,10 @@ from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
 
 from app.database import get_db
+from app.rate_limit import TIER_A_HEAVY, limiter
 from app.models.device_dump import DeviceDumpSession
 from app.schemas.device import (
     DeviceBridgeStatus,
@@ -97,9 +99,11 @@ async def device_info(
 
 
 @router.post("/dumps", response_model=DumpStatusResponse, status_code=202)
+@limiter.limit(TIER_A_HEAVY)
 async def start_dump(
+    request: Request,
     project_id: uuid.UUID,
-    request: DumpPartitionRequest,
+    body: DumpPartitionRequest,
     service: DeviceService = Depends(get_device_service),
 ):
     """Start dumping partitions from a device.
@@ -118,7 +122,7 @@ async def start_dump(
         )
 
     try:
-        row = await service.start_dump(project_id, request.device_id, request.partitions)
+        row = await service.start_dump(project_id, body.device_id, body.partitions)
     except ConnectionError as e:
         raise HTTPException(502, f"Device bridge unreachable: {e}")
     except ValueError as e:
