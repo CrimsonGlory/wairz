@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: iso_9660
+manifest_source: _system
+precedence: 200
+category: archive
+vendor: unknown
+confidence: high
+notes: |
+  ISO-9660 optical-disc filesystem. Primary-volume-descriptor
+  magic 'CD001' (5 ASCII bytes) at offset 0x8001 (32769). Lower
+  precedence than windows_installer_iso so the Windows variant
+  classifies first when its installer-specific markers are present;
+  this manifest catches bare ISO images.
+  References:
+    ECMA-119 standard (ISO 9660 specification)
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 32769
+      bytes_hex: "4344303031"
+      description: "'CD001' — ISO-9660 primary-volume-descriptor magic"
+output:
+  classifier_format: iso_9660
+  classifier_category: archive
+  classifier_vendor: unknown
+  confidence: high
+pre_upload:
+  detected_format: iso_9660
+  extraction_capability: full

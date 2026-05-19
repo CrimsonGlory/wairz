@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: wim_archive
+manifest_source: _system
+precedence: 100
+category: wim_archive
+vendor: microsoft
+confidence: high
+notes: |
+  Windows Imaging Format (WIM) archive. Magic 'MSWIM\x00\x00\x00'
+  (8 bytes) at offset 0. wimlib-imagex extracts cleanly; Windows
+  installer ISOs typically carry sources/boot.wim + install.wim
+  inside an outer ISO-9660 container.
+  References:
+    https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-image-file-boot-wim
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "4d5357494d000000"
+      description: "'MSWIM\\x00\\x00\\x00' — WIM archive magic"
+output:
+  classifier_format: wim_archive
+  classifier_category: wim_archive
+  classifier_vendor: microsoft
+  confidence: high
+pre_upload:
+  detected_format: wim_archive
+  extraction_capability: full

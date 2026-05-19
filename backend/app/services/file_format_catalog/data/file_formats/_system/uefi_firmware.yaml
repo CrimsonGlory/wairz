@@ -1,0 +1,49 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: uefi_firmware
+manifest_source: _system
+precedence: 100
+category: uefi_firmware
+vendor: unknown
+confidence: high
+notes: |
+  UEFI / BIOS firmware blob. Three independent signatures, ANY of
+  which suffices:
+    (a) EFI capsule GUID BD86663B-08ED-4816-8FF0-D29BF6426720 at
+        offset 0 (Microsoft / Framework capsule update format);
+    (b) Intel Flash Descriptor signature 0x0FF0A55A at offset 0x10
+        (full SPI flash dump);
+    (c) AMI Aptio capsule marker 0xB525678D at offset 0
+        (Aptio BIOS firmware capsule).
+  The FVH '_FVH' magic (8 bytes at offset 0x28 of a firmware
+  volume header) is best-effort searched by the parser layer
+  beyond what the head-byte signal can express here.
+  References:
+    https://uefi.org/sites/default/files/resources/UEFI_Spec_2_10_Aug29.pdf
+detection:
+  combine: any
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "3b6686bded0816488ff0d29bf6426720"
+      description: "EFI capsule GUID BD86663B-08ED-4816-8FF0-D29BF6426720"
+    - kind: magic_bytes
+      offset: 16
+      bytes_hex: "5aa5f00f"
+      description: "Intel Flash Descriptor signature (offset 0x10)"
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "b525678d"
+      description: "AMI Aptio BIOS capsule marker"
+output:
+  classifier_format: uefi_firmware
+  classifier_category: uefi_firmware
+  classifier_vendor: unknown
+  confidence: high
+pre_upload:
+  detected_format: linux_firmware_blob
+  extraction_capability: partial
+  banner_note: |
+    UEFI firmware detected. unblob walks the firmware volume
+    structure (FVH / FFS / sections); SMM module enumeration +
+    NVRAM extraction surface via the uefi MCP tools.

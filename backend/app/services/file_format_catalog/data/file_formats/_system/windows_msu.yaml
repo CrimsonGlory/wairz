@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: windows_msu
+manifest_source: _system
+precedence: 80
+category: windows_msu
+vendor: microsoft
+confidence: high
+notes: |
+  Microsoft Update Standalone Package (MSU) — a CAB-of-CABs wrapper
+  Windows uses to deliver wusa-installable updates. Magic 'MSCF'
+  shared with generic CAB; disambiguated via the .msu filename
+  extension. Precedence 80 beats generic CAB (100) so MSU classifies
+  first; the inner CAB carries the actual update payload.
+  References:
+    https://learn.microsoft.com/en-us/troubleshoot/windows-server/deployment/standalone-installer-msu
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "4d534346"
+      description: "'MSCF' — CAB archive magic (outer wrapper)"
+    - kind: filename
+      extensions_lower: [".msu"]
+      description: ".msu filename extension"
+output:
+  classifier_format: windows_msu
+  classifier_category: windows_msu
+  classifier_vendor: microsoft
+  confidence: high
+pre_upload:
+  detected_format: windows_msu
+  extraction_capability: partial
+  banner_note: |
+    Windows MSU package detected. Outer CAB unwrapping works via
+    cabextract; inner PSF (Express delta) reconstruction requires
+    a baseline file plus the gated psfextract toolchain (Phase α.6).

@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: windows_psf
+manifest_source: _system
+precedence: 100
+category: windows_psf
+vendor: microsoft
+confidence: high
+notes: |
+  Microsoft Patch Storage File (PSF) — Express install delta used
+  to ship Windows updates as compressed diffs against a baseline.
+  Three header variants: 'PA30' (Win10/11 LZMS), 'PA19' (Win7/8),
+  'PA17' (earliest). Each at offset 0 (4 ASCII bytes). Full
+  reconstruction requires the baseline binary plus the gated
+  psfextract toolchain (Phase α.6 ARG INCLUDE_PSF=1).
+  References:
+    https://hashpwn.net/showthread.php?tid=15  (community PSF notes)
+detection:
+  combine: any
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "50413330"
+      description: "'PA30' — Win10/11 LZMS-compressed Express delta"
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "50413139"
+      description: "'PA19' — Win7/8 Express delta"
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "50413137"
+      description: "'PA17' — earliest Express delta variant"
+output:
+  classifier_format: windows_psf
+  classifier_category: windows_psf
+  classifier_vendor: microsoft
+  confidence: high
+pre_upload:
+  detected_format: windows_psf
+  extraction_capability: partial
+  banner_note: |
+    Windows PSF (Express install delta) detected. Header validation
+    works; full reconstruction requires the baseline binary plus the
+    gated psfextract toolchain (Phase α.6).

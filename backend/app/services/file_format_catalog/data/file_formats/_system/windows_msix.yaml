@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: windows_msix
+manifest_source: _system
+precedence: 80
+category: windows_msix
+vendor: microsoft
+confidence: high
+notes: |
+  Microsoft MSIX / AppX / MSIXBundle — ZIP container carrying an
+  AppxManifest.xml (single-package) or AppxBundleManifest.xml
+  (bundle). Lower precedence than generic ZIP so MSIX classifies
+  before falling through to the catch-all.
+  References:
+    https://learn.microsoft.com/en-us/windows/msix/
+detection:
+  combine: any
+  signals:
+    - kind: zip_markers
+      inner_file_names:
+        - AppxManifest.xml
+        - AppxBundleManifest.xml
+        - AppxMetadata/AppxBundleManifest.xml
+      inner_min_count: 1
+      description: "MSIX / AppX manifest at the ZIP root"
+output:
+  classifier_format: windows_msix
+  classifier_category: windows_msix
+  classifier_vendor: microsoft
+  confidence: high
+pre_upload:
+  detected_format: windows_msix
+  extraction_capability: partial
+  banner_note: |
+    MSIX / AppX package detected. Per-package extraction works;
+    block-map verification + multi-package signing-chain validation
+    surface via MCP tools (Phase α.4 / Phase β).

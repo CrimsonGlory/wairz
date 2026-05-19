@@ -1,0 +1,39 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: windows_driver_package
+manifest_source: _system
+precedence: 90
+category: windows_driver_package
+vendor: microsoft
+confidence: high
+notes: |
+  Microsoft Windows driver package — CAB outer wrapper containing
+  an INF (installation info) + SYS (driver binary) + CAT (Windows
+  driver signing catalog). Precedence 90 beats generic CAB (100)
+  so driver packages classify first when the filename hint matches.
+  CoInstaller DLLs declared in the INF [CoInstaller] section are
+  surfaced as data only — never invoked per Rule #36 discipline.
+  References:
+    https://learn.microsoft.com/en-us/windows-hardware/drivers/install/inf-files-overview
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "4d534346"
+      description: "'MSCF' — CAB archive magic (outer wrapper)"
+    - kind: filename
+      extensions_lower: [".inf", ".sys", ".cat"]
+      description: ".inf / .sys / .cat extension hint"
+output:
+  classifier_format: windows_driver_package
+  classifier_category: windows_driver_package
+  classifier_vendor: microsoft
+  confidence: high
+pre_upload:
+  detected_format: windows_driver_package
+  extraction_capability: partial
+  banner_note: |
+    Windows driver package detected. INF + SYS + CAT triplet
+    extracted; SYS / CAT pass through signify for chain validation,
+    CoInstaller DLLs are surfaced as data and never invoked.

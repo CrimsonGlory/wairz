@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: intel_hex
+manifest_source: _system
+precedence: 300
+category: linux_blob
+vendor: unknown
+confidence: medium
+notes: |
+  Intel HEX (.hex / .ihex) — text-format MCU firmware record
+  encoding. Each record line begins with ':' followed by
+  hex-encoded length/address/type/data/checksum fields. The
+  binary-form magic-bytes signal can't reliably gate text files;
+  detection relies on a text_format check evaluator (stub in
+  P3.1.b — returns False, deferred to P3.2). Conversion to raw
+  via :func:`app.workers.unpack_common.convert_intel_hex_to_binary`.
+  References:
+    https://en.wikipedia.org/wiki/Intel_HEX
+    https://developer.arm.com/documentation/dui0474/m/the-input-format/intel-hex-format
+detection:
+  combine: all_required
+  signals:
+    - kind: text_format
+      description: "Intel HEX text-record stream"
+    - kind: filename
+      extensions_lower: [".hex", ".ihex"]
+      description: ".hex / .ihex extension hint"
+output:
+  classifier_format: intel_hex
+  classifier_category: linux_blob
+  classifier_vendor: unknown
+  confidence: medium
+pre_upload:
+  detected_format: unknown
+  extraction_capability: none
+  banner_note: |
+    Intel HEX text-record stream detected. Convert to raw via the
+    convert_intel_hex_to_binary helper for downstream analysis.

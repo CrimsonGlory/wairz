@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: windows_vhdx
+manifest_source: _system
+precedence: 100
+category: windows_vhdx
+vendor: microsoft
+confidence: high
+notes: |
+  Microsoft VHDX (Hyper-V / WSL2 virtual disk). Magic 'vhdxfile'
+  (8 ASCII bytes) at offset 0. Distinct from legacy VHD (cookie
+  'conectix' at last 512-byte block). qemu-img converts cleanly to
+  raw for downstream NTFS / registry / EVTX walks.
+  References:
+    https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-vhdx/
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "76686478"
+      description: "'vhdx' first 4 bytes of 'vhdxfile' magic"
+output:
+  classifier_format: windows_vhdx
+  classifier_category: windows_vhdx
+  classifier_vendor: microsoft
+  confidence: high
+pre_upload:
+  detected_format: windows_vhdx
+  extraction_capability: full

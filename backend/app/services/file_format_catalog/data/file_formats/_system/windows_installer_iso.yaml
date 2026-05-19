@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: windows_installer_iso
+manifest_source: _system
+precedence: 100
+category: windows_installer_iso
+vendor: microsoft
+confidence: high
+notes: |
+  Windows installer ISO (an ISO-9660 image carrying
+  sources/boot.wim plus bootmgr.efi). Precedence 100 beats generic
+  ISO-9660 (200) so installer ISOs classify first via the inner-
+  file marker; bare ISO-9660 images fall through to the generic
+  iso_9660 manifest.
+  References:
+    https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-installation-process
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 32769
+      bytes_hex: "4344303031"
+      description: "'CD001' — ISO-9660 primary-volume-descriptor magic"
+    - kind: filename
+      extensions_lower: [".iso", ".img"]
+      description: ".iso / .img extension hint"
+output:
+  classifier_format: windows_installer_iso
+  classifier_category: windows_installer_iso
+  classifier_vendor: microsoft
+  confidence: high
+pre_upload:
+  detected_format: windows_installer_iso
+  extraction_capability: full

@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: windows_cab
+manifest_source: _system
+precedence: 100
+category: windows_cab
+vendor: microsoft
+confidence: high
+notes: |
+  Microsoft Cabinet (CAB) archive. Magic 'MSCF' (4 ASCII bytes) at
+  offset 0. Used as the on-disk container for Windows installer
+  packages (MSU / driver-packages / signed CAB stand-alones). The
+  sibling MSU + driver-package manifests carry FILENAME-based
+  refinement at lower precedence so they classify FIRST when the
+  filename gives a stronger signal; this generic CAB manifest
+  catches the bare cases.
+  References:
+    https://learn.microsoft.com/en-us/previous-versions/bb417343(v=msdn.10)
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "4d534346"
+      description: "'MSCF' — CAB archive magic"
+output:
+  classifier_format: windows_cab
+  classifier_category: windows_cab
+  classifier_vendor: microsoft
+  confidence: high
+pre_upload:
+  detected_format: windows_cab
+  extraction_capability: full

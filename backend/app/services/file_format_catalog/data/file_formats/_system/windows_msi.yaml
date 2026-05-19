@@ -1,0 +1,39 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: windows_msi
+manifest_source: _system
+precedence: 100
+category: windows_msi
+vendor: microsoft
+confidence: high
+notes: |
+  Microsoft Windows Installer database (MSI / MSP). Magic
+  D0 CF 11 E0 A1 B1 1A E1 (OLE2 Compound File Binary) at offset 0.
+  The OLE2 magic alone is ambiguous with Office DOC / XLS / PPT —
+  disambiguation requires the .msi / .msp filename extension via
+  the filename signal below.
+  References:
+    https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-cfb/
+    https://learn.microsoft.com/en-us/windows/win32/msi/windows-installer-portal
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "d0cf11e0a1b11ae1"
+      description: "OLE2 Compound File Binary magic"
+    - kind: filename
+      extensions_lower: [".msi", ".msp"]
+      description: ".msi (installer) or .msp (patch) extension"
+output:
+  classifier_format: windows_msi
+  classifier_category: windows_msi
+  classifier_vendor: microsoft
+  confidence: high
+pre_upload:
+  detected_format: windows_msi
+  extraction_capability: partial
+  banner_note: |
+    Windows Installer database. Custom-action enumeration + table
+    extraction works via msiextract; runtime install-script execution
+    is intentionally disabled per Rule #36 no-execute discipline.

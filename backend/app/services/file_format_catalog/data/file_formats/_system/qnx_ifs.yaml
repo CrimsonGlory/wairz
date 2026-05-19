@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: qnx_ifs
+manifest_source: _system
+precedence: 100
+category: qnx_ifs
+vendor: blackberry
+confidence: high
+notes: |
+  QNX Image Filesystem (IFS). Two byte-order variants of the
+  startup header at offset 0:
+    0x00ff7eeb — native endian declaration A
+    0xeb7eff7e — native endian declaration B (byte-swapped)
+  Per QNX 8.0 documentation. Listing works via the jtang613/
+  qnx_dumpers parser; full extraction needs host-side QNX SDP
+  dumpifs (no AGPL-compatible alternative as of 2026-05).
+  References:
+    https://www.qnx.com/developers/docs/8.0/com.qnx.doc.neutrino.utilities/topic/m/mount_ifs.html
+detection:
+  combine: any
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "00ff7eeb"
+      description: "QNX IFS startup-header variant A"
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "eb7eff7e"
+      description: "QNX IFS startup-header variant B (byte-swapped)"
+output:
+  classifier_format: qnx_ifs
+  classifier_category: qnx_ifs
+  classifier_vendor: blackberry
+  confidence: high
+pre_upload:
+  detected_format: qnx_ifs
+  extraction_capability: partial
+  banner_note: |
+    QNX IFS detected. Listing via jtang613/qnx_dumpers; for full
+    extraction install QNX SDP and run dumpifs on the upload host.
