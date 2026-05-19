@@ -1,0 +1,193 @@
+# ---------------------------------------------------------------------------
+# NXP SPC58xx (e200z4, Power Architecture) — chip-family manifest
+# ---------------------------------------------------------------------------
+# Rule-of-Two reference for Rule #52 (2026-05-19). Proves the schema-driven
+# bare-metal pattern works for:
+#   * Big-endian architecture (vs little-endian F28066)
+#   * PowerPC VLE ISA (vs C28x DSP)
+#   * 32-bit byte-addressed memory (vs 16-bit word-addressed)
+#   * Lifecycle-register security model (vs CSM password)
+#
+# The SPC58 family powers automotive ECUs (Bosch, Continental, Denso) for
+# powertrain / chassis / body / ADAS subsystems. A "factory" lifecycle
+# register value = production debug enabled = JTAG accessible — analogous
+# (in operator-impact) to F28066 unprogrammed CSM PWL.
+#
+# Sources:
+#   - NXP RM0488 (SPC58xx Reference Manual)
+#   - NXP AN5347 (Lifecycle State Management)
+#   - NXP AN5365 (HSM Programming Guide)
+#   - "Reverse-Engineering Automotive ECUs" (hardwear.io 2024)
+#
+# Architecture quirks:
+#   * Boot Assist Module (BAM) at 0x00000000-0x00003FFF — factory-programmed
+#     bootstrap ROM. Reset vector pulls boot configuration from
+#     XBAR_CROSSBAR_BOOT_BFRn registers and dispatches to flash boot sector.
+#   * Two-stage flash: boot sector (0x00400000) + application (0x00800000-...)
+#     — supports A/B field-update without bricking.
+#   * Hardware Security Module (HSM) — separate Cortex-M0+ core for crypto
+#     operations; HSM SRAM at 0xF0000000 is not accessible to main core.
+#   * Lifecycle register at SSCM_STATUS (0xC3FD8000) bits 12-15 encode
+#     factory|customer_delivery|in_field|failure_analysis state. Factory
+#     state leaves censorship password registers OPEN; production firmware
+#     must be in customer_delivery or later.
+# ---------------------------------------------------------------------------
+
+schema_version: 1
+vendor: nxp
+family: spc58
+display_name: "NXP SPC58xx (e200z4, Power Architecture automotive MCU)"
+description: |
+  NXP Semiconductors SPC58xx family — multi-core PowerPC e200z4 / e200z7
+  microcontrollers for automotive applications (powertrain, chassis,
+  body, ADAS). Big-endian VLE (Variable Length Encoding) ISA, 32-bit
+  byte-addressed flash, Hardware Security Module on separate core.
+
+  Production silicon SHOULD have the lifecycle register set to
+  customer_delivery (0x2) or later before shipping. Factory state (0x0)
+  leaves censorship-password registers OPEN — JTAG access to flash +
+  HSM SRAM is permitted without authentication.
+
+references:
+  - "NXP RM0488 SPC58xx Family Reference Manual"
+  - "NXP AN5347 Lifecycle State Management"
+  - "NXP AN5365 HSM Programming Guide"
+  - "CWE-1273 Device Unlock Credential Sharing"
+  - "CWE-1191 On-Chip Debug and Test Interface With Improper Access Control"
+  - "CWE-1234 Hardware Internal or Debug Modes Allow Override of Locks"
+
+domains:
+  - name: e200z4_core
+    arch: powerpc-vle
+    endianness: big
+    instruction_word_bits: 16
+    data_word_bits: 32
+    address_bus_bits: 32
+    packing: one_byte_per_address
+
+    description: |
+      Main e200z4 application core. Single-domain manifest — composite
+      SPC58 SKUs with multiple cores would declare additional Domain
+      entries (lockstep z4_safety, HSM z0 core, etc.) under the same
+      family file.
+
+    address_regions:
+      - name: bam
+        start: 0x00000000
+        end: 0x00003FFF
+        access: read-execute
+        semantic: [boot_assist_module, boot_rom]
+        description: |
+          Boot Assist Module — factory-programmed bootstrap ROM (16 KB).
+          Reads boot configuration from XBAR_CROSSBAR_BOOT_BFRn registers,
+          loads RCHW (Reset Configuration Half-Word) from flash, and
+          dispatches to the flash boot sector.
+
+      - name: flash_boot
+        start: 0x00400000
+        end: 0x0043FFFF
+        access: read-execute
+        semantic: [flash_code, signed_code_region]
+        description: |
+          Boot sector (256 KB). Contains low-level initialization +
+          A/B selector logic + secure-boot validator (when HSM is
+          provisioned).
+
+      - name: flash_app
+        start: 0x00800000
+        end: 0x01FFFFFF
+        access: read-execute
+        semantic: [flash_code, flash_data]
+        description: |
+          Application flash (24 MB on SPC58EHx). Operator firmware lives
+          here. Vendor-stripped production builds typically lack TI/Bosch
+          compiler-runtime strings, so detection signals rely on RCHW +
+          BAM dispatch table shape rather than vendor strings.
+
+      - name: hsm_sram
+        start: 0xF0000000
+        end: 0xF000FFFF
+        access: read-only
+        semantic: [hsm_sram, sram]
+        description: |
+          Hardware Security Module SRAM (64 KB) — physically present at
+          this address but accessible only to the HSM core (separate
+          Cortex-M0+). Main core sees this region as zeros via the
+          crossbar firewall — Rule #45 no-decrypt analog (HSM key
+          material is present in memory at runtime but never readable
+          by wairz). The ``hsm_sram`` semantic tag drives the walker's
+          policy SKIP; access=read-only is the file-view stance.
+
+      - name: lifecycle_register
+        start: 0xC3FD8000
+        size: 4
+        access: read-only
+        semantic: [security_password]
+        description: |
+          SSCM_STATUS register (32-bit). Bits 12-15 encode lifecycle:
+            0x0 = factory (FAB)            ← CWE-1273/1191/1234 finding
+            0x1 = silicon-test (delivered to NXP)
+            0x2 = customer-delivery        ← Production-ready
+            0x3 = OEM-production
+            0x4 = in-field
+            0x5 = failure-analysis-return
+          Production firmware MUST NOT ship with lifecycle in {0x0, 0x1}.
+        policy:
+          - operator: required_value_at_offset
+            value_hex: "00000002"
+            offset: 0
+            word_size_bits: 32
+            cwe_ids: [1273, 1191, 1234]
+            severity: critical
+            confidence: high
+            finding_source: c28x_unsecure_csm
+            description: |
+              SSCM_STATUS lifecycle != customer-delivery (0x2). Factory
+              or silicon-test state leaves JTAG + censorship-password
+              registers open. Operator audit: production silicon MUST
+              transition to lifecycle ≥ customer-delivery before
+              shipping.
+
+              Note: re-uses the c28x_unsecure_csm finding_source as a
+              generic "MCU/DSP debug-unlock finding" until Phase 2
+              adds nxp_spc58_factory_lifecycle to the closed enum.
+
+    detection_signals:
+      # BAM at offset 0 has a known fixed-byte pattern (the e200z4 first
+      # instruction is always 0x4800 0008 — branch-to-init-vector with
+      # specific encoding). Operators can extend this list per observed
+      # dumps without a docker restart.
+      - kind: silicon_id_byte_match
+        weight: 0.4
+        address: 0x00000000
+        bytes_hex: "48000008"
+        description: "e200z4 BAM reset-vector branch instruction"
+
+      # NXP / Freescale runtime strings — present in vendor-stripped
+      # builds about 50% of the time; useful additive signal.
+      - kind: string_present
+        weight: 0.2
+        patterns:
+          - "NXP"
+          - "Freescale"
+          - "SPC58"
+          - "e200z4"
+          - "PowerPC"
+          - "HSM_INIT"
+          - "RCHW_BOOT"
+        description: "NXP / Freescale compiler-runtime + family identifier strings"
+
+      # ELF magic — reject ELF-shaped inputs (defer to ELF parser)
+      - kind: elf_magic
+        weight: 1.0
+        bytes_hex: "7F454C46"
+        description: "Reject ELF-shaped inputs"
+
+    ghidra_import_params:
+      # Ghidra ships PowerPC:BE:32:VLE — mature SLEIGH spec, full decompiler
+      # support. Unlike TI C28x where SLEIGH is pending (ghidra#5259),
+      # SPC58 analysis works out-of-the-box once analyzeHeadless is invoked
+      # with the right loader hints.
+      processor: "PowerPC:BE:32:VLE"
+      loader: BinaryLoader
+      base_addr: 0x00000000
