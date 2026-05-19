@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: pe_binary
+manifest_source: _system
+precedence: 9000
+category: windows_pe
+vendor: unknown
+confidence: low
+notes: |
+  PE/MZ negative-evidence detection. Two-byte magic 0x4D5A at offset 0
+  is intentionally LOW-confidence — UEFI capsules / installers etc. take
+  precedence. Negative-evidence floor (Wave-1 S1 §3 + S3 §1) requires
+  precedence >= 5000 for magic_bytes <= 2 bytes.
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "4d5a"
+      description: "MZ DOS header magic at offset 0"
+output:
+  classifier_format: pe_binary
+  classifier_category: windows_pe
+  classifier_vendor: unknown
+  confidence: low
+pre_upload:
+  detected_format: pe_executable
+  extraction_capability: partial

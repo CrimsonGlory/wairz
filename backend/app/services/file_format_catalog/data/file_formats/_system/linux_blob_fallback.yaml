@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: linux_blob
+manifest_source: _system
+precedence: 0
+category: linux_blob
+vendor: unknown
+confidence: low
+notes: |
+  Catch-all fallback manifest. Returns linux_blob when no specific format
+  matches. The single global manifest in the entire catalog with
+  detection.always_matches: true. Loader rejects a second always_matches:true
+  manifest (sentinel cardinality META-CANARY).
+detection:
+  combine: any
+  always_matches: true
+  signals:
+    - kind: always_matches
+      description: "Catch-all fallback"
+output:
+  classifier_format: linux_blob
+  classifier_category: linux_blob
+  classifier_vendor: unknown
+  confidence: low
+pre_upload:
+  detected_format: linux_firmware_blob
+  extraction_capability: partial
