@@ -447,3 +447,139 @@ For the discipline expected of new pins and CVE attribution:
 - `CLAUDE.md` Rule #34 — graceful-degrade is the default; loud-on-bad-structure for high-leverage files.
 - `.planning/postmortems/postmortem-bt-banner-parser-session-2026-05-16.md` — the Reviewer B / CVE-2021-28139 incident that motivated H2.
 - `.planning/postmortems/postmortem-hw-firmware-adaptive-session-2026-05-15.md` — the BTFM → Broadcom misattribution that motivated the whole campaign.
+
+---
+
+## Surface 6 — `chip_families/*.yaml` (Rule #52 — bare-metal MCU/DSP audit)
+
+**Status:** Phase 1 + 2 shipped 2026-05-19 (commits `f0bbb1f..11cbd9d`).
+Two reference families ship in-tree: `ti/tms320f28066.yaml` (TI C28x DSP,
+16-bit word-addressed, CSM password model) and `nxp/spc58.yaml` (PowerPC
+e200z4, big-endian, lifecycle-register model). Adding a chip family is
+**operator-extensible** — drop a YAML, the catalog hot-reloads, the
+walker fires per next `audit_bare_metal_firmware` MCP call.
+
+| Aspect | Value |
+|---|---|
+| Path | `backend/app/services/hardware_firmware/data/chip_families/<vendor>/<family>.yaml` |
+| Schema | `backend/app/schemas/chip_family.py` — Pydantic v2 with closed Literals |
+| Loader | `chip_catalog.ChipCatalog` (per-file mtime cache, mirrors `MtimeCachedYamlLoader`) |
+| Walker | `bare_metal_walker.py` — Rule #39 inner/outer/safe triplet, closed `POLICY_EVALUATORS` |
+| HTTP ingest | `POST /api/v1/projects/{p}/firmware/{f}/bare-metal-hint` |
+| MCP tools | `list_chip_families`, `audit_bare_metal_firmware`, `submit_bare_metal_descriptor`, `lookup_bare_metal_findings_across_firmwares` |
+| Hot-reload | Yes — edit YAML, next walker call picks up changes (no docker restart) |
+| Rule #52 status | Rule-of-Two (2026-05-19) — F28066 + SPC58 cover orthogonal arch / endianness / packing / security model dimensions |
+
+### Closed-grammar discipline (the user-stated direction)
+
+The YAML is **DATA**, never code. Every extensible field is a closed
+Pydantic `Literal`. **NO `regex` / `script` / `template` / `predicate` /
+`lua` / `expression` keys EVER.** Pydantic `extra='forbid'` rejects
+unknown keys at YAML-load time; Rule #46 META-CANARIES synthesize
+forbidden inputs and confirm the gate fires.
+
+Extending the grammar (adding a new `RegionSemantic` or `PolicyOperator`
+or `Arch` value) requires a Rule #25 single-slice cross-stack alignment
+commit (DB CHECK + Pydantic Literal + frontend Config mirror) — NOT a
+YAML-only edit. The user-extensibility surface is the YAML; the closed
+grammar is the safety invariant.
+
+### Minimal worked example — Add `vendor/family.yaml`
+
+```yaml
+schema_version: 1
+vendor: stm
+family: stm32f4
+display_name: "STMicroelectronics STM32F4 (Cortex-M4 with RDP)"
+description: |
+  STM32F4 family with Read-Out Protection (RDP) security model.
+  RDP level 0 = unprotected, RDP level 1 = JTAG/SWD limited, RDP
+  level 2 = irreversible JTAG lock.
+domains:
+  - name: cortex_m4_core
+    arch: arm-cortex-m
+    endianness: little
+    instruction_word_bits: 16    # Thumb-2 mixed 16/32; matcher reads either
+    data_word_bits: 32
+    address_bus_bits: 32
+    packing: one_byte_per_address
+    address_regions:
+      - name: flash_main
+        start: 0x08000000
+        size: 0x100000   # 1 MB STM32F407
+        access: read-execute
+        semantic: [flash_code, flash_data]
+      - name: rdp_option_byte
+        start: 0x1FFFC000
+        size: 4
+        access: read-only
+        semantic: [security_password]
+        policy:
+          - operator: required_value_at_offset
+            value_hex: "AA"        # RDP level 0 byte
+            offset: 0
+            word_size_bits: 8
+            cwe_ids: [1273, 1191]
+            severity: high
+            finding_source: c28x_unsecure_csm   # reused; rename per Rule #25 when stm32_unsecure_rdp lands
+            description: "RDP level 0 (0xAA) = unprotected; production should be level 1 (0xBB) or 2 (0xCC)"
+    detection_signals:
+      - kind: silicon_id_byte_match
+        weight: 0.4
+        address: 0xE0042000   # DBGMCU_IDCODE register
+        bytes_hex: "13413040"
+        description: "STM32F40x family device-ID"
+      - kind: string_present
+        weight: 0.2
+        patterns: ["STMicroelectronics", "STM32F4", "Cube"]
+      - kind: elf_magic
+        weight: 1.0
+        bytes_hex: "7F454C46"
+    ghidra_import_params:
+      processor: "ARM:LE:32:Cortex"
+      loader: BinaryLoader
+      base_addr: 0x08000000
+```
+
+Drop the file at `data/chip_families/stm/stm32f4.yaml`. Next walker
+invocation picks it up:
+
+```bash
+# Verify it loaded
+docker compose exec backend wairz-mcp list_chip_families --vendor stm
+
+# Operator pushes a chip hint for a specific firmware
+curl -X POST -H "X-API-Key: $WAIRZ_KEY" -H 'Content-Type: application/json' \
+  -d '{"chip_family_hint": "stm/stm32f4"}' \
+  "https://wairz.example/api/v1/projects/$P/firmware/$F/bare-metal-hint"
+
+# Trigger walker
+docker compose exec backend wairz-mcp audit_bare_metal_firmware --firmware_id $F
+
+# Cross-firmware supply-chain audit (Rule #44):
+docker compose exec backend wairz-mcp lookup_bare_metal_findings_across_firmwares \
+  --finding_source c28x_unsecure_csm --scope global
+```
+
+### What you DO NOT need to do
+
+- Touch any Python — the walker is architecture-agnostic, dispatch is closed-grammar
+- Rebuild the docker image — `MtimeCachedYamlLoader` picks up the YAML at next access
+- Update the alembic migration — the schema is at the application layer, no DB shape changes
+- Register a new MCP tool — `list_chip_families` already enumerates the catalog
+
+### What you DO need to do
+
+- Match the Pydantic schema (Pydantic rejects unknown keys + invalid Literal values; the WARN log shows what's wrong via `chip_catalog.last_warning`)
+- Pick reasonable `detection_signals` — without strong signals + no operator descriptor, the walker emits `bare_metal_chip_unknown_with_hints` informational findings
+- Test against a representative blob (the existing F28066 + SPC58 tests are templates)
+
+### Pointers
+
+- Schema: `backend/app/schemas/chip_family.py`
+- Reference YAMLs: `data/chip_families/ti/tms320f28066.yaml`, `data/chip_families/nxp/spc58.yaml`
+- Walker: `backend/app/services/bare_metal_walker.py`
+- HTTP endpoint: `backend/app/routers/bare_metal.py` (Rule #51 `TIER_A_LIGHT_ACK`)
+- MCP tools: `backend/app/ai/tools/bare_metal.py`
+- Rule: `CLAUDE.md` Rule #52 — schema-driven discipline for operator extensions
+- External-ingestor protocol: see [`external-descriptor-ingest.md`](external-descriptor-ingest.md)
