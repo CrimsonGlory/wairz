@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: mtk_tinysys
+manifest_source: core
+precedence: 100
+category: mcu
+vendor: mediatek
+confidence: high
+notes: |
+  MediaTek TinySys MCU subsystem firmware. Dispatched from mtk_lk
+  via partition names: scp (Sensor Control Processor), sspm
+  (System-on-Chip Sensor / Power Manager), mcupm (MCU Power
+  Manager), dpm (Display Power Manager), spmfw (System Power
+  Manager firmware). Standalone filenames catch partitions
+  extracted from larger images.
+detection:
+  combine: any
+  signals:
+    - kind: filename
+      stems_lower:
+        - scp.img
+        - sspm.img
+        - mcupm.img
+        - dpm.img
+        - spmfw.img
+        - scp.bin
+        - sspm.bin
+        - mcupm.bin
+        - dpm.bin
+        - spmfw.bin
+      description: "TinySys MCU subsystem partition filenames"
+output:
+  classifier_format: mtk_tinysys
+  classifier_category: mcu
+  classifier_vendor: mediatek
+  confidence: high

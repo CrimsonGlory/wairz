@@ -1,0 +1,52 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: qcom_mbn
+manifest_source: core
+precedence: 50
+category: other
+vendor: qualcomm
+confidence: high
+notes: |
+  Qualcomm PIL (Peripheral Image Loader) firmware container, used
+  across the modem, TrustZone, audio DSP, compute DSP, sensor low-
+  power island, WLAN modem, GPU, bootloaders, and config blocks.
+  PIL filename stems are comprehensive — each maps to a distinct
+  category, but a single manifest is sufficient at this layer
+  because the existing classifier infers category from the stem
+  via _category_from_qcom_name(). Precedence 50 beats the generic
+  linux_elf manifest (400) so Qualcomm ELFs classify as PIL first.
+  References:
+    https://www.qualcomm.com/  (product docs vary by chipset)
+detection:
+  combine: any
+  signals:
+    - kind: filename
+      stems_lower:
+        - tz.mbn
+        - hyp.mbn
+        - aop.mbn
+        - adsp.mbn
+        - cdsp.mbn
+        - modem.mbn
+        - slpi.mbn
+        - wlanmdsp.mbn
+        - mba.mbn
+        - abl.elf
+        - rpm.mbn
+        - sbl1.mbn
+        - aboot.mbn
+        - devcfg.mbn
+        - cmnlib.mbn
+        - cmnlib64.mbn
+        - keymaster.mbn
+        - qupfw.mbn
+        - tzbsp.mbn
+        - xbl.elf
+        - xbl_config.elf
+      extensions_lower: [".mbn", ".mdt"]
+      description: "Qualcomm PIL stems + .mbn / .mdt extensions"
+output:
+  classifier_format: qcom_mbn
+  classifier_category: other
+  classifier_vendor: qualcomm
+  confidence: high

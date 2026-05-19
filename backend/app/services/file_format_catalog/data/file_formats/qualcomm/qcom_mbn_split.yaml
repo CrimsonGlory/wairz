@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: qcom_mbn_split
+manifest_source: core
+precedence: 80
+category: other
+vendor: qualcomm
+confidence: medium
+notes: |
+  Qualcomm PIL split-chunk pieces — extensions .b00..b0F. PIL
+  firmware can ship as a single .mbn / .elf OR as a header (.mdt)
+  plus 16 numbered chunks (.b00 through .b0F) that the boot loader
+  reassembles. Each chunk on its own isn't a full PIL but should
+  still be classified rather than dropped — the parser layer
+  re-stitches them when the .mdt sibling is present.
+detection:
+  combine: all_required
+  signals:
+    - kind: filename
+      extensions_lower:
+        - ".b00"
+        - ".b01"
+        - ".b02"
+        - ".b03"
+        - ".b04"
+        - ".b05"
+        - ".b06"
+        - ".b07"
+        - ".b08"
+        - ".b09"
+        - ".b0a"
+        - ".b0b"
+        - ".b0c"
+        - ".b0d"
+        - ".b0e"
+        - ".b0f"
+      description: "Qualcomm PIL split-chunk extensions .b00..b0F"
+output:
+  classifier_format: qcom_mbn_split
+  classifier_category: other
+  classifier_vendor: qualcomm
+  confidence: medium

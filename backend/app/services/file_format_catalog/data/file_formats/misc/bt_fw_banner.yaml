@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: bt_fw_banner
+manifest_source: core
+precedence: 350
+category: bluetooth
+vendor: unknown
+confidence: medium
+notes: |
+  Bluetooth firmware banner-string identification — QCA Rome BTFM,
+  Broadcom HCD, MediaTek WMT. The parser fingerprints vendor +
+  product via embedded banner strings (content-evidence) rather
+  than a fixed-offset magic. This manifest reserves the format_id
+  and routes uploads with the canonical filename hints to the
+  content-aware parser. A content_scan signal kind is deferred to
+  P3.2; the filename hints here are the routing surface in P3.1.
+detection:
+  combine: any
+  signals:
+    - kind: filename
+      stems_lower:
+        - btfm.bin
+        - bt_fw.bin
+      extensions_lower: [".hcd", ".tlv"]
+      description: "QCA Rome BTFM / Broadcom HCD / MediaTek WMT filename hints"
+output:
+  classifier_format: bt_fw_banner
+  classifier_category: bluetooth
+  classifier_vendor: unknown
+  confidence: medium

@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: linux_zimage
+manifest_source: core
+precedence: 200
+category: kernel
+vendor: unknown
+confidence: high
+notes: |
+  Linux ARM zImage — self-decompressing kernel image. Magic
+  0x016f2818 (little-endian) at offset 0x24 per
+  Documentation/arm/booting.rst. Routes to the kernel category
+  rather than linux_blob so downstream walkers (vmlinux extraction,
+  kernel-config recovery) pick it up.
+  References:
+    https://www.kernel.org/doc/Documentation/arm/booting.rst
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 36
+      bytes_hex: "18286f01"
+      description: "ARM zImage magic 0x016f2818 LE at offset 0x24"
+output:
+  classifier_format: linux_zimage
+  classifier_category: kernel
+  classifier_vendor: unknown
+  confidence: high
+pre_upload:
+  detected_format: linux_firmware_blob
+  extraction_capability: full

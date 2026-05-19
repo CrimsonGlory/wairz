@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: kinibi_mclf
+manifest_source: core
+precedence: 50
+category: tee
+vendor: unknown
+confidence: high
+notes: |
+  Trustonic Kinibi TrustZone trusted application (TA). Magic 'TRUS'
+  (54 52 55 53) at offset 0 — short for MCLF / 'Trustonic MobiCore
+  Load Format'. Kinibi runs on both Samsung Exynos AND MediaTek SoCs
+  with the same TRUS magic; vendor stays 'unknown' here because
+  the on-disk path or sibling chipset metadata is what disambiguates.
+  The .tlbin filename extension catches TA payloads stripped of the
+  outer TRUS header.
+  References:
+    https://www.trustonic.com/technical-articles/ (Trustonic dev docs)
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "54525553"
+      description: "Kinibi MCLF magic (TRUS)"
+output:
+  classifier_format: kinibi_mclf
+  classifier_category: tee
+  classifier_vendor: unknown
+  confidence: high

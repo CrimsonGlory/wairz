@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: mtk_preloader
+manifest_source: core
+precedence: 50
+category: bootloader
+vendor: mediatek
+confidence: high
+notes: |
+  MediaTek preloader (BROM stage) bootloader. Magic 'MMM\x01'
+  (4d 4d 4d 01) at offset 0; the 5th byte is 0x38 in valid
+  preloader images. The two-condition shape (magic plus byte
+  width) rejects unrelated streams that happen to start with
+  'MMM\x01'. Combine=all_required + a size_range floor ensures
+  the byte-5 read is in-bounds.
+  References:
+    MediaTek confidential platform docs (NDA — operator-supplied)
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "4d4d4d0138"
+      description: "MMM\\x01 magic + byte 0x38 at offset 4"
+    - kind: size_range
+      size_min: 5
+      description: "Preloader image must be ≥5 bytes"
+output:
+  classifier_format: mtk_preloader
+  classifier_category: bootloader
+  classifier_vendor: mediatek
+  confidence: high

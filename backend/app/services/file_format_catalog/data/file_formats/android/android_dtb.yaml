@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: android_dtb
+manifest_source: core
+precedence: 150
+category: dtb
+vendor: unknown
+confidence: high
+notes: |
+  Android-flavoured Device Tree Blob — the same FDT_MAGIC
+  0xd00dfeed (big-endian) used by linux_fit_dtb, but specifically
+  packaged as a .dtb file. Precedence 150 beats the generic
+  linux_fit_dtb manifest (200) so .dtb file uploads classify with
+  the explicit Android-friendly category.
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "d00dfeed"
+      description: "FDT_MAGIC (big-endian)"
+    - kind: filename
+      extensions_lower: [".dtb"]
+      description: ".dtb file extension"
+output:
+  classifier_format: android_dtb
+  classifier_category: dtb
+  classifier_vendor: unknown
+  confidence: high

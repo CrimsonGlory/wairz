@@ -1,0 +1,48 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: mtk_lk
+manifest_source: core
+precedence: 50
+category: bootloader
+vendor: mediatek
+confidence: high
+notes: |
+  MediaTek LK (Little Kernel) bootloader container — the outer
+  shape MediaTek uses for partitions ranging from the bootloader
+  itself through trusted firmware, GZ trustzone hypervisor,
+  MCU subsystems (SCP, SSPM, MCUPM, DPM, SPMFW, TinySys), and
+  display logo / camera VPU.
+
+  Magic 0x58881688 (little-endian: 88 16 88 58) at offset 0. The
+  partition NAME embedded in the LK header dispatches to a role-
+  specific format (mtk_atf / mtk_geniezone / mtk_tinysys); the
+  parser reads the header's name field and consults the lookup
+  table in :mod:`app.services.hardware_firmware.parsers.mediatek_gfh`.
+
+  Dispatch cases below are CONCEPTUAL — they communicate intent
+  for operators reading the YAML. Run-time dispatch is owned by
+  the parsers/mediatek_gfh.py table.
+  References:
+    https://github.com/MediaTek-Labs/lk
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "88168858"
+      description: "MediaTek LK partition magic (LE 0x58881688)"
+dispatch:
+  kind: by_partition_name
+  cases:
+    atf: mtk_atf
+    gz: mtk_geniezone
+    scp: mtk_tinysys
+    sspm: mtk_tinysys
+    mcupm: mtk_tinysys
+    dpm: mtk_tinysys
+    spmfw: mtk_tinysys
+output:
+  classifier_format: mtk_lk
+  classifier_category: bootloader
+  classifier_vendor: mediatek
+  confidence: high

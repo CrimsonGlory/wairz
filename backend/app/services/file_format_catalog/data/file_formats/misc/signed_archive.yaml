@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: signed_archive
+manifest_source: core
+precedence: 200
+category: other
+vendor: unknown
+confidence: medium
+notes: |
+  Vendor-specific signed-archive container observed on RespArray /
+  Edan medical firmware bundles. Magic 0xa3dfbbbf (4 bytes at
+  offset 0). The outer envelope is opaque; the sibling .signature
+  file carries detached signature material. Captured here as a
+  classifier surface so the upload doesn't drop silently.
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "a3dfbbbf"
+      description: "Vendor signed-archive header (RespArray / Edan family)"
+output:
+  classifier_format: signed_archive
+  classifier_category: other
+  classifier_vendor: unknown
+  confidence: medium

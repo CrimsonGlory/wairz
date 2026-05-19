@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: partition_dump_tar
+manifest_source: core
+precedence: 400
+category: partition_dump
+vendor: unknown
+confidence: high
+notes: |
+  TAR archive of raw partition images — produced by EDL (Qualcomm
+  Emergency Download Mode), MTKClient (MediaTek BROM dump), or the
+  wairz device-bridge dump path. Contents typically include
+  aboot.img / rpm.img / tz.img (Qualcomm) OR boot.img / recovery.img
+  / super.img / lk.img (MediaTek). Inner-file inspection in the
+  unpacker validates the partition-set match — this manifest is
+  the routing surface.
+
+  Detection here is filename-based because the tar 'ustar' magic
+  alone doesn't disambiguate dump tars from generic tars. The
+  inner-file check is owned by `_is_partition_dump_tar` in
+  unpack_common.py (kept side-by-side until P3.2 introduces a
+  tar_markers signal).
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 257
+      bytes_hex: "7573746172"
+      description: "'ustar' tar header magic at offset 0x101"
+    - kind: filename
+      extensions_lower: [".tar"]
+      description: "Bare .tar extension"
+output:
+  classifier_format: partition_dump_tar
+  classifier_category: partition_dump
+  classifier_vendor: unknown
+  confidence: high
+pre_upload:
+  detected_format: tar_archive
+  extraction_capability: full

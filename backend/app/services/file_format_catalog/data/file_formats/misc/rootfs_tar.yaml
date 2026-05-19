@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: rootfs_tar
+manifest_source: core
+precedence: 400
+category: linux_rootfs
+vendor: unknown
+confidence: high
+notes: |
+  TAR archive carrying a Linux rootfs — three or more of the
+  classic top-level directories (etc, usr, bin, lib, sbin, var,
+  tmp, dev, proc). Inner-file validation is owned by
+  `_is_rootfs_tar` in unpack_common.py until P3.2 ships a
+  proper tar_markers content-aware signal kind.
+
+  Same caveat as partition_dump_tar: detection here is the routing
+  surface; the unpacker's _is_rootfs_tar function decides the
+  final shape based on inner-file inspection.
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 257
+      bytes_hex: "7573746172"
+      description: "'ustar' tar header magic at offset 0x101"
+    - kind: filename
+      extensions_lower: [".tar", ".tgz", ".gz"]
+      description: "tar / tgz / gzipped-tar extension"
+output:
+  classifier_format: rootfs_tar
+  classifier_category: linux_rootfs
+  classifier_vendor: unknown
+  confidence: high
+pre_upload:
+  detected_format: tar_archive
+  extraction_capability: full

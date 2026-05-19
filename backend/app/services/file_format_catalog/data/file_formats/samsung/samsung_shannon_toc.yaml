@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: samsung_shannon_toc
+manifest_source: core
+precedence: 50
+category: modem
+vendor: samsung
+confidence: high
+notes: |
+  Samsung Shannon modem baseband firmware container. Magic 'TOC\\x00'
+  (54 4f 43 00) at offset 0 — Table-of-Contents header used by
+  Shannon-series basebands shipped in Exynos-powered Galaxy and
+  Note phones. Internally lays out one or more named TOC entries
+  pointing at code / data sections.
+  References:
+    https://comsecuris.com/blog/posts/path_of_least_resistance/  (Comsecuris Shannon notes)
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "544f4300"
+      description: "Shannon TOC magic (TOC\\x00)"
+output:
+  classifier_format: samsung_shannon_toc
+  classifier_category: modem
+  classifier_vendor: samsung
+  confidence: high

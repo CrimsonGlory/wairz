@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: mtk_atf
+manifest_source: core
+precedence: 100
+category: tee
+vendor: mediatek
+confidence: high
+notes: |
+  MediaTek ARM Trusted Firmware (ATF) partition. Dispatched from
+  mtk_lk via the partition-name 'atf'; this manifest does NOT
+  re-declare the LK magic to avoid an A4 cross-vendor collision.
+  The filename signal catches standalone uploads (extraction of
+  the atf.img partition out of a larger flash image).
+detection:
+  combine: all_required
+  signals:
+    - kind: filename
+      stems_lower:
+        - atf.img
+        - atf.bin
+      description: "ATF partition filename stem"
+output:
+  classifier_format: mtk_atf
+  classifier_category: tee
+  classifier_vendor: mediatek
+  confidence: high

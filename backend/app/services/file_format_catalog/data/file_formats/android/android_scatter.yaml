@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: android_scatter
+manifest_source: core
+precedence: 70
+category: android_ota
+vendor: mediatek
+confidence: high
+notes: |
+  MediaTek scatter-load Android firmware image — a ZIP carrying
+  a *_scatter.txt or _Android_scatter.txt scatter file plus
+  super.img (and other partition images). Precedence 70 beats
+  generic android_ota (70 — equal, ties broken by rule_specificity)
+  so scatter-formatted images route through the MediaTek-aware
+  unpacker.
+detection:
+  combine: all_required
+  signals:
+    - kind: zip_markers
+      inner_basenames:
+        - super.img
+      inner_file_names:
+        - Android_scatter.txt
+        - MT6739_Android_scatter.txt
+        - MT6761_Android_scatter.txt
+        - MT6765_Android_scatter.txt
+      inner_min_count: 2
+      description: "scatter.txt sibling + super.img partition"
+output:
+  classifier_format: android_scatter
+  classifier_category: android_ota
+  classifier_vendor: mediatek
+  confidence: high
+pre_upload:
+  detected_format: android_ota
+  extraction_capability: full

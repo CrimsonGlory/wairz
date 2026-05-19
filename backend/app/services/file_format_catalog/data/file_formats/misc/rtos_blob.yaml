@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: rtos_blob
+manifest_source: core
+precedence: 300
+category: rtos_blob
+vendor: unknown
+confidence: medium
+notes: |
+  Generic RTOS firmware blob — covers Zephyr / FreeRTOS / VxWorks /
+  ThreadX / Mbed-OS / NuttX images whose RTOS family is recognised
+  by app.services.rtos_detection_service.detect_rtos() but where
+  no specific vendor parser ships. The rtos_check signal kind is a
+  stub in P3.1.b — returns False; full implementation deferred to
+  P3.2. This manifest is the schema-shape placeholder.
+detection:
+  combine: all_required
+  signals:
+    - kind: rtos_check
+      rtos_plugin_ref: rtos_detection_default
+      description: "Generic RTOS signature scan (string + magic heuristics)"
+output:
+  classifier_format: rtos_blob
+  classifier_category: rtos_blob
+  classifier_vendor: unknown
+  confidence: medium

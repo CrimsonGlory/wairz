@@ -1,0 +1,45 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: acronis_backup
+manifest_source: core
+precedence: 300
+category: backup
+vendor: acronis
+confidence: medium
+notes: |
+  Acronis Cyber Protect backup archive — .tibx (Archive3 format,
+  shipped 2018+) or .tib (Archive2 format, deprecated but still in
+  the wild). No public magic-byte signature per Acronis KB 63498:
+  the formats are proprietary and an AGPL-compatible parser library
+  does NOT exist as of 2026-05-13 (verified across GitHub, GitLab,
+  DFRWS, USENIX, arxiv, awesome-forensics). Master .tibx files
+  carry an observable "ARCH" marker at offset 8 (deep-research
+  2026-05-13 on Medtronic ILLUMISITE samples), captured below.
+  References:
+    Acronis KB 63498 — Archive3 / Archive2 format declaration
+    .planning/research/tibx-deep-2026-05-13/scout-a-format-deep-research.md
+detection:
+  combine: any
+  signals:
+    - kind: filename
+      extensions_lower: [".tibx", ".tib"]
+      description: "Acronis backup file extensions"
+    - kind: magic_bytes
+      offset: 8
+      bytes_hex: "41524348"
+      description: "'ARCH' marker at offset 8 (master .tibx)"
+output:
+  classifier_format: acronis_backup
+  classifier_category: backup
+  classifier_vendor: acronis
+  confidence: medium
+pre_upload:
+  detected_format: acronis_backup
+  extraction_capability: partial
+  banner_note: |
+    Acronis .tibx / .tib backup detected. The format is proprietary;
+    extract via Acronis Cyber Protection Agent for Linux (30-day
+    trial) using ``/usr/lib/Acronis/BackupAndRecovery/tibxread``,
+    then re-upload the resulting disk.raw. A BYOB side-container
+    automation is queued (.planning/intake/tibx-byob-side-container-
+    architecture-2026-05-13.md).

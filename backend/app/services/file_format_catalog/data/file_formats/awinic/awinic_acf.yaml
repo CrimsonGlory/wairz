@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: awinic_acf
+manifest_source: core
+precedence: 300
+category: audio
+vendor: awinic
+confidence: medium
+notes: |
+  Awinic smart-amplifier ACF (Audio Configuration File) firmware.
+  No documented magic-byte signature; detection relies on filename
+  / extension hints. Shipped on Android devices that use Awinic
+  audio amplifiers (AW87xxx / AW88xxx series). Vendor-specific
+  parser at app.services.hardware_firmware.parsers.awinic surfaces
+  metadata; this manifest is the classifier-tier entry.
+detection:
+  combine: all_required
+  signals:
+    - kind: filename
+      extensions_lower: [".acf"]
+      description: "Awinic ACF firmware extension"
+output:
+  classifier_format: awinic_acf
+  classifier_category: audio
+  classifier_vendor: awinic
+  confidence: medium

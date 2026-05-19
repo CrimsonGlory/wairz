@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: android_dtbo
+manifest_source: core
+precedence: 100
+category: dtb
+vendor: unknown
+confidence: high
+notes: |
+  Android DTBO (Device Tree Blob Overlay) container — a wrapper
+  format Android uses to ship multiple device-tree overlays in a
+  single partition. Magic 0xd7b7ab1e (4 bytes at offset 0) per
+  AOSP system/libufdt sources.
+  References:
+    https://source.android.com/docs/core/architecture/dto/partitions
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "d7b7ab1e"
+      description: "Android DTBO container magic"
+output:
+  classifier_format: android_dtbo
+  classifier_category: dtb
+  classifier_vendor: unknown
+  confidence: high
