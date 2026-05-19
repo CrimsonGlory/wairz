@@ -1,0 +1,1031 @@
+{
+  "$defs": {
+    "Deprecation": {
+      "additionalProperties": false,
+      "description": "Lifecycle field \u2014 Wave-1 S5 Q.\n\nCatalog refresh emits WARN for every deprecated YAML loaded. Cross-stack\nalignment (Rule #25 Shape-1) keeps deprecated values valid through DB\nCHECK + frontend mirror until ``status: removed``.",
+      "properties": {
+        "removal_phase": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Removal Phase"
+        },
+        "replaced_by": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Required when status != active",
+          "title": "Replaced By"
+        },
+        "status": {
+          "default": "active",
+          "enum": [
+            "active",
+            "deprecated",
+            "removed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "title": "Deprecation",
+      "type": "object"
+    },
+    "Detection": {
+      "additionalProperties": false,
+      "description": "Detection block \u2014 how to recognise this format.\n\n``signals`` is preserved in declaration order for serialization /\ndocumentation purposes only. The resolver SORTS by cost class at evaluation\ntime (Wave-1 S5 attack O \u2014 I/O cost amplification DoS closed).",
+      "properties": {
+        "always_matches": {
+          "default": false,
+          "description": "ONLY the single _system fallback (linux_blob) sets True. Loader rejects True if manifest_source != '_system'.",
+          "title": "Always Matches",
+          "type": "boolean"
+        },
+        "combine": {
+          "default": "all_required",
+          "description": "all_required -> AND; any -> OR; weighted -> score must clear min_confidence_score",
+          "enum": [
+            "all_required",
+            "any",
+            "weighted"
+          ],
+          "title": "Combine",
+          "type": "string"
+        },
+        "min_confidence_score": {
+          "anyOf": [
+            {
+              "maximum": 100.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "REQUIRED when combine=weighted; sum-of-(weight*match) floor",
+          "title": "Min Confidence Score"
+        },
+        "signals": {
+          "description": "Cost-sorted at evaluation by resolver \u2014 declaration order is documentation",
+          "items": {
+            "$ref": "#/$defs/DetectionSignal"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Signals",
+          "type": "array"
+        }
+      },
+      "required": [
+        "signals"
+      ],
+      "title": "Detection",
+      "type": "object"
+    },
+    "DetectionSignal": {
+      "additionalProperties": false,
+      "description": "One detection signal \u2014 closed kinds, cost-sorted at evaluation.\n\nNO regex anywhere. ``patterns`` and ``substrings`` are literal byte/string\nsequences searched verbatim. Wave-1 size caps + element-length floors\n(S3 \u00a72) enforced by Field constraints below.",
+      "properties": {
+        "bytes_hex": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Lowercase hex; <=512 bytes (1024 hex chars). Wave-1 S3 \u00a72.",
+          "title": "Bytes Hex"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "extensions_lower": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 32,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extension tokens including the dot (e.g. '.bin'). Min 2 chars.",
+          "title": "Extensions Lower"
+        },
+        "inner_basenames": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 32,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inner Basenames"
+        },
+        "inner_file_names": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 32,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inner File Names"
+        },
+        "inner_min_count": {
+          "anyOf": [
+            {
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inner Min Count"
+        },
+        "kind": {
+          "enum": [
+            "filename",
+            "path_context",
+            "size_range",
+            "elf_check",
+            "intel_hex_check",
+            "pe_check",
+            "text_format",
+            "magic_bytes",
+            "zip_markers",
+            "tar_markers",
+            "rtos_check",
+            "always_matches"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "mask_hex": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional bitmask; same length as bytes_hex.",
+          "title": "Mask Hex"
+        },
+        "offset": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Byte offset for magic_bytes; <=4GB.",
+          "title": "Offset"
+        },
+        "path_substrings_any_of": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 32,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Path substring match (any of). MUST start with '/' and be >=6 chars (Wave-1 S3 \u00a72).",
+          "title": "Path Substrings Any Of"
+        },
+        "rtos_plugin_ref": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Registry name for the RTOS plugin. Resolved at snapshot time.",
+          "title": "Rtos Plugin Ref"
+        },
+        "size_max": {
+          "anyOf": [
+            {
+              "maximum": 1099511627776,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size Max"
+        },
+        "size_min": {
+          "anyOf": [
+            {
+              "maximum": 1099511627776,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size Min"
+        },
+        "stems_lower": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 64,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Exact basename matches (lowercased). Min 4 chars per entry.",
+          "title": "Stems Lower"
+        },
+        "weight": {
+          "default": 1.0,
+          "description": "Contribution under combine=weighted; ignored otherwise",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "DetectionSignal",
+      "type": "object"
+    },
+    "Dispatch": {
+      "additionalProperties": false,
+      "description": "Container fan-out \u2014 when a format wraps N inner formats.\n\nWave-1 S1 \u00a71: cross-manifest format_id refs in ``cases`` with cycle\ndetection at catalog load. ``depth_max`` caps recursion (Wave-1 S3 \u00a710).",
+      "properties": {
+        "cases": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Discriminator value -> target format_id. Resolved at snapshot construction.",
+          "maxProperties": 128,
+          "title": "Cases",
+          "type": "object"
+        },
+        "default": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Fallback format_id when no case matches",
+          "title": "Default"
+        },
+        "depth_max": {
+          "default": 2,
+          "maximum": 4,
+          "minimum": 1,
+          "title": "Depth Max",
+          "type": "integer"
+        },
+        "kind": {
+          "default": "none",
+          "enum": [
+            "by_partition_name",
+            "by_zip_inner_file",
+            "by_inner_magic",
+            "alias",
+            "none"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "Dispatch",
+      "type": "object"
+    },
+    "ExternalManifestsPolicyBlock": {
+      "additionalProperties": false,
+      "description": "Per-format-id policy for external-pushed manifests (P4 surface).\n\nWave-1 S5 L: operator can pin core YAML's primacy via ``policy: deny``.\nDefault deny on core/system manifests; operator can ``allow`` per format_id.",
+      "properties": {
+        "policy": {
+          "default": "deny",
+          "enum": [
+            "deny",
+            "allow",
+            "require_attestation"
+          ],
+          "title": "Policy",
+          "type": "string"
+        },
+        "scope": {
+          "description": "format_ids this policy applies to (empty = self only)",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Scope",
+          "type": "array"
+        }
+      },
+      "title": "ExternalManifestsPolicyBlock",
+      "type": "object"
+    },
+    "Output": {
+      "additionalProperties": false,
+      "description": "What the classifier emits when this format matches.\n\nFree-string taxonomy fields (Wave-1 user direction repeated 3\u00d7). Operators\nextend without core merges. Cross-stack alignment (Rule #25 Shape-1)\npropagates new vendor/category values to DB CHECK + frontend mirror.",
+      "properties": {
+        "classifier_category": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Classifier Category",
+          "type": "string"
+        },
+        "classifier_format": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Classifier Format",
+          "type": "string"
+        },
+        "classifier_product": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Classifier Product"
+        },
+        "classifier_vendor": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Classifier Vendor",
+          "type": "string"
+        },
+        "confidence": {
+          "default": "high",
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "classifier_format",
+        "classifier_category",
+        "classifier_vendor"
+      ],
+      "title": "Output",
+      "type": "object"
+    },
+    "Plugin": {
+      "additionalProperties": false,
+      "description": "Plugin pointers \u2014 matcher / parser / unpack pipeline.\n\nAll three are REGISTRY NAMES, runtime-resolved at snapshot construction.\nThe schema VALIDATES STRUCTURE; the catalog VALIDATES THAT THE REGISTRY\nNAME RESOLVES.",
+      "properties": {
+        "matcher": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PluginRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "parser": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PluginRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "unpack_pipeline": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PluginRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "Plugin",
+      "type": "object"
+    },
+    "PluginRef": {
+      "additionalProperties": false,
+      "description": "One closed-grammar reference into the in-tree plugin registry.\n\n``ref`` is a REGISTRY NAME (validated at snapshot construction against\n:data:`app.services.file_format_catalog.PLUGIN_REGISTRY`). Never a Python\nimport path. ``side_effects`` is locked to ``\"none\"`` \u2014 plugins MUST be\npure (Wave-1 S5 attack P).",
+      "properties": {
+        "applicable_format_ids": {
+          "description": "Plugin applicability allowlist (Wave-1 S3 \u00a73). Plugin's own protocol declares ``applicable_format_ids``; mismatch rejected at catalog refresh.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Applicable Format Ids",
+          "type": "array"
+        },
+        "bind": {
+          "default": "eager",
+          "enum": [
+            "eager",
+            "lazy"
+          ],
+          "title": "Bind",
+          "type": "string"
+        },
+        "fallback": {
+          "default": "skip",
+          "enum": [
+            "skip",
+            "reject",
+            "raw_bin"
+          ],
+          "title": "Fallback",
+          "type": "string"
+        },
+        "on_disagreement": {
+          "default": "log_warn",
+          "enum": [
+            "log_warn",
+            "reject",
+            "plugin_wins",
+            "static_wins"
+          ],
+          "title": "On Disagreement",
+          "type": "string"
+        },
+        "ref": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Ref",
+          "type": "string"
+        },
+        "role": {
+          "default": "refine",
+          "enum": [
+            "primary",
+            "refine",
+            "none"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "side_effects": {
+          "const": "none",
+          "default": "none",
+          "title": "Side Effects",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref"
+      ],
+      "title": "PluginRef",
+      "type": "object"
+    },
+    "PreUploadHint": {
+      "additionalProperties": false,
+      "description": "Surface C bridge \u2014 what format_detection.detect_format() emits.\n\nWave-1 W2-\u03b1 Q6: surface C reads this sub-block to derive its\n``DetectedFormat`` enum + ``EXTRACTION_CAPABILITY`` dict at startup\n(snapshot-pinned). One registry, two consumers.",
+      "properties": {
+        "banner_note": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-readable note rendered in the frontend banner when extraction_capability is 'partial' or 'none'",
+          "title": "Banner Note"
+        },
+        "detected_format": {
+          "enum": [
+            "linux_firmware_blob",
+            "android_apk",
+            "android_ota",
+            "windows_installer_iso",
+            "acronis_backup",
+            "qnx_ifs",
+            "pe_executable",
+            "wim_archive",
+            "iso_9660",
+            "tar_archive",
+            "zip_archive",
+            "windows_cab",
+            "windows_msi",
+            "windows_msix",
+            "windows_msu",
+            "windows_psf",
+            "windows_vhdx",
+            "windows_driver_package",
+            "unknown"
+          ],
+          "title": "Detected Format",
+          "type": "string"
+        },
+        "extraction_capability": {
+          "enum": [
+            "full",
+            "partial",
+            "none"
+          ],
+          "title": "Extraction Capability",
+          "type": "string"
+        }
+      },
+      "required": [
+        "detected_format",
+        "extraction_capability"
+      ],
+      "title": "PreUploadHint",
+      "type": "object"
+    },
+    "ProvenanceStub": {
+      "additionalProperties": false,
+      "description": "Contributor attribution. P3.1 ships unsigned stub; P4 adds verification.\n\nWave-1 W2-\u03b1 Q1: ``signature`` accepted as opaque field but NOT validated\nin P3.1. P4 adds detached-signature verification gated on\n``manifest_source: attested_external``.",
+      "properties": {
+        "attestation_url": {
+          "anyOf": [
+            {
+              "format": "uri",
+              "maxLength": 2083,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attestation Url"
+        },
+        "contributor_org": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Contributor Org",
+          "type": "string"
+        },
+        "received_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Loader-stamped; do NOT author manually",
+          "title": "Received At"
+        },
+        "signature": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "OPAQUE in P3.1 \u2014 not crypto-validated. P4 adds ed25519 detached-signature verification.",
+          "title": "Signature"
+        },
+        "supersedes": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Prior manifest_descriptor_id this supersedes (P4 surface)",
+          "title": "Supersedes"
+        }
+      },
+      "required": [
+        "contributor_org"
+      ],
+      "title": "ProvenanceStub",
+      "type": "object"
+    },
+    "Refinement": {
+      "additionalProperties": false,
+      "description": "Path-context refinement block \u2014 SEPARATE from detection (Wave-1 S1 \u00a72).\n\nTriggers when ``applies_when`` matches; replaces category/vendor/product\nfrom the detection result. ``vendor_precedence`` closes the implicit\nfilename-vs-path ambiguity in the existing classifier.",
+      "properties": {
+        "applies_when": {
+          "default": "category_is_other",
+          "enum": [
+            "category_is_other",
+            "any"
+          ],
+          "title": "Applies When",
+          "type": "string"
+        },
+        "output_category": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Output Category",
+          "type": "string"
+        },
+        "output_confidence": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ],
+          "title": "Output Confidence",
+          "type": "string"
+        },
+        "output_product": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Product"
+        },
+        "output_vendor": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Output Vendor",
+          "type": "string"
+        },
+        "partition_prefixes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Partition Prefixes",
+          "type": "array"
+        },
+        "path_substrings_any_of": {
+          "description": "At least one substring MUST match the lowercased extraction-tree path",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Path Substrings Any Of",
+          "type": "array"
+        },
+        "vendor_precedence": {
+          "default": "filename_wins",
+          "enum": [
+            "filename_wins",
+            "path_wins"
+          ],
+          "title": "Vendor Precedence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "output_category",
+        "output_vendor",
+        "output_confidence"
+      ],
+      "title": "Refinement",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One file-format YAML manifest.\n\nSee module docstring for the hard rule and adaptability contract.\n\nTaxonomy fields (``vendor``, ``category``, ``format_id``, ``product``) are\nFREE STRINGS so partners contribute medical / ICS / automotive formats\nwithout core merges. Closed Literals appear ONLY where YAML maps to\nexecutable Python semantics (Rule #52 hard cap).",
+  "properties": {
+    "alias_of": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "If set, declares this manifest is the same format as the referenced format_id (legitimate magic-byte overlap; Wave-1 S4). Resolved at snapshot; no alias chains > 1.",
+      "title": "Alias Of"
+    },
+    "category": {
+      "description": "FREE STRING. Examples: bootloader, modem, tee, mcu, windows_pe, linux_blob, medical_device, ics_plc, automotive_ecu. Cross-stack alignment via Rule #25 Shape-1 when adding values that need DB/frontend mirror.",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Category",
+      "type": "string"
+    },
+    "confidence": {
+      "default": "high",
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ],
+      "title": "Confidence",
+      "type": "string"
+    },
+    "deprecation": {
+      "$ref": "#/$defs/Deprecation"
+    },
+    "detection": {
+      "$ref": "#/$defs/Detection"
+    },
+    "dispatch": {
+      "$ref": "#/$defs/Dispatch"
+    },
+    "evaluation_mode": {
+      "const": "best_match",
+      "default": "best_match",
+      "description": "Single value today \u2014 first-match was the bug shape. Collect-then-sort always. Wave-1 S5 B.",
+      "title": "Evaluation Mode",
+      "type": "string"
+    },
+    "external_manifests": {
+      "$ref": "#/$defs/ExternalManifestsPolicyBlock"
+    },
+    "format_id": {
+      "description": "Globally unique format identifier across the catalog. FREE STRING within pattern constraint.",
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "title": "Format Id",
+      "type": "string"
+    },
+    "manifest_source": {
+      "description": "MUST match the on-disk path tier (loader cross-checks). Wave-1 S5 H \u2014 Scout GG \u00a7SC5 dual.",
+      "enum": [
+        "_system",
+        "core",
+        "operator",
+        "attested_external",
+        "unauthenticated_external"
+      ],
+      "title": "Manifest Source",
+      "type": "string"
+    },
+    "mode": {
+      "default": "new",
+      "description": "Default 'new' REJECTS duplicate format_id at load. 'override' / 'extend' require explicit ``overrides`` path. Silent shadowing closed (Wave-1 S5 C).",
+      "enum": [
+        "new",
+        "override",
+        "extend"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "notes": {
+      "anyOf": [
+        {
+          "maxLength": 8192,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Operator free-text. NDA references, compliance pointers, spec citations live here (Wave-1 W2-\u03b1 Q8).",
+      "title": "Notes"
+    },
+    "output": {
+      "$ref": "#/$defs/Output"
+    },
+    "overrides": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Required when mode=override; relative path to the prior manifest (e.g. 'qualcomm/qcom_mbn.yaml')",
+      "title": "Overrides"
+    },
+    "plugin": {
+      "$ref": "#/$defs/Plugin"
+    },
+    "pre_upload": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PreUploadHint"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "precedence": {
+      "default": 100,
+      "description": "Numeric precedence within manifest_source tier. Operator/external default 100; reserved [0,9] for _system, [>=5000] for negative-evidence magic bytes (PE/MZ etc.).",
+      "maximum": 10000,
+      "minimum": 0,
+      "title": "Precedence",
+      "type": "integer"
+    },
+    "product": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "FREE STRING. Optional product code.",
+      "title": "Product"
+    },
+    "provenance": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProvenanceStub"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "references": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "References",
+      "type": "array"
+    },
+    "refinement": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Refinement"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Loader-stamped; do NOT author manually",
+      "title": "Source Path"
+    },
+    "tie_breakers": {
+      "description": "Final-tier tie-breakers when manifest_source rank + precedence + rule_specificity all tied (Wave-1 S5 A).",
+      "items": {
+        "enum": [
+          "rule_specificity",
+          "vendor_lex_asc",
+          "filename_lex_asc"
+        ],
+        "type": "string"
+      },
+      "maxItems": 8,
+      "title": "Tie Breakers",
+      "type": "array"
+    },
+    "vendor": {
+      "description": "FREE STRING. Examples: qualcomm, mediatek, medtronic, siemens, bosch, unknown.",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Vendor",
+      "type": "string"
+    }
+  },
+  "required": [
+    "format_id",
+    "manifest_source",
+    "category",
+    "vendor",
+    "detection",
+    "output"
+  ],
+  "title": "FileFormatManifest",
+  "type": "object"
+}
