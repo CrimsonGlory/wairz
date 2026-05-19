@@ -105,8 +105,27 @@ def _build_analyze_command(
     script_name: str,
     project_dir: str,
     script_args: list[str] | None = None,
+    *,
+    ghidra_import_params: dict | None = None,
 ) -> list[str]:
-    """Build a Ghidra analyzeHeadless command."""
+    """Build a Ghidra analyzeHeadless command.
+
+    ``ghidra_import_params`` (CLAUDE.md Rule #52 — dormant infrastructure
+    unlock 2026-05-19) optionally pins the loader / processor / base
+    address for raw bare-metal binaries that Ghidra's auto-detect can't
+    handle. Mirrors the dict shape declared in chip_family YAML manifests
+    + the half-built outputs of parsers/{mediatek_tinysys,atf,geniezone}.
+
+    Recognised keys:
+      - ``processor``: Ghidra processor string (e.g. ``ARM:LE:32:Cortex``)
+      - ``loader``: typically ``BinaryLoader`` for raw .bin
+      - ``base_addr``: integer load address
+      - ``load_offset_in_file`` / ``load_length``: optional sub-region load
+      - ``cspec``: optional calling-convention selector
+
+    Unknown keys are silently ignored so future schema additions don't
+    break the build path.
+    """
     settings = get_settings()
     ghidra_path = settings.ghidra_path
     scripts_path = settings.ghidra_scripts_path
@@ -125,6 +144,20 @@ def _build_analyze_command(
         "-postScript",
         script_name,
     ]
+
+    if ghidra_import_params:
+        if (proc := ghidra_import_params.get("processor")):
+            cmd.extend(["-processor", str(proc)])
+        if (loader := ghidra_import_params.get("loader")):
+            cmd.extend(["-loader", str(loader)])
+        if (base := ghidra_import_params.get("base_addr")) is not None:
+            cmd.extend(["-loader-baseAddr", f"0x{int(base):X}"])
+        if (offset := ghidra_import_params.get("load_offset_in_file")) is not None:
+            cmd.extend(["-loader-fileOffset", str(int(offset))])
+        if (length := ghidra_import_params.get("load_length")) is not None:
+            cmd.extend(["-loader-length", str(int(length))])
+        if (cspec := ghidra_import_params.get("cspec")):
+            cmd.extend(["-cspec", str(cspec)])
 
     if script_args:
         cmd.extend(script_args)
