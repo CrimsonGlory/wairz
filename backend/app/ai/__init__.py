@@ -8,6 +8,7 @@ from app.ai.tools.comparison import register_comparison_tools
 from app.ai.tools.cwe_checker import register_cwe_checker_tools
 from app.ai.tools.documents import register_document_tools
 from app.ai.tools.emulation import register_emulation_tools
+from app.ai.tools.file_formats import register_file_format_tools
 from app.ai.tools.filesystem import register_filesystem_tools
 from app.ai.tools.fuzzing import register_fuzzing_tools
 from app.ai.tools.bare_metal import register_bare_metal_tools
@@ -69,6 +70,7 @@ def create_tool_registry() -> ToolRegistry:
     register_android_sast_tools(registry)
     register_hardware_firmware_tools(registry)
     register_bare_metal_tools(registry)
+    register_file_format_tools(registry)
     register_emulation_tools(registry)
     register_fuzzing_tools(registry)
     register_comparison_tools(registry)
