@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: zip_archive
+manifest_source: _system
+precedence: 500
+category: archive
+vendor: unknown
+confidence: medium
+notes: |
+  Generic ZIP archive — PK\x03\x04 local-file-header magic at offset
+  0. Low precedence (500) so the more-specific Android / MSIX /
+  windows_installer_iso variants — which are also ZIP-on-the-wire —
+  classify first via their inner-file markers. This manifest is the
+  catch-all for everything else that's structurally a ZIP.
+  References:
+    https://pkwaredownloads.blob.core.windows.net/pkware-general/Documentation/APPNOTE-6.3.10.TXT
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "504b0304"
+      description: "PK\\x03\\x04 — ZIP local file header"
+output:
+  classifier_format: zip_archive
+  classifier_category: archive
+  classifier_vendor: unknown
+  confidence: medium
+pre_upload:
+  detected_format: zip_archive
+  extraction_capability: full

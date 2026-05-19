@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: android_apk
+manifest_source: _system
+precedence: 80
+category: android_apk
+vendor: unknown
+confidence: high
+notes: |
+  Android Application Package (APK) — a ZIP container with
+  AndroidManifest.xml at the root AND at least one classes*.dex
+  Dalvik bytecode file. Detection requires BOTH inner files: a ZIP
+  carrying AndroidManifest.xml alone may be an unmerged module
+  resource bundle; classes.dex alone is a stray bytecode file.
+  References:
+    https://developer.android.com/reference/tools/aapt2
+detection:
+  combine: any
+  signals:
+    - kind: zip_markers
+      inner_file_names:
+        - AndroidManifest.xml
+      inner_basenames:
+        - classes.dex
+      inner_min_count: 2
+      description: "ZIP carrying AndroidManifest.xml plus classes.dex"
+output:
+  classifier_format: android_apk
+  classifier_category: android_apk
+  classifier_vendor: unknown
+  confidence: high
+pre_upload:
+  detected_format: android_apk
+  extraction_capability: full

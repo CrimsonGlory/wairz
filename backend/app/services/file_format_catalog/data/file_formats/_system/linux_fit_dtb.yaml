@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: linux_fit_dtb
+manifest_source: _system
+precedence: 200
+category: dtb
+vendor: unknown
+confidence: high
+notes: |
+  FIT (Flattened Image Tree) / Flat Device Tree blob. Magic
+  0xd00dfeed (big-endian) at offset 0 — shared by FIT containers
+  (U-Boot's modern multi-component image) and standalone DTBs
+  (kernel device-tree blobs). Disambiguation between FIT and bare
+  DTB happens at the parser level via the FDT header version field;
+  both decode via unblob's fdt handler.
+  References:
+    https://www.devicetree.org/specifications/
+    https://docs.u-boot.org/en/latest/usage/fit/index.html
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "d00dfeed"
+      description: "FDT_MAGIC (FIT / DTB, big-endian)"
+output:
+  classifier_format: linux_fit_dtb
+  classifier_category: dtb
+  classifier_vendor: unknown
+  confidence: high
+pre_upload:
+  detected_format: linux_firmware_blob
+  extraction_capability: partial
+  banner_note: |
+    FIT / DTB binary detected. unblob can walk the FDT structure and
+    surface individual nodes; full FIT-image extraction (per-component
+    decompression + image-list emission) depends on the inner IH_TYPE
+    field per the U-Boot FIT spec.

@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: linux_cramfs
+manifest_source: _system
+precedence: 100
+category: linux_blob
+vendor: unknown
+confidence: high
+notes: |
+  cramfs — compressed ROM filesystem (Linux kernel native). Magic
+  0x28cd3d45 LE at offset 0. Largely supplanted by squashfs in modern
+  firmware but still seen on older OEM routers / IoT devices.
+  References:
+    Documentation/filesystems/cramfs.rst (Linux kernel)
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "453dcd28"
+      description: "cramfs little-endian superblock magic"
+output:
+  classifier_format: linux_cramfs
+  classifier_category: linux_blob
+  classifier_vendor: unknown
+  confidence: high
+pre_upload:
+  detected_format: linux_firmware_blob
+  extraction_capability: full

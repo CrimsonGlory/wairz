@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: linux_squashfs
+manifest_source: _system
+precedence: 100
+category: linux_blob
+vendor: unknown
+confidence: high
+notes: |
+  SquashFS — read-only compressed filesystem widely used as the Linux
+  rootfs in embedded firmware. Two endian variants: 'hsqs' (LE, the
+  modern shape produced by mksquashfs since 2009) and 'sqsh' (BE,
+  legacy). Both decode cleanly via unblob + sasquatch.
+  References:
+    https://dr-emann.github.io/squashfs/
+    https://github.com/onekey-sec/sasquatch
+detection:
+  combine: any
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "68737173"
+      description: "'hsqs' little-endian SquashFS magic"
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "73717368"
+      description: "'sqsh' big-endian SquashFS magic"
+output:
+  classifier_format: linux_squashfs
+  classifier_category: linux_blob
+  classifier_vendor: unknown
+  confidence: high
+pre_upload:
+  detected_format: linux_firmware_blob
+  extraction_capability: full

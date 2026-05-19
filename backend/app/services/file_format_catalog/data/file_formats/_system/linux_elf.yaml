@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: linux_elf
+manifest_source: _system
+precedence: 400
+category: linux_blob
+vendor: unknown
+confidence: medium
+notes: |
+  Generic ELF (Executable and Linkable Format) — the universal Unix /
+  Linux executable container. Magic \x7fELF at offset 0. Lower
+  precedence than vendor-specific ELF firmware formats (Qualcomm PIL,
+  Adreno aNNN_*, Kinibi MCLF) so they win when the filename / path
+  also matches; this manifest catches bare ELF binaries that don't
+  carry a vendor fingerprint.
+  References:
+    System V ABI / TIS ELF 1.2 spec
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "7f454c46"
+      description: "\\x7fELF — System V ABI ELF magic"
+output:
+  classifier_format: linux_elf
+  classifier_category: linux_blob
+  classifier_vendor: unknown
+  confidence: medium
+pre_upload:
+  detected_format: linux_firmware_blob
+  extraction_capability: partial
+  banner_note: |
+    ELF binary detected. Binary analysis (strings, sections,
+    decompilation, symbol enumeration) is available, but there is
+    no filesystem to extract.

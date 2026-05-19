@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: android_boot
+manifest_source: _system
+precedence: 80
+category: android_boot
+vendor: unknown
+confidence: high
+notes: |
+  Android boot image (boot.img / recovery.img / vendor_boot.img /
+  init_boot.img). Magic 'ANDROID!' (8 ASCII bytes) at offset 0.
+  Carries kernel, ramdisk, optional DTB, and signature blocks; the
+  layout has evolved through v0-v4 with new fields appended at each
+  bump. unblob walks the BOOT_MAGIC_SIZE header to route extraction.
+  References:
+    https://source.android.com/docs/core/architecture/bootloader/boot-image-header
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "414e44524f494421"
+      description: "'ANDROID!' boot-image magic"
+output:
+  classifier_format: android_boot
+  classifier_category: android_boot
+  classifier_vendor: unknown
+  confidence: high
+pre_upload:
+  detected_format: android_ota
+  extraction_capability: partial
+  banner_note: |
+    Android boot image detected. Kernel + ramdisk extraction works
+    via unblob; full DTB / DTBO / vendor_boot reassembly depends on
+    the boot-image version (v0-v4).

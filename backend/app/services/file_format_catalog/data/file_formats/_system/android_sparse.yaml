@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: android_sparse
+manifest_source: _system
+precedence: 80
+category: android_ota
+vendor: unknown
+confidence: high
+notes: |
+  Android sparse image format. Magic 0xed26ff3a (LE — 3a ff 26 ed in
+  byte order) at offset 0. Used by AOSP's img2simg / simg2img to
+  efficiently transport sparse partition images (system.img,
+  super.img, vendor.img, etc.) by omitting runs of empty blocks.
+  References:
+    https://android.googlesource.com/platform/system/core/+/refs/heads/main/libsparse/
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "3aff26ed"
+      description: "Android sparse image magic (little-endian)"
+output:
+  classifier_format: android_sparse
+  classifier_category: android_ota
+  classifier_vendor: unknown
+  confidence: high
+pre_upload:
+  detected_format: android_ota
+  extraction_capability: full

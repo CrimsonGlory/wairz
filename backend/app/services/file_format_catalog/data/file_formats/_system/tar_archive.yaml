@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: tar_archive
+manifest_source: _system
+precedence: 500
+category: archive
+vendor: unknown
+confidence: medium
+notes: |
+  Generic POSIX tar archive — 'ustar' (5 ASCII bytes) at offset
+  0x101 of the first 512-byte header block. Low precedence (500) so
+  partition_dump_tar and rootfs_tar — which are tar-on-the-wire
+  with specific inner-file patterns — classify first via inner
+  filename inspection.
+  References:
+    POSIX.1-2017 / IEEE Std 1003.1 — tar format definition
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 257
+      bytes_hex: "7573746172"
+      description: "'ustar' magic at offset 0x101 (POSIX tar header)"
+output:
+  classifier_format: tar_archive
+  classifier_category: archive
+  classifier_vendor: unknown
+  confidence: medium
+pre_upload:
+  detected_format: tar_archive
+  extraction_capability: full

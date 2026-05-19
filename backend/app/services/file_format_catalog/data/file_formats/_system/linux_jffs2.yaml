@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: linux_jffs2
+manifest_source: _system
+precedence: 100
+category: linux_blob
+vendor: unknown
+confidence: high
+notes: |
+  JFFS2 — journalling flash filesystem v2. Magic 0x1985 (LE node magic
+  marker) at offset 0; the 4-byte 0x20031985 sequence catches the
+  dirent + inode common-case headers. Both NAND and NOR layouts decode
+  via unblob's jffs2 handler.
+  References:
+    Documentation/filesystems/jffs2.rst (Linux kernel)
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "85190320"
+      description: "JFFS2 dirent / inode node magic (little-endian)"
+output:
+  classifier_format: linux_jffs2
+  classifier_category: linux_blob
+  classifier_vendor: unknown
+  confidence: high
+pre_upload:
+  detected_format: linux_firmware_blob
+  extraction_capability: full

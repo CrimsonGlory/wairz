@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: linux_uboot_uimage
+manifest_source: _system
+precedence: 100
+category: bootloader
+vendor: unknown
+confidence: high
+notes: |
+  U-Boot legacy uImage header. Magic 0x27051956 (big-endian) at offset
+  0. Carries an OS / arch / type / compression descriptor + a 32-byte
+  image name; unblob walks the IH_TYPE field to route inner payload
+  extraction (kernel, ramdisk, multi-file, FIT, etc.).
+  References:
+    https://github.com/u-boot/u-boot/blob/master/include/image.h (IH_MAGIC)
+detection:
+  combine: all_required
+  signals:
+    - kind: magic_bytes
+      offset: 0
+      bytes_hex: "27051956"
+      description: "U-Boot legacy uImage IH_MAGIC (big-endian)"
+output:
+  classifier_format: linux_uboot_uimage
+  classifier_category: bootloader
+  classifier_vendor: unknown
+  confidence: high
+pre_upload:
+  detected_format: linux_firmware_blob
+  extraction_capability: full

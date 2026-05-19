@@ -1,0 +1,56 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: android_ota
+manifest_source: _system
+precedence: 70
+category: android_ota
+vendor: unknown
+confidence: high
+notes: |
+  Android OTA / factory image package — a ZIP carrying any of:
+    (a) two or more Android partition images (boot.img / vendor.img /
+        system.img / super.img / etc.); OR
+    (b) META-INF/com/google/android/{updater-script,update-binary} or
+        META-INF/com/android/metadata; OR
+    (c) payload.bin (A/B update protocol).
+  Precedence 70 beats generic ZIP (500) so factory-flash bundles
+  classify before the catch-all ZIP detector.
+  References:
+    https://source.android.com/docs/core/ota
+detection:
+  combine: any
+  signals:
+    - kind: zip_markers
+      inner_basenames:
+        - payload.bin
+        - system.img
+        - boot.img
+        - vendor.img
+        - super.img
+        - recovery.img
+        - vbmeta.img
+        - dtbo.img
+        - product.img
+        - system_ext.img
+        - odm.img
+        - vbmeta_system.img
+        - vendor_boot.img
+        - init_boot.img
+        - modem.img
+      inner_min_count: 2
+      description: "Two-or-more Android partition images present"
+    - kind: zip_markers
+      inner_file_names:
+        - META-INF/com/google/android/updater-script
+        - META-INF/com/google/android/update-binary
+        - META-INF/com/android/metadata
+      inner_min_count: 1
+      description: "Android updater-script / metadata markers"
+output:
+  classifier_format: android_ota
+  classifier_category: android_ota
+  classifier_vendor: unknown
+  confidence: high
+pre_upload:
+  detected_format: android_ota
+  extraction_capability: full
