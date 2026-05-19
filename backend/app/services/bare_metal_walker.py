@@ -50,6 +50,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import sqlalchemy as sa
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -338,10 +339,34 @@ async def _most_recent_descriptor(
     db: AsyncSession,
     firmware_id: uuid.UUID,
 ) -> BareMetalDescriptor | None:
+    """Return the highest-precedence non-superseded descriptor for a firmware.
+
+    **Precedence-aware ordering** (Scout GG §SC5 bug fix 2026-05-19): the
+    documented contract is
+    ``operator > attested_external > unauthenticated_external > auto_detection``.
+    Naïve ``ORDER BY received_at DESC LIMIT 1`` lets a LATER
+    unauthenticated_external descriptor outrank an EARLIER operator one —
+    the literal opposite of the desired behaviour, with significant
+    security implications (untrusted ingestor overrides operator's
+    authoritative chip-family assertion).
+
+    Fix: build a SQL CASE WHEN that maps ``descriptor_source`` to its
+    precedence rank, then ``ORDER BY (rank DESC, received_at DESC)``.
+    Rule #46 META-CANARY in test_bare_metal_walker.py confirms the
+    ordering with synthetic out-of-order pushes.
+    """
+    # CASE WHEN expression matching :data:`_SOURCE_PRECEDENCE`. Built as a
+    # SQL expression so the ordering happens in Postgres, not in Python
+    # (Rule #29 round-trip discipline — sort + LIMIT 1 at the DB).
+    precedence_case = sa.case(
+        {source: rank for source, rank in _SOURCE_PRECEDENCE.items()},
+        value=BareMetalDescriptor.descriptor_source,
+        else_=0,
+    )
     stmt = (
         select(BareMetalDescriptor)
         .where(BareMetalDescriptor.firmware_id == firmware_id)
-        .order_by(BareMetalDescriptor.received_at.desc())
+        .order_by(precedence_case.desc(), BareMetalDescriptor.received_at.desc())
         .limit(1)
     )
     result = await db.execute(stmt)

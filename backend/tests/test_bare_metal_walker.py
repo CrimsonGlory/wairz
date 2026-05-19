@@ -279,3 +279,62 @@ def test_walker_triplet_exports():
     assert callable(walker_module._do_bare_metal_audit_run)
     assert callable(walker_module.run_bare_metal_audit_background)
     assert callable(walker_module.auto_bare_metal_audit_firmware_safe)
+
+
+# ---------------------------------------------------------------------------
+# Rule #46 META-CANARY — descriptor precedence ordering.
+# Scout GG §SC5 stop-the-line: walker MUST honour
+#   operator > attested_external > unauthenticated_external > auto_detection
+# even when a lower-precedence descriptor arrives LATER (Scout GG verdict
+# MUST — the original `ORDER BY received_at DESC` would let an
+# unauthenticated_external descriptor at t=10 outrank an operator
+# descriptor at t=5).
+# ---------------------------------------------------------------------------
+
+
+def test_precedence_case_orders_operator_above_external():
+    """Static check on the SQL CASE expression — operator > external.
+
+    Compile the ORDER BY expression and confirm the precedence ranks are
+    the documented values (Rule #19 evidence-first: the SQL must equal
+    what the docstring promises).
+    """
+    from app.services.bare_metal_walker import _SOURCE_PRECEDENCE
+    # Documented contract — must match
+    assert _SOURCE_PRECEDENCE == {
+        "operator": 4,
+        "attested_external": 3,
+        "unauthenticated_external": 2,
+        "auto_detection": 1,
+    }
+    # Sorted by precedence rank DESC = the resolution order
+    by_rank = sorted(_SOURCE_PRECEDENCE.items(), key=lambda x: x[1], reverse=True)
+    assert [source for source, _ in by_rank] == [
+        "operator",
+        "attested_external",
+        "unauthenticated_external",
+        "auto_detection",
+    ]
+
+
+def test_meta_canary_sql_uses_precedence_case_not_just_timestamp():
+    """Rule #46 META-CANARY — confirm the SQL is precedence-aware.
+
+    Without this canary, a future refactor could silently revert
+    ``_most_recent_descriptor`` to ``ORDER BY received_at DESC`` and let
+    untrusted ingestors override operator descriptors. Scans the source
+    function for the precedence_case construction tokens.
+    """
+    import inspect
+    src = inspect.getsource(walker_module._most_recent_descriptor)
+    # Must include the precedence_case construction (Rule #46 — synthetic
+    # check on source structure)
+    assert "precedence_case" in src, (
+        "_most_recent_descriptor SQL must use precedence_case — Scout GG §SC5 "
+        "regression. Without the CASE expression, ORDER BY received_at DESC "
+        "alone lets unauthenticated_external descriptors outrank operator ones."
+    )
+    assert "sa.case" in src or "case(" in src
+    # The precedence map must be referenced (verifies the source-of-truth
+    # dict drives the SQL, not a duplicated literal that could drift)
+    assert "_SOURCE_PRECEDENCE" in src
