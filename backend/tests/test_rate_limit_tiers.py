@@ -55,6 +55,9 @@ _EXPECTED_TIERS: dict[tuple[str, str], str] = {
     ("app/routers/fuzzing.py", r'@router\.post\(\s*\n?\s*"/campaigns/\{campaign_id\}/start"'): "TIER_B_DOCKER",
     ("app/routers/emulation.py", r'@router\.post\("/start"'): "TIER_B_DOCKER",
     ("app/routers/emulation.py", r'@router\.post\(\s*\n?\s*"/system"'): "TIER_B_DOCKER",
+    # Rule #52 Phase 2 — bare-metal-hint external-ingestor endpoint (2026-05-19).
+    # Sub-second ACK + detached walker fire = TIER_A_LIGHT_ACK per Rule #51.
+    ("app/routers/bare_metal.py", r'@router\.post\(\s*\n?\s*"/bare-metal-hint"'): "TIER_A_LIGHT_ACK",
 }
 
 
@@ -114,12 +117,12 @@ def test_expected_tiers_count_size_locked():
     """Pin the count of documented expensive POSTs so adding a new
     rate-limited endpoint without updating this test fails loudly.
 
-    Current count: 10 (security-audit, cve-match, unpack, dumps,
+    Current count: 11 (security-audit, cve-match, unpack, dumps,
     sbom-generate, vuln-scan, authenticode-chain, fuzzing-start,
-    emulation-start, emulation-system).
+    emulation-start, emulation-system, bare-metal-hint).
     """
-    assert len(_EXPECTED_TIERS) == 10, (
-        f"_EXPECTED_TIERS count drift: expected 10, got {len(_EXPECTED_TIERS)}. "
+    assert len(_EXPECTED_TIERS) == 11, (
+        f"_EXPECTED_TIERS count drift: expected 11, got {len(_EXPECTED_TIERS)}. "
         "Adding a rate-limited endpoint? Update this assertion + the dict above."
     )
 

@@ -25,6 +25,7 @@ from app.routers import (
     analysis,
     apk_scan,
     attack_surface,
+    bare_metal,
     comparison,
     compliance,
     component_map,
@@ -358,6 +359,7 @@ app.include_router(export_import.router)
 app.include_router(uart.router)
 app.include_router(device.router)
 app.include_router(security_audit.router)
+app.include_router(bare_metal.router)
 app.include_router(compliance.router)
 app.include_router(cra_compliance.router)
 app.include_router(attack_surface.router)
