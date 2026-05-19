@@ -62,7 +62,7 @@ class BareMetalDescriptor(Base):
     ingestor_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     descriptor_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     payload: Mapped[dict] = mapped_column(
-        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+        JSONB, nullable=False, server_default=text("'{}'")
     )
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
