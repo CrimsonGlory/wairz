@@ -723,6 +723,34 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # ── Rule #52 bare-metal MCU/DSP audit walker (Phase 1 — 2026-05-19) ──
+    # The schema-driven bare-metal audit walker reads the chip-family YAML
+    # catalog (``services/hardware_firmware/chip_catalog.py``), resolves the
+    # firmware's chip via auto-detect or operator-supplied descriptor
+    # (``bare_metal_descriptors`` table), evaluates each address region's
+    # closed-grammar policy (Rule #36/45 data-not-code analog), and emits
+    # CWE-tagged Finding rows. State machine per Rule #33 .a; result JSONB
+    # carries the chip_match + per-region audit aggregate. Rule #35c
+    # normaliser lives in ``services/jsonb_normalizers.py``.
+    #
+    # Eaton TMS320F28066 (project 6645e769-...) is the reference case:
+    # CSM PWL all-0xFFFF → ``c28x_unsecure_csm`` finding (CWE-1273 + 1191).
+    bare_metal_audit_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    bare_metal_audit_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    bare_metal_audit_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    bare_metal_audit_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    bare_metal_audit_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     # Phase θ.B.C WMI persistence walker columns (CLAUDE.md Rule #33 contract).
     # Background runner ``run_wmi_walk_background`` opens each WMI
     # OBJECTS.DATA file (typically under ``Windows/System32/wbem/Repository/``

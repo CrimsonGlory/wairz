@@ -1,5 +1,6 @@
 from app.models.analysis_cache import AnalysisCache
 from app.models.attack_surface import AttackSurfaceEntry
+from app.models.bare_metal_descriptor import BareMetalDescriptor
 from app.models.conversation import Conversation
 from app.models.cra_compliance import CraAssessment, CraRequirementResult
 from app.models.device_dump import DeviceDumpSession
@@ -41,7 +42,7 @@ __all__ = [
     "Finding", "Document", "SecurityReview", "ReviewAgent",
     "SbomComponent", "SbomVulnerability", "EmulationSession",
     "EmulationPreset", "FuzzingCampaign", "FuzzingCrash",
-    "AttackSurfaceEntry", "UARTSession",
+    "AttackSurfaceEntry", "BareMetalDescriptor", "UARTSession",
     "CraAssessment", "CraRequirementResult", "HardwareFirmwareBlob",
     "DeviceDumpSession", "LinuxContainerArtifact", "LinuxJournaldEntry", "LinuxSystemdUnit",
     "WindowsPESignature", "WindowsRegistryExtract",

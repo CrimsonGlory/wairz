@@ -59,6 +59,12 @@ class HardwareFirmwareBlob(Base):
     # Parser extras (MBN header flags, DTB compatible strings, entry points, etc.)
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, server_default=text("'{}'"))
 
+    # Rule #52 — domain triple "vendor/family/domain" from the chip-family
+    # catalog (services/hardware_firmware/chip_catalog.py). Populated by
+    # the bare_metal_audit walker post-match (auto-detected) OR by an
+    # operator-supplied descriptor (bare_metal_descriptors table).
+    chip_target: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
     detection_source: Mapped[str] = mapped_column(String(64), nullable=False)
     detection_confidence: Mapped[str] = mapped_column(String(16), default="medium")
     created_at: Mapped[datetime] = mapped_column(
@@ -70,4 +76,5 @@ class HardwareFirmwareBlob(Base):
         Index("ix_hwfw_firmware_category", "firmware_id", "category"),
         Index("ix_hwfw_vendor", "vendor"),
         Index("ix_hwfw_sha256", "blob_sha256"),
+        Index("ix_hardware_firmware_blobs_chip_target", "chip_target"),
     )
