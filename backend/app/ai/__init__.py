@@ -10,6 +10,7 @@ from app.ai.tools.documents import register_document_tools
 from app.ai.tools.emulation import register_emulation_tools
 from app.ai.tools.filesystem import register_filesystem_tools
 from app.ai.tools.fuzzing import register_fuzzing_tools
+from app.ai.tools.bare_metal import register_bare_metal_tools
 from app.ai.tools.hardware_firmware import register_hardware_firmware_tools
 from app.ai.tools.linux_container import register_linux_container_tools
 from app.ai.tools.linux_journald import register_linux_journald_tools
@@ -67,6 +68,7 @@ def create_tool_registry() -> ToolRegistry:
     register_android_bytecode_tools(registry)
     register_android_sast_tools(registry)
     register_hardware_firmware_tools(registry)
+    register_bare_metal_tools(registry)
     register_emulation_tools(registry)
     register_fuzzing_tools(registry)
     register_comparison_tools(registry)
