@@ -4983,3 +4983,173 @@ def test_stamp_firmware_usnjrnl_walk_result_idempotent():
 
 def test_firmware_usnjrnl_walk_result_schema_version_constant():
     assert FIRMWARE_USNJRNL_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+# ---------------------------------------------------------------------------
+# firmware.bare_metal_audit_result (CLAUDE.md Rule #52 — schema-driven MCU/DSP)
+# ---------------------------------------------------------------------------
+
+from app.services.jsonb_normalizers import (  # noqa: E402
+    BARE_METAL_DESCRIPTOR_PAYLOAD_SCHEMA_VERSION,
+    FIRMWARE_BARE_METAL_AUDIT_RESULT_SCHEMA_VERSION,
+    _normalize_bare_metal_descriptor_payload,
+    _normalize_firmware_bare_metal_audit_result,
+    _stamp_bare_metal_descriptor_payload,
+    _stamp_firmware_bare_metal_audit_result,
+)
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {
+                "schema_version": 1,
+                "audited_at": "2026-05-19T15:00:00Z",
+                "chip_match": {
+                    "family_id": "ti/tms320f28066",
+                    "domain_name": "c28x_core",
+                    "confidence": 0.85,
+                    "descriptor_source": "operator",
+                    "evidence": [],
+                },
+                "blob_id": "78ad638b-f99b-4cb0-ac28-e36e05846007",
+                "blob_size_bytes": 262144,
+                "region_audits": [
+                    {
+                        "region_name": "csm_pwl",
+                        "start": 0x3F7FF8,
+                        "end": 0x3F7FFF,
+                        "semantic": ["security_password_csm"],
+                        "policies_evaluated": [
+                            {
+                                "operator": "unsecure_when_all_words_equal",
+                                "value_hex": "FFFF",
+                                "matched": True,
+                                "cwe_ids": [1273, 1191],
+                                "severity": "high",
+                                "finding_source": "c28x_unsecure_csm",
+                                "finding_id": None,
+                            },
+                        ],
+                    },
+                ],
+                "skipped_regions": [],
+                "findings_emitted_count": 1,
+                "errors": [],
+            },
+            # Canonical shape passes through unchanged
+            {
+                "schema_version": 1,
+                "audited_at": "2026-05-19T15:00:00Z",
+                "chip_match": {
+                    "family_id": "ti/tms320f28066",
+                    "domain_name": "c28x_core",
+                    "confidence": 0.85,
+                    "descriptor_source": "operator",
+                    "evidence": [],
+                },
+                "blob_id": "78ad638b-f99b-4cb0-ac28-e36e05846007",
+                "blob_size_bytes": 262144,
+                "region_audits": [
+                    {
+                        "region_name": "csm_pwl",
+                        "start": 0x3F7FF8,
+                        "end": 0x3F7FFF,
+                        "semantic": ["security_password_csm"],
+                        "policies_evaluated": [
+                            {
+                                "operator": "unsecure_when_all_words_equal",
+                                "value_hex": "FFFF",
+                                "matched": True,
+                                "cwe_ids": [1273, 1191],
+                                "severity": "high",
+                                "finding_source": "c28x_unsecure_csm",
+                                "finding_id": None,
+                            },
+                        ],
+                    },
+                ],
+                "skipped_regions": [],
+                "findings_emitted_count": 1,
+                "errors": [],
+            },
+        ),
+        ({}, {}),
+        (None, None),
+        ([{"a": 1}], None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_bare_metal_audit_result(value, expected):
+    assert _normalize_firmware_bare_metal_audit_result(value) == expected
+
+
+def test_stamp_firmware_bare_metal_audit_result_adds_version():
+    out = _stamp_firmware_bare_metal_audit_result({"findings_emitted_count": 0})
+    assert out["schema_version"] == FIRMWARE_BARE_METAL_AUDIT_RESULT_SCHEMA_VERSION
+
+
+def test_stamp_firmware_bare_metal_audit_result_idempotent():
+    once = _stamp_firmware_bare_metal_audit_result({"findings_emitted_count": 0})
+    twice = _stamp_firmware_bare_metal_audit_result(once)
+    assert once == twice
+
+
+def test_firmware_bare_metal_audit_result_schema_version_constant():
+    assert FIRMWARE_BARE_METAL_AUDIT_RESULT_SCHEMA_VERSION == 1
+
+
+# ---------------------------------------------------------------------------
+# bare_metal_descriptors.payload (external-ingestor protocol)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {
+                "schema_version": 1,
+                "firmware_id": "78ad638b-f99b-4cb0-ac28-e36e05846007",
+                "descriptor_source": "operator",
+                "chip_family_hint": "ti/tms320f28066",
+                "domain_hint": "c28x_core",
+            },
+            {
+                "schema_version": 1,
+                "firmware_id": "78ad638b-f99b-4cb0-ac28-e36e05846007",
+                "descriptor_source": "operator",
+                "chip_family_hint": "ti/tms320f28066",
+                "domain_hint": "c28x_core",
+            },
+        ),
+        ({}, {}),
+        (None, {}),
+        ("not a dict", {}),
+        ([1, 2, 3], {}),
+        (42, {}),
+    ],
+)
+def test_normalize_bare_metal_descriptor_payload(value, expected):
+    assert _normalize_bare_metal_descriptor_payload(value) == expected
+
+
+def test_stamp_bare_metal_descriptor_payload_adds_version():
+    out = _stamp_bare_metal_descriptor_payload(
+        {"firmware_id": "78ad638b-f99b-4cb0-ac28-e36e05846007"}
+    )
+    assert out["schema_version"] == BARE_METAL_DESCRIPTOR_PAYLOAD_SCHEMA_VERSION
+
+
+def test_stamp_bare_metal_descriptor_payload_idempotent():
+    once = _stamp_bare_metal_descriptor_payload(
+        {"firmware_id": "78ad638b-f99b-4cb0-ac28-e36e05846007"}
+    )
+    twice = _stamp_bare_metal_descriptor_payload(once)
+    assert once == twice
+
+
+def test_bare_metal_descriptor_payload_schema_version_constant():
+    assert BARE_METAL_DESCRIPTOR_PAYLOAD_SCHEMA_VERSION == 1

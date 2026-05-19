@@ -4288,3 +4288,94 @@ def _stamp_firmware_usnjrnl_walk_result(payload: dict) -> dict:
     ``Firmware.usnjrnl_walk_result``. Idempotent."""
     payload["schema_version"] = FIRMWARE_USNJRNL_WALK_RESULT_SCHEMA_VERSION
     return payload
+
+
+# ── firmware.bare_metal_audit_result (CLAUDE.md Rule #52 — schema-driven MCU/DSP) ─
+#
+# Aggregate of a single ``bare_metal_audit`` walker run against a bare-metal
+# MCU/DSP firmware. The walker is architecture-agnostic — reads the chip
+# family YAML from the catalog (``services/hardware_firmware/chip_catalog.py``),
+# resolves address regions, evaluates closed-grammar policies, emits CWE-tagged
+# findings. The JSONB column carries the per-region audit result + the chip
+# match that drove evaluation.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "audited_at": "<ISO-8601 timestamp>",
+#     "chip_match": {                             # nullable when unknown
+#       "family_id": "ti/tms320f28066",
+#       "domain_name": "c28x_core",
+#       "confidence": 0.85,
+#       "descriptor_source": "operator|auto_detection|...",
+#       "evidence": list[dict],
+#     } | None,
+#     "blob_id": "<UUID>" | None,                 # blob the walker scanned
+#     "blob_size_bytes": int,
+#     "region_audits": list[dict],                # per-region policy results
+#     "skipped_regions": list[dict],              # reason-explained skips
+#     "findings_emitted_count": int,
+#     "errors": list[str],
+#   }
+#
+# Rule #45 parse-only contract: the walker NEVER attempts decryption of
+# encrypted_region semantic — those regions are listed under
+# ``skipped_regions`` with reason="encrypted_region semantic — walker skips
+# per Rule #45". The audit_result captures the skip explicitly so operators
+# can see why a region wasn't policy-checked.
+
+FIRMWARE_BARE_METAL_AUDIT_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_bare_metal_audit_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.bare_metal_audit_result``.
+
+    ``None`` preserved — semantic load is "no completed run yet". Wrong-typed
+    values collapse to ``None``. Walker writes via the ``_stamp_*`` companion.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_bare_metal_audit_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.bare_metal_audit_result``. Idempotent."""
+    payload["schema_version"] = FIRMWARE_BARE_METAL_AUDIT_RESULT_SCHEMA_VERSION
+    return payload
+
+
+# ── bare_metal_descriptors.payload (external-ingestor protocol payload) ─────
+#
+# External-ingestor / operator descriptor pushed via MCP
+# ``submit_bare_metal_descriptor`` or HTTP ``POST /firmware/{id}/bare-metal-hint``.
+# Carries the operator's stated chip family hint + optional inline manifest
+# for one-off chips not yet in the catalog (Scout CC §SC14).
+#
+# Canonical shape mirrors :class:`app.schemas.chip_family.ChipDescriptor`.
+#
+# Rule #33 .a idempotency contract: same ``(firmware_id, ingestor_id,
+# descriptor_hash)`` triple is a no-op replay; different hash from same
+# ingestor within window is a 409 conflict.
+
+BARE_METAL_DESCRIPTOR_PAYLOAD_SCHEMA_VERSION = 1
+
+
+def _normalize_bare_metal_descriptor_payload(value: Any) -> dict:
+    """Return the canonical ``dict`` shape for ``bare_metal_descriptors.payload``.
+
+    Defaults to empty dict (payload column is NOT NULL — but defensive
+    against legacy / malformed data).
+    """
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _stamp_bare_metal_descriptor_payload(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for the descriptor
+    payload column. Idempotent."""
+    payload["schema_version"] = BARE_METAL_DESCRIPTOR_PAYLOAD_SCHEMA_VERSION
+    return payload
