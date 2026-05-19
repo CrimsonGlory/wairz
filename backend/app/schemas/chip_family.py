@@ -220,7 +220,7 @@ class PolicyRule(BaseModel):
     confidence: Literal["low", "medium", "high"] = "high"
     severity: Literal["info", "low", "medium", "high", "critical"] = "high"
     finding_source: str | None = None      # e.g. ``c28x_unsecure_csm`` — validated by walker against findings.source allowlist
-    description: str | None = Field(default=None, max_length=512)
+    description: str | None = Field(default=None, max_length=4096)
 
     model_config = {"extra": "forbid"}
 
@@ -252,7 +252,7 @@ class AddressRegion(BaseModel):
     alias_of: str | None = None
     discover: RegionDiscovery | None = None
     active_when: dict[str, str] | None = None
-    description: str | None = Field(default=None, max_length=512)
+    description: str | None = Field(default=None, max_length=4096)
 
     model_config = {"extra": "forbid"}
 
@@ -350,7 +350,7 @@ class Domain(BaseModel):
     address_regions: list[AddressRegion] = Field(min_length=1, max_length=64)
     detection_signals: list[DetectionSignal] = Field(default_factory=list, max_length=16)
     ghidra_import_params: GhidraImportParams | None = None
-    description: str | None = Field(default=None, max_length=1024)
+    description: str | None = Field(default=None, max_length=4096)
 
     model_config = {"extra": "forbid"}
 
@@ -413,7 +413,7 @@ class ChipFamilyManifest(BaseModel):
     vendor: str = Field(min_length=1, max_length=32, pattern=r"^[a-z][a-z0-9_]*$")
     family: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_]*$")
     display_name: str = Field(min_length=1, max_length=128)
-    description: str | None = Field(default=None, max_length=2048)
+    description: str | None = Field(default=None, max_length=8192)
     domains: list[Domain] = Field(min_length=1, max_length=8)
     references: list[str] = Field(default_factory=list, max_length=16)
     source_path: str | None = None     # set by loader, not authored manually

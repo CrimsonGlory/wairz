@@ -1,0 +1,234 @@
+# ---------------------------------------------------------------------------
+# TI TMS320F28066 (Piccolo F2806x) — chip-family manifest
+# ---------------------------------------------------------------------------
+# Reference design for the schema-driven bare-metal MCU/DSP support
+# (CLAUDE.md Rule #52). Hot-reloaded via chip_catalog.py — operators may
+# edit this file in-place; the next walker invocation picks up the change
+# without a docker restart.
+#
+# Sources:
+#   - TI SPRUH18 (TMS320x2806x Piccolo Technical Reference Manual)
+#   - TI SPRS698 (TMS320F2806x Piccolo Microcontrollers Data Manual)
+#   - TI SPRUFN6 (Piccolo Boot ROM Reference Guide)
+#   - TI C2000 CSM FAQ (processors.wiki.ti.com/index.php/Code_Security_Module_FAQ_for_C2000)
+#   - Eaton UPS extraction 2026-05-19 (project 6645e769-…) — empirical
+#     confirmation that 0xFFFF PWL = JTAG unlocked.
+#
+# Architecture quirks worth knowing:
+#   * 16-bit word addressing — each address slot holds ONE 16-bit word,
+#     not a byte. The on-disk .bin (``packing: two_bytes_per_word_le``)
+#     stores each word as two host-bytes little-endian. Loaders MUST be
+#     told ``wordsize=2`` (Ghidra SLEIGH) or equivalent.
+#   * CSM (Code Security Module) lock semantics: a "dummy read" of the
+#     password locations (0x3F7FF8–0x3F7FFF) is what unlocks the chip.
+#     If the lower 64 bits of the password are ALL ONES (unprogrammed
+#     factory state), the KEY value never needs to match — JTAG immediately
+#     gives plaintext flash. This is CWE-1273 (Device Unlock Credential
+#     Sharing) + CWE-1191 (On-Chip Debug Defaults).
+#   * Boot ROM at 0x3FF000 is FACTORY-PROGRAMMED + READ-ONLY; reset vector
+#     at 0x3FFFC0 lives within it.
+# ---------------------------------------------------------------------------
+
+schema_version: 1
+vendor: ti
+family: tms320f28066
+display_name: "TI TMS320F28066 (Piccolo F2806x, C28x DSP)"
+description: |
+  Texas Instruments Piccolo F2806x microcontroller — 16-bit word-addressed
+  C28x DSP with on-chip flash, OTP, boot ROM, and CSM-based JTAG unlock
+  protection. Used in UPS power-stage control (Eaton 9PX/5PX), motor
+  drives, solar inverters, and battery management systems.
+
+  Production silicon SHOULD have the CSM password programmed at flash
+  addresses 0x3F7FF8-0x3F7FFF + the CSMSCR.SECURE bit set. The walker
+  audits this; unprogrammed PWL = JTAG-unlocked finding.
+
+references:
+  - "TI SPRUH18 TMS320x2806x Piccolo Technical Reference Manual"
+  - "TI SPRS698 TMS320F2806x Data Manual"
+  - "TI SPRUFN6 Piccolo Boot ROM Reference Guide"
+  - "TI C2000 CSM FAQ"
+  - "CWE-1273 Device Unlock Credential Sharing"
+  - "CWE-1191 On-Chip Debug and Test Interface With Improper Access Control"
+
+domains:
+  - name: c28x_core
+    arch: tms320c28x
+    endianness: little
+    instruction_word_bits: 16
+    data_word_bits: 16
+    address_bus_bits: 22
+    # Canonical on-disk packing for JTAG-extracted .bin: each 16-bit C28x
+    # word stored as 2 host-bytes little-endian (so word 0xF983 at C28x
+    # address 0x3D8000 appears at host file offset 0 as bytes 83 F9).
+    # TI-TXT-format dumps would use ``ti_txt_native_word`` instead.
+    packing: two_bytes_per_word_le
+
+    description: |
+      The single C28x execution domain. F28066 is a single-core MCU —
+      one ISA, one address space. Composite SoCs (NXP S32G, TI Sitara
+      AM62x, NVIDIA Tegra) would declare multiple domains under one
+      family file; F28066 is the simple case.
+
+    address_regions:
+      # --- RAM region -----------------------------------------------------
+      - name: ram_m0_m1
+        start: 0x000000
+        end: 0x0007FF
+        access: read-write
+        semantic: [sram]
+        description: "M0/M1 SARAM blocks (2 × 1K words)"
+
+      # --- PIE vector table (RAM) ----------------------------------------
+      - name: pie_vector_table
+        start: 0x000D00
+        end: 0x000DFF
+        access: read-write
+        semantic: [vector_table]
+        description: |
+          Peripheral Interrupt Expansion vector table — 96 × 2-word entries
+          mapping interrupts to ISR addresses at runtime. RAM-resident.
+          The boot-ROM-loaded copy of PieVectTableInit configures this on
+          reset; runtime modification IS possible.
+
+      # --- L0–L3 RAM -----------------------------------------------------
+      - name: ram_l0_l3
+        start: 0x008000
+        end: 0x009FFF
+        access: read-write
+        semantic: [sram]
+        description: "L0–L3 SARAM (4 × 2K words)"
+
+      # --- OTP -----------------------------------------------------------
+      - name: otp
+        start: 0x3D7800
+        end: 0x3D7FFF
+        access: write-once
+        semantic: [otp]
+        description: |
+          1 KB one-time-programmable area. Often holds calibration data
+          (ADC offset, oscillator trim) programmed by TI at the factory.
+          Sometimes carries customer-programmed serial numbers / lot codes.
+
+      # --- Main flash (carved around CSM PWL) ----------------------------
+      - name: flash_main
+        start: 0x3D8000
+        end: 0x3F7FF7
+        access: read-execute
+        semantic: [flash_code, flash_data]
+        description: |
+          256 KB main flash — application firmware + data. End-of-region
+          is 0x3F7FF7 (not 0x3F7FFF) because addresses 0x3F7FF8–0x3F7FFF
+          are carved out as the separate CSM PWL region (semantic-level
+          distinction; physically the same flash array).
+
+      # --- CSM PWL — the security finding lives here ---------------------
+      - name: csm_pwl
+        start: 0x3F7FF8
+        size: 8
+        access: secret
+        semantic: [security_password_csm]
+        description: |
+          Code Security Module password locations — 8 × 16-bit words.
+          TI dummy-read CSM contract:
+            * ALL 0xFFFF → unprogrammed factory state, JTAG unlocked (CWE-1273)
+            * ALL 0x0000 → perma-locked (CWE-1191); chip is unusable for
+              authorized re-flash but also resistant to attacker readback
+              (the perma-lock value is itself a manufacturing footgun)
+            * Other → password-protected; KEY register must match to unlock
+
+          Operator audit: production silicon should NEVER ship with this
+          region in either pathological state. If observed, file as a
+          supply-chain / manufacturing-process finding.
+        policy:
+          - operator: unsecure_when_all_words_equal
+            value_hex: "FFFF"
+            word_size_bits: 16
+            cwe_ids: [1273, 1191]
+            confidence: high
+            severity: high
+            finding_source: c28x_unsecure_csm
+            description: |
+              All-0xFFFF PWL = unprogrammed factory state = JTAG-unlocked
+              via dummy-read. Eaton UPS (project 6645e769, 2026-05-19) is
+              the canonical instance.
+          - operator: perma_lock_when_all_words_equal
+            value_hex: "0000"
+            word_size_bits: 16
+            cwe_ids: [1191]
+            confidence: high
+            severity: medium
+            finding_source: c28x_csm_perma_lock
+            description: |
+              All-0x0000 PWL = perma-lock value. JTAG is locked but the
+              chip cannot be re-flashed without erasing the password
+              region; surfaces as a manufacturing / RMA quality issue.
+
+      # --- Reserved gap before boot ROM ---------------------------------
+      # (0x3F8000–0x3FEFFF is reserved address space; no region declared
+      # so the walker doesn't audit junk bytes from misaligned dumps.)
+
+      # --- Boot ROM ------------------------------------------------------
+      - name: boot_rom
+        start: 0x3FF000
+        end: 0x3FFFFF
+        access: read-execute
+        semantic: [boot_rom]
+        description: |
+          Factory-programmed boot ROM (4K words = 8 KB). Contains
+          InitBoot, the boot-mode dispatcher (GPIO-strap selected:
+          SCI / SPI / I2C / wait-boot / jump-to-flash), the floating-point
+          IQmath tables, and the reset vector at 0x3FFFC0.
+
+    detection_signals:
+      # Reset vector should sit at 0x3FFFC0 (in boot ROM) — when scanning
+      # a boot-ROM dump, a plausible LJMP / branch instruction at this
+      # offset is a strong C28x hint.
+      - kind: reset_vector_at
+        address: 0x3FFFC0
+        weight: 0.3
+        description: "Reset vector at C28x canonical 0x3FFFC0 in boot ROM"
+
+      # TI compiler / runtime strings — present in most TI-compiled C28x
+      # firmware (CCS-generated). Operators can extend this list per
+      # observed strings in their own dumps without a docker restart.
+      - kind: string_present
+        weight: 0.25
+        patterns:
+          - "Texas Instruments"
+          - "TMS320"
+          - "Piccolo"
+          - "F28066"
+          - "F2806x"
+          - "_c_int00"
+          - "InitBoot"
+          - "PieVectTable"
+        description: "TI C28x compiler runtime + IC family identifier strings"
+
+      # Vector-table shape heuristic: PIE vector table at 0x000D00 has a
+      # well-known layout (96 × 2-word entries, each containing a code
+      # address into flash range 0x3D8000–0x3F7FFF). When a blob looks
+      # like the PIE RAM image, this shape is recognisable.
+      - kind: vector_table_shape
+        region_name: pie_vector_table
+        weight: 0.2
+        description: "F28066 PIE vector table 96-entry layout"
+
+      # ELF magic rejection — if the blob is ELF-shaped, it's NOT a raw
+      # C28x flash dump; defer to the elf-aware parser path.
+      - kind: elf_magic
+        weight: 1.0
+        bytes_hex: "7F454C46"
+        description: "Reject ELF-shaped inputs (handled by separate parser)"
+
+    ghidra_import_params:
+      # TMS320C28x SLEIGH spec is NOT in mainline Ghidra (issue #5259 open
+      # since Apr 2023). When a community spec or upstream PR ships, this
+      # processor string will route correctly. Until then, ``analyzeHeadless``
+      # falls back to BinaryLoader with no decode — operators get the file
+      # mapped at base 0x3D8000 but no disassembly. Binary Ninja BYO
+      # (idaholab/bn-tic28x-arch) is the recommended Phase 2 path.
+      processor: "TMS320C28x:LE:32:default"
+      loader: BinaryLoader
+      base_addr: 0x3D8000
+      load_offset_in_file: 0
