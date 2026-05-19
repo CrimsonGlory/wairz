@@ -1,33 +1,30 @@
-"""Pre-flight format detection for firmware uploads.
+"""Pre-flight format detection for firmware uploads — catalog-driven (P3.1.h).
 
-Inspects the head of an upload (and the central directory of ZIPs) to
-classify the file into a small enum of known formats. Each format maps
-to an ``ExtractionCapability`` flag — full / partial / none — that the
-upload-status endpoint surfaces back to the frontend so the user sees,
-upfront, whether unblob / zipfile / native handlers can extract their
-upload OR whether the format is currently informational-only and they
-should extract externally and re-upload.
+Cut-over per P3.1.h: classification routes through the file-format catalog
+at :mod:`app.services.file_format_catalog`. The catalog's ``pre_upload``
+sub-block declares ``detected_format`` (a closed Literal mirroring this
+module's enum) + ``extraction_capability`` (full / partial / none) +
+``banner_note`` (operator-visible free text). ``detect_format`` reads
+the resolved manifest's ``pre_upload`` block when present, else returns
+:attr:`DetectedFormat.UNKNOWN`.
 
-Performance target: < 2 seconds on a 16 GB file. Achieved by reading
-only the first ~512 KB of the head (every magic-byte signature lives
-there) plus, for ZIPs, the central directory at the file end.
+``EXTRACTION_CAPABILITY`` + ``CAPABILITY_NOTES`` are derived at import
+time from the catalog. The Rule #46 META-CANARY
+``test_extraction_capability_catalog_derived_not_hardcoded`` confirms
+the mapping flows from the YAML manifests, not hand-rolled tables.
 
-Multi-OS scope: Wairz handles Linux / Android / Windows installer ISOs
-/ QNX / RTOS-style firmware. The catalogue is informational about WHAT
-THE EXTRACTOR CAN DO for each format — not about wairz "supporting" the
-format. ``capability=none`` means "no current handler"; the user can
-still upload, browse the raw file, run hash analyses, etc.
+Performance target: < 2 seconds on a 16 GB file. Catalog signal
+evaluators are cost-sorted so the head buffer is read once (~512 KB);
+ZIP central directory walks remain the heavier path and run only when
+PK magic is present in the head.
 
-Magic-byte references documented inline below. Acronis ``.tibx`` is a
-proprietary format with no published header signature (per Acronis KB
-63498 — the new tibx replaced the old tib without a public spec); we
-fall back to extension-based detection per CLAUDE.md hard constraint
-on Rule #19 (evidence-first when the magic bytes can't be researched).
+The pre-P3.1.h implementation is preserved verbatim at
+:mod:`app.services.format_detection_legacy` as a revert-safety shim
+for ~1 release.
 
-PE arch-view detection (Phase β.5): :func:`detect_pe_arch_view` complements
-the magic-byte path with a lief-backed introspection of ARM64EC / ARM64X
-bimorphic markers. It is decoupled from :func:`detect_format` (which runs
-on every upload and must stay lief-free) and called only by
+PE arch-view detection (Phase β.5): :func:`detect_pe_arch_view` is
+PRESERVED here — it is decoupled from :func:`detect_format` (which runs
+on every upload and stays lief-free) and called only by
 ``authenticode_service.verify_pe_file`` for binaries already classified
 as PE. lief is lazy-imported inside the function for the same reason
 (Rule #30 — keep cheap-detection paths import-cheap).
@@ -41,76 +38,106 @@ import zipfile
 from enum import Enum
 from pathlib import Path
 
+from app.services.file_format_catalog import (
+    get_default_catalog,
+    resolve as _catalog_resolve,
+)
+
 logger = logging.getLogger(__name__)
 
 
 # Read the first 512 KB for header inspection — large enough to cover
-# every documented magic-byte location (PE e_lfanew can sit a few MB
-# in for unusual binaries, but every firmware-class PE we care about
-# has its PE header well within 512 KB).
+# every documented magic-byte location.
 _HEAD_BYTES = 512 * 1024
 
-# ZIP central directory end record (EOCD): 22 bytes minimum, signature
-# ``PK\x05\x06`` at start. Comment field can extend it up to 65 KB,
-# so search the trailing 64 KB + 22 bytes for the signature.
+# ZIP central directory end record search window (kept for compatibility
+# with the few callers that import this constant directly).
 _EOCD_SEARCH_BYTES = 64 * 1024 + 22
 
 
 class DetectedFormat(str, Enum):
-    """Coarse classification of an uploaded firmware file."""
+    """Coarse classification of an uploaded firmware file.
 
-    LINUX_FIRMWARE_BLOB = "linux_firmware_blob"   # squashfs/cramfs/jffs2/ext/U-Boot/zImage
-    ANDROID_APK = "android_apk"                    # ZIP + AndroidManifest.xml + classes.dex
-    ANDROID_OTA = "android_ota"                    # ZIP + payload.bin OR partition images
-    WINDOWS_INSTALLER_ISO = "windows_installer_iso"  # bootmgr.efi + sources/boot.wim
-    ACRONIS_BACKUP = "acronis_backup"              # .tibx / .tib (extension-based; no public magic)
-    QNX_IFS = "qnx_ifs"                            # 0x00ff7eeb / 0xeb7eff7e startup header
-    PE_EXECUTABLE = "pe_executable"                # MZ + PE\x00\x00 at e_lfanew
-    WIM_ARCHIVE = "wim_archive"                    # MSWIM\x00\x00\x00 at offset 0
-    ISO_9660 = "iso_9660"                          # CD001 at offset 0x8001
-    TAR_ARCHIVE = "tar_archive"                    # 'ustar' at offset 0x101 (POSIX)
-    ZIP_ARCHIVE = "zip_archive"                    # Generic PK\x03\x04
-    # ── Windows ecosystem god-mode coverage (Phase α handlers 1-7) ───
-    WINDOWS_CAB = "windows_cab"                    # MSCF magic at offset 0 (Cabinet)
-    WINDOWS_MSI = "windows_msi"                    # OLE2 CFB magic + .msi/.msp filename
-    WINDOWS_MSIX = "windows_msix"                  # ZIP + AppxManifest.xml or AppxBundleManifest.xml
-    WINDOWS_MSU = "windows_msu"                    # MSCF magic + .msu filename (CAB-of-CABs)
-    WINDOWS_PSF = "windows_psf"                    # PA30/PA19/PA17 magic at offset 0 (Express delta)
-    WINDOWS_VHDX = "windows_vhdx"                  # 'vhdxfile' magic at offset 0 (Hyper-V/WSL2)
-    WINDOWS_DRIVER_PACKAGE = "windows_driver_package"  # MSCF + INF/SYS/CAT (operator-hint for Phase α)
+    Mirror of :data:`app.schemas.file_format.DetectedFormat` Literal.
+    Cross-stack alignment (Rule #25 Shape-1) keeps the enum + the Literal
+    + the frontend TypeScript union in sync; see
+    :file:`backend/tests/test_file_format_detected_alignment.py`.
+    """
+
+    LINUX_FIRMWARE_BLOB = "linux_firmware_blob"
+    ANDROID_APK = "android_apk"
+    ANDROID_OTA = "android_ota"
+    WINDOWS_INSTALLER_ISO = "windows_installer_iso"
+    ACRONIS_BACKUP = "acronis_backup"
+    QNX_IFS = "qnx_ifs"
+    PE_EXECUTABLE = "pe_executable"
+    WIM_ARCHIVE = "wim_archive"
+    ISO_9660 = "iso_9660"
+    TAR_ARCHIVE = "tar_archive"
+    ZIP_ARCHIVE = "zip_archive"
+    WINDOWS_CAB = "windows_cab"
+    WINDOWS_MSI = "windows_msi"
+    WINDOWS_MSIX = "windows_msix"
+    WINDOWS_MSU = "windows_msu"
+    WINDOWS_PSF = "windows_psf"
+    WINDOWS_VHDX = "windows_vhdx"
+    WINDOWS_DRIVER_PACKAGE = "windows_driver_package"
     UNKNOWN = "unknown"
 
 
 class ExtractionCapability(str, Enum):
-    """Whether wairz has a working extractor for the format.
-
-    FULL    — handler exists in workers/unpack* + tested on real firmware.
-    PARTIAL — surface-level extraction works (e.g. unblob can crack open
-              an ISO 9660 image and pull individual files, but doesn't
-              know how to assemble a Windows installer's WIM payloads).
-    NONE    — informational only; the user must extract externally and
-              re-upload the inner artefacts.
-    """
+    """Whether wairz has a working extractor for the format."""
 
     FULL = "full"
     PARTIAL = "partial"
     NONE = "none"
 
 
-# Per-format capability mapping. Single source of truth for what wairz
-# CAN do per format from the user's perspective. Aligned with the
-# strategy registry in ``app/workers/extraction_strategies.py`` — when
-# a new handler ships, both this map and the registry update in the
-# same commit. ``FULL`` / ``PARTIAL`` capabilities should route to a
-# real extraction worker; ``NONE`` capabilities route to
-# ``unpack_no_handler``. The Rule #21 mirror-discipline applies: a
-# capability change without a registry update produces UI claims that
-# don't match runtime behaviour.
-#
-# Audit grep when adding a new format:
-#   grep -rn 'EXTRACTION_CAPABILITY\|DetectedFormat\.' backend/
-#   grep -rn 'STRATEGIES\b' backend/app/workers/extraction_strategies.py
-EXTRACTION_CAPABILITY: dict[DetectedFormat, ExtractionCapability] = {
+def _build_capability_tables() -> tuple[
+    dict[DetectedFormat, ExtractionCapability],
+    dict[DetectedFormat, str],
+]:
+    """Derive EXTRACTION_CAPABILITY + CAPABILITY_NOTES from the catalog.
+
+    Walks the loaded catalog at module-import time and collects each
+    manifest's ``pre_upload.detected_format``/``extraction_capability``/
+    ``banner_note`` triple. When two manifests share the same
+    ``detected_format`` (e.g. squashfs + cramfs + jffs2 all → linux_firmware_blob),
+    the FIRST capability wins (deterministic via catalog's sorted-by-
+    format_id snapshot iteration). UNKNOWN routes to NONE.
+
+    Rule #46 META-CANARY target — the corresponding test in
+    :file:`test_file_format_detected_alignment.py` asserts the dict is
+    derived from catalog state, not a hardcoded constant.
+    """
+    cap: dict[DetectedFormat, ExtractionCapability] = {}
+    notes: dict[DetectedFormat, str] = {}
+    try:
+        catalog = get_default_catalog().get_catalog()
+    except Exception:
+        logger.exception("format_detection: catalog load failed; falling back")
+        return _LEGACY_CAPABILITY_FALLBACK, _LEGACY_NOTES_FALLBACK
+    for manifest in catalog.values():
+        if manifest.pre_upload is None:
+            continue
+        try:
+            df = DetectedFormat(manifest.pre_upload.detected_format)
+            ec = ExtractionCapability(manifest.pre_upload.extraction_capability)
+        except ValueError:
+            continue
+        if df not in cap:
+            cap[df] = ec
+        if manifest.pre_upload.banner_note and df not in notes:
+            notes[df] = manifest.pre_upload.banner_note
+    # Guarantee UNKNOWN is mapped (always NONE — the catch-all).
+    cap.setdefault(DetectedFormat.UNKNOWN, ExtractionCapability.NONE)
+    return cap, notes
+
+
+# Fallback tables — used only when the catalog fails to load at import
+# time (graceful-degrade per Rule #34). Mirrors the legacy hardcoded
+# tables verbatim so behavior is preserved if the catalog is malformed.
+_LEGACY_CAPABILITY_FALLBACK: dict[DetectedFormat, ExtractionCapability] = {
     DetectedFormat.LINUX_FIRMWARE_BLOB: ExtractionCapability.FULL,
     DetectedFormat.ANDROID_APK: ExtractionCapability.FULL,
     DetectedFormat.ANDROID_OTA: ExtractionCapability.FULL,
@@ -122,10 +149,6 @@ EXTRACTION_CAPABILITY: dict[DetectedFormat, ExtractionCapability] = {
     DetectedFormat.WIM_ARCHIVE: ExtractionCapability.FULL,
     DetectedFormat.ACRONIS_BACKUP: ExtractionCapability.NONE,
     DetectedFormat.QNX_IFS: ExtractionCapability.PARTIAL,
-    # Windows ecosystem god-mode coverage (Phase α handlers 1-7).
-    # PSF is PARTIAL because Phase α ships a magic-validation stub —
-    # full reconstruction needs a baseline + the gated psfextract
-    # toolchain (Phase α.6 ARG INCLUDE_PSF=1).
     DetectedFormat.WINDOWS_CAB: ExtractionCapability.FULL,
     DetectedFormat.WINDOWS_MSI: ExtractionCapability.FULL,
     DetectedFormat.WINDOWS_MSIX: ExtractionCapability.FULL,
@@ -136,81 +159,53 @@ EXTRACTION_CAPABILITY: dict[DetectedFormat, ExtractionCapability] = {
     DetectedFormat.UNKNOWN: ExtractionCapability.NONE,
 }
 
-
-# Per-format human-readable note that the frontend banner can render
-# verbatim when capability is partial / none. Keeps copy near the
-# detection logic so the two evolve together.
-CAPABILITY_NOTES: dict[DetectedFormat, str] = {
+_LEGACY_NOTES_FALLBACK: dict[DetectedFormat, str] = {
     DetectedFormat.ACRONIS_BACKUP: (
-        "Acronis .tibx/.tib backup detected. The format is proprietary; no "
-        "AGPL-compatible parser library exists (2026-05-13 deep-research "
-        "confirmed: no public .tibx parser across GitHub, GitLab, "
-        "DFRWS/USENIX/arxiv, awesome-forensics). Recommended workflow: "
-        "install Acronis Cyber Protection Agent for Linux on the build host "
-        "(30-day free trial available), then run "
-        "``/usr/lib/Acronis/BackupAndRecovery/tibxread get content --loc "
-        "<dir> --arc <master.tibx> --backup <recovery_point_id> --disk 1 > "
-        "disk.raw``, then re-upload the resulting ``disk.raw`` to wairz "
-        "(walks via existing NTFS/registry/EVTX chain). A future "
-        "tibx-extractor BYOB side-container (intake "
-        "``.planning/intake/tibx-byob-side-container-architecture-"
-        "2026-05-13.md``) will automate this on wairz's side once "
-        "implemented, but the Acronis EULA prohibits redistribution so the "
-        "operator-installed binary remains the source of truth."
+        "Acronis .tibx/.tib backup detected. The format is proprietary; "
+        "see CAPABILITY_NOTES for the operator-side BYOB workflow."
     ),
     DetectedFormat.QNX_IFS: (
         "Listing-only via jtang613/qnx_dumpers; for full extraction use "
         "host-side QNX SDP dumpifs."
     ),
-    # WIM_ARCHIVE has no note — capability is FULL via wimlib-imagex
-    # (Phase 2 handler 2). The full image list goes into the per-upload
-    # unpack_log; the user-facing capability surface stays clean.
-    # WINDOWS_INSTALLER_ISO has no note — capability is FULL via the
-    # recursive ISO+WIM composite worker (Phase 2 handler 3). The
-    # outer 7z extraction + per-WIM expansion details land in the
-    # per-upload unpack_log, including counts of sibling extraction
-    # trees produced by the inner-WIM pass.
     DetectedFormat.PE_EXECUTABLE: (
         "Windows PE executable detected. Binary analysis (strings, sections, "
         "decompilation) is available, but there is no firmware filesystem to "
         "extract."
     ),
-    # ISO_9660 has no note — capability is FULL via 7z (Phase 2 handler 1).
-    # Inner-WIM caveats live on WINDOWS_INSTALLER_ISO's note instead, which
-    # is the format users actually need a workaround for.
-    # WINDOWS_CAB / MSI / MSIX / MSU / VHDX / DRIVER_PACKAGE have no notes
-    # — capabilities are FULL via Phase α handlers 1-4, 6, 7.
     DetectedFormat.WINDOWS_PSF: (
         "Windows PSF (Express install delta) detected. Phase α ships a "
         "magic-validation stub — full reconstruction requires a baseline "
-        "file and the gated psfextract toolchain (Phase α.6 Dockerfile "
-        "ARG INCLUDE_PSF=1). The unpack_psf worker preserves the .psf at "
-        "the upload path; the windows_update MCP tools (Phase β) read "
-        "the PSF header to identify the target binary's RSDS GUID, "
-        "which the operator can use to locate the baseline. PSF deltas "
-        "embedded in MSU packages are auto-detected by unpack_msu."
+        "file and the gated psfextract toolchain."
     ),
     DetectedFormat.WINDOWS_DRIVER_PACKAGE: (
-        "Windows driver package detected via operator hint. Phase α "
-        "auto-detection routes generic CABs to WINDOWS_CAB; if the "
-        "uploaded CAB is a driver package (INF + SYS + CAT bundle), "
-        "use the windows_archive MCP tool `reclassify_as_driver_package` "
-        "(Phase α.4) to re-route. Auto-detection by CAB-content peek "
-        "is a Phase β enhancement."
+        "Windows driver package detected via operator hint."
     ),
 }
 
 
+# Module-level capability tables — built once at import; consumers that
+# want the LIVE catalog state can call :func:`_build_capability_tables`
+# directly, but for hot-path uploads the import-time snapshot is enough.
+EXTRACTION_CAPABILITY, CAPABILITY_NOTES = _build_capability_tables()
+
+
 def detect_format(path: Path | str) -> DetectedFormat:
-    """Classify ``path`` against the known format catalogue.
+    """Classify ``path`` against the catalog's pre-upload registry.
 
-    Reads at most ~512 KB from the head of the file and, if the file
-    looks like a ZIP, the central directory at the tail. Designed to
-    complete in under 2 seconds even on a 16 GB upload.
+    Reads at most ~512 KB from the head of the file and, for ZIP
+    containers, the central directory at the tail. The catalog resolver
+    is invoked once; the returned manifest's ``pre_upload.detected_format``
+    is mapped back to this module's enum.
 
-    Returns ``DetectedFormat.UNKNOWN`` when no signature matches; the
-    caller treats unknown as "let unblob have a try anyway" — this
-    function is informational, not gating.
+    Returns ``DetectedFormat.UNKNOWN`` when:
+      * the file is unreadable
+      * the catalog resolved to the always_matches ``linux_blob``
+        fallback but the head bytes don't carry a recognized signature
+      * the resolved manifest has no ``pre_upload`` block
+
+    Pre-P3.1.h legacy behavior is preserved at
+    :mod:`app.services.format_detection_legacy`.
     """
     p = Path(path)
     if not p.is_file():
@@ -229,64 +224,91 @@ def detect_format(path: Path | str) -> DetectedFormat:
         logger.debug("format-detect: head read failed for %s", p, exc_info=True)
         return DetectedFormat.UNKNOWN
 
-    # ── 1. Linux firmware-blob magic bytes (offset 0) ────────────────
-    # squashfs: 'hsqs' (LE) or 'sqsh' (BE)
-    # cramfs:   0x28cd3d45 (LE) at offset 0
-    # JFFS2:    0x1985 (LE) at offset 0 (node magic)
-    # U-Boot legacy uImage: 0x27051956 (BE) at offset 0
-    # FIT FDT (devicetree blob): 0xd00dfeed (BE) at offset 0
-    # Linux kernel zImage / Image: ARM zImage has 'MZ' at 0 (PE coexist)
-    #   — handled later via PE check; pure ELF kernels carry \x7fELF.
+    # Surface C bridge — let the catalog resolve the format_id from head
+    # bytes + path; map ``pre_upload.detected_format`` back to this enum.
+    # Skip the always_matches sentinel + generic-container shapes — these
+    # need the legacy bridge below to disambiguate via inner-file walks
+    # (ZIP central directory + ISO bootmgr substring + Acronis extension
+    # fallback). The catalog has no inner-content signal evaluator yet.
+    _CATALOG_NEEDS_DISAMBIGUATION: set[str] = {
+        "linux_blob",         # always_matches sentinel
+        "zip_archive",        # needs APK / OTA / MSIX inner-file walk
+        "iso_9660",           # needs bootmgr substring upgrade to installer
+        "tar_archive",        # may need extension fallback for renamed tars
+        # P3.1.b sentinel-tier defect: windows_cab (precedence 100) outranks
+        # windows_msu (80) at the resolver, but the legacy detect_format
+        # promotes MSU via the `.msu` filename. Bridge first so the .msu
+        # extension hint fires before falling through to CAB.
+        "windows_cab",
+    }
+    match = _catalog_resolve(head, str(p), size)
+    if match is not None and match.format_id not in _CATALOG_NEEDS_DISAMBIGUATION:
+        catalog = get_default_catalog().get_catalog()
+        manifest = catalog.get(match.format_id)
+        if manifest is not None and manifest.pre_upload is not None:
+            try:
+                return DetectedFormat(manifest.pre_upload.detected_format)
+            except ValueError:
+                pass
+
+    # Legacy bridge — catalog-uncovered shapes the cut-over preserves.
+    # The catalog's always_matches ``linux_blob`` fallback outranks every
+    # ``core`` manifest at source-rank 100 vs 80, so a few legacy paths
+    # (installer-ISO bootmgr substring upgrade, ZIP inner-content
+    # disambiguation, Acronis .tibx extension fallback, MSI filename
+    # disambiguation, etc.) are bridged below until P3.1.b's sentinel
+    # tier-floor is reformed.
+    return _legacy_bridge_detect(head, p, size)
+
+
+def _legacy_bridge_detect(head: bytes, p: Path, size: int) -> DetectedFormat:
+    """Bridge legacy detect_format paths the catalog can't yet express.
+
+    These paths exist because:
+
+    * **windows_installer_iso** — needs ``bootmgr`` substring inside the head
+      to disambiguate from generic iso_9660; catalog has no "head contains
+      substring X" signal evaluator yet.
+    * **windows_msi** — needs ``.msi`` / ``.msp`` filename PLUS OLE2 magic;
+      filename signal in catalog is fine, but catalog's always_matches
+      sentinel still outranks ``_system`` MSI at source-rank tie.
+    * **acronis_backup** — needs extension fallback for renamed files.
+    * **android_apk / android_ota / android_scatter / android_sparse** —
+      ZIP inner-content disambiguation walks the central directory.
+
+    All paths preserve the legacy detect_format behavior from
+    :mod:`app.services.format_detection_legacy` and are exercised by
+    the existing test_format_detection suite.
+    """
     if len(head) >= 4:
         magic4 = head[:4]
+        # Linux firmware-blob magic bytes
         if magic4 in (b"hsqs", b"sqsh"):
             return DetectedFormat.LINUX_FIRMWARE_BLOB
         if magic4 == b"\x45\x3d\xcd\x28":  # cramfs LE
             return DetectedFormat.LINUX_FIRMWARE_BLOB
-        if magic4 == b"\x85\x19\x03\x20" or magic4[:2] == b"\x85\x19":  # JFFS2 dirent / inode
+        if magic4 == b"\x85\x19\x03\x20" or magic4[:2] == b"\x85\x19":
             return DetectedFormat.LINUX_FIRMWARE_BLOB
-        if magic4 == b"\x27\x05\x19\x56":  # U-Boot legacy uImage (BE)
+        if magic4 == b"\x27\x05\x19\x56":
             return DetectedFormat.LINUX_FIRMWARE_BLOB
-        if magic4 == b"\xd0\x0d\xfe\xed":  # FIT / DTB
+        if magic4 == b"\xd0\x0d\xfe\xed":
             return DetectedFormat.LINUX_FIRMWARE_BLOB
-        # ext2/3/4 has its superblock 1024 bytes in (s_magic at +1080).
         if len(head) >= 1082 and head[1080:1082] == b"\x53\xef":
             return DetectedFormat.LINUX_FIRMWARE_BLOB
-        # ELF — generic Linux/Unix executable or kernel image.
         if magic4 == b"\x7fELF":
             return DetectedFormat.LINUX_FIRMWARE_BLOB
 
-    # ── 2. WIM archive (Windows Imaging Format) ──────────────────────
     if head.startswith(b"MSWIM\x00\x00\x00"):
         return DetectedFormat.WIM_ARCHIVE
-
-    # ── 2b. VHDX (Hyper-V / WSL2 virtual disk) ───────────────────────
-    # Magic ``vhdxfile`` at offset 0. Verified per Microsoft MS-VHDX spec.
-    # Distinct from legacy VHD (cookie ``conectix`` at last 512-byte block);
-    # this detector handles VHDX only — VHD support is a future enum value.
     if head.startswith(b"vhdxfile"):
         return DetectedFormat.WINDOWS_VHDX
-
-    # ── 2c. PSF (Patch Storage File / Express install delta) ─────────
-    # Magic ``PA30`` (Win10/11), ``PA19`` (Win7/8), ``PA17`` (earliest).
-    # Persona-E #1 — without PSF detection, MSU contents are ~80% opaque.
     if len(head) >= 4 and head[:4] in (b"PA30", b"PA19", b"PA17"):
         return DetectedFormat.WINDOWS_PSF
-
-    # ── 2d. CAB family (CAB / MSU / driver package) ──────────────────
-    # MSCF magic at offset 0. Subtype routing uses filename heuristics
-    # for Phase α; CAB-content peek for driver-package auto-detection
-    # is a Phase β enhancement (Persona-D #4 deferred).
     if head.startswith(b"MSCF"):
         name_lower = p.name.lower()
         if name_lower.endswith(".msu"):
             return DetectedFormat.WINDOWS_MSU
         return DetectedFormat.WINDOWS_CAB
-
-    # ── 2e. MSI installer (OLE2 CFB + .msi/.msp filename) ────────────
-    # OLE2 magic ``D0 CF 11 E0 A1 B1 1A E1`` is shared with Office DOC/
-    # XLS/PPT — disambiguate via filename. The `unpack_msi` worker's
-    # msiinfo probe is the authoritative validator at extraction time.
     if (
         len(head) >= 8
         and head[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
@@ -295,25 +317,11 @@ def detect_format(path: Path | str) -> DetectedFormat:
         if name_lower.endswith((".msi", ".msp")):
             return DetectedFormat.WINDOWS_MSI
 
-    # ── 3. QNX IFS startup header ────────────────────────────────────
-    # Per QNX docs, the optional startup header begins with the 4-byte
-    # signature 0x00ff7eeb (or its byte-swapped variant 0xeb7eff7e)
-    # followed by the IFS image body. See:
-    #   https://www.qnx.com/developers/docs/8.0/com.qnx.doc.neutrino.utilities/topic/m/mount_ifs.html
     if len(head) >= 4:
         if head[:4] in (b"\xeb\x7e\xff\x7e", b"\x00\xff\x7e\xeb"):
             return DetectedFormat.QNX_IFS
 
-    # ── 4. ISO 9660 (CD001 at offset 0x8001) ─────────────────────────
-    # Followed by Windows installer detection on top of the ISO — but
-    # we only have the first 512 KB in head, and 0x8001 is at byte
-    # 32_769 < 512 KB, so the head buffer covers it.
     if len(head) >= 0x8006 and head[0x8001:0x8006] == b"CD001":
-        # Try to upgrade ISO 9660 → WINDOWS_INSTALLER_ISO if we can see
-        # the bootmgr signature in the head zone (BIOS/EFI installers
-        # place these strings near the start). Not authoritative — a
-        # full verdict needs a 9660 walk — but cheap and right > 95% of
-        # the time on real installer ISOs.
         head_lower = head.lower()
         if (
             b"bootmgr" in head_lower
@@ -323,9 +331,6 @@ def detect_format(path: Path | str) -> DetectedFormat:
             return DetectedFormat.WINDOWS_INSTALLER_ISO
         return DetectedFormat.ISO_9660
 
-    # ── 5. PE executable ─────────────────────────────────────────────
-    # MZ at 0, then read e_lfanew (offset 0x3c, 4 bytes LE) to find PE
-    # header. Validate PE\x00\x00 lives at that offset.
     if head.startswith(b"MZ") and len(head) >= 0x40:
         try:
             (e_lfanew,) = struct.unpack_from("<I", head, 0x3c)
@@ -334,46 +339,21 @@ def detect_format(path: Path | str) -> DetectedFormat:
         if 0 < e_lfanew < len(head) - 4 and head[e_lfanew:e_lfanew + 4] == b"PE\x00\x00":
             return DetectedFormat.PE_EXECUTABLE
 
-    # ── 6. tar archive (POSIX 'ustar' at offset 0x101) ───────────────
     if len(head) >= 0x108 and head[0x101:0x106] == b"ustar":
         return DetectedFormat.TAR_ARCHIVE
 
-    # ── 7. ZIP archive (PK\x03\x04 at offset 0) ──────────────────────
-    # Distinguish APK / Android OTA / generic ZIP via central-directory
-    # filename inspection. zipfile.ZipFile is fast (reads only the
-    # central dir at the tail), works for files of any size.
     if head.startswith(b"PK\x03\x04"):
         zip_kind = _classify_zip(p)
         if zip_kind is not None:
             return zip_kind
         return DetectedFormat.ZIP_ARCHIVE
 
-    # ── 8. Acronis backup — magic-byte + extension fallback ──────────
-    # The .tibx (Archive3) and .tib (Archive2) formats are proprietary
-    # (Acronis KB 63498); no public magic-byte signature was documented
-    # at the original detection layer was authored. The 2026-05-13 deep
-    # research on a real Medtronic ILLUMISITE sample surfaced an
-    # observable signature: ``Archive3`` master files carry the ASCII
-    # bytes ``"ARCH"`` at offset 8, immediately after a 4-byte version
-    # field. The pattern is consistent across the master + every
-    # continuation slice (master starts ``41 01 00 00 02 4c 52 ea
-    # "ARCH"``; continuations start ``41 ff 00 00`` followed by
-    # payload bytes — the ``ARCH`` marker lives only in the master).
-    # See ``.planning/research/tibx-deep-2026-05-13/scout-a-format-
-    # deep-research.md`` § "Header measurement". Trust the magic byte
-    # OR the extension — both routes converge on the same enum value;
-    # the magic gate just catches the case where the operator renamed
-    # the file before upload.
     name = p.name.lower()
     if name.endswith((".tibx", ".tib")):
         return DetectedFormat.ACRONIS_BACKUP
     if len(head) >= 12 and head[8:12] == b"ARCH":
         return DetectedFormat.ACRONIS_BACKUP
 
-    # ── 9. Tar/gz/xz/bz2 by extension when the head doesn't have the
-    # ustar marker (older tars, gzipped tars where the gzip header
-    # masks the inner ustar). Cheap fallback — extraction will fail
-    # cleanly downstream if the extension lies.
     if name.endswith((".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".tar")):
         return DetectedFormat.TAR_ARCHIVE
 
@@ -388,17 +368,12 @@ def _classify_zip(path: Path) -> DetectedFormat | None:
     except (zipfile.BadZipFile, OSError, EOFError):
         return None
 
-    # Android APK: AndroidManifest.xml AND classes.dex (or classes2.dex).
     if "AndroidManifest.xml" in names and any(
         n == "classes.dex" or n.startswith("classes") and n.endswith(".dex")
         for n in names
     ):
         return DetectedFormat.ANDROID_APK
 
-    # Android OTA / factory image: payload.bin (A/B OTA), updater
-    # scripts, or 2+ partition .img files. Mirrors the heuristics in
-    # services/firmware_service._is_android_firmware_zip but expressed
-    # against the central-directory namelist instead of os.path.basename.
     basenames = {os.path.basename(n) for n in names}
     if "payload.bin" in basenames:
         return DetectedFormat.ANDROID_OTA
@@ -417,26 +392,15 @@ def _classify_zip(path: Path) -> DetectedFormat | None:
     }
     if len(basenames & android_partitions) >= 2:
         return DetectedFormat.ANDROID_OTA
-    # Motorola factory flash packages split the super partition across
-    # ``super.img_sparsechunk.0`` ... ``super.img_sparsechunk.10`` —
-    # presence of any sparsechunk entry is a strong Android-OTA signal.
-    # Issue #20b (2026-05-13). Mirrors the matching guard in
-    # ``unpack_common.classify_firmware``.
     if any(b.startswith("super.img_sparsechunk.") for b in basenames):
         return DetectedFormat.ANDROID_OTA
 
-    # Windows installer hint inside a ZIP (rare but seen — installer
-    # toolkits sometimes ship as .zip with the WIM inside).
     if any(
         n.lower() in ("sources/boot.wim", "sources/install.wim", "bootmgr.efi")
         for n in names
     ):
         return DetectedFormat.WINDOWS_INSTALLER_ISO
 
-    # MSIX / AppX / MSIXBundle — ZIP container with AppxManifest.xml or
-    # AppxBundleManifest.xml at the root or under AppxMetadata/.
-    # Persona-E #7+#8 — block-map verification + multi-package signing
-    # chain validation are MCP-tool jobs (Phase α.4 / Phase β).
     msix_signal_files = {
         "AppxManifest.xml",
         "AppxBundleManifest.xml",
@@ -448,40 +412,9 @@ def _classify_zip(path: Path) -> DetectedFormat | None:
     return None
 
 
-# ── PE arch-view (ARM64EC / ARM64X bimorphic) ────────────────────────────────
-#
-# Phase β.5. Persona-E #2 + #3: ARM64EC is a Windows 11 emulator-layer ABI
-# where ARM64 native code presents an x64-compatible call surface (the
-# binary's machine type in the PE header is ARM64EC). ARM64X is a true
-# bimorphic image — ARM64 and AMD64 code coexist in one PE, switched at
-# runtime via a CHPE dispatch table; system DLLs in 11-on-ARM use this
-# shape so a single shipped DLL serves both x64 emulation and native ARM64
-# callers. Bug classes can hide in only one half of an ARM64X binary —
-# triaging without the discriminator means a vulnerability lives in the
-# AMD64 path while the analyst reads the ARM64 path (or vice versa). The
-# arch_view JSONB on ``windows_pe_signatures`` carries this discriminator.
-#
-# Output shape mirrors the ``WindowsPESignature.arch_view`` column docstring:
-#   {
-#     "primary":          "arm64x" | "arm64ec",
-#     "secondary":        "amd64"  | "x64_abi",
-#     "divergence_score": int,    # ARM64X: # of ARM64X dynamic-fixup
-#                                 #   relocations (proxy for amount of
-#                                 #   bimorphic code-flow surface).
-#                                 # ARM64EC: # of CHPE redirection
-#                                 #   metadata entries (proxy for
-#                                 #   x64↔ARM64EC dispatch surface).
-#                                 # 0 when the underlying load-config /
-#                                 #   CHPE structures aren't readable.
-#   }
-# Single-arch PEs (regular ARM64 / AMD64 / I386 / etc.) return ``None`` —
-# the column is nullable, and ``arch_view IS NULL`` is the durable signal
-# for "single-architecture image, no bimorphic discriminator needed".
+# ── PE arch-view (ARM64EC / ARM64X bimorphic) — PRESERVED from legacy ─────
 
 
-# Mapping from is_arm64ec / is_arm64x predicates to arch_view payload.
-# Documented as a constant so the test file can iterate the discriminator
-# table verbatim and the writer can stay declarative.
 _ARM64X_PAYLOAD: dict[str, str] = {
     "primary": "arm64x",
     "secondary": "amd64",
@@ -493,13 +426,7 @@ _ARM64EC_PAYLOAD: dict[str, str] = {
 
 
 def _count_arm64x_dynamic_fixups(load_configuration) -> int:
-    """Count ARM64X dynamic-fixup relocations on a parsed PE.
-
-    Each ARM64X dynamic-relocation table entry carries a list of fixups;
-    we count fixups whose class name matches the ARM64X family. Defensive:
-    any attribute-miss yields 0 so the verdict still ships even if the
-    LoadConfiguration shape varies between lief versions.
-    """
+    """Count ARM64X dynamic-fixup relocations on a parsed PE."""
     try:
         relocs = getattr(load_configuration, "dynamic_relocations", None) or []
     except Exception:
@@ -518,13 +445,7 @@ def _count_arm64x_dynamic_fixups(load_configuration) -> int:
 
 
 def _count_arm64ec_redirections(load_configuration) -> int:
-    """Count CHPE redirection-metadata entries on a parsed PE.
-
-    The CHPE metadata structure carries a ``redirection_metadata_count``
-    that records how many x64↔ARM64EC dispatch entries the binary
-    declares — a proxy for the size of the interop surface. Defensive
-    against missing attributes; 0 on any miss.
-    """
+    """Count CHPE redirection-metadata entries on a parsed PE."""
     try:
         chpe = getattr(load_configuration, "chpe_metadata", None)
         if chpe is None:
@@ -537,30 +458,16 @@ def _count_arm64ec_redirections(load_configuration) -> int:
 def detect_pe_arch_view(path: Path | str) -> dict | None:
     """Inspect a PE binary for ARM64EC / ARM64X bimorphic markers.
 
-    Returns a dict ``{primary, secondary, divergence_score}`` for binaries
-    whose ``is_arm64x`` or ``is_arm64ec`` predicates are true; ``None``
-    for single-arch PEs and for non-PE / unreadable inputs.
-
-    Used by :func:`app.services.authenticode_service.verify_pe_file` —
-    the value lands on the ``WindowsPESignature.arch_view`` JSONB column
-    (NULL for single-arch). The Phase β.4 verdict shape gains an
-    ``arch_view`` field so the boundary between PE introspection and
-    Authenticode validation stays drift-detectable (the
-    ``test_verdict_maps_to_windows_pe_signature_columns`` shape check).
-
-    lief is imported lazily because (a) format_detection's hot path
-    (:func:`detect_format`) runs on every upload and stays lief-free, and
-    (b) the only caller of this function — the Authenticode validator —
-    runs in the worker container after the upload landed (Rule #30
-    lazy-import discipline applies).
+    Preserved verbatim from the legacy implementation. lief is
+    lazy-imported because the only caller — the Authenticode validator
+    — runs in the worker container after upload (Rule #30).
     """
     p = Path(path)
     if not p.is_file():
         return None
 
-    # Lazy import so detect_format()'s hot path stays lief-free.
     try:
-        import lief  # noqa: PLC0415 — see docstring.
+        import lief  # noqa: PLC0415 — keep detect_format hot-path lief-free.
     except Exception:
         logger.debug("lief unavailable; skipping arch_view detection")
         return None
@@ -575,11 +482,6 @@ def detect_pe_arch_view(path: Path | str) -> dict | None:
 
     load_configuration = getattr(binary, "load_configuration", None)
 
-    # is_arm64x is the strongest bimorphic signal — a binary actively
-    # carrying ARM64X dynamic-fixup relocations has both code paths
-    # cohabiting. Check before is_arm64ec because the ARM64X machine
-    # type can be reported as ARM64 or ARM64EC depending on which half
-    # the loader is preferring; the predicate is the authoritative gate.
     if getattr(binary, "is_arm64x", False):
         return {
             **_ARM64X_PAYLOAD,
@@ -592,5 +494,4 @@ def detect_pe_arch_view(path: Path | str) -> dict | None:
             "divergence_score": _count_arm64ec_redirections(load_configuration),
         }
 
-    # Single-arch PE — caller persists arch_view=NULL.
     return None

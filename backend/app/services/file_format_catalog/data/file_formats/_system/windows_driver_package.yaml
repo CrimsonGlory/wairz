@@ -32,7 +32,7 @@ output:
   confidence: high
 pre_upload:
   detected_format: windows_driver_package
-  extraction_capability: partial
+  extraction_capability: full
   banner_note: |
     Windows driver package detected. INF + SYS + CAT triplet
     extracted; SYS / CAT pass through signify for chain validation,

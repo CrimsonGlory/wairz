@@ -31,8 +31,4 @@ output:
   confidence: high
 pre_upload:
   detected_format: windows_msu
-  extraction_capability: partial
-  banner_note: |
-    Windows MSU package detected. Outer CAB unwrapping works via
-    cabextract; inner PSF (Express delta) reconstruction requires
-    a baseline file plus the gated psfextract toolchain (Phase α.6).
+  extraction_capability: full

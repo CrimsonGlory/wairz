@@ -1450,9 +1450,26 @@ def _find_binwalk_output_dir(
 
 
 def classify_firmware(firmware_path: str) -> str:
-    """Classify firmware file type to determine the analysis pipeline."""
+    """Classify firmware file type to determine the analysis pipeline.
+
+    Cut-over per P3.1.h: routes through the file-format catalog at
+    :mod:`app.services.file_format_catalog`. The catalog's
+    ``output.classifier_format`` field provides the legacy string return
+    value. RTOS dispatch (``f"{rtos_name}_elf"``) and the few container
+    sub-detectors the catalog can't yet express (UEFI capsule inside
+    ZIP, partition_dump_tar / rootfs_tar) are bridged below until P3.2
+    wires PLUGIN_REGISTRY for RTOS variants and the container
+    refinement walks.
+
+    Pre-P3.1.h behaviour preserved verbatim at
+    :mod:`app.workers.unpack_common_classify_legacy`.
+    """
     import zipfile as _zipfile
 
+    # 1. ZIP-container disambiguation — preserve legacy inner-file walks.
+    #    Catalog has zip_markers but lacks the broader partition-set +
+    #    sparsechunk + scatter heuristics; bridge the legacy walk first
+    #    so factory-flash + scatter / APK / OTA classify identically.
     if _zipfile.is_zipfile(firmware_path):
         try:
             with _zipfile.ZipFile(firmware_path, "r") as zf:
@@ -1467,16 +1484,6 @@ def classify_firmware(firmware_path: str) -> str:
                     return "android_ota"
                 if "payload.bin" in names or "system.img" in names:
                     return "android_ota"
-                # Broader Android partition set — mirrors
-                # ``format_detection._classify_zip`` so factory flash packages
-                # that don't carry payload.bin / system.img / META-INF still
-                # classify correctly. Issue #20b (2026-05-13): Motorola
-                # Moto-G32 / Moto-G30 factory flash ZIPs lack all four
-                # narrow markers above, but ship boot.img + vbmeta.img +
-                # dtbo.img + vendor_boot.img etc.; the broader set catches
-                # the ≥2 condition cleanly. Mirroring the basename-aware
-                # check from ``_classify_zip`` so nested entries
-                # (``<vendor>/boot.img``) match too.
                 basenames = {os.path.basename(n) for n in names}
                 android_partitions = {
                     "system.img", "boot.img", "vendor.img", "super.img",
@@ -1486,35 +1493,25 @@ def classify_firmware(firmware_path: str) -> str:
                 }
                 if len(basenames & android_partitions) >= 2:
                     return "android_ota"
-                # Motorola factory flash packages split the super partition
-                # across ``super.img_sparsechunk.0`` … ``super.img_sparsechunk.10``
-                # files. Each chunk on its own isn't in the partition set,
-                # but the presence of ANY sparsechunk entry is a strong
-                # Android-OTA signal — these aren't a known shape outside
-                # the Android factory-flash family. Commit ``6538735``
-                # ships the Stage 1 reassembly path that consumes them.
                 if any(b.startswith("super.img_sparsechunk.") for b in basenames):
                     return "android_ota"
-                # MediaTek scatter format: zip with *_scatter.txt + super.img
-                # (files may be nested under a subdirectory)
                 has_scatter = any(
                     n.endswith("_scatter.txt") or n.endswith("_Android_scatter.txt")
                     for n in names
                 )
-                has_super = any(n.endswith("/super.img") or n == "super.img" for n in names)
+                has_super = any(
+                    n.endswith("/super.img") or n == "super.img" for n in names
+                )
                 if has_scatter and has_super:
                     return "android_scatter"
-                # Standalone APK: ZIP containing AndroidManifest.xml + classes*.dex
                 has_manifest = "AndroidManifest.xml" in names
                 has_dex = any(n.endswith(".dex") for n in names)
                 if has_manifest and has_dex:
                     return "android_apk"
-                # Check for UEFI capsule inside ZIP (e.g., Framework BIOS updates)
                 uefi_zip_markers = {".cap", ".rom", ".fd", ".bin"}
                 for name in names:
                     ext = os.path.splitext(name)[1].lower()
                     if ext in uefi_zip_markers:
-                        # Extract and check if inner file is UEFI
                         try:
                             inner = zf.read(name)
                             if _is_uefi_content(inner):
@@ -1525,6 +1522,50 @@ def classify_firmware(firmware_path: str) -> str:
             pass
 
     magic = _read_magic(firmware_path, 16)
+
+    # 2. Catalog — magic-byte + filename + size signal evaluation. Returns
+    #    the format_id which doubles as the legacy classify_firmware string
+    #    for most cases. The always_matches ``linux_blob`` fallback is
+    #    passed through unchanged at the end.
+    try:
+        from app.services.file_format_catalog import (
+            get_default_catalog,
+            resolve as _catalog_resolve,
+        )
+
+        head = magic
+        # Read a larger head for catalog signals at non-zero offsets
+        # (ustar at 0x101, ISO at 0x8001 — already handled by the bridge
+        # for installer ISO; here we just need ~256 bytes for tar markers).
+        try:
+            with open(firmware_path, "rb") as fh:
+                head = fh.read(8192)
+        except OSError:
+            head = magic
+
+        size = 0
+        try:
+            size = os.path.getsize(firmware_path)
+        except OSError:
+            pass
+
+        match = _catalog_resolve(head, firmware_path, size)
+        if match is not None and match.format_id != "linux_blob":
+            catalog = get_default_catalog().get_catalog()
+            manifest = catalog.get(match.format_id)
+            if manifest is not None:
+                # Map catalog format_id back to the legacy classify_firmware
+                # string. For most formats it's identical; container shapes
+                # (uefi_firmware, partition_dump_tar, rootfs_tar) need legacy
+                # bridge below for inner-file disambiguation.
+                legacy_str = _catalog_to_classify_str(match.format_id, manifest)
+                if legacy_str is not None:
+                    return legacy_str
+    except Exception:
+        # Catalog failure must NOT block unpack — fall through to legacy bridge.
+        pass
+
+    # 3. Legacy bridges — catalog-uncovered shapes preserved verbatim.
 
     # Android sparse image
     if magic[:4] == b"\x3a\xff\x26\xed":
@@ -1545,7 +1586,10 @@ def classify_firmware(firmware_path: str) -> str:
         return "linux_rootfs_tar"
 
     if magic[:4] == b"\x7fELF":
-        # Check if this ELF is an RTOS binary before falling back to generic elf_binary
+        # RTOS dispatch — TODO P3.2: route via PLUGIN_REGISTRY.rtos_check
+        # signal once the catalog's rtos_check evaluator is wired. Until
+        # then, fall back to the legacy detect_rtos() heuristic for the
+        # f"{rtos_name}_elf" dynamic format string.
         try:
             from app.services.rtos_detection_service import detect_rtos
             rtos = detect_rtos(firmware_path)
@@ -1557,7 +1601,6 @@ def classify_firmware(firmware_path: str) -> str:
         return "elf_binary"
 
     if magic[:1] == b":" and all(c in b"0123456789ABCDEFabcdef:\r\n" for c in magic):
-        # Validate more thoroughly: read first line and check record structure
         try:
             with open(firmware_path, errors="replace") as fh:
                 first_line = fh.readline().strip()
@@ -1573,7 +1616,7 @@ def classify_firmware(firmware_path: str) -> str:
     if magic[:2] == b"MZ":
         return "pe_binary"
 
-    # Check for RTOS in raw binaries (non-ELF) via magic bytes and strings
+    # RTOS in raw binaries (non-ELF) — TODO P3.2: route via PLUGIN_REGISTRY.
     try:
         from app.services.rtos_detection_service import detect_rtos
         rtos = detect_rtos(firmware_path)
@@ -1583,6 +1626,30 @@ def classify_firmware(firmware_path: str) -> str:
         pass
 
     return "linux_blob"
+
+
+def _catalog_to_classify_str(format_id: str, manifest) -> str | None:
+    """Map a catalog ``format_id`` to the legacy ``classify_firmware`` string.
+
+    Most format_ids pass through unchanged; container shapes need their
+    legacy strings (uefi_firmware / linux_rootfs_tar / partition_dump_tar /
+    elf_binary / pe_binary). Returns ``None`` when the catalog match is a
+    container the legacy bridge should disambiguate (e.g. zip_archive
+    routes to the bridge which checks for APK / OTA / scatter inner files).
+    """
+    # Containers the legacy bridge owns
+    if format_id in {
+        "zip_archive", "tar_archive",
+        "iso_9660", "windows_installer_iso",
+        "uefi_firmware", "partition_dump_tar", "rootfs_tar",
+        "linux_elf",         # bridge selects elf_binary vs RTOS_elf
+        "intel_hex",         # bridge re-validates record structure
+        "pe_binary",         # bridge handles MZ → pe_binary
+        "rtos_blob",         # bridge routes RTOS via detect_rtos
+    }:
+        return None
+    # Direct passthrough — catalog format_id IS the legacy string
+    return format_id
 
 
 # EFI capsule GUID: BD86663B-08ED-4816-8FF0-D29BF6426720

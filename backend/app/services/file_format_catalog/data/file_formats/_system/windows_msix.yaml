@@ -30,8 +30,4 @@ output:
   confidence: high
 pre_upload:
   detected_format: windows_msix
-  extraction_capability: partial
-  banner_note: |
-    MSIX / AppX package detected. Per-package extraction works;
-    block-map verification + multi-package signing-chain validation
-    surface via MCP tools (Phase α.4 / Phase β).
+  extraction_capability: full

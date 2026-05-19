@@ -36,5 +36,5 @@ pre_upload:
   detected_format: qnx_ifs
   extraction_capability: partial
   banner_note: |
-    QNX IFS detected. Listing via jtang613/qnx_dumpers; for full
-    extraction install QNX SDP and run dumpifs on the upload host.
+    Listing-only via jtang613/qnx_dumpers; for full extraction use
+    host-side QNX SDP dumpifs.
