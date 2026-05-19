@@ -166,6 +166,10 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   windows_usnjrnl_file_deletion: { icon: Trash2, label: 'USN File Deletion', className: 'border-orange-600/50 text-orange-700 dark:text-orange-300' },
   windows_usnjrnl_temp_create_delete_pair: { icon: FileX, label: 'USN Temp Create+Delete', className: 'border-red-800/70 text-red-800 dark:text-red-200' },
   windows_usnjrnl_renamed_executable: { icon: FileMinus, label: 'USN Renamed Executable', className: 'border-orange-600/50 text-orange-700 dark:text-orange-300' },
+  c28x_unsecure_csm: { icon: ShieldAlert, label: 'C28x CSM Unsecure', className: 'border-red-800/70 text-red-800 dark:text-red-200' },
+  c28x_csm_perma_lock: { icon: KeyRound, label: 'C28x CSM Perma-Lock', className: 'border-amber-600/50 text-amber-700 dark:text-amber-300' },
+  bare_metal_chip_unknown_with_hints: { icon: Info, label: 'Bare-Metal Chip Unknown', className: 'border-blue-500/50 text-blue-600 dark:text-blue-400' },
+  bare_metal_encrypted_region_skipped: { icon: Info, label: 'Encrypted Region Skipped', className: 'border-slate-500/50 text-slate-600 dark:text-slate-400' },
 }
 
 // ── Finding confidence ──

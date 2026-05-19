@@ -549,6 +549,32 @@ LinuxFindingSource = Literal[
 ]
 
 
+# Phase Rule #52 Phase 1 — bare-metal MCU/DSP audit walker emit sources
+# (FIRST bare-metal family, sibling to Windows + Linux). The walker
+# (services/bare_metal_walker.py) reads the chip-family YAML catalog,
+# evaluates address-region policies, and emits Finding rows with these
+# source tags.
+#
+# - c28x_unsecure_csm — TI C28x CSM PWL all-0xFFFF = JTAG-unlocked via
+#   dummy-read. CWE-1273 (Device Unlock Credential Sharing) + CWE-1191
+#   (On-Chip Debug Defaults). Eaton TMS320F28066 firmware 2026-05-19 is
+#   the reference case.
+# - c28x_csm_perma_lock — TI C28x CSM PWL all-0x0000 = perma-lock value;
+#   chip cannot be re-flashed without erasing PWL. CWE-1191 manufacturing
+#   quality / RMA finding.
+# - bare_metal_chip_unknown_with_hints — emitted when zero chip families
+#   match auto-detect AND no operator descriptor is available; carries
+#   heuristic findings (entropy / strings / vector-table candidates).
+# - bare_metal_encrypted_region_skipped — informational emit when the
+#   walker skips an encrypted_region per Rule #45 parse-only contract.
+BareMetalFindingSource = Literal[
+    "c28x_unsecure_csm",
+    "c28x_csm_perma_lock",
+    "bare_metal_chip_unknown_with_hints",
+    "bare_metal_encrypted_region_skipped",
+]
+
+
 class Severity(str, Enum):
     critical = "critical"
     high = "high"
