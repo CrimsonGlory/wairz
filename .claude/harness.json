@@ -393,6 +393,66 @@
         "pattern": "detection_confidence\\s*==\\s*[\"']low[\"'].*\\|\\|.*_match_curated",
         "filePattern": "backend/app/services/hardware_firmware/cve_matcher.py",
         "message": "Learned from campaign hw-firmware-adaptive-session-2026-05-18: _match_curated MUST skip blobs with detection_confidence='low' (F-FORENSIC-11 Reviewer B 2026-05-18). The Realtek BT parser's soft-fallback path emits vendor=realtek/confidence=low for any [Rr]ealte[ck] ASCII match — these blobs MUST NOT receive curated-tier CVE attribution. Test: test_match_curated_skips_low_confidence_blob."
+      },
+      {
+        "name": "auto-bare-metal-rule52-1-jsonb-cast-in-orm",
+        "pattern": "server_default\\s*=\\s*text\\([\"']'\\{\\}'::jsonb[\"']\\)",
+        "filePattern": "backend/app/models/**/*.py",
+        "message": "Learned from campaign bare-metal-mcu-rule52-phase1-phase2 (hotfix 8c1b740): ORM `server_default=text(\"'{}'::jsonb\")` is Postgres-only — the `::jsonb` cast renders verbatim under SQLite and breaks 749 `_live_db` tests with `unrecognized token: ':'`. Use `server_default=text(\"'{}'\")` instead — the column type already carries JSONB constraint. Alembic migrations MAY use `::jsonb` (Postgres-only); ORM must be dialect-agnostic. Mirrors `HardwareFirmwareBlob.metadata_:60` convention."
+      },
+      {
+        "name": "auto-bare-metal-rule52-2-yaml-dsl-keys",
+        "pattern": "^\\s*(regex|script|template|predicate|lua|expression|eval_python):",
+        "filePattern": "backend/app/services/hardware_firmware/data/chip_families/**/*.yaml",
+        "message": "Learned from campaign bare-metal-mcu-rule52-phase1-phase2 (CLAUDE.md Rule #52 hard cap): chip-family YAML is DATA, never code. NO `regex` / `script` / `template` / `predicate` / `lua` / `expression` / `eval_python` keys EVER. Pydantic `extra='forbid'` rejects these at load time; this rule catches them at commit time. Extending the closed grammar requires Rule #25 single-slice cross-stack alignment (DB CHECK + Pydantic Literal + frontend Config mirror) + Rule #46 META-CANARY — not a YAML edit."
+      },
+      {
+        "name": "auto-bare-metal-rule52-3-frontend-inline-comment-in-config-map",
+        "pattern": "^\\s*//.*\\n\\s*[a-z_]+:\\s*\\{\\s*icon:",
+        "filePattern": "frontend/src/constants/statusConfig.ts",
+        "message": "Learned from campaign bare-metal-mcu-rule52-phase1-phase2 (P1.9 alignment-test failure): `//` comments interleaved between entries in `FINDING_SOURCE_CONFIG` (or similar parsed object literals) break the alignment-test parser at `tests/test_finding_source_alignment.py::_parse_finding_source_config_keys`. The parser's regex `^\\s*['\\\"]?([\\w\\-]+)['\\\"]?\\s*:` doesn't match `//`. Operator-facing context belongs in the schema docstring or a sibling design doc, NOT interleaved comments. Section-header comments (above the whole block) are fine; per-entry comments are not."
+      },
+      {
+        "name": "auto-file-format-rule52-1",
+        "pattern": "^\\s*(regex|script|template|eval|lua|vql|predicate|expression)\\s*:",
+        "filePattern": "backend/app/services/file_format_catalog/data/file_formats/**/*.yaml",
+        "message": "Learned from campaign file-format-yaml-registry-2026-05-19: file_formats YAML must NOT declare open-predicate keys (regex/script/template/eval/lua/vql/predicate/expression) — closed-grammar schema-driven discipline per CLAUDE.md Rule #52. Closed Literals only where YAML maps to executable Python."
+      },
+      {
+        "name": "auto-file-format-rule52-2",
+        "pattern": "manifest_source\\s*:\\s*_system\\b",
+        "filePattern": "backend/app/services/file_format_catalog/data/file_formats/!(_system)/**/*.yaml",
+        "message": "Learned from campaign file-format-yaml-registry-2026-05-19: manifest_source: _system is RESERVED for data/file_formats/_system/ tier (wairz invariants, precedence [0,9]). Operator-supplied YAMLs cannot outrank wairz invariants — schema model_validator rejects this at catalog load."
+      },
+      {
+        "name": "auto-file-format-rule52-3",
+        "pattern": "always_matches\\s*:\\s*true",
+        "filePattern": "backend/app/services/file_format_catalog/data/file_formats/!(_system)/**/*.yaml",
+        "message": "Learned from campaign file-format-yaml-registry-2026-05-19: detection.always_matches: true is reserved for the SINGLE _system/linux_blob_fallback.yaml sentinel (sentinel-cardinality META-CANARY enforces). Operator manifests must declare specific detection signals."
+      },
+      {
+        "name": "auto-file-format-rule52-4",
+        "pattern": "^\\s*evaluation_mode\\s*:\\s*first_match\\b",
+        "filePattern": "backend/app/services/file_format_catalog/data/file_formats/**/*.yaml",
+        "message": "Learned from campaign file-format-yaml-registry-2026-05-19: evaluation_mode: first_match is FORBIDDEN — first-match was the bug shape (Scout GG §SC5 generalized). Only Literal value today is 'best_match'; resolver collects ALL matches then sorts by total-order tuple."
+      },
+      {
+        "name": "auto-file-format-p32-1-plugins-no-subprocess",
+        "pattern": "^\\s*(import\\s+(subprocess|requests|httpx|aiohttp|socket|urllib)\\b|from\\s+(subprocess|requests|httpx|aiohttp|socket|urllib)\\s+import\\b)",
+        "filePattern": "backend/app/services/file_format_catalog/plugins/**/*.py",
+        "message": "Learned from campaign file-format-yaml-registry-p32-2026-05-19: bundled file-format plugins MUST NOT import subprocess / requests / httpx / aiohttp / socket / urllib (Rule #36 + Rule #45 + M8 META-CANARY discipline). The worker is the security boundary; plugins must be parse-only against the in-process blob_head. Operator out-of-tree plugins via WAIRZ_FORMAT_PLUGIN_PATH defer to P4 side-container (Exception 3) where the isolation is at the container level, not the plugin level."
+      },
+      {
+        "name": "auto-file-format-p32-2-system-dispatch-default-rank-check",
+        "pattern": "^\\s*default:\\s*(rtos_blob|qcom_mbn|mtk_lk|shannon_toc|kinibi_mclf|signed_archive)\\b",
+        "filePattern": "backend/app/services/file_format_catalog/data/file_formats/_system/**/*.yaml",
+        "message": "Learned from campaign file-format-yaml-registry-p32-2026-05-19: _system/*.yaml manifest declaring dispatch.default pointing to a core-tier format_id triggers A6 dispatch-rank-monotonicity WARN (attestation split _system → core). For unknown-family fallback, set the manifest's own output.classifier_format to the desired fallback value and drop dispatch.default. Reference: _system/rtos_dispatch.yaml comment explaining the design choice."
+      },
+      {
+        "name": "auto-file-format-p32-3-text-format-evaluator-no-hardcoded-bytes",
+        "pattern": "(?<!_TERMINATORS|TERMINATORS\\s|tor_candidates\\s)\\b(b\"[:S@\\$%#]\"|b'[:S@\\$%#]')",
+        "filePattern": "backend/app/services/file_format_catalog/resolver.py",
+        "message": "Learned from campaign file-format-yaml-registry-p32-2026-05-19: hardcoded byte literals like b':', b'S', b'@', b'#' in resolver.py violate Rule #52 closed-grammar discipline + M5 anti-hardcode META-CANARY. Every byte the text-format evaluator compares against MUST come from signal.text_format_constraint (record_start_byte_hex / charset / terminator_record_hex). Allowlist b'' + b'\\n' + b'\\r' + b'\\r\\n' (mechanical terminator-stripping constants — declared in _TEXT_FORMAT_TERMINATORS table)."
       }
     ]
   },
@@ -455,7 +515,7 @@
     "sessions": 0,
     "campaigns": 0,
     "override": null,
-    "sessions_completed": 201
+    "sessions_completed": 209
   },
   "consent": {
     "externalActions": "session-allow"
