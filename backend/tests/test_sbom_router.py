@@ -786,9 +786,11 @@ class TestVulnerabilityScanRule33:
         # actually run during this test (it would try real Grype).
         created_tasks: list = []
 
-        def fake_create_task(coro):
+        def fake_create_task(coro, *, name=None):
             # Close the coro immediately to avoid the "coroutine was never
-            # awaited" warning, then return a sentinel.
+            # awaited" warning, then return a sentinel. Accepts the
+            # ``name=`` kwarg per Fix #8 (`_spawn_background_task` passes it
+            # for asyncio.all_tasks() debugger legibility).
             coro.close()
             created_tasks.append("scheduled")
             return MagicMock()
