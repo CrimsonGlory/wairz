@@ -129,6 +129,23 @@ _KNOWN_FIRMWARE_NARROWING_FIELDS: tuple[str, ...] = (
 )
 
 
+# Module-level rejection counters reset on every _parse_known_firmware_data
+# call (per-load semantics). Surfaced to MCP via list_extension_points so
+# operators see "how many entries each gate rejected on last load" without
+# grepping WARN logs (backlog evening:RvwC-C10).
+_LAST_LOAD_REJECTIONS: dict[str, int] = {
+    "advisory_missing_advisory_id": 0,
+    "advisory_id_too_long": 0,
+    "advisory_id_duplicate_warn": 0,
+    "f_forensic_10_no_narrowing": 0,
+}
+
+
+def get_known_firmware_load_rejections() -> dict[str, int]:
+    """Public accessor for the rejection counter dict (C10 — MCP tool)."""
+    return dict(_LAST_LOAD_REJECTIONS)
+
+
 def _parse_known_firmware_data(raw: dict) -> list[dict]:
     """Parse known_firmware.yaml's families list with schema validation.
 
@@ -165,6 +182,10 @@ def _parse_known_firmware_data(raw: dict) -> list[dict]:
     if not isinstance(families, list):
         raise ValueError("'families' must be a list")
 
+    # Reset per-load rejection counters (C10).
+    for k in _LAST_LOAD_REJECTIONS:
+        _LAST_LOAD_REJECTIONS[k] = 0
+
     # Map advisory_id -> shared_advisory_id flag on the FIRST occurrence.
     # When a SECOND occurrence appears, the duplicate WARN fires UNLESS
     # BOTH entries declared `shared_advisory_id: true` (intentional
@@ -180,6 +201,7 @@ def _parse_known_firmware_data(raw: dict) -> list[dict]:
             adv_id = fam.get("advisory_id")
             shared_flag = bool(fam.get("shared_advisory_id", False))
             if not adv_id:
+                _LAST_LOAD_REJECTIONS["advisory_missing_advisory_id"] += 1
                 logger.warning(
                     "known_firmware.yaml entry #%d (%r) is advisory-only "
                     "(cves: []) but missing advisory_id — synthesized ID "
@@ -189,6 +211,7 @@ def _parse_known_firmware_data(raw: dict) -> list[dict]:
                 )
             elif isinstance(adv_id, str):
                 if len(adv_id) > 20:
+                    _LAST_LOAD_REJECTIONS["advisory_id_too_long"] += 1
                     logger.warning(
                         "known_firmware.yaml entry #%d advisory_id %r "
                         "exceeds VARCHAR(20) cap (length %d)",
@@ -199,6 +222,7 @@ def _parse_known_firmware_data(raw: dict) -> list[dict]:
                 if adv_id in seen_advisory_ids:
                     prior_shared = seen_advisory_ids[adv_id]
                     if not (shared_flag and prior_shared):
+                        _LAST_LOAD_REJECTIONS["advisory_id_duplicate_warn"] += 1
                         logger.warning(
                             "known_firmware.yaml entry #%d duplicate "
                             "advisory_id %r — second entry will be deduped "
@@ -225,6 +249,7 @@ def _parse_known_firmware_data(raw: dict) -> list[dict]:
             for field in _KNOWN_FIRMWARE_NARROWING_FIELDS
         )
         if not has_narrowing:
+            _LAST_LOAD_REJECTIONS["f_forensic_10_no_narrowing"] += 1
             logger.warning(
                 "known_firmware.yaml entry #%d (%r, cves=%r) — CVE-bearing "
                 "family with NONE of %s set — SKIPPED to prevent "

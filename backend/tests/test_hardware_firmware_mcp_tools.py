@@ -230,6 +230,18 @@ async def test_list_extension_points_returns_registered_yamls() -> None:
         == "BtFirmwareBannerParser"
     )
 
+    # C10: load_rejections section surfaces F-FORENSIC-10 counter dict.
+    assert "load_rejections" in payload
+    assert "curated_known_firmware" in payload["load_rejections"]
+    curated = payload["load_rejections"]["curated_known_firmware"]
+    assert "f_forensic_10_no_narrowing" in curated
+    assert "advisory_missing_advisory_id" in curated
+    assert "advisory_id_too_long" in curated
+    assert "advisory_id_duplicate_warn" in curated
+    # All counter values are non-negative integers
+    for k, v in curated.items():
+        assert isinstance(v, int) and v >= 0, f"{k!r} not a non-negative int: {v!r}"
+
     # bt_parser_families table is verbatim from bt_firmware_banner.
     family_names = {f["family"] for f in payload["bt_parser_families"]}
     assert family_names == {

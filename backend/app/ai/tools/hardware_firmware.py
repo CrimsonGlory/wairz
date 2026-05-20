@@ -363,6 +363,9 @@ async def _handle_list_extension_points(input: dict, context: ToolContext) -> st
     - See the latest YAML parse error (`last_warning`) so they can fix
       a typo without context-switching to the container shell.
     """
+    from app.services.hardware_firmware.cve_matcher import (
+        get_known_firmware_load_rejections,
+    )
     from app.services.hardware_firmware.parsers import PARSER_REGISTRY
     from app.services.hardware_firmware.parsers.bt_firmware_banner import (
         BT_PARSER_FAMILIES,
@@ -395,10 +398,19 @@ async def _handle_list_extension_points(input: dict, context: ToolContext) -> st
         for fmt, parser in sorted(PARSER_REGISTRY.items())
     }
 
+    # F-FORENSIC-10 rejection counts per layer (backlog evening:RvwC-C10).
+    # Operators see "how many entries each gate rejected on last load" without
+    # grepping WARN logs. Today: curated tier (cve_matcher.py) counters; future
+    # P3.x may add BT-pin counters from patterns_loader.
+    load_rejections = {
+        "curated_known_firmware": get_known_firmware_load_rejections(),
+    }
+
     payload = {
         "extension_surfaces": extension_surfaces,
         "parser_format_map": parser_format_map,
         "bt_parser_families": list(BT_PARSER_FAMILIES),
+        "load_rejections": load_rejections,
     }
     return json.dumps(payload, indent=2, default=str, sort_keys=False)
 
