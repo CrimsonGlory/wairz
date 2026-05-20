@@ -9,6 +9,33 @@ from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
+
+# Module-level set of in-flight background tasks per the official asyncio
+# pattern (https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task,
+# "Important: Save a reference to the result of this function, to avoid a
+# task disappearing mid-execution"). Bare `asyncio.create_task(...)` returns
+# a task whose only reference is the asyncio scheduler's weak reference —
+# under memory pressure or GC the task can be collected mid-run, leaving
+# the firmware row stuck in `vuln_scan_status='running'` with no runner.
+# Scout D's #1 candidate symptom for the 2026-05-21 SBOM/vuln-scan
+# regression was a stuck-spinner pattern exactly matching this failure
+# mode. Wrap every detached coroutine via `_spawn_background_task` to keep
+# a strong reference until completion; the `add_done_callback(set.discard)`
+# trims the set on natural completion so it never grows unbounded.
+_BACKGROUND_TASKS: set[asyncio.Task] = set()
+
+
+def _spawn_background_task(coro, *, name: str | None = None) -> asyncio.Task:
+    """Create + track a detached background task with a strong reference.
+
+    Replaces bare `asyncio.create_task(coro)` calls per Rule #51 §SC5-NEW-SBOM
+    GC-hardening discipline (2026-05-21 SBOM/vuln-scan regression Fix #8).
+    """
+    task = asyncio.create_task(coro, name=name)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return task
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import delete, func, select
@@ -580,8 +607,15 @@ async def scan_vulnerabilities(
     # asyncio.create_task is correct (cve-match precedent). No worker
     # resource coordination needed; intermediate state is incrementally
     # persisted by VulnerabilityService.scan_components / scan_with_grype.
-    asyncio.create_task(
-        _run_vuln_scan_background(firmware.id, project_id, force_rescan)
+    #
+    # `_spawn_background_task` wraps `asyncio.create_task` with a strong-
+    # reference set per Rule #51 §SC5-NEW-SBOM Fix #8 (Scout D primary
+    # symptom — bare `create_task` returns a task with only a weak ref
+    # from the event loop, allowing it to be GC'd mid-run on memory
+    # pressure → vuln_scan_status stuck 'running' forever).
+    _spawn_background_task(
+        _run_vuln_scan_background(firmware.id, project_id, force_rescan),
+        name=f"vuln_scan_{firmware.id}",
     )
     return await _firmware_to_vuln_scan_status(db, firmware)
 
