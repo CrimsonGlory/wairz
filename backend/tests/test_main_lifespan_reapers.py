@@ -122,3 +122,45 @@ def test_existing_device_dump_reaper_still_present():
     """Regression guard: the device-dump reaper MUST still be present."""
     src = _main_py_source()
     assert "Reap orphan device-dump rows" in src
+
+
+def test_bare_metal_audit_reaper_present_in_lifespan():
+    """Fix #5 — `bare_metal_audit_status` orphan reaper MUST exist.
+
+    The bare-metal walker shipped 2026-05-19 with its Rule #33 .a state
+    machine but missed the Rule #51 .i reaper companion. Scout C's live-DB
+    probe found one TMS320F28066 firmware stuck `bare_metal_audit_status='queued'`
+    for 6 days — the worked-example incident for this fix.
+
+    Unlike upload_stage's Fix #2 reaper (which needs a 15-min grace because
+    the upload work is on a long-running detached task), bare_metal_audit
+    is fully in-process via the existing trigger MCP tool's 409 dedup
+    check — no grace window needed.
+    """
+    src = _main_py_source()
+    assert "Reap orphan bare_metal_audit firmware rows" in src, (
+        "bare_metal_audit_status reaper missing from app/main.py lifespan — "
+        "see Fix #5 in .planning/research/sbom-vuln-scan-regression-2026-05-21/."
+    )
+    assert "bare_metal_audit_status.in_(" in src, (
+        "bare_metal_audit reaper present but doesn't filter on the expected "
+        "in-progress states. Re-verify against the state-machine column."
+    )
+
+
+def test_bare_metal_audit_meta_canary_would_fire_on_dropped_reaper(tmp_path):
+    """Paired synthesize-and-assert canary per Rule #46 §gate-canary-requirement.
+
+    Synthesize a fake main.py WITHOUT the bare_metal_audit reaper block.
+    The canary above (membership check) must reject this synthetic shape.
+    Without this paired check, the test could silently no-op if a future
+    refactor renames the docstring header text.
+    """
+    bad_src = '''
+def lifespan():
+    """Reap orphan vuln-scan firmware rows."""
+    # Note: NO bare_metal_audit reaper block
+    pass
+'''
+    assert "Reap orphan bare_metal_audit firmware rows" not in bad_src
+    assert "bare_metal_audit_status.in_(" not in bad_src

@@ -302,6 +302,51 @@ async def lifespan(app: FastAPI):
             exc_info=True,
         )
 
+    # Reap orphan bare_metal_audit firmware rows. Same shape as the
+    # cve_match / vuln_scan reapers above. Scout C's live-DB probe found
+    # one TMS320F28066 firmware (firmware_id `78ad638b-...`) stuck in
+    # ``bare_metal_audit_status='queued'`` for 6 days after a backend
+    # restart lost its runner. Without this reaper, the next bare-metal
+    # audit attempt 409s indefinitely. The state machine was added with
+    # the Rule #52 first-application bare-metal walker (2026-05-19) and
+    # missed the Rule #51 .i reaper companion at that time — Fix #5 of
+    # the 2026-05-21 SBOM/vuln-scan regression investigation closes the
+    # gap. No grace window needed (unlike upload_stage's Fix #2) because
+    # the bare_metal audit is fully in-process and the 409 dedup check
+    # in the trigger MCP tool already gates against re-entrancy.
+    try:
+        from datetime import datetime
+
+        from sqlalchemy import update
+
+        from app.database import async_session_factory
+        from app.models.firmware import Firmware
+
+        async with async_session_factory() as db:
+            res = await db.execute(
+                update(Firmware)
+                .where(Firmware.bare_metal_audit_status.in_(("queued", "running")))
+                .values(
+                    bare_metal_audit_status="failed",
+                    bare_metal_audit_error="Backend restarted; runner state lost",
+                    bare_metal_audit_finished_at=datetime.now(UTC),
+                )
+            )
+            await db.commit()
+            if res.rowcount:
+                import logging
+                logging.getLogger(__name__).info(
+                    "Reaped %d orphan bare_metal_audit firmware row(s) on startup",
+                    res.rowcount,
+                )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning(
+            "bare_metal_audit orphan reaper failed — phantom rows may block "
+            "new bare-metal audit runs until the next startup",
+            exc_info=True,
+        )
+
     # Probe the offline UEFI Secure Boot DBX bundle (Phase β.10 / Rule #37
     # candidate). The bundle is baked into the image at build time
     # (backend/Dockerfile + backend/ms-anchors/dbxupdate.bin); the worker's
