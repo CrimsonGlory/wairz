@@ -415,6 +415,137 @@ async def _handle_list_extension_points(input: dict, context: ToolContext) -> st
     return json.dumps(payload, indent=2, default=str, sort_keys=False)
 
 
+async def _handle_verify_cve_attribution(input: dict, context: ToolContext) -> str:
+    """Walk the matcher's attribution chain for a (cve_id, blob_id) tuple.
+
+    Operators triaging "why does this blob have CVE-X?" walk YAML by hand
+    today; the matcher already produces this chain internally — surfacing
+    it as an MCP tool closes the operator loop. Backlog evening:RvwC-C11.
+
+    Returns:
+      * the sbom_vulnerabilities row (match_tier + match_confidence +
+        adjusted CVSS) for the (firmware_id, blob_id, cve_id) tuple,
+      * the blob's classification context (vendor, category, format,
+        chipset_target, detected_version),
+      * for curated/advisory-tier matches: the known_firmware.yaml entry
+        that fired (name + narrowing fields + notes),
+      * the diagnostic explanation of WHICH narrowing field matched the
+        blob's data.
+    """
+    import uuid as _uuid
+
+    from sqlalchemy import select
+
+    from app.models.hardware_firmware import HardwareFirmwareBlob
+    from app.models.sbom import SbomVulnerability
+    from app.services.hardware_firmware.cve_matcher import _load_known_firmware
+
+    cve_id = (input.get("cve_id") or "").strip()
+    blob_id_raw = (input.get("blob_id") or "").strip()
+    if not cve_id or not blob_id_raw:
+        return json.dumps({
+            "error": "Both cve_id and blob_id are required",
+        }, indent=2)
+    try:
+        blob_id = _uuid.UUID(blob_id_raw)
+    except ValueError:
+        return json.dumps({
+            "error": f"blob_id {blob_id_raw!r} is not a valid UUID",
+        }, indent=2)
+
+    # 1. Look up the persistence row
+    vuln_row = (await context.db.execute(
+        select(SbomVulnerability)
+        .where(SbomVulnerability.firmware_id == context.firmware_id)
+        .where(SbomVulnerability.blob_id == blob_id)
+        .where(SbomVulnerability.cve_id == cve_id)
+        .limit(1)
+    )).scalar_one_or_none()
+    if vuln_row is None:
+        return json.dumps({
+            "cve_id": cve_id,
+            "blob_id": str(blob_id),
+            "firmware_id": str(context.firmware_id),
+            "matched": False,
+            "hint": (
+                "No sbom_vulnerabilities row found for this (firmware, "
+                "blob, cve) tuple. Either cve-match hasn't run, or this "
+                "tuple doesn't have a matcher hit. Run check_firmware_cves "
+                "to populate the table."
+            ),
+        }, indent=2)
+
+    # 2. Blob context
+    blob_row = (await context.db.execute(
+        select(HardwareFirmwareBlob)
+        .where(HardwareFirmwareBlob.id == blob_id)
+        .limit(1)
+    )).scalar_one_or_none()
+    blob_context = None
+    if blob_row is not None:
+        blob_context = {
+            "path": blob_row.blob_path,
+            "vendor": blob_row.vendor,
+            "category": blob_row.category,
+            "format": blob_row.format,
+            "chipset_target": getattr(blob_row, "chipset_target", None),
+            "detected_version": getattr(blob_row, "detected_version", None),
+            "detection_confidence": getattr(
+                blob_row, "detection_confidence", None,
+            ),
+        }
+
+    # 3. YAML reverse-lookup for curated/advisory tier
+    matching_yaml_entry: dict | None = None
+    if vuln_row.match_tier in ("curated_yaml", "advisory_yaml"):
+        families = _load_known_firmware()
+        for fam in families:
+            fam_cves = fam.get("cves") or []
+            adv_id = fam.get("advisory_id")
+            if cve_id in fam_cves or cve_id == adv_id:
+                matching_yaml_entry = {
+                    "name": fam.get("name"),
+                    "advisory_id": adv_id,
+                    "shared_advisory_id": bool(
+                        fam.get("shared_advisory_id", False),
+                    ),
+                    "vendor": fam.get("vendor"),
+                    "vendor_regex": fam.get("vendor_regex"),
+                    "category": fam.get("category"),
+                    "category_regex": fam.get("category_regex"),
+                    "chipset_regex": fam.get("chipset_regex"),
+                    "version_regex": fam.get("version_regex"),
+                    "cves": list(fam_cves),
+                    "severity": fam.get("severity"),
+                    "cvss_score": fam.get("cvss_score"),
+                    "notes": fam.get("notes"),
+                }
+                break
+
+    return json.dumps({
+        "cve_id": cve_id,
+        "blob_id": str(blob_id),
+        "firmware_id": str(context.firmware_id),
+        "matched": True,
+        "match_tier": vuln_row.match_tier,
+        "match_confidence": vuln_row.match_confidence,
+        "severity": vuln_row.severity,
+        "cvss_score": (
+            float(vuln_row.cvss_score) if vuln_row.cvss_score is not None
+            else None
+        ),
+        "adjusted_severity": vuln_row.adjusted_severity,
+        "adjusted_cvss_score": (
+            float(vuln_row.adjusted_cvss_score)
+            if vuln_row.adjusted_cvss_score is not None else None
+        ),
+        "adjustment_rationale": vuln_row.adjustment_rationale,
+        "resolution_status": vuln_row.resolution_status,
+        "blob_context": blob_context,
+        "matching_yaml_entry": matching_yaml_entry,
+    }, indent=2, default=str)
+
+
 async def _handle_describe_advisory(input: dict, context: ToolContext) -> str:
     """Describe an `ADVISORY-*` ID from known_firmware.yaml.
 
@@ -682,6 +813,42 @@ def register_hardware_firmware_tools(registry: ToolRegistry) -> None:
             "required": ["dtb_path"],
         },
         handler=_handle_extract_dtb,
+    )
+
+    registry.register(
+        name="verify_cve_attribution",
+        description=(
+            "Walk the matcher's attribution chain for a (cve_id, blob_id) "
+            "tuple. Returns the sbom_vulnerabilities row (match_tier + "
+            "match_confidence), the blob's classification context "
+            "(vendor / category / format / chipset_target / "
+            "detected_version), and — for curated/advisory tier matches — "
+            "the known_firmware.yaml entry that fired (name, narrowing "
+            "fields, notes). Operators triaging 'why does this blob have "
+            "CVE-X?' get the full chain in one MCP call instead of "
+            "walking YAML by hand."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "cve_id": {
+                    "type": "string",
+                    "description": (
+                        "The CVE ID (e.g. 'CVE-2017-9417') or advisory ID "
+                        "(e.g. 'ADVISORY-FRAGATTACK') as it appears in "
+                        "sbom_vulnerabilities.cve_id."
+                    ),
+                },
+                "blob_id": {
+                    "type": "string",
+                    "description": (
+                        "The hardware_firmware_blobs.id UUID (string form)."
+                    ),
+                },
+            },
+            "required": ["cve_id", "blob_id"],
+        },
+        handler=_handle_verify_cve_attribution,
     )
 
     registry.register(

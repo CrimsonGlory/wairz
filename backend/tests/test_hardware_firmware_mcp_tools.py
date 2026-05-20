@@ -421,3 +421,116 @@ async def test_describe_advisory_missing_input_returns_error() -> None:
     payload = _json.loads(out)
     assert "error" in payload
     assert "advisory_id" in payload["error"]
+
+
+# ---------------------------------------------------------------------------
+# verify_cve_attribution (backlog evening:RvwC-C11)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_verify_cve_attribution_returns_full_chain_for_curated_tier() -> None:
+    """Walk the matcher's attribution chain for a curated-tier (cve, blob)
+    tuple. Returns match_tier + match_confidence + blob context + YAML entry."""
+    import json as _json
+    from unittest.mock import MagicMock
+
+    from app.ai.tools.hardware_firmware import _handle_verify_cve_attribution
+
+    blob_id = uuid.uuid4()
+
+    # Mock the sbom_vulnerabilities row.
+    vuln_row = MagicMock()
+    vuln_row.match_tier = "curated_yaml"
+    vuln_row.match_confidence = "high"
+    vuln_row.severity = "medium"
+    vuln_row.cvss_score = 6.4
+    vuln_row.adjusted_severity = None
+    vuln_row.adjusted_cvss_score = None
+    vuln_row.adjustment_rationale = None
+    vuln_row.resolution_status = "open"
+
+    # Mock the blob row.
+    blob_row = MagicMock(spec=HardwareFirmwareBlob)
+    blob_row.blob_path = "/vendor/firmware/wcn6750.bin"
+    blob_row.vendor = "broadcom"
+    blob_row.category = "wifi"
+    blob_row.format = "fw_bcm"
+    blob_row.chipset_target = "bcm4358"
+    blob_row.detected_version = "7.35.180.11"
+    blob_row.detection_confidence = "high"
+
+    db = AsyncMock()
+    # Two execute calls — vuln first, blob second.
+    vuln_result = MagicMock()
+    vuln_result.scalar_one_or_none.return_value = vuln_row
+    blob_result = MagicMock()
+    blob_result.scalar_one_or_none.return_value = blob_row
+    db.execute = AsyncMock(side_effect=[vuln_result, blob_result])
+
+    ctx = _make_context(db)
+    out = await _handle_verify_cve_attribution(
+        {"cve_id": "CVE-2017-9417", "blob_id": str(blob_id)}, ctx,
+    )
+    payload = _json.loads(out)
+    assert payload["matched"] is True
+    assert payload["cve_id"] == "CVE-2017-9417"
+    assert payload["blob_id"] == str(blob_id)
+    assert payload["match_tier"] == "curated_yaml"
+    assert payload["match_confidence"] == "high"
+    assert payload["blob_context"]["vendor"] == "broadcom"
+    assert payload["blob_context"]["category"] == "wifi"
+    # CVE-2017-9417 is BroadPwn — known_firmware.yaml has an entry for it.
+    assert payload["matching_yaml_entry"] is not None
+    assert "CVE-2017-9417" in payload["matching_yaml_entry"]["cves"] or \
+        payload["matching_yaml_entry"]["advisory_id"] == "CVE-2017-9417"
+
+
+@pytest.mark.asyncio
+async def test_verify_cve_attribution_returns_unmatched_when_row_missing() -> None:
+    import json as _json
+    from unittest.mock import MagicMock
+
+    from app.ai.tools.hardware_firmware import _handle_verify_cve_attribution
+
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    db.execute = AsyncMock(return_value=result)
+
+    ctx = _make_context(db)
+    out = await _handle_verify_cve_attribution(
+        {"cve_id": "CVE-9999-DOES-NOT-EXIST", "blob_id": str(uuid.uuid4())},
+        ctx,
+    )
+    payload = _json.loads(out)
+    assert payload["matched"] is False
+    assert "hint" in payload
+
+
+@pytest.mark.asyncio
+async def test_verify_cve_attribution_rejects_invalid_blob_id() -> None:
+    import json as _json
+    from app.ai.tools.hardware_firmware import _handle_verify_cve_attribution
+
+    db = AsyncMock()
+    ctx = _make_context(db)
+    out = await _handle_verify_cve_attribution(
+        {"cve_id": "CVE-2017-9417", "blob_id": "not-a-uuid"}, ctx,
+    )
+    payload = _json.loads(out)
+    assert "error" in payload
+    assert "UUID" in payload["error"]
+
+
+@pytest.mark.asyncio
+async def test_verify_cve_attribution_missing_args_returns_error() -> None:
+    import json as _json
+    from app.ai.tools.hardware_firmware import _handle_verify_cve_attribution
+
+    db = AsyncMock()
+    ctx = _make_context(db)
+    out = await _handle_verify_cve_attribution({}, ctx)
+    payload = _json.loads(out)
+    assert "error" in payload
+    assert "cve_id" in payload["error"]
