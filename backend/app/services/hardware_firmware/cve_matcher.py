@@ -165,7 +165,12 @@ def _parse_known_firmware_data(raw: dict) -> list[dict]:
     if not isinstance(families, list):
         raise ValueError("'families' must be a list")
 
-    seen_advisory_ids: set[str] = set()
+    # Map advisory_id -> shared_advisory_id flag on the FIRST occurrence.
+    # When a SECOND occurrence appears, the duplicate WARN fires UNLESS
+    # BOTH entries declared `shared_advisory_id: true` (intentional
+    # convergence for SPEC-level disclosures like FragAttacks crossing
+    # multiple vendor blobs — Rule #50 + backlog evening:RvwA-A5+RvwB-B6).
+    seen_advisory_ids: dict[str, bool] = {}
     accepted: list[dict] = []
     for idx, fam in enumerate(families):
         if not isinstance(fam, dict):
@@ -173,6 +178,7 @@ def _parse_known_firmware_data(raw: dict) -> list[dict]:
         cves = fam.get("cves") or []
         if not cves:
             adv_id = fam.get("advisory_id")
+            shared_flag = bool(fam.get("shared_advisory_id", False))
             if not adv_id:
                 logger.warning(
                     "known_firmware.yaml entry #%d (%r) is advisory-only "
@@ -191,15 +197,20 @@ def _parse_known_firmware_data(raw: dict) -> list[dict]:
                         len(adv_id),
                     )
                 if adv_id in seen_advisory_ids:
-                    logger.warning(
-                        "known_firmware.yaml entry #%d duplicate "
-                        "advisory_id %r — second entry will be deduped "
-                        "by the (firmware_id, blob_id, cve_id) UNIQUE "
-                        "constraint",
-                        idx,
-                        adv_id,
-                    )
-                seen_advisory_ids.add(adv_id)
+                    prior_shared = seen_advisory_ids[adv_id]
+                    if not (shared_flag and prior_shared):
+                        logger.warning(
+                            "known_firmware.yaml entry #%d duplicate "
+                            "advisory_id %r — second entry will be deduped "
+                            "by the matcher's in-memory existing-set check "
+                            "(set both entries' shared_advisory_id: true "
+                            "for intentional SPEC-level convergence — Rule #50)",
+                            idx,
+                            adv_id,
+                        )
+                # Track the MAX of (this, prior) — once any entry declares
+                # shared, the advisory_id is marked as opt-in.
+                seen_advisory_ids[adv_id] = shared_flag or seen_advisory_ids.get(adv_id, False)
             accepted.append(fam)
             continue
 

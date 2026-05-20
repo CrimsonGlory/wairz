@@ -233,6 +233,7 @@ families:
 
   - name: FragAttacks (Broadcom WiFi advisory)
     advisory_id: ADVISORY-FRAGATTACK
+    shared_advisory_id: true   # intentional convergence with qualcomm wcn3xxx entry below (Rule #50)
     vendor: broadcom
     category: wifi
     category_regex: "^wifi$"
@@ -1037,6 +1038,7 @@ families:
 
   - name: FragAttacks WLAN cluster (Qualcomm wcn3xxx/6xxx advisory)
     advisory_id: ADVISORY-FRAGATTACK
+    shared_advisory_id: true   # intentional convergence with broadcom WiFi entry above (Rule #50)
     vendor: qualcomm
     category: wifi
     chipset_regex: "(?i)^(wcn3[0-9]{3}|wcn39[0-9]{2}|wcn6[0-9]{3}).*"

@@ -19,6 +19,7 @@ from app.services.hardware_firmware.cve_matcher import (
     _match_curated,
     _match_kernel_cpe,
     _match_parser_detected,
+    _parse_known_firmware_data,
     _stringify_metadata,
     match_firmware_cves,
 )
@@ -2562,3 +2563,120 @@ def caplog_at(logger_name: str):
     finally:
         logger.removeHandler(handler)
         logger.setLevel(prev_level)
+
+
+# ---------------------------------------------------------------------------
+# shared_advisory_id opt-in (backlog evening:RvwA-A5 + RvwB-B6)
+# ---------------------------------------------------------------------------
+
+
+def test_shared_advisory_id_suppresses_duplicate_warn_when_both_entries_opt_in() -> None:
+    """When two advisory-only entries share an advisory_id AND BOTH declare
+    `shared_advisory_id: true`, the duplicate-WARN is suppressed (intentional
+    convergence per Rule #50 FragAttacks pattern)."""
+    raw = {
+        "families": [
+            {
+                "name": "FragAttacks broadcom",
+                "advisory_id": "ADVISORY-TEST",
+                "shared_advisory_id": True,
+                "vendor": "broadcom",
+                "category": "wifi",
+                "category_regex": "^wifi$",
+                "cves": [],
+                "severity": "low",
+            },
+            {
+                "name": "FragAttacks qualcomm",
+                "advisory_id": "ADVISORY-TEST",
+                "shared_advisory_id": True,
+                "vendor": "qualcomm",
+                "category": "wifi",
+                "chipset_regex": "(?i)^wcn3.*",
+                "cves": [],
+                "severity": "low",
+            },
+        ],
+    }
+    with caplog_at("app.services.hardware_firmware.cve_matcher") as records:
+        accepted = _parse_known_firmware_data(raw)
+    assert len(accepted) == 2
+    duplicate_warns = [
+        r for r in records
+        if "duplicate" in r.message and "advisory_id" in r.message
+    ]
+    assert duplicate_warns == [], (
+        f"Expected 0 duplicate-advisory_id WARNs under shared_advisory_id "
+        f"opt-in; got {[r.message for r in duplicate_warns]}"
+    )
+
+
+def test_shared_advisory_id_warn_fires_when_only_one_entry_opts_in() -> None:
+    """Asymmetric opt-in is treated as a collision — operator authored ONE
+    entry with the flag but FORGOT to add it to the converging entry.
+    Defense against silent collision-via-typo."""
+    raw = {
+        "families": [
+            {
+                "name": "First entry",
+                "advisory_id": "ADVISORY-TEST",
+                "shared_advisory_id": True,
+                "vendor": "vendor_a",
+                "category": "wifi",
+                "category_regex": "^wifi$",
+                "cves": [],
+            },
+            {
+                "name": "Second entry — FORGOT the flag",
+                "advisory_id": "ADVISORY-TEST",
+                # NO shared_advisory_id: true
+                "vendor": "vendor_b",
+                "category": "wifi",
+                "category_regex": "^wifi$",
+                "cves": [],
+            },
+        ],
+    }
+    with caplog_at("app.services.hardware_firmware.cve_matcher") as records:
+        _parse_known_firmware_data(raw)
+    duplicate_warns = [
+        r for r in records
+        if "duplicate" in r.message and "advisory_id" in r.message
+    ]
+    assert len(duplicate_warns) == 1, (
+        f"Expected exactly 1 duplicate-advisory_id WARN when only one entry "
+        f"declares shared_advisory_id: true; got {len(duplicate_warns)}"
+    )
+
+
+def test_shared_advisory_id_warn_fires_when_neither_entry_opts_in() -> None:
+    """Backward-compat: the default behavior (no flag on either entry) still
+    fires the duplicate-WARN — operators who haven't yet adopted the opt-in
+    see the same behavior as before."""
+    raw = {
+        "families": [
+            {
+                "name": "First entry",
+                "advisory_id": "ADVISORY-TEST",
+                "vendor": "vendor_a",
+                "category": "wifi",
+                "category_regex": "^wifi$",
+                "cves": [],
+            },
+            {
+                "name": "Second entry",
+                "advisory_id": "ADVISORY-TEST",
+                "vendor": "vendor_b",
+                "category": "wifi",
+                "category_regex": "^wifi$",
+                "cves": [],
+            },
+        ],
+    }
+    with caplog_at("app.services.hardware_firmware.cve_matcher") as records:
+        _parse_known_firmware_data(raw)
+    duplicate_warns = [
+        r for r in records
+        if "duplicate" in r.message and "advisory_id" in r.message
+    ]
+    assert len(duplicate_warns) == 1
