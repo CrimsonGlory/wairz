@@ -207,6 +207,33 @@ DispatchKind = Literal[
 #: cross-stack alignment + Rule #46 paired META-CANARY.
 SortTier = Literal["floor", "general", "ceiling"]
 
+
+#: Character class accepted in the record body after the start byte.
+#: P3.2.b: closed-grammar text-format evaluator (Wave-1 S4 + W2-α
+#: convergence — `hex_space_separated` added for TI-TXT data lines).
+#: Each value maps to a frozen byte set in
+#: :data:`app.services.file_format_catalog.resolver._TEXT_FORMAT_CHARSET_BYTES`
+#: (Rule #46 META-CANARY exhaustive).
+TextFormatCharset = Literal[
+    "hex_upper",
+    "hex_lower",
+    "hex_mixed",
+    "hex_space_separated",  # W2-α: TI-TXT data lines (space-delimited hex)
+    "ascii_printable",
+    "base64_url",
+]
+
+
+#: Line terminator accepted in the record stream. ``any`` is permissive
+#: (LF / CRLF / CR); strict values enforce a specific terminator. P3.2.b.
+TextFormatLineTerminator = Literal["lf", "crlf", "cr", "any"]
+
+
+#: First-line tolerance. ``record_start`` requires the first non-empty
+#: line to begin with the record_start_byte; ``any`` allows operator
+#: comments / shebangs / vendor headers before the first record. P3.2.b.
+TextFormatFirstLine = Literal["record_start", "any"]
+
 #: Plugin binding strategy. Eager → load-time resolution; ImportError fatal at
 #: catalog refresh. Lazy → match-time resolution per ``fallback`` policy.
 #: Default eager (Wave-1 S5 E).
@@ -289,6 +316,112 @@ DeprecationStatus = Literal["active", "deprecated", "removed"]
 # ---------------------------------------------------------------------------
 
 
+class TextFormatConstraint(BaseModel):
+    """Closed-grammar text-format detection constraint set (P3.2.b).
+
+    Operators add new textual firmware/data formats (Intel HEX, SREC,
+    TI-TXT, Tektronix Hex, HP Universal Hex, future ECU log dumps) by
+    authoring a YAML manifest with a ``text_format`` signal carrying a
+    ``text_format_constraint`` block — NO Python code change.
+
+    The evaluator at
+    :func:`app.services.file_format_catalog.resolver._eval_text_format`
+    is the single consumer; it walks the constraint fields and validates
+    the first N records of the blob_head. Rule #46 META-CANARY
+    ``test_meta_canary_text_format_evaluator_uses_declared_constraints_not_hardcoded``
+    AST-walks the evaluator body and forbids hardcoded byte literals —
+    every byte the evaluator compares against MUST come from a field on
+    this model.
+
+    Hard rule (Rule #52): NO regex / script / template / eval / lua /
+    vql / predicate / expression. Every extensibility surface is a
+    closed Literal or a bounded numeric range or a single-byte sentinel.
+    """
+
+    record_start_byte_hex: str = Field(
+        min_length=2, max_length=2, pattern=r"^[0-9a-f]{2}$",
+        description="Lowercase hex of the single byte that opens every "
+                    "record. Examples: '3a' for Intel HEX ':', '53' for "
+                    "SREC 'S', '40' for TI-TXT '@'. Single-byte by "
+                    "construction — multi-byte start markers use "
+                    "magic_bytes instead.",
+    )
+    charset: TextFormatCharset = Field(
+        description="Character class accepted in the record body after "
+                    "the start byte. ``hex_mixed`` is the common default "
+                    "for MCU-firmware text formats; ``hex_space_separated`` "
+                    "for TI-TXT data lines (space-delimited hex bytes); "
+                    "stricter values only when the spec mandates them.",
+    )
+    line_terminator: TextFormatLineTerminator = Field(
+        default="any",
+        description="Line terminator. ``any`` accepts LF / CRLF / CR; "
+                    "tighten to a specific value when the spec mandates.",
+    )
+    min_line_length: int = Field(
+        ge=4, le=4096,
+        description="Minimum record length INCLUDING the start byte. "
+                    "Intel HEX min=11 (`:LLAAAATT[CC]`); SREC min=10; "
+                    "TI-TXT min=5 (`@FFE0`).",
+    )
+    max_line_length: int = Field(
+        ge=4, le=4096,
+        description="Maximum record length. Intel HEX max=521; SREC "
+                    "max=515; TI-TXT max=80. Cap at 4096 to bound "
+                    "evaluator memory.",
+    )
+    first_line_must_match: TextFormatFirstLine = Field(
+        default="record_start",
+        description="``record_start`` requires the first non-empty line "
+                    "to begin with the record_start_byte. ``any`` allows "
+                    "operator comments / shebangs / vendor headers "
+                    "before the first record. Strict by default.",
+    )
+    min_first_block_records: int = Field(
+        default=4, ge=1, le=64,
+        description="How many records to validate before declaring a "
+                    "positive match. Intel HEX / SREC = 4; TI-TXT = 2 "
+                    "(`@<addr>` + 1 data line). Cap at 64 for evaluator "
+                    "cost bound.",
+    )
+    header_pattern_hex: str | None = Field(
+        default=None, max_length=64, pattern=r"^[0-9a-f]{0,64}$",
+        description="Optional hex-encoded byte sequence the evaluator "
+                    "checks IMMEDIATELY after the record_start_byte on "
+                    "the FIRST record only. None disables the check.",
+    )
+    terminator_record_hex: str | None = Field(
+        default=None, max_length=128, pattern=r"^[0-9a-f]{0,128}$",
+        description="Optional hex-encoded byte sequence that MUST appear "
+                    "as the last record (excluding trailing whitespace). "
+                    "Intel HEX = `:00000001FF` minus terminator. The "
+                    "evaluator looks for this in the LAST 256 bytes of "
+                    "blob_head as a best-effort tail check. None disables.",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _check_length_bounds(self) -> "TextFormatConstraint":
+        if self.min_line_length > self.max_line_length:
+            raise ValueError(
+                f"text_format_constraint: min_line_length="
+                f"{self.min_line_length} > max_line_length="
+                f"{self.max_line_length}"
+            )
+        # Constraint-strength floor — prevent operator manifests with
+        # near-empty constraints that match all text files. W2-β A8
+        # high-collision floor: low min_first_block_records + permissive
+        # charset + short min_line_length collectively risk over-matching.
+        if self.min_first_block_records < 2 and self.min_line_length < 8:
+            raise ValueError(
+                "text_format_constraint: min_first_block_records<2 "
+                "AND min_line_length<8 — constraint too weak; "
+                "either bump record count or line length (Wave-2 W2-β A8)"
+            )
+        return self
+
+
 class DetectionSignal(BaseModel):
     """One detection signal — closed kinds, cost-sorted at evaluation.
 
@@ -338,6 +471,14 @@ class DetectionSignal(BaseModel):
     rtos_plugin_ref: str | None = Field(
         default=None, max_length=64,
         description="Registry name for the RTOS plugin. Resolved at snapshot time.",
+    )
+
+    # text_format (P3.2.b)
+    text_format_constraint: TextFormatConstraint | None = Field(
+        default=None,
+        description="Closed-grammar text-format constraint set. REQUIRED "
+                    "when kind == 'text_format'; rejected otherwise. "
+                    "Wave-1 S4 closure of the P3.1 _eval_text_format stub.",
     )
 
     description: str | None = Field(default=None, max_length=256)
@@ -405,6 +546,18 @@ class DetectionSignal(BaseModel):
                 raise ValueError(
                     f"{self.kind}: declare inner_file_names or inner_basenames"
                 )
+        # P3.2.b: text_format ⇔ text_format_constraint
+        if self.kind == "text_format" and self.text_format_constraint is None:
+            raise ValueError(
+                "text_format signal: text_format_constraint is REQUIRED "
+                "(Wave-1 S4 closed-grammar evaluator)"
+            )
+        if (self.text_format_constraint is not None
+                and self.kind != "text_format"):
+            raise ValueError(
+                f"text_format_constraint set but kind={self.kind!r} "
+                "— constraint only meaningful for kind='text_format'"
+            )
         return self
 
 
@@ -873,6 +1026,22 @@ class FileFormatManifest(BaseModel):
                     f"(e.g. PE/MZ) requires precedence >= 5000 to avoid "
                     "false-positive cascade (Wave-1 S1 §3)"
                 )
+            # P3.2.b A8 (Wave-2 W2-β) — high-collision text_format floor.
+            # An operator-supplied text_format signal with permissive
+            # charset (ascii_printable) matches arbitrary text files;
+            # require precedence>=5000 OR _system source to prevent the
+            # "always_matches without the flag" attack surface.
+            if (sig.kind == "text_format"
+                    and sig.text_format_constraint is not None
+                    and sig.text_format_constraint.charset == "ascii_printable"
+                    and self.manifest_source != "_system"
+                    and self.precedence < 5000):
+                raise ValueError(
+                    f"format {self.format_id!r}: text_format with charset="
+                    f"'ascii_printable' from non-_system source requires "
+                    f"precedence >= 5000 to avoid false-positive cascade "
+                    f"on arbitrary text files (Wave-2 W2-β §SC5-NEW-2 A8)"
+                )
 
         return self
 
@@ -930,6 +1099,10 @@ __all__ = [
     "ProvenanceStub",
     "Refinement",
     "SortTier",
+    "TextFormatCharset",
+    "TextFormatConstraint",
+    "TextFormatFirstLine",
+    "TextFormatLineTerminator",
     "TieBreaker",
     "VendorAuthority",
     "VendorPrecedence",

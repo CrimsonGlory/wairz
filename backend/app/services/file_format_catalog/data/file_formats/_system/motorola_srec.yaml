@@ -1,0 +1,59 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: motorola_srec
+manifest_source: _system
+precedence: 300
+category: linux_blob
+vendor: unknown
+confidence: medium
+notes: |
+  Motorola SREC (.srec / .s19 / .s28 / .s37 / .mot) — text-format
+  embedded-firmware record encoding (Wave-1 S4 + W2-α convergence,
+  P3.2.b). Each record opens with 'S' + a digit indicating record
+  type (S0 header, S1/S2/S3 data with 2/3/4-byte address, S5/S6
+  record count, S7/S8/S9 terminator with 4/3/2-byte start address).
+  Hex digits + checksum follow. NXP / Motorola / Freescale MCU
+  toolchains emit SREC as the default flash-image text format
+  (S12 / Kinetis / S32 / PowerPC variants).
+  Bare format support — parsing helper not yet shipped; file is
+  informational-only. Convert with host-side srec_cat and re-upload
+  as raw binary for downstream analysis.
+  References:
+    https://en.wikipedia.org/wiki/SREC_(file_format)
+    https://www.nxp.com/docs/en/reference-manual/M68HC11RM.pdf (S-record appendix)
+detection:
+  combine: all_required
+  signals:
+    - kind: text_format
+      description: "Motorola SREC text-record stream"
+      text_format_constraint:
+        record_start_byte_hex: "53"      # 'S'
+        charset: hex_mixed
+        line_terminator: any
+        min_line_length: 10
+        max_line_length: 515
+        first_line_must_match: record_start
+        min_first_block_records: 4
+    - kind: filename
+      extensions_lower:
+        - ".srec"
+        - ".s19"
+        - ".s28"
+        - ".s37"
+        - ".mot"
+        - ".sx"
+        - ".rec"
+      description: "Motorola S-record extensions"
+output:
+  classifier_format: motorola_srec
+  classifier_category: linux_blob
+  classifier_vendor: unknown
+  confidence: medium
+pre_upload:
+  detected_format: unknown
+  extraction_capability: none
+  banner_note: |
+    Motorola SREC text-record stream detected. SREC parsing helper
+    not yet shipped — file is informational-only. Convert with
+    srec_cat (host-side) and re-upload as raw binary for downstream
+    analysis.

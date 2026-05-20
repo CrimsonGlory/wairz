@@ -9,11 +9,12 @@ confidence: medium
 notes: |
   Intel HEX (.hex / .ihex) — text-format MCU firmware record
   encoding. Each record line begins with ':' followed by
-  hex-encoded length/address/type/data/checksum fields. The
-  binary-form magic-bytes signal can't reliably gate text files;
-  detection relies on a text_format check evaluator (stub in
-  P3.1.b — returns False, deferred to P3.2). Conversion to raw
-  via :func:`app.workers.unpack_common.convert_intel_hex_to_binary`.
+  hex-encoded length/address/type/data/checksum fields. P3.2.b
+  wires the closed-grammar text_format evaluator (Wave-1 S4 +
+  W2-α convergence) — record_start_byte ':', charset hex_mixed,
+  4-record validation block, EOF-record tail check. Conversion
+  to raw via
+  :func:`app.workers.unpack_common.convert_intel_hex_to_binary`.
   References:
     https://en.wikipedia.org/wiki/Intel_HEX
     https://developer.arm.com/documentation/dui0474/m/the-input-format/intel-hex-format
@@ -22,6 +23,16 @@ detection:
   signals:
     - kind: text_format
       description: "Intel HEX text-record stream"
+      text_format_constraint:
+        record_start_byte_hex: "3a"
+        charset: hex_mixed
+        line_terminator: any
+        min_line_length: 11
+        max_line_length: 521
+        first_line_must_match: record_start
+        min_first_block_records: 4
+        # `:00000001FF\n` — EOF record + LF; 12 bytes (3a + 7×30 + 31 + 2×46 + 0a)
+        terminator_record_hex: "3a303030303030303146460a"
     - kind: filename
       extensions_lower: [".hex", ".ihex"]
       description: ".hex / .ihex extension hint"

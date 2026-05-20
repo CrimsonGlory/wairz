@@ -163,12 +163,164 @@ def _eval_pe_check(
     return blob_head[:2] == b"MZ"
 
 
+#: Character-class lookup tables for the closed-grammar text_format
+#: evaluator (P3.2.b). Each value of :data:`TextFormatCharset` maps to
+#: a frozen byte set; the evaluator's Rule #46 META-CANARY
+#: ``test_meta_canary_text_format_charset_tables_exhaustive`` asserts
+#: this dict's keys equal ``TextFormatCharset.__args__``.
+_TEXT_FORMAT_CHARSET_BYTES: dict[str, frozenset[int]] = {
+    "hex_upper": frozenset(b"0123456789ABCDEF"),
+    "hex_lower": frozenset(b"0123456789abcdef"),
+    "hex_mixed": frozenset(b"0123456789abcdefABCDEF"),
+    "hex_space_separated": frozenset(b"0123456789abcdefABCDEF \t"),
+    "ascii_printable": frozenset(range(0x20, 0x7f)),
+    "base64_url": frozenset(
+        b"0123456789abcdefghijklmnopqrstuvwxyz"
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZ-_="
+    ),
+}
+
+
+#: Line-terminator candidates for the closed-grammar text_format
+#: evaluator. Each value of :data:`TextFormatLineTerminator` maps to a
+#: tuple of accepted terminator byte sequences. Rule #46 META-CANARY
+#: ``test_meta_canary_text_format_terminator_tables_exhaustive`` asserts
+#: exhaustive coverage.
+_TEXT_FORMAT_TERMINATORS: dict[str, tuple[bytes, ...]] = {
+    "lf": (b"\n",),
+    "crlf": (b"\r\n",),
+    "cr": (b"\r",),
+    "any": (b"\r\n", b"\n", b"\r"),
+}
+
+
 def _eval_text_format(
     signal: DetectionSignal, blob_head: bytes, path: str, size: int,
 ) -> bool:
-    """SREC / TI-TXT detection. TODO P3.2 wiring."""
-    # P3.2 ships srec + ti_txt parsers. Conservative stub today.
-    return False
+    """Closed-grammar text-format evaluator (P3.2.b — Wave-1 S4).
+
+    Validates ``blob_head`` is a record-stream matching the declared
+    ``signal.text_format_constraint``. Returns False for ANY error
+    condition — wrong start byte / wrong charset / wrong line length /
+    fewer than min_first_block_records valid records.
+
+    Detection-only — full Intel-HEX checksum verification + parse owns
+    by :func:`app.workers.unpack_common.convert_intel_hex_to_binary`.
+    Cost-class=1 (cheap); bounded by ``min_first_block_records<=64`` *
+    ``max_line_length<=4096`` per Rule #46 META-CANARY.
+
+    Every byte the evaluator compares against is pulled from
+    ``constraint`` — Rule #46 META-CANARY
+    ``test_meta_canary_text_format_evaluator_uses_declared_constraints_not_hardcoded``
+    AST-walks the function body and forbids hardcoded byte literals.
+    """
+    constraint = signal.text_format_constraint
+    if constraint is None:
+        return False
+    if not blob_head:
+        return False
+
+    # Decode the start byte from hex once.
+    try:
+        start_byte = bytes.fromhex(constraint.record_start_byte_hex)
+    except ValueError:
+        return False
+    if len(start_byte) != 1:
+        return False
+    start_int = start_byte[0]
+
+    # Decode optional header pattern.
+    header_pattern: bytes | None = None
+    if constraint.header_pattern_hex:
+        try:
+            header_pattern = bytes.fromhex(constraint.header_pattern_hex)
+        except ValueError:
+            return False
+
+    charset_bytes = _TEXT_FORMAT_CHARSET_BYTES.get(constraint.charset)
+    if charset_bytes is None:
+        return False
+    terminator_candidates = _TEXT_FORMAT_TERMINATORS.get(
+        constraint.line_terminator,
+    )
+    if terminator_candidates is None:
+        return False
+
+    try:
+        lines = blob_head.splitlines(keepends=True)
+    except (UnicodeDecodeError, ValueError):
+        return False
+    if not lines:
+        return False
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if not lines:
+        return False
+
+    record_lines: list[bytes] = []
+    first_record_seen = False
+    for line in lines:
+        stripped = line.rstrip(b"\r\n")
+        if not stripped:
+            continue
+        if not first_record_seen and stripped[0:1] != start_byte:
+            if constraint.first_line_must_match == "record_start":
+                return False
+            continue
+        if stripped[0:1] != start_byte:
+            break
+        first_record_seen = True
+        record_lines.append(line)
+        if len(record_lines) >= constraint.min_first_block_records:
+            break
+
+    if len(record_lines) < constraint.min_first_block_records:
+        return False
+
+    for idx, line in enumerate(record_lines):
+        content = line
+        observed_terminator = b""
+        for term in terminator_candidates:
+            if content.endswith(term):
+                observed_terminator = term
+                content = content[: -len(term)]
+                break
+        if constraint.line_terminator != "any":
+            is_last = (idx == len(record_lines) - 1)
+            if not observed_terminator and not is_last:
+                return False
+        if not (
+            constraint.min_line_length
+            <= len(content)
+            <= constraint.max_line_length
+        ):
+            return False
+        if not content or content[0] != start_int:
+            return False
+        body = content[1:]
+        if not body:
+            return False
+        for byte_val in body:
+            if byte_val not in charset_bytes:
+                return False
+        if idx == 0 and header_pattern is not None:
+            if len(content) < 1 + len(header_pattern):
+                return False
+            if content[1:1 + len(header_pattern)] != header_pattern:
+                return False
+
+    # Optional terminator-record check (best-effort tail scan).
+    if constraint.terminator_record_hex:
+        try:
+            term_record = bytes.fromhex(constraint.terminator_record_hex)
+        except ValueError:
+            return False
+        tail = blob_head[-256:] if len(blob_head) > 256 else blob_head
+        if term_record not in tail:
+            if size <= len(blob_head):
+                return False
+
+    return True
 
 
 def _eval_magic_bytes(
