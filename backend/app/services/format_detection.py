@@ -253,7 +253,9 @@ def detect_format(path: Path | str) -> DetectedFormat:
         "iso_9660",              # bootmgr substring upgrade lives in legacy bridge
         "windows_installer_iso", # P3.2.a flip exposed lack of bootmgr signal; bridge disambiguates
         "tar_archive",           # may need extension fallback for renamed tars
-        "windows_cab",           # P3.2.d will re-verify post-flip
+        # P3.2.d: windows_cab dropped — post-P3.2.a precedence-flip, the
+        # catalog correctly routes .msu files to windows_msu (precedence 80
+        # wins over windows_cab at 100). Verified via parity tests.
     }
     match = _catalog_resolve(head, str(p), size)
     if match is not None and match.format_id not in _CATALOG_NEEDS_DISAMBIGUATION:

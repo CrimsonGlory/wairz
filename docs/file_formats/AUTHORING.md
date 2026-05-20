@@ -95,6 +95,86 @@ A `_system` manifest MAY use `general` (e.g. `_system/linux_squashfs.yaml`
 declares its detection in normal sort space). The reserved tiers are
 opt-in.
 
+## Step 3c — Container precedence (more-specific wins over wrappers)
+
+When a container format wraps another container (Windows installer ISO
+wraps ISO-9660; MSU is a self-extracting CAB; ZIP-based APK/OTA wraps a
+generic ZIP archive), the more-specific manifest should win when both
+match.  Under the post-P3.2.a "lower precedence wins" semantic, this
+means the more-specific manifest gets a **lower** numeric precedence.
+
+Worked examples shipped in `_system/`:
+
+| More-specific (wins) | Less-specific (loses) | Precedence pair | Discriminator |
+|----------------------|------------------------|-----------------|---------------|
+| `windows_msu`        | `windows_cab`          | 80 vs 100       | `.msu` extension on the MSU manifest |
+| `windows_installer_iso` | `iso_9660`           | 100 vs 200      | `.iso` / `.img` extension *(see footnote)* |
+| `android_apk`        | `zip_archive`          | (apk wins via filename + zip_markers inner-file walk) |
+| `android_ota`        | `zip_archive`          | (ota wins via filename + zip_markers inner-file walk) |
+
+**Footnote — windows_installer_iso vs iso_9660:** The current catalog
+schema has no "head contains substring X" signal evaluator, so the
+windows_installer_iso manifest can't yet require the `bootmgr` literal
+inside the head bytes. As a result, the manifest matches bare ISO-9660
+images with a `.iso` extension that aren't actually Windows installer
+media.  The pre-upload `detect_format()` path bridges via
+`_legacy_bridge_detect` to upgrade ISO → installer-ISO only when the
+`bootmgr` substring is present.  When a `substring_in_head` signal kind
+ships (P3.x), windows_installer_iso will declare it directly and the
+bridge becomes redundant.
+
+When picking a precedence for a new container-wrapping manifest, follow
+the smaller-number-wins rule and leave headroom on each side:
+
+* 50 — very specific, vendor + extension + inner-marker (e.g. `qcom_mbn` PIL).
+* 100 — specific container (e.g. `linux_squashfs`).
+* 200 — generic container (e.g. `iso_9660`, `zip_archive`).
+* 500 — last-resort routing (e.g. `linux_uboot_uimage` when no header detected).
+* 9000 — negative-evidence (e.g. PE / MZ with 2-byte magic).
+
+## Step 3d — RTOS-family extension (P3.2.c — dispatch.by_rtos_family)
+
+To classify a binary as a specific RTOS family (Zephyr / FreeRTOS /
+VxWorks / etc.), the bundled `_system/rtos_dispatch.yaml` manifest uses
+the `by_rtos_family` dispatch kind:
+
+```yaml
+# Operator-overlay manifest at data/file_formats.local/zephyr_specialised_elf.yaml
+schema_version: 1
+format_id: zephyr_specialised_elf
+manifest_source: operator
+precedence: 150
+category: rtos
+vendor: zephyrproject
+confidence: high
+detection:
+  combine: any
+  signals:
+    - kind: filename
+      extensions_lower: [".elf", ".bin"]
+output:
+  classifier_format: zephyr_specialised_elf
+  classifier_category: rtos
+  classifier_vendor: zephyrproject
+  classifier_product: zephyr
+  confidence: high
+```
+
+The `_system/rtos_dispatch.yaml`'s `dispatch.cases.zephyr: zephyr_elf`
+case already points at the format_id `zephyr_elf`.  When the bundled
+`rtos_detection_default` plugin (`backend/app/services/file_format_catalog/plugins/rtos_detection_default.py`)
+detects a Zephyr binary, the catalog routes through the dispatch case
+and emits the per-family format_id.  Operator-supplied per-family
+manifests pick up the routing without touching the dispatch table.
+
+For a NEW RTOS family the bundled plugin doesn't recognise (e.g. an
+in-house RTOS), drop both a per-family manifest **and** a Python plugin
+under `data/file_formats.local/` + (in-tree until P4 lands
+`WAIRZ_FORMAT_PLUGIN_PATH`).  The plugin declares
+`rtos_families: frozenset({"my_inhouse_rtos"})` and the dispatch table
+extends via the same overlay path.  See `S3 §10` of
+`.planning/research/file-format-yaml-registry-p32-wave1-S3-plugin-rtos-2026-05-19.md`.
+
 ## Step 4 — Write the YAML
 
 Worked example — Medtronic MMTP medical-device firmware:
