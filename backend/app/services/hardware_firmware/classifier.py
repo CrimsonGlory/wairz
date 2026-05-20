@@ -10,10 +10,10 @@ Cut-over per P3.1.h:
   path-context refinement are PRESERVED — they cover Android partition
   paths + vendor extension tables the catalog does not yet express.
 
-The pre-P3.1.h implementation is preserved verbatim at
-:mod:`app.services.hardware_firmware.classifier_legacy` as a revert-
-safety shim for ~1 release. New classification logic belongs in the
-catalog YAMLs.
+The pre-P3.1.h implementation lived at `classifier_legacy.py` as a
+revert-safety shim through Phase 3.2; deleted in P3.3.a (2026-05-19)
+after the parity test converted to JSON-snapshot form in P3.2.e. New
+classification logic belongs in the catalog YAMLs.
 
 The legacy public API is preserved:
 

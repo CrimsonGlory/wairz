@@ -18,9 +18,9 @@ evaluators are cost-sorted so the head buffer is read once (~512 KB);
 ZIP central directory walks remain the heavier path and run only when
 PK magic is present in the head.
 
-The pre-P3.1.h implementation is preserved verbatim at
-:mod:`app.services.format_detection_legacy` as a revert-safety shim
-for ~1 release.
+The pre-P3.1.h implementation lived at `format_detection_legacy.py`
+as a revert-safety shim through Phase 3.2; deleted in P3.3.a (2026-05-19)
+after the parity test was converted to JSON-snapshot form in P3.2.e.
 
 PE arch-view detection (Phase β.5): :func:`detect_pe_arch_view` is
 PRESERVED here — it is decoupled from :func:`detect_format` (which runs
@@ -204,8 +204,8 @@ def detect_format(path: Path | str) -> DetectedFormat:
         fallback but the head bytes don't carry a recognized signature
       * the resolved manifest has no ``pre_upload`` block
 
-    Pre-P3.1.h legacy behavior is preserved at
-    :mod:`app.services.format_detection_legacy`.
+    Pre-P3.1.h legacy behavior was preserved at `format_detection_legacy`
+    through P3.2; deleted in P3.3.a (2026-05-19).
     """
     p = Path(path)
     if not p.is_file():
@@ -292,9 +292,9 @@ def _legacy_bridge_detect(head: bytes, p: Path, size: int) -> DetectedFormat:
     * **android_apk / android_ota / android_scatter / android_sparse** —
       ZIP inner-content disambiguation walks the central directory.
 
-    All paths preserve the legacy detect_format behavior from
-    :mod:`app.services.format_detection_legacy` and are exercised by
-    the existing test_format_detection suite.
+    All paths preserve the pre-P3.1.h detect_format behavior captured
+    by the test_format_detection suite (legacy module deleted in
+    P3.3.a 2026-05-19).
     """
     if len(head) >= 4:
         magic4 = head[:4]

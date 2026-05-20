@@ -1461,8 +1461,9 @@ def classify_firmware(firmware_path: str) -> str:
     wires PLUGIN_REGISTRY for RTOS variants and the container
     refinement walks.
 
-    Pre-P3.1.h behaviour preserved verbatim at
-    :mod:`app.workers.unpack_common_classify_legacy`.
+    Pre-P3.1.h behaviour lived at `unpack_common_classify_legacy` through
+    Phase 3.2; deleted in P3.3.a (2026-05-19) after parity-snapshot
+    discipline (P3.2.e) made the shim removable.
     """
     import zipfile as _zipfile
 
