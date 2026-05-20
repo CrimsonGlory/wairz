@@ -43,6 +43,25 @@ from app.workers.unpack_linux import (  # noqa: F401
 logger = logging.getLogger(__name__)
 
 
+# Cross-firmware walker fan-out concurrency bound (Rule #51 §SC5-NEW-SBOM-θ).
+# Within a single `_run_hardware_firmware_detection_safe` call the registered
+# walker safe-runners iterate sequentially (Rule #7-compliant — each runner
+# owns its own ``async_session_factory()`` session, but sequential dispatch
+# avoids the "gather coroutines that secretly share OUR session" trap). Across
+# firmware uploads though, multiple `_run_hardware_firmware_detection_safe`
+# coroutines may run in parallel (the upload endpoint spawns one per firmware
+# via ``asyncio.create_task``). A bare burst of 5 simultaneous bare-metal
+# uploads × 27 walkers × short-lived sessions could spike the DB connection
+# pool — this semaphore caps cross-firmware walker fan-out at 4 in-flight,
+# leaving headroom for unrelated HTTP traffic against the 40-connection pool.
+#
+# N=4 chosen: ~10% of pool=40 (Rule #51 .iv DB-pool-headroom math), well above
+# typical single-operator triage cadence (~1 upload at a time), avoids the
+# §SC5-NEW-SBOM-θ "5 firmware × 27 walkers" detonation case while still
+# keeping per-firmware fan-out latency under a second when slots are free.
+_WALKER_FANOUT_SEMAPHORE = asyncio.Semaphore(4)
+
+
 # Sibling directory names that indicate extracted_path is ONE partition
 # inside a multi-partition Android container; we walk the parent to cover
 # all partitions (vendor, system, odm, etc.) in a single pass.
@@ -100,23 +119,32 @@ async def _run_hardware_firmware_detection_safe(
             await db.commit()
             logger.info("Hardware firmware detection complete: %d blobs", count)
     except Exception:
+        # Detection failed — still proceed to walker fan-out so forensic
+        # walkers (registry hive / EVTX / journald / systemd / bare-metal
+        # MCU audit / …) get their shot. The walker safe-runners use
+        # ``get_detection_roots(firmware)`` per Rule #16 to filter targets;
+        # firmware without HW blobs but WITH a rootfs still yields useful
+        # walker output (Linux artefacts, BCD, EVTX, …). Pre-2026-05-21
+        # Fix #3 this `return` short-circuited the whole pipeline — 25+
+        # walkers silently skipped cluster-wide per Scout C's live-DB probe.
         logger.warning("Hardware firmware detection failed", exc_info=True)
-        return
 
-    if count <= 0:
-        return
-
-    try:
-        async with async_session_factory() as db:
-            result = await build_driver_firmware_graph(firmware_id, db)
-            await db.commit()
-            logger.info(
-                "Hardware firmware graph: %d edges, %d unresolved",
-                len(result.edges),
-                result.unresolved_count,
-            )
-    except Exception:
-        logger.warning("Hardware firmware graph build failed", exc_info=True)
+    # Driver-firmware graph build — STAYS gated on count > 0 because the
+    # graph operates over the persisted hardware_firmware_blob rows
+    # detection just emitted. With zero blobs, the graph is empty by
+    # construction; skipping the build saves a session round-trip.
+    if count > 0:
+        try:
+            async with async_session_factory() as db:
+                result = await build_driver_firmware_graph(firmware_id, db)
+                await db.commit()
+                logger.info(
+                    "Hardware firmware graph: %d edges, %d unresolved",
+                    len(result.edges),
+                    result.unresolved_count,
+                )
+        except Exception:
+            logger.warning("Hardware firmware graph build failed", exc_info=True)
 
     # Walker auto-trigger registry — registry_hive (γ.4), driver_extractor
     # (γ.5), evtx (ε.1.b.4), AppCompat (κ.B), BCD (θ.A), DPAPI (κ.D),
@@ -142,16 +170,25 @@ async def _run_hardware_firmware_detection_safe(
     # sequentially (not gathered) because each safe-runner opens its own
     # AsyncSession + Rule #7 forbids gathering coroutines that share a
     # session — sequential ``await`` keeps the contract.
+    #
+    # Wrapped in ``_WALKER_FANOUT_SEMAPHORE`` (Rule #51 §SC5-NEW-SBOM-θ) so a
+    # burst of N firmware uploads can't run N concurrent fan-outs unbounded —
+    # the semaphore caps cross-firmware walker work at 4 in-flight, leaving
+    # DB pool headroom for unrelated traffic. Pre-2026-05-21 Fix #3 this
+    # block was gated by ``if count <= 0: return`` above — bare-metal and
+    # other zero-HW-blob firmware never got their walker fan-out, leaving
+    # forensic artefacts undiscovered cluster-wide.
     from app.workers.walker_registry import get_walker_auto_triggers
-    for safe_runner in get_walker_auto_triggers():
-        try:
-            await safe_runner(firmware_id)
-        except Exception:
-            logger.warning(
-                "walker auto-trigger %s failed",
-                getattr(safe_runner, "__qualname__", repr(safe_runner)),
-                exc_info=True,
-            )
+    async with _WALKER_FANOUT_SEMAPHORE:
+        for safe_runner in get_walker_auto_triggers():
+            try:
+                await safe_runner(firmware_id)
+            except Exception:
+                logger.warning(
+                    "walker auto-trigger %s failed",
+                    getattr(safe_runner, "__qualname__", repr(safe_runner)),
+                    exc_info=True,
+                )
 
 
 def _analyze_filesystem(result: UnpackResult, extraction_dir: str) -> None:
