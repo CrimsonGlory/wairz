@@ -459,6 +459,18 @@
         "pattern": "docker\\s+compose\\s+exec\\s+(?:-T\\s+)?(?:-w\\s+\\S+\\s+)?(?:backend|worker|migrator)\\s+(?:uv\\s+run\\s+)?(?:pytest|python)\\s+tests/",
         "filePattern": "{.planning/**/*.md,.mex/**/*.md,**/*.sh,**/*.{yml,yaml}}",
         "message": "Learned from campaign substring-in-head-signal-2026-05-20 (antipattern #2): `docker compose exec backend (uv run )?(pytest|python) tests/...` fails because backend/.dockerignore (commit b9f438f, 2026-04-18) excludes `tests/` from the production image. Use HOST execution instead: `cd backend && uv run pytest tests/...` or `cd backend && uv run python tests/fixtures/.../_GENERATE.py`. The host's `backend/.venv` has the same `uv.lock`-resolved deps as the container. NEVER use `docker compose exec` for paths under tests/, alembic/versions/, .ruff_cache/, .planning/, docs/, *.md, .citadel/, or .claude/ — all are .dockerignore'd."
+      },
+      {
+        "name": "auto-sbom-regr-session1-2026-05-21-bare-create-task-background",
+        "pattern": "asyncio\\.create_task\\s*\\(\\s*_run_\\w+_background",
+        "filePattern": "backend/app/routers/*.py",
+        "message": "Learned from campaign sbom-vuln-scan-regression-session1-2026-05-21 (antipattern #6): bare `asyncio.create_task(_run_*_background(...))` in routers has GC-vanish risk — the asyncio scheduler only keeps a WEAK reference, so the task can be collected mid-run on memory pressure, leaving the firmware row stuck in `*_status='running'` forever and the frontend in a stuck-polling loop (Scout D primary symptom for the 2026-05-21 regression). Use `_spawn_background_task(coro, name=...)` from a shared helper (currently lives in `routers/sbom.py`; will be factored into `app/utils/background.py` per Session 2 sweep) that keeps a strong reference in a module-level set + auto-discards on completion via `add_done_callback`. Documented at https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task — 'Important: Save a reference to the result of this function, to avoid a task disappearing mid-execution.'"
+      },
+      {
+        "name": "auto-sbom-regr-session1-2026-05-21-too-narrow-mock-create-task",
+        "pattern": "def\\s+fake_create_task\\s*\\(\\s*coro\\s*\\)\\s*:",
+        "filePattern": "backend/tests/*.py",
+        "message": "Learned from campaign sbom-vuln-scan-regression-session1-2026-05-21 (antipattern #3): a too-narrow mock signature `def fake_create_task(coro):` breaks when production widens to pass `name=...` — TypeError: got an unexpected keyword argument 'name'. Use `def fake_create_task(coro, *, name=None)` or `def fake_create_task(coro, **kwargs)` so mock shims are forward-compatible with future signature widening. Rule #30 sibling discipline — when widening a public function signature, every mock that patches the function needs review."
       }
     ]
   },
@@ -521,7 +533,7 @@
     "sessions": 0,
     "campaigns": 0,
     "override": null,
-    "sessions_completed": 210
+    "sessions_completed": 211
   },
   "consent": {
     "externalActions": "session-allow"
