@@ -23,6 +23,8 @@ from app.services.file_format_catalog.catalog import (
 from app.services.file_format_catalog.resolver import (
     DISPATCH_EVALUATORS,
     PLUGIN_REGISTRY,
+    RTOS_FAMILY_ADVISORY,
+    RtosDetection,
     SIGNAL_EVALUATORS,
     freeze_plugin_registry,
     get_default_snapshot,
@@ -38,6 +40,8 @@ __all__ = [
     "FormatCatalogSnapshot",
     "FormatMatch",
     "PLUGIN_REGISTRY",
+    "RTOS_FAMILY_ADVISORY",
+    "RtosDetection",
     "SIGNAL_EVALUATORS",
     "derive_vendor_authority",
     "freeze_plugin_registry",

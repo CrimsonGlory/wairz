@@ -21,10 +21,13 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import zipfile
 from collections.abc import Callable
+from contextvars import ContextVar
+from dataclasses import dataclass
 from io import BytesIO
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from app.schemas.file_format import (
     Detection,
@@ -397,10 +400,65 @@ def _eval_tar_markers(
     return blob_head[0x101:0x106] == b"ustar"
 
 
+@dataclass(frozen=True)
+class RtosDetection:
+    """Plugin detection result (P3.2.c — Wave-1 S3 HYBRID).
+
+    ``rtos_family`` is free-string taxonomy — closed Literal would be
+    anti-Rule-#52 because partners legitimately extend the family list.
+    The plugin's ``rtos_families: frozenset[str]`` advertises declared
+    families at registration time so the catalog can WARN on dispatch
+    cases referencing unregistered families (Wave-1 S3 + Wave-2 W2-β).
+    """
+
+    rtos_family: str
+    confidence: Literal["high", "medium", "low"] = "medium"
+    version: str | None = None
+    metadata: dict | None = None
+
+
+#: Per-call ContextVar carrying the rtos_check plugin's detection result.
+#: ``_eval_rtos_check`` sets this when a plugin matches; the
+#: ``by_rtos_family`` dispatch evaluator reads it to route via
+#: ``manifest.dispatch.cases[rtos_family]``. Reset between resolve() calls
+#: by the resolver itself. P3.2.c.
+_RTOS_DETECTION_CONTEXT: ContextVar["RtosDetection | None"] = ContextVar(
+    "_RTOS_DETECTION_CONTEXT", default=None,
+)
+
+
+#: Soft advisory — RTOS families known to the bundled `rtos_detection_default`
+#: plugin. The catalog's WARN-on-unregistered-family check at load combines
+#: this set with each registered plugin's `rtos_families: frozenset[str]`.
+#: NEVER a Literal — partners extend by registering new families at startup.
+#: P3.2.c (Wave-1 S3 + W2-β).
+RTOS_FAMILY_ADVISORY: frozenset[str] = frozenset({
+    "zephyr", "freertos", "amazon-freertos", "vxworks", "threadx",
+    "qnx", "ucos", "ucos-ii", "ucos-iii", "safertos",
+})
+
+
+#: A9 rtos_family sanitization pattern (Wave-2 W2-β §SC5-NEW-3). Plugin
+#: output passes through this regex BEFORE the catalog stores it on the
+#: ContextVar; non-matching families are rejected (WARN + return None).
+#: Prevents shell metachar / SQL injection / path traversal in family
+#: strings that flow into logs / DB / external systems. Alphanumeric +
+#: underscore + dash + dot only; max 64 chars; cannot start with dash.
+_RTOS_FAMILY_SHAPE = re.compile(r"^[a-zA-Z0-9_.][a-zA-Z0-9_.\-]{0,63}$")
+
+
 def _eval_rtos_check(
     signal: DetectionSignal, blob_head: bytes, path: str, size: int,
 ) -> bool:
-    """RTOS plugin dispatch. TODO P3.2 wiring with PLUGIN_REGISTRY."""
+    """RTOS plugin dispatch (P3.2.c HYBRID — Wave-1 S3 + W2-β).
+
+    Looks up the plugin by `signal.rtos_plugin_ref` (registry name) in
+    `PLUGIN_REGISTRY`. On hit, the plugin returns `RtosDetection` (typed
+    dataclass) which the evaluator stashes on `_RTOS_DETECTION_CONTEXT`
+    for the `by_rtos_family` dispatch evaluator to consume. Defensive —
+    plugin exception, invalid family name, missing registration all
+    return False without raising.
+    """
     if signal.rtos_plugin_ref is None:
         return False
     plugin = PLUGIN_REGISTRY.get(signal.rtos_plugin_ref)
@@ -413,7 +471,28 @@ def _eval_rtos_check(
             "rtos_check: plugin %r raised: %s", signal.rtos_plugin_ref, exc,
         )
         return False
-    return bool(result)
+    if result is None:
+        return False
+    # Accept legacy bool returns for back-compat (plugin says "match" but
+    # doesn't emit a family — no dispatch routing).
+    if isinstance(result, bool):
+        return result
+    if not isinstance(result, RtosDetection):
+        logger.warning(
+            "rtos_check: plugin %r returned %r (expected RtosDetection or bool)",
+            signal.rtos_plugin_ref, type(result).__name__,
+        )
+        return False
+    # A9 — sanitize rtos_family BEFORE stashing.
+    if not _RTOS_FAMILY_SHAPE.match(result.rtos_family):
+        logger.warning(
+            "rtos_check: plugin %r returned invalid rtos_family=%r "
+            "(rejects shell metachars / SQL injection / path traversal)",
+            signal.rtos_plugin_ref, result.rtos_family,
+        )
+        return False
+    _RTOS_DETECTION_CONTEXT.set(result)
+    return True
 
 
 def _eval_always_matches(
@@ -491,6 +570,37 @@ def _dispatch_by_zip_inner_file(
     return manifest.dispatch.default
 
 
+def _dispatch_by_rtos_family(
+    manifest: FileFormatManifest,
+    blob_head: bytes,
+    path: str,
+    size: int,
+    snapshot: FormatCatalogSnapshot,
+) -> str | None:
+    """Route based on the RtosDetection emitted by an rtos_check signal.
+
+    Reads `_RTOS_DETECTION_CONTEXT` (set by `_eval_rtos_check` on plugin
+    hit); maps `detection.rtos_family` → `manifest.dispatch.cases[family]`.
+    Unknown families fall through to `manifest.dispatch.default` with a
+    WARN — operator can ship an operator-overlay manifest declaring the
+    new family without core changes. P3.2.c (Wave-1 S3 HYBRID).
+    """
+    detection = _RTOS_DETECTION_CONTEXT.get()
+    if detection is None:
+        return manifest.dispatch.default
+    target = manifest.dispatch.cases.get(detection.rtos_family)
+    if target is None:
+        logger.warning(
+            "by_rtos_family: plugin returned rtos_family=%r not in "
+            "dispatch.cases=%r — falling back to default=%r",
+            detection.rtos_family,
+            sorted(manifest.dispatch.cases.keys()),
+            manifest.dispatch.default,
+        )
+        return manifest.dispatch.default
+    return target
+
+
 def _dispatch_by_inner_magic(
     manifest: FileFormatManifest,
     blob_head: bytes,
@@ -532,6 +642,7 @@ DISPATCH_EVALUATORS: dict[DispatchKind, _DispatchEvaluator] = {
     "by_partition_name": _dispatch_by_partition_name,
     "by_zip_inner_file": _dispatch_by_zip_inner_file,
     "by_inner_magic": _dispatch_by_inner_magic,
+    "by_rtos_family": _dispatch_by_rtos_family,  # P3.2.c
     "alias": _dispatch_alias,
     "none": _dispatch_none,
 }
@@ -548,10 +659,16 @@ class MatcherProto(Protocol):
     ``cost_class`` is checked by validator A5 (deep-dispatch eager-expensive
     plugin reject). ``applicable_format_ids`` is the plugin-side allowlist
     cross-checked against PluginRef.applicable_format_ids at catalog refresh.
+    ``rtos_families`` (P3.2.c — Wave-1 S3 HYBRID) is an optional advisory
+    set declaring which rtos_family values this plugin's ``detect()`` may
+    emit when returning RtosDetection. Used by catalog WARN-on-unregistered
+    + A7 namespace-disjointness gate at registration time.
     """
 
     cost_class: int
     applicable_format_ids: frozenset[str]
+    # Optional — only matchers that emit RtosDetection should declare this.
+    rtos_families: frozenset[str]
 
     def detect(
         self, blob_head: bytes, path: str, size: int,
@@ -562,12 +679,44 @@ PLUGIN_REGISTRY: dict[str, MatcherProto] = {}
 _PLUGIN_REGISTRY_FROZEN: bool = False
 
 
+def _a7_namespace_collision_check(
+    name: str, matcher: MatcherProto,
+) -> None:
+    """A7 (Wave-2 W2-β §SC5-NEW-3): rtos_families a matcher claims must
+    NOT collide with any existing format_id in the running catalog OR
+    any other registered matcher's rtos_families. Prevents a plugin
+    from claiming family="intel_hex" and hijacking text-format routing.
+    """
+    families: frozenset[str] = getattr(matcher, "rtos_families", frozenset())
+    if not families:
+        return
+    for other_name, other in PLUGIN_REGISTRY.items():
+        if other_name == name:
+            continue
+        other_families: frozenset[str] = getattr(
+            other, "rtos_families", frozenset(),
+        )
+        collision = families & other_families
+        if collision:
+            raise ValueError(
+                f"A7 plugin-namespace-disjointness: matcher {name!r} "
+                f"claims rtos_families {sorted(collision)!r} already "
+                f"declared by {other_name!r} (W2-β §SC5-NEW-3)"
+            )
+
+
 def register_matcher(name: str, matcher: MatcherProto) -> None:
-    """Register a Python plugin. Must run BEFORE freeze_plugin_registry()."""
+    """Register a Python plugin. Must run BEFORE freeze_plugin_registry().
+
+    P3.2.c: invokes A7 namespace-disjointness check on `rtos_families`
+    (if declared). Existing matchers' families cannot be overridden by
+    a new registration; the operator must rename or drop the conflict.
+    """
     if _PLUGIN_REGISTRY_FROZEN:
         raise RuntimeError(
             f"PLUGIN_REGISTRY frozen after startup; cannot register {name!r}"
         )
+    _a7_namespace_collision_check(name, matcher)
     PLUGIN_REGISTRY[name] = matcher
 
 
@@ -727,6 +876,10 @@ def resolve(
     """
     if snapshot is None:
         snapshot = get_default_snapshot()
+    # P3.2.c: reset the rtos_check ContextVar at the start of each resolve()
+    # so a prior call's RtosDetection doesn't leak into by_rtos_family
+    # dispatch when the current call's rtos_check evaluator doesn't fire.
+    _RTOS_DETECTION_CONTEXT.set(None)
     candidates: list[tuple[tuple, FileFormatManifest, list[dict], float]] = []
     for manifest in snapshot.manifests:
         # Skip removed manifests defensively (catalog should already reject).
@@ -804,6 +957,8 @@ def get_default_snapshot() -> FormatCatalogSnapshot:
 __all__ = [
     "DISPATCH_EVALUATORS",
     "MatcherProto",
+    "RTOS_FAMILY_ADVISORY",
+    "RtosDetection",
     "PLUGIN_REGISTRY",
     "SIGNAL_EVALUATORS",
     "_SIGNAL_COST_CLASS",

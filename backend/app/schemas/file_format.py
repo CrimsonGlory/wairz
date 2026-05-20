@@ -170,11 +170,13 @@ DetectionSignalKind = Literal[
 
 #: Container fan-out semantics. Each value maps to a dispatch evaluator in
 #: :data:`app.services.file_format_catalog.DISPATCH_EVALUATORS` (Rule #46
-#: META-CANARY exhaustive).
+#: META-CANARY exhaustive). ``by_rtos_family`` (P3.2.c) routes via the
+#: free-string rtos_family value emitted by an rtos_check signal's plugin.
 DispatchKind = Literal[
     "by_partition_name",
     "by_zip_inner_file",
     "by_inner_magic",
+    "by_rtos_family",
     "alias",
     "none",
 ]

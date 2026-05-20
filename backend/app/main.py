@@ -97,6 +97,29 @@ async def lifespan(app: FastAPI):
             "CPE dictionary background load failed — fuzzy matching will use local map only"
         )
 
+    # P3.2.c: register bundled file-format catalog plugins (RTOS detection)
+    # then freeze the registry post-startup (W2-β attack I closure).
+    # Idempotent — safe under uvicorn workers reloading the module.
+    try:
+        from app.services.file_format_catalog.plugins import (
+            register_default_plugins,
+        )
+        register_default_plugins(freeze=True)
+        import logging
+        from app.services.file_format_catalog import PLUGIN_REGISTRY
+        logging.getLogger(__name__).info(
+            "file-format catalog: registered %d plugin(s); registry frozen",
+            len(PLUGIN_REGISTRY),
+        )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning(
+            "file-format plugin registration failed — rtos_check signals "
+            "will return False; by_rtos_family dispatch falls through to "
+            "manifest.dispatch.default",
+            exc_info=True,
+        )
+
     # Reap orphan device-dump rows. After a backend crash a row stuck in
     # 'queued'/'running' would block POST /dumps with a 409 forever (the
     # runner asyncio task that owned it is gone). Flip them to 'failed'

@@ -52,6 +52,7 @@ from app.schemas.file_format import (
 )
 from app.services.file_format_catalog.resolver import (
     PLUGIN_REGISTRY,
+    RTOS_FAMILY_ADVISORY,
     _SIGNAL_COST_CLASS,
     _SOURCE_PRECEDENCE,
 )
@@ -486,6 +487,58 @@ class FormatCatalog:
                         queue.append((target.dispatch.default, depth + 1))
         for fmt_id in a5_drop:
             by_id.pop(fmt_id, None)
+
+        # A6 (P3.2.c — Wave-2 W2-β §SC5-NEW-1): dispatch-rank-monotonicity.
+        # A manifest's dispatch.cases.* target MUST have a manifest_source
+        # rank >= the entry manifest's rank. Otherwise a curated `_system`
+        # manifest could route through dispatch to an operator-supplied
+        # target, splitting attestation (`FormatMatch.manifest_source`
+        # reflects chain entry while `format_id` reflects chain terminus).
+        # WARN-only — operator may legitimately route _system → core for
+        # downstream parser-level handoff. Today we report; tightening to
+        # REJECT is a future Rule #25 commit.
+        for fmt_id, manifest in by_id.items():
+            entry_rank = _SOURCE_PRECEDENCE.get(manifest.manifest_source, 0)
+            targets: list[str] = list(manifest.dispatch.cases.values())
+            if manifest.dispatch.default:
+                targets.append(manifest.dispatch.default)
+            for target_id in targets:
+                target = by_id.get(target_id)
+                if target is None:
+                    continue
+                target_rank = _SOURCE_PRECEDENCE.get(target.manifest_source, 0)
+                if target_rank < entry_rank:
+                    self.last_warning = (
+                        f"{manifest.source_path}: A6 dispatch-rank "
+                        f"chain entry {fmt_id!r} (source={manifest.manifest_source}, "
+                        f"rank={entry_rank}) routes to {target_id!r} "
+                        f"(source={target.manifest_source}, rank={target_rank}) "
+                        f"— attestation split"
+                    )
+                    logger.warning("format_catalog: %s", self.last_warning)
+
+        # P3.2.c: WARN when by_rtos_family dispatch.cases reference families
+        # not in RTOS_FAMILY_ADVISORY OR any registered plugin's
+        # rtos_families. Operator can ship the catalog YAML BEFORE
+        # registering the plugin (PLUGIN_REGISTRY frozen post-startup);
+        # WARN documents the gap so operators see it pre-runtime.
+        registered_families: set[str] = set(RTOS_FAMILY_ADVISORY)
+        for matcher in PLUGIN_REGISTRY.values():
+            registered_families.update(
+                getattr(matcher, "rtos_families", frozenset()),
+            )
+        for fmt_id, manifest in by_id.items():
+            if manifest.dispatch.kind != "by_rtos_family":
+                continue
+            for case_value in manifest.dispatch.cases:
+                if case_value not in registered_families:
+                    self.last_warning = (
+                        f"{manifest.source_path}: by_rtos_family case "
+                        f"{case_value!r} not in any registered plugin's "
+                        f"rtos_families set; will route to "
+                        f"dispatch.default at runtime"
+                    )
+                    logger.warning("format_catalog: %s", self.last_warning)
 
         # Per-tier cardinality check (P3.2.a — replaces the singleton
         # always_matches check). The schema permits N>=1 manifests per

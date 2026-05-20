@@ -1,0 +1,66 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: rtos_dispatch
+manifest_source: _system
+precedence: 400
+category: rtos_blob
+vendor: unknown
+confidence: medium
+notes: |
+  RTOS dispatch entry — when the bundled rtos_detection_default plugin
+  matches a binary, this manifest routes to the per-family target via
+  dispatch.kind=by_rtos_family (P3.2.c — Wave-1 S3 HYBRID).
+
+  Unknown families fall through to dispatch.default=rtos_blob (the
+  generic catch-all that today's classify_firmware uses too — no
+  behavior change). When an operator drops a per-family YAML at
+  data/file_formats.local/<family>_elf.yaml declaring format_id matching
+  one of the cases below, the catalog automatically routes to the new
+  manifest without core changes — Rule #52 "don't hardcode strict
+  formats" applied verbatim.
+
+  Family list = bundled rtos_detection_default plugin's rtos_families
+  advisory. Operator plugins may extend the set by registering a new
+  matcher with additional rtos_families values; A7 namespace-
+  disjointness gate enforces no overlap with the in-tree set.
+
+  References:
+    backend/app/services/file_format_catalog/plugins/rtos_detection_default.py
+    .planning/research/file-format-yaml-registry-p32-wave1-S3-plugin-rtos-2026-05-19.md
+detection:
+  combine: all_required
+  signals:
+    - kind: rtos_check
+      rtos_plugin_ref: rtos_detection_default
+      description: "Bundled detect_rtos plugin (5-tier ELF/symbol/section scan)"
+dispatch:
+  kind: by_rtos_family
+  cases:
+    zephyr: zephyr_elf
+    freertos: freertos_elf
+    amazon-freertos: amazon_freertos_elf
+    vxworks: vxworks_elf
+    threadx: threadx_elf
+    qnx: qnx_elf
+    ucos-iii: ucos_iii_elf
+    ucos-ii: ucos_ii_elf
+    ucos: ucos_elf
+    safertos: safertos_elf
+  # NO `default` — unknown family routes via this manifest's own
+  # output.classifier_format=rtos_blob (the generic catch-all). Keeping
+  # the dispatch.default unset avoids the A6 dispatch-rank-monotonicity
+  # warning (a _system manifest routing to a core fallback would split
+  # attestation per Wave-2 W2-β §SC5-NEW-1).
+  depth_max: 2
+output:
+  classifier_format: rtos_blob
+  classifier_category: rtos_blob
+  classifier_vendor: unknown
+  confidence: medium
+pre_upload:
+  detected_format: linux_firmware_blob
+  extraction_capability: none
+  banner_note: |
+    RTOS binary detected. The catalog routes via dispatch.kind=by_rtos_family
+    when the bundled rtos_detection_default plugin emits an RtosDetection;
+    unknown families fall through to the generic rtos_blob classification.
