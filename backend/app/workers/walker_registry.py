@@ -55,6 +55,7 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
     # Phase γ — registry hives + driver INF/CAT + Windows event log.
     # Phase η/θ/ι/κ — Windows + Linux artefact walkers (each Rule #39 triplet).
     from app.services.appcompat_walker import auto_appcompat_walk_firmware_safe
+    from app.services.bare_metal_walker import auto_bare_metal_audit_firmware_safe
     from app.services.bcd_walker import auto_bcd_walk_firmware_safe
     from app.services.container_walker import auto_container_walk_firmware_safe
     from app.services.dpapi_walker import auto_dpapi_walk_firmware_safe
@@ -104,6 +105,16 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
         evtx_auto_walk,
         # Windows artefact walkers
         auto_appcompat_walk_firmware_safe,
+        # Bare-metal MCU/DSP audit walker (Rule #52 first worked-example
+        # surface). Registered here so bare-metal firmware uploads (TMS320,
+        # C28x, STM32, etc.) auto-trigger the audit after extraction; without
+        # this entry `bare_metal_audit_status` stays `idle` indefinitely and
+        # operators must hand-roll an MCP trigger call. The Rule #39 safe-runner
+        # at `bare_metal_walker.py:656` is consumer-hook number 27 per Rule #47
+        # enumeration; the matching cross-firmware MCP tool ships as
+        # `ai/tools/bare_metal.py::lookup_bare_metal_findings_across_firmwares`
+        # (Rule #44 mandatory).
+        auto_bare_metal_audit_firmware_safe,
         auto_bcd_walk_firmware_safe,
         auto_dpapi_walk_firmware_safe,
         auto_efs_walk_firmware_safe,

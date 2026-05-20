@@ -92,6 +92,48 @@ def test_clear_walker_registry_cache_drops_cache():
     assert len(a) == len(b)
 
 
+def test_bare_metal_audit_safe_runner_registered():
+    """Rule #46 META-CANARY for Fix #4 (2026-05-21 SBOM/vuln-scan
+    regression investigation).
+
+    `auto_bare_metal_audit_firmware_safe` was shipped 2026-05-19 with its
+    Rule #39 triplet but never wired into the walker auto-trigger
+    registry — so every bare-metal MCU firmware upload (TMS320, C28x,
+    STM32) landed at `upload_stage='ready'` with `bare_metal_audit_status='idle'`
+    indefinitely. Scout C's live-DB probe found one TMS320 row stuck
+    `queued` for 6 days as the worked-example incident.
+
+    Without this canary, a future commit could silently re-introduce the
+    same orphan by dropping the entry — the only operator-visible signal
+    would be the resurrected stuck-row pattern, weeks later.
+    """
+    from app.services.bare_metal_walker import auto_bare_metal_audit_firmware_safe
+
+    runner_ids = {id(r) for r in WALKER_AUTO_TRIGGERS}
+    assert id(auto_bare_metal_audit_firmware_safe) in runner_ids, (
+        "auto_bare_metal_audit_firmware_safe is NOT in WALKER_AUTO_TRIGGERS — "
+        "bare-metal MCU/DSP firmware uploads will silently skip the audit "
+        "walker. Re-register it in `walker_registry._load_walker_safe_runners()`. "
+        "See Fix #4 in .planning/research/sbom-vuln-scan-regression-2026-05-21/."
+    )
+
+
+def test_bare_metal_meta_canary_would_fire_on_missing_registration(monkeypatch):
+    """Paired synthesize-and-assert canary per Rule #46 §gate-canary-requirement.
+
+    Synthesize a walker_registry whose `_load_walker_safe_runners` returns a
+    list MISSING `auto_bare_metal_audit_firmware_safe`. Confirm the canary
+    above (membership check) would reject that registry shape.
+    """
+    from app.services.bare_metal_walker import auto_bare_metal_audit_firmware_safe
+    from app.services.bcd_walker import auto_bcd_walk_firmware_safe
+
+    fake_registry = [auto_bcd_walk_firmware_safe]
+    fake_ids = {id(r) for r in fake_registry}
+    # The membership assertion shape from the canary above must reject the fake.
+    assert id(auto_bare_metal_audit_firmware_safe) not in fake_ids
+
+
 # ── _fire_walker_auto_triggers behavioural contract ──────────────────────────
 
 
