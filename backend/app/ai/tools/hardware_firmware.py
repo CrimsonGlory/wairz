@@ -415,6 +415,65 @@ async def _handle_list_extension_points(input: dict, context: ToolContext) -> st
     return json.dumps(payload, indent=2, default=str, sort_keys=False)
 
 
+async def _handle_describe_advisory(input: dict, context: ToolContext) -> str:
+    """Describe an `ADVISORY-*` ID from known_firmware.yaml.
+
+    Operators triaging a `cve_id` that starts with `ADVISORY-` (advisory-tier
+    matches like ADVISORY-FRAGATTACK / ADVISORY-BT-KNOB / etc.) walk YAML by
+    hand today. This tool returns the YAML entries that declared the
+    advisory_id — name, vendor, category, severity, cvss_score, notes, and
+    the `shared_advisory_id` flag indicating intentional SPEC-level
+    convergence across vendor entries.
+
+    Backlog evening:RvwC-C4 — closes the operator-visibility loop on
+    advisory-tier CVE attribution.
+    """
+    from app.services.hardware_firmware.cve_matcher import _load_known_firmware
+
+    advisory_id = (input.get("advisory_id") or "").strip()
+    if not advisory_id:
+        return json.dumps({
+            "error": "advisory_id is required (e.g. 'ADVISORY-FRAGATTACK')",
+        }, indent=2)
+
+    families = _load_known_firmware()
+    matches = [
+        {
+            "name": fam.get("name"),
+            "advisory_id": fam.get("advisory_id"),
+            "shared_advisory_id": bool(fam.get("shared_advisory_id", False)),
+            "vendor": fam.get("vendor"),
+            "vendor_regex": fam.get("vendor_regex"),
+            "category": fam.get("category"),
+            "category_regex": fam.get("category_regex"),
+            "chipset_regex": fam.get("chipset_regex"),
+            "version_regex": fam.get("version_regex"),
+            "severity": fam.get("severity"),
+            "cvss_score": fam.get("cvss_score"),
+            "cves": fam.get("cves") or [],
+            "notes": fam.get("notes"),
+        }
+        for fam in families
+        if fam.get("advisory_id") == advisory_id
+    ]
+    if not matches:
+        return json.dumps({
+            "advisory_id": advisory_id,
+            "matches": [],
+            "hint": (
+                "No known_firmware.yaml entries match this advisory_id. "
+                "Check the spelling or run `list_extension_points` to "
+                "verify the YAML loaded."
+            ),
+        }, indent=2)
+    return json.dumps({
+        "advisory_id": advisory_id,
+        "match_count": len(matches),
+        "is_shared": all(m["shared_advisory_id"] for m in matches),
+        "matches": matches,
+    }, indent=2, default=str)
+
+
 async def _handle_check_firmware_cves(input: dict, context: ToolContext) -> str:
     """Run the three-tier CVE matcher against all detected hw-firmware blobs."""
     from app.services.hardware_firmware.cve_matcher import match_firmware_cves
@@ -623,6 +682,35 @@ def register_hardware_firmware_tools(registry: ToolRegistry) -> None:
             "required": ["dtb_path"],
         },
         handler=_handle_extract_dtb,
+    )
+
+    registry.register(
+        name="describe_advisory",
+        description=(
+            "Describe an `ADVISORY-*` ID from known_firmware.yaml. "
+            "Operators triaging an advisory-tier CVE match (cve_id starts "
+            "with `ADVISORY-`) get the YAML entries that declared the "
+            "advisory_id — name, vendor, category, severity, cvss_score, "
+            "notes, and the `shared_advisory_id` flag indicating intentional "
+            "SPEC-level convergence across vendor entries. Returns "
+            "`is_shared: true` when ALL matching entries declare the opt-in "
+            "flag (Rule #50)."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "advisory_id": {
+                    "type": "string",
+                    "description": (
+                        "The advisory ID (e.g. 'ADVISORY-FRAGATTACK', "
+                        "'ADVISORY-BT-KNOB'). Case-sensitive — matches the "
+                        "string in known_firmware.yaml exactly."
+                    ),
+                },
+            },
+            "required": ["advisory_id"],
+        },
+        handler=_handle_describe_advisory,
     )
 
     registry.register(

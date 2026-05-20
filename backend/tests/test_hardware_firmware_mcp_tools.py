@@ -14,6 +14,7 @@ import pytest
 
 from app.ai.tool_registry import ToolContext
 from app.ai.tools.hardware_firmware import (
+    _handle_describe_advisory,
     _handle_extract_dtb,
     _handle_find_unsigned_firmware,
     _handle_list_extension_points,
@@ -361,3 +362,62 @@ async def test_list_extension_points_surfaces_last_warning_after_malformed_yaml(
         assert entry2["status"] == "malformed_fallback"
     finally:
         YC._yaml_loader_registry.pop(surface_name, None)
+
+
+# ---------------------------------------------------------------------------
+# describe_advisory (backlog evening:RvwC-C4)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_describe_advisory_returns_matching_entries() -> None:
+    """Operator queries an existing advisory_id; tool returns the YAML rows
+    that declared it with the full payload + shared_advisory_id flag."""
+    import json as _json
+
+    db = AsyncMock()
+    ctx = _make_context(db)
+    out = await _handle_describe_advisory(
+        {"advisory_id": "ADVISORY-FRAGATTACK"}, ctx,
+    )
+    payload = _json.loads(out)
+    assert payload["advisory_id"] == "ADVISORY-FRAGATTACK"
+    assert payload["match_count"] >= 1
+    # Both FragAttacks entries (broadcom + qualcomm wcn3xxx) declare
+    # shared_advisory_id: true (per RvwA-A5+B6 fix); is_shared must be True.
+    assert payload["is_shared"] is True
+    # Each match carries the YAML's fields.
+    for m in payload["matches"]:
+        assert m["advisory_id"] == "ADVISORY-FRAGATTACK"
+        assert m["shared_advisory_id"] is True
+        assert "vendor" in m
+        assert "category" in m
+        assert "severity" in m
+        assert "notes" in m
+
+
+@pytest.mark.asyncio
+async def test_describe_advisory_returns_empty_for_unknown_id() -> None:
+    import json as _json
+
+    db = AsyncMock()
+    ctx = _make_context(db)
+    out = await _handle_describe_advisory(
+        {"advisory_id": "ADVISORY-DOES-NOT-EXIST"}, ctx,
+    )
+    payload = _json.loads(out)
+    assert payload["advisory_id"] == "ADVISORY-DOES-NOT-EXIST"
+    assert payload["matches"] == []
+    assert "hint" in payload
+
+
+@pytest.mark.asyncio
+async def test_describe_advisory_missing_input_returns_error() -> None:
+    import json as _json
+
+    db = AsyncMock()
+    ctx = _make_context(db)
+    out = await _handle_describe_advisory({}, ctx)
+    payload = _json.loads(out)
+    assert "error" in payload
+    assert "advisory_id" in payload["error"]
