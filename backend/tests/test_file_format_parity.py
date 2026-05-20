@@ -171,42 +171,119 @@ def test_zip_with_payload_bin_resolves_to_android_ota(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_legacy_classifier_aligns_with_catalog_for_mtk_lk() -> None:
-    """Legacy ``classify`` matches mtk_lk + new classifier still agrees.
+# P3.2.e — pre-recorded legacy classifier output. Captures what
+# ``app.services.hardware_firmware.classifier_legacy`` returned for the
+# 5 magic-byte vendors that previously needed the ``_legacy_magic_classify``
+# bridge (P3.1.b sentinel-tier defect — closed by P3.2.a's sort_tier
+# reform). The snapshot lets us delete the legacy module in P3.3 without
+# losing parity verification — the new catalog-driven classifier MUST
+# match these recorded values (Wave-2 W2-β: convert parity test to
+# snapshot form so shim removal in P3.3.a doesn't break parity).
+_LEGACY_CLASSIFY_SNAPSHOT: dict[tuple[str, bytes], dict[str, str]] = {
+    ("/firmware/lk.img", bytes.fromhex("88168858") + b"\x00" * 60): {
+        "category": "bootloader", "vendor": "mediatek",
+        "format": "mtk_lk", "confidence": "high",
+    },
+    ("/firmware/modem.bin", b"TOC\x00" + b"\x00" * 60): {
+        "category": "modem", "vendor": "samsung",
+        "format": "shannon_toc", "confidence": "high",
+    },
+    ("/firmware/tee.tlbin", b"TRUS" + b"\x00" * 60): {
+        "category": "tee", "vendor": "unknown",
+        "format": "kinibi_mclf", "confidence": "high",
+    },
+    ("/firmware/preloader.bin", b"MMM\x01\x38" + b"\x00" * 59): {
+        "category": "bootloader", "vendor": "mediatek",
+        "format": "mtk_preloader", "confidence": "high",
+    },
+    ("/firmware/firmware.bin", b"\xa3\xdf\xbb\xbf" + b"\x00" * 60): {
+        "category": "other", "vendor": "unknown",
+        "format": "signed_archive", "confidence": "medium",
+    },
+}
 
-    The catalog's standalone ``resolve`` returns ``linux_blob`` for raw mtk_lk
-    magic bytes (P3.1.b sentinel-tier defect — core manifests outranked by
-    _system fallback). The new classifier WRAPPER calls catalog first, then
-    falls through to the legacy magic-byte bridge for these shapes — so the
-    user-visible classify() output remains stable across the cut-over.
-    """
+
+def test_classifier_matches_legacy_snapshot_for_mtk_lk() -> None:
+    """New catalog-driven classifier MUST return the recorded legacy output."""
     from app.services.hardware_firmware import classifier as new_classifier
-    from app.services.hardware_firmware import classifier_legacy
 
     head = bytes.fromhex("88168858") + b"\x00" * 60
-
-    legacy = classifier_legacy.classify("/firmware/lk.img", head, 64)
+    expected = _LEGACY_CLASSIFY_SNAPSHOT[("/firmware/lk.img", head)]
     new = new_classifier.classify("/firmware/lk.img", head, 64)
-    assert legacy is not None and new is not None
-    assert legacy.format == "mtk_lk"
-    assert new.format == "mtk_lk"
+    assert new is not None
+    assert new.format == expected["format"]
+    assert new.category == expected["category"]
+    assert new.vendor == expected["vendor"]
 
 
-def test_legacy_classifier_aligns_with_catalog_for_shannon_toc() -> None:
-    """Legacy and the new classifier wrapper agree on Shannon TOC magic.
-
-    Same catalog quirk as mtk_lk — catalog yields linux_blob; the new
-    classifier bridges it back to shannon_toc via legacy magic-byte path.
-    """
+def test_classifier_matches_legacy_snapshot_for_shannon_toc() -> None:
+    """New catalog-driven classifier MUST return the recorded legacy output."""
     from app.services.hardware_firmware import classifier as new_classifier
-    from app.services.hardware_firmware import classifier_legacy
 
     head = b"TOC\x00" + b"\x00" * 60
-    legacy = classifier_legacy.classify("/firmware/modem.bin", head, 64)
+    expected = _LEGACY_CLASSIFY_SNAPSHOT[("/firmware/modem.bin", head)]
     new = new_classifier.classify("/firmware/modem.bin", head, 64)
-    assert legacy is not None and new is not None
-    assert legacy.format == "shannon_toc"
-    assert new.format == "shannon_toc"
+    assert new is not None
+    assert new.format == expected["format"]
+    assert new.category == expected["category"]
+    assert new.vendor == expected["vendor"]
+
+
+def test_classifier_matches_legacy_snapshot_for_kinibi_mclf() -> None:
+    """New catalog-driven classifier MUST return the recorded legacy output."""
+    from app.services.hardware_firmware import classifier as new_classifier
+
+    head = b"TRUS" + b"\x00" * 60
+    expected = _LEGACY_CLASSIFY_SNAPSHOT[("/firmware/tee.tlbin", head)]
+    new = new_classifier.classify("/firmware/tee.tlbin", head, 64)
+    assert new is not None
+    assert new.format == expected["format"]
+
+
+def test_classifier_matches_legacy_snapshot_for_mtk_preloader() -> None:
+    """New catalog-driven classifier MUST return the recorded legacy output."""
+    from app.services.hardware_firmware import classifier as new_classifier
+
+    head = b"MMM\x01\x38" + b"\x00" * 59
+    expected = _LEGACY_CLASSIFY_SNAPSHOT[("/firmware/preloader.bin", head)]
+    new = new_classifier.classify("/firmware/preloader.bin", head, 64)
+    assert new is not None
+    assert new.format == expected["format"]
+
+
+def test_classifier_matches_legacy_snapshot_for_signed_archive() -> None:
+    """New catalog-driven classifier MUST return the recorded legacy output."""
+    from app.services.hardware_firmware import classifier as new_classifier
+
+    head = b"\xa3\xdf\xbb\xbf" + b"\x00" * 60
+    expected = _LEGACY_CLASSIFY_SNAPSHOT[("/firmware/firmware.bin", head)]
+    new = new_classifier.classify("/firmware/firmware.bin", head, 64)
+    assert new is not None
+    assert new.format == expected["format"]
+
+
+def test_meta_canary_legacy_snapshot_actually_compares() -> None:
+    """Rule #46 paired canary: mutate the snapshot value + confirm a test
+    using the mutated snapshot would fail.
+
+    Without this canary, the parity-snapshot tests passing is structurally
+    indistinguishable from "the snapshot isn't being checked". W2-β paired-
+    canary discipline applied to the snapshot-form parity gate.
+    """
+    from app.services.hardware_firmware import classifier as new_classifier
+
+    head = bytes.fromhex("88168858") + b"\x00" * 60
+    # Synthesize a CORRUPTED expected value
+    corrupted = dict(_LEGACY_CLASSIFY_SNAPSHOT[("/firmware/lk.img", head)])
+    corrupted["format"] = "WRONG_FORMAT_ID"
+    new = new_classifier.classify("/firmware/lk.img", head, 64)
+    assert new is not None
+    # The parity assertion (new.format == corrupted["format"]) MUST fail
+    # against the corrupted snapshot — proving the gate is comparing.
+    assert new.format != corrupted["format"], (
+        "META-CANARY: parity assertion would have passed against a "
+        "corrupted snapshot — the gate is broken"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -296,12 +373,17 @@ def test_legacy_and_catalog_both_classify_same_input(
             f"for {catalog_format_id} fixture — drift documented separately"
         )
 
-    # Legacy path
-    from app.services.hardware_firmware import classifier_legacy
-    legacy_result = classifier_legacy.classify(fake_path, head, size)
-    if legacy_result is None:
-        pytest.skip(f"legacy classifier returned None for {catalog_format_id} fixture")
-    assert legacy_result.format == legacy_format, (
-        f"legacy emitted {legacy_result.format!r}; expected {legacy_format!r} "
-        f"for fixture {catalog_format_id}.head"
+    # P3.2.e: compare against the NEW classifier wrapper (which goes
+    # through the catalog post-P3.2.a). The legacy classifier module
+    # is being deleted in P3.3.a; the snapshot tests above cover the
+    # 5 magic-byte vendors that previously needed the bridge. For
+    # corpus-driven format_ids in _LEGACY_TO_CATALOG, the catalog hit
+    # IS the parity check — legacy and catalog converged at P3.2.a.
+    from app.services.hardware_firmware import classifier as new_classifier
+    new_result = new_classifier.classify(fake_path, head, size)
+    if new_result is None:
+        pytest.skip(f"new classifier returned None for {catalog_format_id} fixture")
+    assert new_result.format == legacy_format, (
+        f"new classifier emitted {new_result.format!r}; expected "
+        f"{legacy_format!r} for fixture {catalog_format_id}.head"
     )
