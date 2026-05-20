@@ -241,6 +241,67 @@ async def lifespan(app: FastAPI):
             exc_info=True,
         )
 
+    # Reap orphan upload_stage firmware rows. Closes the W2-α convergence
+    # report root-cause #3 (2026-05-21 SBOM/vuln-scan regression
+    # investigation Fix #2). The upload-pipeline path
+    # ``_post_process_pipeline`` in app/services/firmware_service.py runs
+    # detached via ``asyncio.create_task`` from the upload endpoint; if
+    # the backend crashes mid-extraction or is restarted during a
+    # multi-GB unpack, the in-memory task is lost and the row sits in
+    # ``upload_stage IN ('detecting','extracting','analyzing')`` forever.
+    # The frontend's upload-progress poller sees the stage never advance
+    # and renders a stuck spinner with no recovery affordance.
+    #
+    # Rule #51 §SC5-NEW-SBOM-ε mitigation: a 15-minute grace window
+    # excludes rows whose `upload_stage_started_at` is recent — protects
+    # against the race where the lifespan reaper fires DURING a fresh
+    # upload that's just begun. 15 min exceeds the worst-case 16 GB
+    # tarball extraction window observed in production (Medtronic
+    # ILLUMISITE upload precedent — ~12 min cold-extract).
+    #
+    # Rule #51 §SC5-NEW-SBOM-α / §SC5-NEW-SBOM-δ mitigation: the WHERE
+    # clause is `IS NOT NULL AND < interval` so freshly-created rows
+    # with NULL `upload_stage_started_at` are skipped (they're not yet
+    # eligible to be considered orphans — the post-process task may
+    # still be spinning up).
+    try:
+        from datetime import datetime, timedelta
+
+        from sqlalchemy import update
+
+        from app.database import async_session_factory
+        from app.models.firmware import Firmware
+
+        cutoff = datetime.now(UTC) - timedelta(minutes=15)
+        async with async_session_factory() as db:
+            res = await db.execute(
+                update(Firmware)
+                .where(
+                    Firmware.upload_stage.in_(("detecting", "extracting", "analyzing")),
+                    Firmware.upload_stage_started_at.is_not(None),
+                    Firmware.upload_stage_started_at < cutoff,
+                )
+                .values(
+                    upload_stage="failed",
+                    upload_stage_error="Backend restarted; upload runner state lost",
+                    upload_stage_finished_at=datetime.now(UTC),
+                )
+            )
+            await db.commit()
+            if res.rowcount:
+                import logging
+                logging.getLogger(__name__).info(
+                    "Reaped %d orphan upload_stage firmware row(s) on startup",
+                    res.rowcount,
+                )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning(
+            "upload_stage orphan reaper failed — phantom rows may render "
+            "stuck spinners in the frontend until the next startup",
+            exc_info=True,
+        )
+
     # Probe the offline UEFI Secure Boot DBX bundle (Phase β.10 / Rule #37
     # candidate). The bundle is baked into the image at build time
     # (backend/Dockerfile + backend/ms-anchors/dbxupdate.bin); the worker's
