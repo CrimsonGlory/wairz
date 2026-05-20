@@ -192,13 +192,22 @@ async def make_live_db() -> AsyncIterator[AsyncSession]:
     discipline guarantees deterministic ``__aexit__`` cleanup.
     """
     # Importing models triggers SQLAlchemy mapper registration on Base.metadata.
+    # Every module whose model declares an FK target referenced by another
+    # in-test module MUST be in this list — otherwise `create_all` raises
+    # NoReferencedTableError. The volatility/memory_dump triple is required
+    # because volatility_injection_records.memory_image_id FK targets the
+    # memory_dump_image table (see Rule #35b live-canary discipline +
+    # 2026-05-21 SBOM/vuln-scan regression investigation Fix #10).
     from app.database import Base
     from app.models import (  # noqa: F401
         analysis_cache,
         finding,
         firmware,
+        memory_dump_image,
         project,
         sbom,
+        volatility_injection_record,
+        volatility_process_record,
     )
 
     _dedup_indexes()
