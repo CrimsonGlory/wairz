@@ -179,6 +179,34 @@ DispatchKind = Literal[
     "none",
 ]
 
+
+#: Sort-tier policy. Controls where this manifest sorts among matched
+#: candidates BEFORE source_rank / precedence / specificity. The resolver
+#: maps each tier to an integer rank via
+#: :data:`app.services.file_format_catalog.resolver._TIER_RANK` (Rule #46
+#: META-CANARY exhaustive). Ascending sort, so ceiling wins; floor loses.
+#:
+#: ``ceiling``  → invariants: ALWAYS wins among matched candidates.
+#:                RESERVED to ``manifest_source="_system"`` (schema validator
+#:                + loader path cross-check). No current author — slot
+#:                ships now so future "THIS magic is ALWAYS this format
+#:                regardless of operator override" invariants extend
+#:                mechanically (Rule #25 Shape-1 commit).
+#: ``general``  → default tier — sort by source_rank / precedence /
+#:                specificity per ``_SOURCE_PRECEDENCE``. All ``core`` /
+#:                ``operator`` / ``attested_external`` /
+#:                ``unauthenticated_external`` manifests are general-tier.
+#:                ``_system`` manifests MAY be general (e.g. linux_squashfs).
+#: ``floor``    → sentinel catch-alls: ALWAYS LOSE among matched candidates.
+#:                Today: ``linux_blob_fallback`` only. RESERVED to
+#:                ``manifest_source="_system"``. Per-tier cardinality (today
+#:                1) enforced at catalog load — loosen via Rule #25 Shape-1
+#:                when concrete second-floor use case appears.
+#:
+#: Rule #52 + #46: closed Literal. Adding a tier value requires Rule #25
+#: cross-stack alignment + Rule #46 paired META-CANARY.
+SortTier = Literal["floor", "general", "ceiling"]
+
 #: Plugin binding strategy. Eager → load-time resolution; ImportError fatal at
 #: catalog refresh. Lazy → match-time resolution per ``fallback`` policy.
 #: Default eager (Wave-1 S5 E).
@@ -405,6 +433,17 @@ class Detection(BaseModel):
         description="ONLY the single _system fallback (linux_blob) sets True. "
                     "Loader rejects True if manifest_source != '_system'.",
     )
+    sort_tier: SortTier = Field(
+        default="general",
+        description=(
+            "Sort-tier policy. ``floor`` (RESERVED to _system) sentinels lose "
+            "to all general matches; ``ceiling`` (RESERVED to _system) "
+            "invariants win over all general matches. ``general`` (default) "
+            "sorts by source_rank/precedence/specificity. Schema permits N "
+            "floor manifests (per-tier cardinality enforced at catalog load) "
+            "so per-failure-class sentinels can be added without schema reform."
+        ),
+    )
 
     model_config = ConfigDict(extra="forbid")
 
@@ -420,6 +459,19 @@ class Detection(BaseModel):
             raise ValueError(
                 "detection.always_matches=True permits only signals of kind "
                 "'always_matches'"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_sort_tier_invariants(self) -> "Detection":
+        # always_matches and sort_tier are SEPARATE concepts but correlate:
+        # every always_matches=True manifest is a catch-all sentinel and
+        # MUST sort to the floor. Mis-authored manifests are rejected here.
+        if self.always_matches and self.sort_tier != "floor":
+            raise ValueError(
+                "detection.always_matches=True requires sort_tier='floor' "
+                "(the sentinel catch-all tier reserved for _system); author "
+                "the sentinel with both fields explicit"
             )
         return self
 
@@ -802,6 +854,15 @@ class FileFormatManifest(BaseModel):
                 "linux_blob sentinel (Wave-1 S1 §3)"
             )
 
+        if (self.detection.sort_tier in ("floor", "ceiling")
+                and self.manifest_source != "_system"):
+            raise ValueError(
+                f"detection.sort_tier={self.detection.sort_tier!r} is RESERVED "
+                f"to manifest_source='_system' (P3.2 Wave-2 §SC5 dual): loader "
+                f"path cross-check enforces _system disk tier; this validator "
+                f"catches authoring drift at parse time"
+            )
+
         for sig in self.detection.signals:
             if (sig.kind == "magic_bytes"
                     and sig.bytes_hex
@@ -868,6 +929,7 @@ __all__ = [
     "PreUploadHint",
     "ProvenanceStub",
     "Refinement",
+    "SortTier",
     "TieBreaker",
     "VendorAuthority",
     "VendorPrecedence",

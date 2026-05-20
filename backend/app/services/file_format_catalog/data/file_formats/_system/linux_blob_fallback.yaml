@@ -14,6 +14,7 @@ notes: |
 detection:
   combine: any
   always_matches: true
+  sort_tier: floor
   signals:
     - kind: always_matches
       description: "Catch-all fallback"

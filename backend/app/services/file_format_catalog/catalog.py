@@ -487,29 +487,40 @@ class FormatCatalog:
         for fmt_id in a5_drop:
             by_id.pop(fmt_id, None)
 
-        # Sentinel-cardinality check — only ONE manifest may set
-        # detection.always_matches=True (the _system/linux_blob fallback).
-        always_matches_ids = [
-            fid for fid, m in by_id.items()
-            if m.detection.always_matches
-        ]
-        if len(always_matches_ids) > 1:
-            # Keep the highest-rank _system one; drop the rest.
-            ranked = sorted(
-                always_matches_ids,
-                key=lambda fid: (
-                    -_SOURCE_PRECEDENCE.get(by_id[fid].manifest_source, 0),
-                    -by_id[fid].precedence,
-                    fid,
-                ),
-            )
-            for fid in ranked[1:]:
-                self.last_warning = (
-                    f"sentinel-cardinality: multiple always_matches=True "
-                    f"manifests ({always_matches_ids}); dropping {fid!r}"
+        # Per-tier cardinality check (P3.2.a — replaces the singleton
+        # always_matches check). The schema permits N>=1 manifests per
+        # sort_tier so per-failure-class sentinels can be added; the
+        # CATALOG-LOAD cardinality table caps the count without a schema
+        # reform. Today: floor=1 (linux_blob_fallback ONLY), ceiling=0
+        # (no current author; reserved future slot). Loosen via Rule #25
+        # Shape-1 commit when a concrete second-floor use case appears.
+        _SORT_TIER_MAX_CARDINALITY: dict[str, int] = {
+            "floor": 1,
+            "ceiling": 0,
+        }
+        by_tier: dict[str, list[str]] = {}
+        for fid, m in by_id.items():
+            by_tier.setdefault(m.detection.sort_tier, []).append(fid)
+        for tier, max_count in _SORT_TIER_MAX_CARDINALITY.items():
+            ids = by_tier.get(tier, [])
+            if len(ids) > max_count:
+                # Keep the highest-rank manifest_source; drop the rest.
+                ranked = sorted(
+                    ids,
+                    key=lambda fid: (
+                        -_SOURCE_PRECEDENCE.get(by_id[fid].manifest_source, 0),
+                        by_id[fid].precedence,  # P3.2.a flip: lower wins
+                        fid,
+                    ),
                 )
-                logger.warning("format_catalog: %s", self.last_warning)
-                by_id.pop(fid, None)
+                for fid in ranked[max_count:]:
+                    self.last_warning = (
+                        f"sort-tier cardinality: {tier!r} permits at most "
+                        f"{max_count}; dropping {fid!r} (kept: "
+                        f"{ranked[:max_count]})"
+                    )
+                    logger.warning("format_catalog: %s", self.last_warning)
+                    by_id.pop(fid, None)
 
         return by_id
 

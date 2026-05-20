@@ -216,6 +216,7 @@ def test_list_file_formats_returns_snapshot_id_and_count(_reset_default_catalog)
             "detection": {
                 "combine": "any",
                 "always_matches": True,
+                "sort_tier": "floor",
                 "signals": [{"kind": "always_matches", "description": "fallback"}],
             },
             "output": {

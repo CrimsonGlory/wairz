@@ -446,7 +446,7 @@ def test_always_matches_outside_system_rejects():
 
 
 def test_always_matches_in_system_accepts():
-    """_system + always_matches=True + always_matches signal kind ACCEPTS."""
+    """_system + always_matches=True + sort_tier=floor + always_matches signal ACCEPTS."""
     data = _minimal_manifest_dict()
     data["manifest_source"] = "_system"
     data["precedence"] = 0
@@ -454,9 +454,11 @@ def test_always_matches_in_system_accepts():
         "combine": "all_required",
         "signals": [{"kind": "always_matches"}],
         "always_matches": True,
+        "sort_tier": "floor",  # P3.2.a: always_matches=True requires sort_tier=floor
     }
     m = FileFormatManifest(**data)
     assert m.detection.always_matches is True
+    assert m.detection.sort_tier == "floor"
 
 
 def test_dispatch_none_with_cases_rejects():

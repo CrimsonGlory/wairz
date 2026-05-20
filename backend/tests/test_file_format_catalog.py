@@ -86,11 +86,13 @@ def _minimal_manifest_dict(
 ) -> dict:
     """Minimal valid manifest as a dict."""
     if detection is None:
-        # Default: always_matches (only valid for _system / linux_blob)
+        # Default: always_matches (only valid for _system / linux_blob).
+        # P3.2.a: sort_tier=floor required when always_matches=True.
         if manifest_source == "_system":
             detection = {
                 "combine": "any",
                 "always_matches": True,
+                "sort_tier": "floor",
                 "signals": [{"kind": "always_matches", "description": "any"}],
             }
         else:
@@ -805,7 +807,12 @@ def test_meta_canary_plugin_registry_frozen_after_init_rejects_late_register():
 
 
 def test_meta_canary_only_one_always_matches_manifest_allowed(catalog, tmp_path):
-    """Sentinel cardinality: only ONE always_matches=True manifest in catalog."""
+    """Per-tier cardinality (P3.2.a): only ONE sort_tier=floor manifest allowed.
+
+    Replaces the prior singleton-always_matches check. The new per-tier table
+    in catalog.py caps `floor: 1` and `ceiling: 0` at load time. Loosen via
+    Rule #25 Shape-1 when a concrete second-floor use case appears.
+    """
     system_root = tmp_path / "system"
     sys_dir = system_root / "_system"
     # First sentinel
@@ -817,11 +824,12 @@ def test_meta_canary_only_one_always_matches_manifest_allowed(catalog, tmp_path)
             detection={
                 "combine": "any",
                 "always_matches": True,
+                "sort_tier": "floor",
                 "signals": [{"kind": "always_matches", "description": "a"}],
             },
         ),
     )
-    # Second sentinel — should be dropped
+    # Second sentinel — should be dropped (per-tier cardinality)
     _write_yaml(
         sys_dir / "fallback_b.yaml",
         _minimal_manifest_dict(
@@ -830,6 +838,7 @@ def test_meta_canary_only_one_always_matches_manifest_allowed(catalog, tmp_path)
             detection={
                 "combine": "any",
                 "always_matches": True,
+                "sort_tier": "floor",
                 "signals": [{"kind": "always_matches", "description": "b"}],
             },
         ),
@@ -840,7 +849,7 @@ def test_meta_canary_only_one_always_matches_manifest_allowed(catalog, tmp_path)
     ]
     assert len(sentinels) == 1
     assert catalog.last_warning is not None
-    assert "sentinel-cardinality" in catalog.last_warning
+    assert "sort-tier cardinality" in catalog.last_warning
 
 
 def test_resolver_returns_linux_blob_fallback_when_nothing_else_matches(

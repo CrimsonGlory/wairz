@@ -50,8 +50,16 @@ specific formats (`qcom_mbn`, `mtk_lk`, `samsung_shannon_toc`) and
 
 ## Step 3 — Pick a `precedence`
 
-Lower numbers win. Within the same `manifest_source` tier, sort order
-is:
+**Lower numbers win.** The resolver sorts candidates by
+`(tier_rank, -source_rank, precedence, -specificity, vendor, basename)`
+in ascending order — so `precedence: 50` beats `precedence: 100`.
+This matches the convention documented across all 47 in-tree manifest
+notes (P3.2.a resolver-sort-direction reform, 2026-05-19; prior versions
+of the resolver inverted the comparison, an inconsistency
+[Wave-1 S2 audit](../../.planning/research/file-format-yaml-registry-p32-wave1-S2-precedence-partial-order-2026-05-19.md)
+caught).
+
+Within the same `manifest_source` tier, sort order is:
 
 | Range | When to use |
 |-------|-------------|
@@ -63,6 +71,29 @@ is:
 | 5000-9999 | Negative-evidence formats (PE/MZ at 9000). |
 
 Magic ≤ 2 bytes REQUIRES `precedence >= 5000` — the schema enforces this.
+
+## Step 3b — `detection.sort_tier` (advanced)
+
+Most manifests don't need to touch this — leave it at the default
+`general` and `precedence` carries the ordering. The three values:
+
+| Tier | Reserved to | Semantic | Authored example |
+|------|-------------|----------|-------|
+| `ceiling` | `manifest_source: _system` | Invariants: ALWAYS wins among matched candidates regardless of operator precedence. **No current author** — slot reserved for future "THIS magic is ALWAYS this format" cases. | (none) |
+| `general` | All sources | Default — sort by `source_rank` / `precedence` / `specificity`. | All in-tree `core` / `operator` / `_system` non-sentinel manifests. |
+| `floor` | `manifest_source: _system` | Sentinel catch-alls: ALWAYS LOSE among matched candidates. Today: `_system/linux_blob_fallback.yaml` only. | `_system/linux_blob_fallback.yaml` |
+
+The schema rejects `sort_tier: floor` and `sort_tier: ceiling` from
+non-`_system` sources at parse time. Combined with the
+`detection.always_matches=True ⇒ sort_tier='floor'` cross-field
+validator, the operator cannot author a manifest that demotes the
+sentinel or that wins over invariants. See
+`backend/tests/test_file_format_sort_tier.py` for the regression battery
++ four paired Rule #46 META-CANARIES.
+
+A `_system` manifest MAY use `general` (e.g. `_system/linux_squashfs.yaml`
+declares its detection in normal sort space). The reserved tiers are
+opt-in.
 
 ## Step 4 — Write the YAML
 

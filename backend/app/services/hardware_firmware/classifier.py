@@ -246,6 +246,12 @@ def _classify_via_catalog(path: str, magic: bytes, size: int) -> Classification 
         "linux_squashfs", "linux_cramfs", "linux_jffs2",
         "linux_uboot_uimage",
         "bt_fw_banner", "qcom_mbn_split",
+        # P3.2.a: qcom_mbn YAML doesn't yet express the per-stem category
+        # refinement (`_category_from_qcom_name` maps tz.mbn → tee,
+        # modem.mbn → modem, etc.). Fall through to legacy filename chain
+        # so stem-driven category resolution still runs. A future P3.x
+        # YAML extension (Refinement.stem_category_map) closes the gap.
+        "qcom_mbn",
     }:
         return None
 
@@ -323,98 +329,20 @@ def classify(path: str, magic: bytes, size: int) -> Classification | None:
     lname = name.lower()
     lpath = path.replace(os.sep, "/").lower()
 
-    # 0. Catalog — magic-byte match for the canonical firmware-blob shapes
+    # 0. Catalog — magic-byte match for the canonical firmware-blob shapes.
+    #
+    # P3.2.a: the prior `_legacy_magic_classify` branch was deleted as the
+    # resolver sort-tier reform (sentinels sort LAST via `sort_tier=floor`)
+    # closes the catalog-uncovered shapes. The catalog now returns
+    # mtk_lk / shannon_toc / kinibi_mclf / mtk_preloader / signed_archive /
+    # dtb / dtbo directly because their `core` manifests (general tier)
+    # beat `_system/linux_blob_fallback` (floor tier) in the new sort key.
     catalog_hit = _classify_via_catalog(path, magic, size)
     if catalog_hit is not None:
         return _apply_path_context(lpath, catalog_hit)
 
-    # 0b. Legacy magic-byte path — covers shapes the catalog can't yet
-    # distinguish from the always_matches ``linux_blob`` fallback
-    # (Samsung Shannon TOC + signed_archive are ``core`` manifests at
-    # source_rank 80, outranked by the ``_system`` linux_blob catch-all
-    # at rank 100; the P3.1.h cut-over preserves their semantics via
-    # the legacy magic-byte branch until the always_matches floor
-    # changes in P3.2).
-    legacy_magic = _legacy_magic_classify(magic)
-    if legacy_magic is not None:
-        return _apply_path_context(lpath, legacy_magic)
-
     result = _classify_inner(path, name, lname, lpath, magic)
     return _apply_path_context(lpath, result)
-
-
-def _legacy_magic_classify(magic: bytes) -> Classification | None:
-    """Legacy magic-byte first pass — preserved for catalog-uncovered shapes.
-
-    The catalog handles most magic-byte cases via Step 0; this helper picks
-    up the few formats the catalog can't yet distinguish from its
-    always_matches ``linux_blob`` fallback (Samsung Shannon TOC, Vendor
-    signed_archive, MediaTek LK partition dispatch, Kinibi MCLF, MTK
-    preloader — all ``core``-tier manifests outranked by the ``_system``
-    sentinel under the P3.1.b resolver shape). Mirrors the legacy
-    ``_classify_by_magic`` precedence verbatim.
-    """
-    if len(magic) < 4:
-        return None
-
-    # Device tree blob (flat DTB)
-    if magic[:4] == b"\xd0\x0d\xfe\xed":
-        return Classification("dtb", "unknown", "dtb", "high")
-
-    # Android DTBO container
-    if magic[:4] == b"\xd7\xb7\xab\x1e":
-        return Classification("dtb", "unknown", "dtbo", "high")
-
-    # Samsung Shannon TOC (modem)
-    if magic[:4] == b"TOC\x00":
-        return Classification("modem", "samsung", "shannon_toc", "high")
-
-    # Kinibi MCLF (TrustZone TA — Samsung Exynos or MediaTek)
-    if magic[:4] == b"TRUS":
-        return Classification("tee", "unknown", "kinibi_mclf", "high")
-
-    # MediaTek LK partition record (magic 0x58881688). Dispatch by partition
-    # name → role-specific format (mtk_atf / mtk_geniezone / mtk_tinysys),
-    # else fall back to mtk_lk with the lookup-table category.
-    if magic[:4] == b"\x88\x16\x88\x58":
-        from app.services.hardware_firmware.parsers.mediatek_gfh import (
-            lookup_partition,
-            parse_lk_header,
-        )
-        hdr = parse_lk_header(magic)
-        if hdr is not None and hdr.name:
-            name_lower = hdr.name.lower()
-            dispatch = lookup_partition(hdr.name)
-            if name_lower == "atf":
-                cat = dispatch[0] if dispatch else "tee"
-                return Classification(cat, "mediatek", "mtk_atf", "high")
-            if name_lower == "gz":
-                cat = dispatch[0] if dispatch else "tee"
-                return Classification(cat, "mediatek", "mtk_geniezone", "high")
-            if (
-                name_lower in ("scp", "sspm", "mcupm", "dpm", "spmfw")
-                or name_lower.startswith("tinysys")
-            ):
-                cat = dispatch[0] if dispatch else "mcu"
-                return Classification(cat, "mediatek", "mtk_tinysys", "high")
-            if dispatch is not None:
-                category, _component = dispatch
-                return Classification(category, "mediatek", "mtk_lk", "high")
-        return Classification("bootloader", "mediatek", "mtk_lk", "high")
-
-    # MediaTek preloader: MMM\x01 header, second byte 0x38
-    if len(magic) >= 5 and magic[:4] == b"MMM\x01" and magic[4] == 0x38:
-        return Classification("bootloader", "mediatek", "mtk_preloader", "high")
-
-    # Linux ARM zImage: magic 0x016F2818 at offset 0x24
-    if len(magic) >= 0x28 and magic[0x24:0x28] == b"\x18\x28\x6f\x01":
-        return Classification("kernel", "unknown", "zImage", "high")
-
-    # Vendor signed archive
-    if magic[:4] == b"\xa3\xdf\xbb\xbf":
-        return Classification("other", "unknown", "signed_archive", "medium")
-
-    return None
 
 
 def _classify_inner(

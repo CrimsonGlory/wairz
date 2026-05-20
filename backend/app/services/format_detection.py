@@ -229,17 +229,31 @@ def detect_format(path: Path | str) -> DetectedFormat:
     # Skip the always_matches sentinel + generic-container shapes — these
     # need the legacy bridge below to disambiguate via inner-file walks
     # (ZIP central directory + ISO bootmgr substring + Acronis extension
-    # fallback). The catalog has no inner-content signal evaluator yet.
+    # fallback) and the UNKNOWN-for-genuinely-unrecognized semantic that
+    # pre-upload distinguishes from "linux blob with unknown magic" that
+    # the catalog's floor sentinel always matches.
+    #
+    # P3.2.a — sort-tier reform CLOSED the catalog-uncovered shapes for
+    # the classifier path (mtk_lk / shannon_toc / kinibi_mclf / etc. now
+    # resolve via the catalog directly because their `core` general-tier
+    # manifests beat `_system/linux_blob_fallback` at floor tier). But for
+    # the PRE-UPLOAD detect_format() path, ``linux_blob`` remains in the
+    # disambiguation set so the legacy bridge can convert "sentinel-only
+    # match" into UNKNOWN, matching pre-upload UX expectations.
+    #
+    # P3.2.d (deferred): the container-precedence numeric inversions
+    # (windows_cab vs windows_msu; iso_9660 vs windows_installer_iso) are
+    # auto-resolved by P3.2.a's `precedence` sort-flip — author intent of
+    # "lower precedence wins" now matches resolver behavior. ``windows_cab``
+    # + ``iso_9660`` will drop from this set after P3.2.d's parity test
+    # re-verification.
     _CATALOG_NEEDS_DISAMBIGUATION: set[str] = {
-        "linux_blob",         # always_matches sentinel
-        "zip_archive",        # needs APK / OTA / MSIX inner-file walk
-        "iso_9660",           # needs bootmgr substring upgrade to installer
-        "tar_archive",        # may need extension fallback for renamed tars
-        # P3.1.b sentinel-tier defect: windows_cab (precedence 100) outranks
-        # windows_msu (80) at the resolver, but the legacy detect_format
-        # promotes MSU via the `.msu` filename. Bridge first so the .msu
-        # extension hint fires before falling through to CAB.
-        "windows_cab",
+        "linux_blob",            # floor sentinel — bridge maps to UNKNOWN for pre-upload
+        "zip_archive",           # needs APK / OTA / MSIX inner-file walk
+        "iso_9660",              # bootmgr substring upgrade lives in legacy bridge
+        "windows_installer_iso", # P3.2.a flip exposed lack of bootmgr signal; bridge disambiguates
+        "tar_archive",           # may need extension fallback for renamed tars
+        "windows_cab",           # P3.2.d will re-verify post-flip
     }
     match = _catalog_resolve(head, str(p), size)
     if match is not None and match.format_id not in _CATALOG_NEEDS_DISAMBIGUATION:

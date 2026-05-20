@@ -34,6 +34,7 @@ from app.schemas.file_format import (
     FileFormatManifest,
     FormatMatch,
     ManifestSource,
+    SortTier,
 )
 from app.services.file_format_catalog.snapshot import FormatCatalogSnapshot
 
@@ -53,6 +54,16 @@ _SOURCE_PRECEDENCE: dict[ManifestSource, int] = {
     "operator": 60,
     "attested_external": 40,
     "unauthenticated_external": 20,
+}
+
+
+#: Sort-tier rank — outermost dimension of the resolver sort key. Ascending
+#: sort, so ceiling=0 wins; floor=2 loses. Rule #46 META-CANARY enforces
+#: exhaustive coverage against :data:`SortTier`. P3.2.a.
+_TIER_RANK: dict[SortTier, int] = {
+    "ceiling": 0,
+    "general": 1,
+    "floor":   2,
 }
 
 
@@ -505,6 +516,44 @@ def _rule_specificity(manifest: FileFormatManifest) -> int:
     return n
 
 
+def _compute_sort_key(manifest: FileFormatManifest) -> tuple:
+    """Total-order sort key for resolver candidate ranking. P3.2.a.
+
+    Tuple shape (ascending sort):
+
+        (tier_rank, -source_rank, precedence, -specificity, vendor, basename)
+
+    * **tier_rank** (outermost) — closed-Literal sort-tier policy declared
+      per-manifest in YAML (Rule #52). ``ceiling`` (0) wins over ``general``
+      (1) wins over ``floor`` (2). Reserved to ``_system`` for ceiling +
+      floor via schema validator + loader path cross-check.
+    * **-source_rank** — ``_SOURCE_PRECEDENCE`` rank. Scout GG §SC5 dual /
+      Wave-1 S5 H: manifest_source rank ALWAYS outranks numeric precedence
+      within a tier. Operator at precedence=N STILL beats
+      unauthenticated_external at precedence=N (within tier).
+    * **precedence** — numeric. **P3.2.a FLIP**: lower precedence wins
+      (matches AUTHORING.md author intent across all 47 manifests; S2
+      audit found 14 inversions caused by the prior `-precedence` shape).
+    * **-specificity** — within tied precedence, more-specific manifest
+      (more signals + dispatch cases + refinement substrings) wins.
+    * **vendor / basename** — lex tie-break for stable ordering.
+
+    Extracted into a named helper so the Rule #46 META-CANARY can AST-walk
+    a single function body (P3.1.c lesson — scope source scanners narrowly).
+    """
+    tier_rank = _TIER_RANK[manifest.detection.sort_tier]
+    source_rank = _SOURCE_PRECEDENCE.get(manifest.manifest_source, 0)
+    specificity = _rule_specificity(manifest)
+    return (
+        tier_rank,                # P3.2.a outermost — closed-Literal tier
+        -source_rank,             # within tier: _SOURCE_PRECEDENCE rank desc
+        manifest.precedence,      # P3.2.a FLIP — lower precedence wins
+        -specificity,             # then specificity desc
+        manifest.vendor.lower(),  # lex tie-break
+        os.path.basename(manifest.source_path or "").lower(),
+    )
+
+
 def resolve(
     blob_head: bytes,
     path: str,
@@ -517,9 +566,9 @@ def resolve(
     Wave-1 S5 B HIGH stop-the-line: first-match was the bug shape. Collect
     EVERY matching manifest, sort by total-order tuple, return the TOP-1.
 
-    Total-order key (descending):
-        (manifest_source_rank, precedence, rule_specificity,
-         -vendor_lex_asc, -filename_lex_asc)
+    Total-order key is computed by :func:`_compute_sort_key` (P3.2.a — the
+    sort-key construction is extracted into a named helper so Rule #46
+    META-CANARIES can AST-walk a single function body).
 
     Dispatch chain is followed up to ``manifest.dispatch.depth_max`` (default 2);
     cycle detection rejects with WARN.
@@ -536,16 +585,7 @@ def resolve(
         )
         if not matched:
             continue
-        source_rank = _SOURCE_PRECEDENCE.get(manifest.manifest_source, 0)
-        specificity = _rule_specificity(manifest)
-        # Sort descending (rank, precedence, specificity); ascending vendor +
-        # filename for stable tie-break. We negate by transforming to "max
-        # heap" sort key via tuples of (rank, prec, spec, neg_vendor, neg_fn).
-        sort_key = (
-            -source_rank, -manifest.precedence, -specificity,
-            manifest.vendor.lower(),
-            os.path.basename(manifest.source_path or "").lower(),
-        )
+        sort_key = _compute_sort_key(manifest)
         candidates.append((sort_key, manifest, evidence, score))
     if not candidates:
         return None
