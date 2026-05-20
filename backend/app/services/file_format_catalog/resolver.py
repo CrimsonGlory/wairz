@@ -82,6 +82,7 @@ _SIGNAL_COST_CLASS: dict[DetectionSignalKind, int] = {
     "pe_check": 1,
     "text_format": 1,
     "magic_bytes": 2,
+    "substring_in_head": 2,       # bounded literal substring scan over head
     "zip_markers": 3,
     "tar_markers": 3,
     "rtos_check": 3,
@@ -353,6 +354,42 @@ def _eval_magic_bytes(
     return actual == expected
 
 
+def _eval_substring_in_head(
+    signal: DetectionSignal, blob_head: bytes, path: str, size: int,
+) -> bool:
+    """Match literal byte needles inside a bounded head-byte window.
+
+    Closed-grammar evaluator. Each ``needle`` is a hex-encoded literal
+    byte sequence (validated by :class:`SubstringInHeadConstraint`). The
+    evaluator decodes once, optionally lowercases (case_sensitive=False),
+    and runs ``needle in window`` for each needle. ``combine='all'``
+    requires every needle to be present; ``combine='any'`` requires at
+    least ``min_count`` of N needles to be present. P3.x 2026-05-20.
+    """
+    constraint = signal.substring_in_head_constraint
+    if constraint is None:
+        return False
+    try:
+        needles = [bytes.fromhex(n) for n in constraint.needles_hex]
+    except ValueError:
+        return False
+    start = constraint.search_offset
+    if start >= len(blob_head):
+        return False
+    if constraint.search_length is None:
+        window = blob_head[start:]
+    else:
+        window = blob_head[start:start + constraint.search_length]
+    if not constraint.case_sensitive:
+        window = window.lower()
+        needles = [n.lower() for n in needles]
+    hits = sum(1 for needle in needles if needle in window)
+    if constraint.combine == "all":
+        return hits == len(needles)
+    # combine == "any" — at least min_count of N needles present.
+    return hits >= constraint.min_count
+
+
 def _eval_zip_markers(
     signal: DetectionSignal, blob_head: bytes, path: str, size: int,
 ) -> bool:
@@ -511,6 +548,7 @@ SIGNAL_EVALUATORS: dict[DetectionSignalKind, _SignalEvaluator] = {
     "pe_check": _eval_pe_check,
     "text_format": _eval_text_format,
     "magic_bytes": _eval_magic_bytes,
+    "substring_in_head": _eval_substring_in_head,
     "zip_markers": _eval_zip_markers,
     "tar_markers": _eval_tar_markers,
     "rtos_check": _eval_rtos_check,

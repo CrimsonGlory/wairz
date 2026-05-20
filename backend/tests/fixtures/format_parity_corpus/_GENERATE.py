@@ -54,8 +54,14 @@ _FIXTURES: dict[str, bytes] = {
     "windows_msu":           b"MSCF",                         # CAB + .msu (filename signal)
     "windows_msi":           bytes.fromhex("d0cf11e0a1b11ae1"),  # OLE2
     # Container family — magic at non-zero offsets
-    "iso_9660":              b"\x00" * 0x8001 + b"CD001",     # ISO at offset 0x8001
-    "windows_installer_iso": b"\x00" * 0x8001 + b"CD001",     # same magic; filename disambig
+    "iso_9660":              b"\x00" * 0x8001 + b"CD001",     # ISO at offset 0x8001 (bare)
+    # windows_installer_iso: CD001 magic + bootmgr substring (substring_in_head
+    # signal). bootmgr at offset 0x100 (catalog substring_in_head_constraint
+    # scans the whole head from offset 0). P3.x 2026-05-20.
+    "windows_installer_iso": (
+        b"\x00" * 0x100 + b"bootmgr" + b"\x00" * (0x8001 - 0x100 - 7)
+        + b"CD001"
+    ),
     "tar_archive":           b"\x00" * 0x101 + b"ustar",      # tar 'ustar' at 0x101
     # Misc
     "qnx_ifs":               bytes.fromhex("00ff7eeb"),       # QNX IFS

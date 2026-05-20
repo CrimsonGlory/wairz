@@ -65,11 +65,11 @@ _HEAD_BYTES_INSUFFICIENT: set[str] = {
     "qcom_mbn",               # ELF magic — multiple manifests at same offset
     "signed_archive",         # 4-byte magic + filename signal
     "linux_blob",             # catch-all — only matches when nothing else does
-    # Container-precedence ambiguity (catalog quirk):
-    # iso_9660 (precedence=200) outranks windows_installer_iso (100) — the
-    # legacy ``detect_format`` upgrades on bootmgr substring, but catalog
-    # has no such signal. Skipped to keep the head-byte loop deterministic.
-    "windows_installer_iso",
+    # P3.x 2026-05-20: windows_installer_iso REMOVED from this set — the
+    # new ``substring_in_head`` signal kind lets the catalog distinguish
+    # bootmgr-bearing installer ISOs from bare ISO-9660 cleanly via head
+    # bytes alone (CD001 magic at 0x8001 + bootmgr substring earlier in
+    # head). Corpus fixture extended with bootmgr at offset 0x100.
     # P3.1.b sentinel-tier defect: ``core``-tier vendor manifests
     # (samsung_shannon_toc, mtk_lk, mtk_preloader, kinibi_mclf etc.) are
     # outranked by the ``_system``-tier ``linux_blob`` always_matches

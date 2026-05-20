@@ -247,15 +247,24 @@ def detect_format(path: Path | str) -> DetectedFormat:
     # "lower precedence wins" now matches resolver behavior. ``windows_cab``
     # + ``iso_9660`` will drop from this set after P3.2.d's parity test
     # re-verification.
+    #
+    # P3.x 2026-05-20: ``substring_in_head`` signal kind ships — the
+    # catalog now expresses the bootmgr substring upgrade in YAML
+    # (windows_installer_iso.yaml signal #2). Both ``iso_9660`` and
+    # ``windows_installer_iso`` drop from this set; the legacy
+    # ``_legacy_bridge_detect`` bootmgr upgrade block is deleted in the
+    # same commit. ``windows_cab`` stays only because the legacy bridge
+    # disambiguates .msu vs .cab via filename (Rule #19 evidence-first
+    # — defer until a per-filename refinement signal lands).
     _CATALOG_NEEDS_DISAMBIGUATION: set[str] = {
         "linux_blob",            # floor sentinel — bridge maps to UNKNOWN for pre-upload
         "zip_archive",           # needs APK / OTA / MSIX inner-file walk
-        "iso_9660",              # bootmgr substring upgrade lives in legacy bridge
-        "windows_installer_iso", # P3.2.a flip exposed lack of bootmgr signal; bridge disambiguates
         "tar_archive",           # may need extension fallback for renamed tars
         # P3.2.d: windows_cab dropped — post-P3.2.a precedence-flip, the
         # catalog correctly routes .msu files to windows_msu (precedence 80
         # wins over windows_cab at 100). Verified via parity tests.
+        # P3.x 2026-05-20: iso_9660 + windows_installer_iso dropped — the
+        # new ``substring_in_head`` signal kind closes the bootmgr bridge.
     }
     match = _catalog_resolve(head, str(p), size)
     if match is not None and match.format_id not in _CATALOG_NEEDS_DISAMBIGUATION:
@@ -282,9 +291,6 @@ def _legacy_bridge_detect(head: bytes, p: Path, size: int) -> DetectedFormat:
 
     These paths exist because:
 
-    * **windows_installer_iso** — needs ``bootmgr`` substring inside the head
-      to disambiguate from generic iso_9660; catalog has no "head contains
-      substring X" signal evaluator yet.
     * **windows_msi** — needs ``.msi`` / ``.msp`` filename PLUS OLE2 magic;
       filename signal in catalog is fine, but catalog's always_matches
       sentinel still outranks ``_system`` MSI at source-rank tie.
@@ -295,6 +301,10 @@ def _legacy_bridge_detect(head: bytes, p: Path, size: int) -> DetectedFormat:
     All paths preserve the pre-P3.1.h detect_format behavior captured
     by the test_format_detection suite (legacy module deleted in
     P3.3.a 2026-05-19).
+
+    P3.x 2026-05-20: the ``windows_installer_iso`` bootmgr-substring upgrade
+    moved into the catalog as a ``substring_in_head`` signal — the legacy
+    ISO bridge below is deleted in this commit.
     """
     if len(head) >= 4:
         magic4 = head[:4]
@@ -337,15 +347,10 @@ def _legacy_bridge_detect(head: bytes, p: Path, size: int) -> DetectedFormat:
         if head[:4] in (b"\xeb\x7e\xff\x7e", b"\x00\xff\x7e\xeb"):
             return DetectedFormat.QNX_IFS
 
-    if len(head) >= 0x8006 and head[0x8001:0x8006] == b"CD001":
-        head_lower = head.lower()
-        if (
-            b"bootmgr" in head_lower
-            or b"sources/boot.wim" in head_lower
-            or b"sources\\boot.wim" in head_lower
-        ):
-            return DetectedFormat.WINDOWS_INSTALLER_ISO
-        return DetectedFormat.ISO_9660
+    # P3.x 2026-05-20: ISO-9660 + Windows installer ISO disambiguation
+    # moved into the catalog (windows_installer_iso.yaml signal #2 uses
+    # ``substring_in_head`` for bootmgr / sources/boot.wim). Catalog
+    # round-trip handles both formats — no legacy bridge needed.
 
     if head.startswith(b"MZ") and len(head) >= 0x40:
         try:

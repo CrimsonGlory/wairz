@@ -7,11 +7,18 @@ category: windows_installer_iso
 vendor: microsoft
 confidence: high
 notes: |
-  Windows installer ISO (an ISO-9660 image carrying
-  sources/boot.wim plus bootmgr.efi). Precedence 100 beats generic
-  ISO-9660 (200) so installer ISOs classify first via the inner-
-  file marker; bare ISO-9660 images fall through to the generic
-  iso_9660 manifest.
+  Windows installer ISO (an ISO-9660 image carrying sources/boot.wim plus
+  bootmgr.efi). Precedence 100 beats generic ISO-9660 (200) when BOTH
+  signals fire (CD001 magic + bootmgr-or-sources substring in head); bare
+  ISO-9660 images miss the substring signal and fall through to the generic
+  iso_9660 manifest cleanly via combine=all_required.
+
+  P3.x 2026-05-20: ``substring_in_head`` signal closes the prior bridge —
+  the catalog now distinguishes bootmgr-bearing installer ISOs from bare
+  ISO-9660 without the legacy ``_legacy_bridge_detect`` bootmgr substring
+  upgrade. ``windows_installer_iso`` and ``iso_9660`` both drop from
+  ``_CATALOG_NEEDS_DISAMBIGUATION``.
+
   References:
     https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-installation-process
 detection:
@@ -21,9 +28,20 @@ detection:
       offset: 32769
       bytes_hex: "4344303031"
       description: "'CD001' — ISO-9660 primary-volume-descriptor magic"
-    - kind: filename
-      extensions_lower: [".iso", ".img"]
-      description: ".iso / .img extension hint"
+    - kind: substring_in_head
+      substring_in_head_constraint:
+        # Lowercase hex of "bootmgr" / "sources/boot.wim" / "sources\boot.wim".
+        # case_sensitive=False so the search matches "BOOTMGR" / "BootMgr"
+        # / etc. (legacy bridge used a head_lower scan). combine=any +
+        # min_count=1 mirrors the prior `or` chain.
+        needles_hex:
+          - "626f6f746d6772"                              # 'bootmgr'
+          - "736f75726365732f626f6f742e77696d"            # 'sources/boot.wim'
+          - "736f75726365735c626f6f742e77696d"            # 'sources\\boot.wim'
+        case_sensitive: false
+        combine: any
+        min_count: 1
+      description: "bootmgr / sources/boot.wim substring in head — Windows installer marker"
 output:
   classifier_format: windows_installer_iso
   classifier_category: windows_installer_iso

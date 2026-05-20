@@ -151,8 +151,14 @@ Combine = Literal["all_required", "any", "weighted"]
 #: Cost-class groupings (resolver constant ``_SIGNAL_COST_CLASS``):
 #:    zero:      filename, path_context, size_range
 #:    cheap:     elf_check, intel_hex_check, pe_check, text_format
-#:    mid:       magic_bytes (≤512 bytes head read)
+#:    mid:       magic_bytes, substring_in_head (≤512 bytes head read)
 #:    expensive: zip_markers, tar_markers, rtos_check
+#:
+#: P3.x (2026-05-20): ``substring_in_head`` ships closed-grammar literal
+#: substring search over head bytes. Closes the windows_installer_iso +
+#: iso_9660 bridge case (legacy ``_legacy_bridge_detect`` bootmgr upgrade)
+#: by giving the catalog a "head contains needle X" signal — operator-
+#: extensible via :class:`SubstringInHeadConstraint`, NO regex.
 DetectionSignalKind = Literal[
     "filename",
     "path_context",
@@ -162,6 +168,7 @@ DetectionSignalKind = Literal[
     "pe_check",
     "text_format",
     "magic_bytes",
+    "substring_in_head",
     "zip_markers",
     "tar_markers",
     "rtos_check",
@@ -424,6 +431,126 @@ class TextFormatConstraint(BaseModel):
         return self
 
 
+#: Combine policy for substring_in_head needles.
+#: ``any`` — match when any single needle is present (legacy bootmgr OR
+#: sources/boot.wim semantic).
+#: ``all`` — match only when EVERY needle is present (stricter co-presence
+#: invariants — e.g. "both vendor-string AND product-string appear").
+SubstringInHeadCombine = Literal["any", "all"]
+
+
+class SubstringInHeadConstraint(BaseModel):
+    """Closed-grammar substring-in-head detection constraint set (P3.x 2026-05-20).
+
+    Operators add new "head contains literal byte sequence X" detection
+    paths (Windows installer ISO bootmgr substring; UEFI capsule GUID
+    string in PE rsrc; vendor-specific banners in compressed-then-zeroed
+    head regions) by authoring a YAML manifest with a ``substring_in_head``
+    signal carrying a ``substring_in_head_constraint`` block — NO Python
+    code change.
+
+    The evaluator at
+    :func:`app.services.file_format_catalog.resolver._eval_substring_in_head`
+    is the single consumer; it scans the configured head window for the
+    declared needles using literal ``bytes.__contains__`` lookups. Rule
+    #46 META-CANARY ``test_meta_canary_substring_in_head_evaluator_uses_declared_needles_not_hardcoded``
+    AST-walks the evaluator body and forbids hardcoded byte literals —
+    every byte the evaluator searches for MUST come from a needle on this
+    model.
+
+    Hard rule (Rule #52): NO regex / script / template / eval / lua / vql
+    / predicate / expression. Every needle is a literal hex-encoded byte
+    sequence. The case_sensitive flag toggles a ``bytes.lower()`` pre-
+    normalization; it does NOT enable any matching DSL.
+    """
+
+    needles_hex: list[str] = Field(
+        min_length=1, max_length=16,
+        description="Lowercase hex-encoded byte needles. Each entry: even "
+                    "length, min 2 bytes (4 hex chars), max 64 bytes (128 "
+                    "hex chars). 16-needle max bounds evaluator cost class "
+                    "(Wave-1 S5 attack O — I/O cost amplification floor). "
+                    "Literal verbatim substring search; NO regex.",
+    )
+    case_sensitive: bool = Field(
+        default=False,
+        description="When False (default), evaluator lower-cases the head "
+                    "window AND the needles before comparison — ASCII bytes "
+                    "only; non-ASCII bytes pass through unchanged. When True, "
+                    "exact byte match. False matches the legacy bootmgr "
+                    "substring upgrade semantic.",
+    )
+    combine: SubstringInHeadCombine = Field(
+        default="any",
+        description="``any`` — match when at least ``min_count`` needles "
+                    "are present (default 1 of N). ``all`` — match only "
+                    "when EVERY needle is present (overrides min_count). "
+                    "``any`` is the common case; ``all`` is for "
+                    "co-presence invariants.",
+    )
+    min_count: int = Field(
+        default=1, ge=1, le=16,
+        description="Minimum needle hits required when combine='any'. "
+                    "Ignored when combine='all' (all needles required). "
+                    "Operator can require ``2 of 5`` shape evidence for "
+                    "weaker individual signals. min_count<=len(needles_hex) "
+                    "enforced by validator.",
+    )
+    search_offset: int = Field(
+        default=0, ge=0, le=2**16,
+        description="Byte offset where the head-window search starts. "
+                    "Default 0 (start of head). Bounded at 64KB so the "
+                    "search window stays within the resolver's HEAD_BYTES "
+                    "buffer for any reasonable read size.",
+    )
+    search_length: int | None = Field(
+        default=None, ge=64, le=2**20,
+        description="Length of the head window to scan. None (default) "
+                    "scans from ``search_offset`` to end of available head "
+                    "bytes. Capped at 1 MB so a hostile operator can't "
+                    "request unbounded scans. The resolver passes a "
+                    "blob_head buffer of bounded size — declaring more "
+                    "doesn't actually read more.",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _check_needles(self) -> "SubstringInHeadConstraint":
+        for i, needle in enumerate(self.needles_hex):
+            if len(needle) % 2 != 0:
+                raise ValueError(
+                    f"substring_in_head_constraint.needles_hex[{i}]: "
+                    f"odd hex length {len(needle)} (not byte-aligned)"
+                )
+            if len(needle) < 4:
+                raise ValueError(
+                    f"substring_in_head_constraint.needles_hex[{i}]: "
+                    f"min 2 bytes (4 hex chars); got {len(needle)} chars. "
+                    "Single-byte needles match too much; use magic_bytes "
+                    "for offset-pinned 1-byte sentinels (Wave-1 S5 attack O)."
+                )
+            if len(needle) > 128:
+                raise ValueError(
+                    f"substring_in_head_constraint.needles_hex[{i}]: "
+                    f"max 64 bytes (128 hex chars); got {len(needle)} chars"
+                )
+            try:
+                bytes.fromhex(needle)
+            except ValueError as exc:
+                raise ValueError(
+                    f"substring_in_head_constraint.needles_hex[{i}]: "
+                    f"invalid hex: {exc}"
+                ) from exc
+        if self.min_count > len(self.needles_hex):
+            raise ValueError(
+                f"substring_in_head_constraint: min_count="
+                f"{self.min_count} > len(needles_hex)="
+                f"{len(self.needles_hex)} — impossible to satisfy"
+            )
+        return self
+
+
 class DetectionSignal(BaseModel):
     """One detection signal — closed kinds, cost-sorted at evaluation.
 
@@ -481,6 +608,15 @@ class DetectionSignal(BaseModel):
         description="Closed-grammar text-format constraint set. REQUIRED "
                     "when kind == 'text_format'; rejected otherwise. "
                     "Wave-1 S4 closure of the P3.1 _eval_text_format stub.",
+    )
+
+    # substring_in_head (P3.x 2026-05-20)
+    substring_in_head_constraint: SubstringInHeadConstraint | None = Field(
+        default=None,
+        description="Closed-grammar substring-in-head constraint set. "
+                    "REQUIRED when kind == 'substring_in_head'; rejected "
+                    "otherwise. Closes the legacy ``_legacy_bridge_detect`` "
+                    "bootmgr substring upgrade for windows_installer_iso.",
     )
 
     description: str | None = Field(default=None, max_length=256)
@@ -559,6 +695,19 @@ class DetectionSignal(BaseModel):
             raise ValueError(
                 f"text_format_constraint set but kind={self.kind!r} "
                 "— constraint only meaningful for kind='text_format'"
+            )
+        # P3.x 2026-05-20: substring_in_head ⇔ substring_in_head_constraint
+        if (self.kind == "substring_in_head"
+                and self.substring_in_head_constraint is None):
+            raise ValueError(
+                "substring_in_head signal: substring_in_head_constraint "
+                "is REQUIRED (closed-grammar evaluator)"
+            )
+        if (self.substring_in_head_constraint is not None
+                and self.kind != "substring_in_head"):
+            raise ValueError(
+                f"substring_in_head_constraint set but kind={self.kind!r} "
+                "— constraint only meaningful for kind='substring_in_head'"
             )
         return self
 
@@ -1101,6 +1250,8 @@ __all__ = [
     "ProvenanceStub",
     "Refinement",
     "SortTier",
+    "SubstringInHeadCombine",
+    "SubstringInHeadConstraint",
     "TextFormatCharset",
     "TextFormatConstraint",
     "TextFormatFirstLine",
