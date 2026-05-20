@@ -4,11 +4,12 @@ import asyncio
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.rate_limit import TIER_A_HEAVY, limiter
 from app.models.attack_surface import AttackSurfaceEntry
 from app.models.finding import Finding
 from app.routers.deps import resolve_firmware as _resolve_firmware
@@ -63,7 +64,9 @@ async def list_attack_surface_entries(
 
 
 @router.post("/scan", response_model=AttackSurfaceScanResponse)
+@limiter.limit(TIER_A_HEAVY)
 async def trigger_attack_surface_scan(
+    request: Request,
     project_id: uuid.UUID,
     body: AttackSurfaceScanRequest | None = None,
     firmware=Depends(_resolve_firmware),

@@ -13,7 +13,9 @@ import os
 import uuid
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+
+from app.rate_limit import TIER_A_HEAVY, limiter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -198,7 +200,9 @@ def _find_apk_in_firmware(extracted_path: str, apk_path: str) -> str:
 
 
 @router.post("/manifest", response_model=ManifestScanResponse)
+@limiter.limit(TIER_A_HEAVY)
 async def scan_apk_manifest_endpoint(
+    request: Request,
     project_id: uuid.UUID,
     firmware_id: uuid.UUID,
     apk_path: str = Query(
@@ -462,7 +466,9 @@ async def _persist_rest_manifest_findings(
 
 
 @router.post("/bytecode", response_model=BytecodeScanResponse)
+@limiter.limit(TIER_A_HEAVY)
 async def scan_apk_bytecode_endpoint(
+    request: Request,
     project_id: uuid.UUID,
     firmware_id: uuid.UUID,
     apk_path: str = Query(
@@ -639,7 +645,9 @@ def _build_firmware_context_response(
 
 
 @router.post("/sast", response_model=SastScanResponse)
+@limiter.limit(TIER_A_HEAVY)
 async def scan_apk_sast_endpoint(
+    request: Request,
     project_id: uuid.UUID,
     firmware_id: uuid.UUID,
     apk_path: str = Query(

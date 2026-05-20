@@ -58,6 +58,18 @@ _EXPECTED_TIERS: dict[tuple[str, str], str] = {
     # Rule #52 Phase 2 — bare-metal-hint external-ingestor endpoint (2026-05-19).
     # Sub-second ACK + detached walker fire = TIER_A_LIGHT_ACK per Rule #51.
     ("app/routers/bare_metal.py", r'@router\.post\(\s*\n?\s*"/bare-metal-hint"'): "TIER_A_LIGHT_ACK",
+    # ratelimit scout1 (2026-05-19) — CPU-bound sync static-analysis +
+    # diff endpoints. Synchronous heavy work = TIER_A_HEAVY (5/hour).
+    # 3 APK scan + 5 comparison + 1 attack-surface = 9 endpoints.
+    ("app/routers/apk_scan.py", r'@router\.post\("/manifest"'): "TIER_A_HEAVY",
+    ("app/routers/apk_scan.py", r'@router\.post\("/bytecode"'): "TIER_A_HEAVY",
+    ("app/routers/apk_scan.py", r'@router\.post\("/sast"'): "TIER_A_HEAVY",
+    ("app/routers/comparison.py", r'@router\.post\("/firmware"'): "TIER_A_HEAVY",
+    ("app/routers/comparison.py", r'@router\.post\("/binary"'): "TIER_A_HEAVY",
+    ("app/routers/comparison.py", r'@router\.post\("/text"'): "TIER_A_HEAVY",
+    ("app/routers/comparison.py", r'@router\.post\("/instructions"'): "TIER_A_HEAVY",
+    ("app/routers/comparison.py", r'@router\.post\("/decompilation"'): "TIER_A_HEAVY",
+    ("app/routers/attack_surface.py", r'@router\.post\("/scan"'): "TIER_A_HEAVY",
 }
 
 
@@ -117,12 +129,11 @@ def test_expected_tiers_count_size_locked():
     """Pin the count of documented expensive POSTs so adding a new
     rate-limited endpoint without updating this test fails loudly.
 
-    Current count: 11 (security-audit, cve-match, unpack, dumps,
-    sbom-generate, vuln-scan, authenticode-chain, fuzzing-start,
-    emulation-start, emulation-system, bare-metal-hint).
+    Current count: 20 (11 prior + 9 from scout1: 3 apk_scan + 5
+    comparison + 1 attack_surface).
     """
-    assert len(_EXPECTED_TIERS) == 11, (
-        f"_EXPECTED_TIERS count drift: expected 11, got {len(_EXPECTED_TIERS)}. "
+    assert len(_EXPECTED_TIERS) == 20, (
+        f"_EXPECTED_TIERS count drift: expected 20, got {len(_EXPECTED_TIERS)}. "
         "Adding a rate-limited endpoint? Update this assertion + the dict above."
     )
 
