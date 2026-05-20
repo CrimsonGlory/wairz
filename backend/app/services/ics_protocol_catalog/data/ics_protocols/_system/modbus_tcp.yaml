@@ -1,0 +1,112 @@
+# yaml-language-server: $schema=../../.schema.json
+# Modbus/TCP firmware-embedded protocol-stack detector.
+#
+# Three signals combine (all_required) for a high-confidence detection:
+#   1. ASCII string "Modbus" appearing in the binary's head window
+#      (libmodbus copyright string, Modbus client/server module strings).
+#   2. The Modbus/TCP IANA-assigned default port 502 (0x01F6) appearing
+#      as a little-endian uint16 constant somewhere in the head.
+#   3. The Modbus function-code lookup table — at least 4 of the
+#      standard Modbus FCs (0x01 read coils, 0x02 read discrete inputs,
+#      0x03 read holding regs, 0x04 read input regs, 0x05 write single coil,
+#      0x06 write single register, 0x0F write multiple coils, 0x10 write
+#      multiple registers) appearing within a 512-byte window.
+#
+# Session 1 v0 baseline — when Session 2 ships the walker + ELF/PE symtab
+# plugins, this manifest will gain a `library_symbol` signal targeting
+# `modbus_new_*` / `mb_mapping_*` SONAME imports for high-confidence
+# attribution. Until then the 3 signals above provide PARSE-ONLY
+# (Rule #45) static-analysis identification.
+#
+# References:
+#   - Modbus Application Protocol Specification V1.1b3 (modbus.org)
+#   - IANA Service Name & Transport Protocol Port Number Registry
+#     (port 502 / tcp = mbap "Modbus Protocol")
+#   - libmodbus project (https://github.com/stephane/libmodbus)
+schema_version: 1
+manifest_id: modbus_tcp_v0_system
+manifest_source: _system
+precedence: 5
+detection:
+  combine: all_required
+  certainty: stack_present
+  signals:
+    - kind: string_in_binary
+      description: "'Modbus' / 'MBAP' / 'libmodbus' ASCII banner in head window"
+      string_in_binary_constraint:
+        # Lowercase hex of "Modbus" / "MBAP" / "libmodbus" — three needles,
+        # combine=any with min_count=1. Mirrors the Wave-1 Scout B suggested
+        # ASCII banner set; W2-β §SC5-NEW-ICS-2 mitigation: not the SOLE
+        # signal — paired with port + function-code in all_required combine.
+        needles_hex:
+          - "4d6f64627573"                          # 'Modbus'
+          - "4d424150"                              # 'MBAP'
+          - "6c69626d6f64627573"                    # 'libmodbus'
+        case_sensitive: false
+        combine: any
+        min_count: 1
+    - kind: port_signature
+      description: "IANA-assigned Modbus/TCP port 502"
+      ports: [502]
+      transport_required: tcp
+    - kind: function_code_set
+      description: "Modbus standard function-code lookup table"
+      function_code_constraint:
+        # Modbus standard FCs (Modbus App Spec V1.1b3 §6):
+        #   0x01 read coils         0x02 read discrete inputs
+        #   0x03 read holding regs  0x04 read input regs
+        #   0x05 write single coil  0x06 write single register
+        #   0x07 read exception status (serial only — sometimes present)
+        #   0x0B get comm event counter (serial only)
+        #   0x0F write multiple coils  0x10 write multiple registers
+        #   0x11 report server id   0x14 read file record
+        #   0x15 write file record  0x16 mask write register
+        #   0x17 read/write multiple regs  0x18 read FIFO queue
+        #   0x2B encapsulated interface transport
+        function_codes_hex:
+          - "01"
+          - "02"
+          - "03"
+          - "04"
+          - "05"
+          - "06"
+          - "0f"
+          - "10"
+          - "11"
+          - "14"
+          - "15"
+          - "16"
+          - "17"
+          - "2b"
+        # Floor of 4 codes within a 512-byte window — discriminates real
+        # function-code tables from coincidental byte-occurrences.
+        min_count: 4
+        window_bytes: 512
+output:
+  protocol_family: modbus_tcp
+  layer: application
+  transport: tcp
+  vendor: generic
+  vendor_product: null
+  protocol_version: null
+  confidence: high
+notes: |
+  Generic Modbus/TCP detector covering libmodbus, pymodbus, freemodbus, and
+  vendor-specific Modbus implementations. Per W2-β §SC5-NEW-ICS-2 mitigation,
+  combine=all_required forces co-occurrence of (banner + port + function-code
+  table) — single-signal hits (banner-only / port-only / FC-only) DO NOT fire
+  this manifest.
+
+  Vendor-specific entries (e.g. Schneider Modicon, Wago, Phoenix Contact) ship
+  in v1 as additional manifests at data/ics_protocols/<vendor>/modbus_*.yaml
+  with vendor-specific banner needles + product attribution; this v0 entry
+  carries generic vendor='generic' so the matcher returns a baseline detection
+  for unidentified Modbus stacks.
+
+  Session 2 will add a `library_symbol` signal targeting libmodbus exports
+  (modbus_new_tcp / modbus_set_slave / mb_mapping_new) for ELF/PE binaries
+  via the ELF dynsym / PE imports plugin context populator.
+references:
+  - "https://modbus.org/docs/Modbus_Application_Protocol_V1_1b3.pdf"
+  - "https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.xhtml"
+  - "https://github.com/stephane/libmodbus"
