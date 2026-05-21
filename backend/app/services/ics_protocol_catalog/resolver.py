@@ -456,10 +456,194 @@ def resolve_all(
     return matches
 
 
+# ---------------------------------------------------------------------------
+# Plugin registry — frozen post-startup (W2-β §SC5-NEW-ICS-S2-α HARDENED).
+# ---------------------------------------------------------------------------
+#
+# Per W2-β §SC5-NEW-ICS-S2-α (Session 1 W2-β §SC5-NEW-ICS-7 extension):
+# bare ``freeze_plugin_registry()`` is NOT iron-clad if the registry is a
+# plain mutable dict that consumers import + can mutate at module-level.
+# Mitigation: the ACTUAL registry is private ``_PLUGIN_REGISTRY``; the
+# public ``PLUGIN_REGISTRY`` is a ``MappingProxyType`` read-only view.
+# Consumers can't bypass the freeze via direct dict mutation.
+#
+# Per W2-β §SC5-NEW-ICS-S2-ζ: ``register_matcher`` also rejects matchers
+# whose ``__closure__`` captures session/auth state — defensive against
+# plugins that lazy-capture context.db from registration time.
+#
+# File-format-catalog precedent at ``file_format_catalog/resolver.py:716``
+# uses the bare dict shape — backfill to MappingProxyType discipline is
+# queued as a Rule #21 mirror sweep (deferred; documented in Phase 6
+# postmortem).
+from types import MappingProxyType  # noqa: E402 — at file end for grouping
+from typing import Any, Protocol  # noqa: E402
+
+
+class IcsProtocolMatcherProto(Protocol):
+    """Protocol for registered Python ICS-protocol matchers.
+
+    A plugin matcher receives the same head + path + size + context that
+    closed-grammar signal evaluators do, but can implement arbitrary
+    detection logic beyond the closed Pydantic grammar (e.g. ELF
+    dynsym/symtab walks, PE import-table fingerprinting, .rodata port-
+    constant xref tracking). Useful for protocol shapes the closed
+    grammar can't express; the closed-grammar gates I20-I23 (Phase 4
+    bundled-only-or-frozen-only) ensure plugins can't subvert
+    operator-authored YAML detection.
+    """
+
+    cost_class: int
+    protocol_families: frozenset[str]  # protocol_family values this plugin can emit
+
+    def detect(
+        self,
+        blob_head: bytes,
+        path: str,
+        size: int,
+        context: "IcsResolverContext | None",
+    ) -> Any: ...  # pragma: no cover - protocol
+
+
+# Private mutable registry. NEVER re-export this. Only ``register_matcher``
+# (gated by freeze flag) writes here; ``PLUGIN_REGISTRY`` (proxy) reads.
+_PLUGIN_REGISTRY: dict[str, IcsProtocolMatcherProto] = {}
+
+# Public read-only proxy. Consumers (resolver + walker + MCP tools)
+# import this and read; the underlying dict is mutated ONLY by
+# ``register_matcher`` during startup. Post-freeze, ``register_matcher``
+# raises RuntimeError — and even if a hostile module reaches in via
+# ``__dict__`` introspection, the proxy still prevents direct
+# ``PLUGIN_REGISTRY[...] = ...`` writes.
+PLUGIN_REGISTRY: "MappingProxyType[str, IcsProtocolMatcherProto]" = (
+    MappingProxyType(_PLUGIN_REGISTRY)
+)
+
+_PLUGIN_REGISTRY_FROZEN: bool = False
+
+
+def _namespace_collision_check(
+    name: str, matcher: IcsProtocolMatcherProto,
+) -> None:
+    """Reject matchers whose ``protocol_families`` overlap with an already-
+    registered matcher. Prevents plugin A claiming
+    ``protocol_families={"modbus_tcp"}`` and plugin B doing the same —
+    ambiguous dispatch + W2-β §SC5-NEW-ICS-7 vendor-authority laundering
+    surface analog.
+    """
+    families: frozenset[str] = getattr(matcher, "protocol_families", frozenset())
+    if not families:
+        return
+    for other_name, other in _PLUGIN_REGISTRY.items():
+        if other_name == name:
+            continue
+        other_families: frozenset[str] = getattr(
+            other, "protocol_families", frozenset(),
+        )
+        collision = families & other_families
+        if collision:
+            raise ValueError(
+                f"plugin-namespace-disjointness: matcher {name!r} claims "
+                f"protocol_families {sorted(collision)!r} already declared "
+                f"by {other_name!r} (W2-β §SC5-NEW-ICS-S2-α related — "
+                f"prevents ambiguous dispatch + family-claim laundering)"
+            )
+
+
+def _closure_capture_check(
+    name: str, matcher: IcsProtocolMatcherProto,
+) -> None:
+    """Reject matchers whose callable closure captures session/auth state.
+
+    Per W2-β §SC5-NEW-ICS-S2-ζ: a plugin matcher MUST be stateless w.r.t.
+    request context. If the matcher's ``detect`` closure captures an
+    ``AsyncSession``, ``Settings``, ``ContextVar``, or a user identifier
+    type, raise at registration time — the stale closure value would
+    leak across walker runs (e.g. plugin captures ``current_db`` from
+    startup and every subsequent resolve reads from that one session).
+    """
+    detect = getattr(matcher, "detect", None)
+    if detect is None:
+        return
+    closure = getattr(detect, "__closure__", None)
+    if closure is None:
+        return
+    # Inspect each closure cell's contents. We don't know cell types
+    # statically (Python is dynamic) — check by type name match.
+    FORBIDDEN_TYPE_NAMES = {
+        "AsyncSession",
+        "Settings",
+        "ContextVar",
+        "ToolContext",
+    }
+    for cell in closure:
+        try:
+            value = cell.cell_contents
+        except ValueError:
+            continue  # empty cell — not yet bound; safe
+        type_name = type(value).__name__
+        if type_name in FORBIDDEN_TYPE_NAMES:
+            raise ValueError(
+                f"plugin matcher {name!r} captures closure of type "
+                f"{type_name!r} — stateful capture forbidden per "
+                f"W2-β §SC5-NEW-ICS-S2-ζ. Refactor the plugin to be "
+                f"stateless w.r.t. session/auth; receive all context "
+                f"via the detect() context kwarg."
+            )
+
+
+def register_matcher(name: str, matcher: IcsProtocolMatcherProto) -> None:
+    """Register a Python plugin matcher. Must run BEFORE
+    ``freeze_plugin_registry()``.
+
+    Applies W2-β §SC5-NEW-ICS-S2-α (freeze gate), W2-β §SC5-NEW-ICS-S2-ζ
+    (closure-capture rejection), and the namespace-disjointness
+    collision check (analog of file_format A7).
+    """
+    if _PLUGIN_REGISTRY_FROZEN:
+        raise RuntimeError(
+            f"ics_protocol_catalog PLUGIN_REGISTRY is frozen after startup; "
+            f"cannot register {name!r}. Plugin registration MUST happen "
+            f"BEFORE freeze_plugin_registry() — call during lifespan "
+            f"startup, not at runtime (W2-β §SC5-NEW-ICS-S2-α gate)."
+        )
+    _namespace_collision_check(name, matcher)
+    _closure_capture_check(name, matcher)
+    _PLUGIN_REGISTRY[name] = matcher
+
+
+def freeze_plugin_registry() -> None:
+    """Freeze the plugin registry post-startup. W2-β §SC5-NEW-ICS-S2-α
+    HARDENED — the public ``PLUGIN_REGISTRY`` is already a read-only
+    proxy; this flips the freeze flag so subsequent ``register_matcher``
+    calls raise RuntimeError. Together the two mechanisms (proxy +
+    flag) defend against the module-level attribute-shadow attack the
+    Session 1 W2-β identified as the scariest unmitigated case.
+    """
+    global _PLUGIN_REGISTRY_FROZEN
+    _PLUGIN_REGISTRY_FROZEN = True
+
+
+def _unfreeze_plugin_registry_for_tests() -> None:
+    """Test-only — reset frozen flag between tests. NEVER call in prod."""
+    global _PLUGIN_REGISTRY_FROZEN
+    _PLUGIN_REGISTRY_FROZEN = False
+
+
+def is_plugin_registry_frozen() -> bool:
+    """Return the freeze sentinel state. Used by Rule #46 META-CANARIES."""
+    return _PLUGIN_REGISTRY_FROZEN
+
+
 __all__ = [
+    "PLUGIN_REGISTRY",
     "SIGNAL_EVALUATORS",
     "_SIGNAL_COST_CLASS",
     "_SOURCE_PRECEDENCE",
+    "IcsProtocolMatcherProto",
     "IcsResolverContext",
+    "_unfreeze_plugin_registry_for_tests",
+    "freeze_plugin_registry",
+    "is_plugin_registry_frozen",
+    "register_matcher",
     "resolve_all",
 ]

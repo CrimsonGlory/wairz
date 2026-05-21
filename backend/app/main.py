@@ -350,6 +350,26 @@ async def lifespan(app: FastAPI):
             "LOLDrivers bundle probe failed unexpectedly", exc_info=True,
         )
 
+    # CLAUDE.md Rule #52 instance #3 / Phase 4 — ICS protocol catalog
+    # plugin registration + freeze (W2-β §SC5-NEW-ICS-S2-α HARDENED).
+    # AFTER any catalog mtime-cache warmup AND BEFORE the FastAPI yield
+    # so the freeze sentinel is locked before any incoming request can
+    # reach a register_matcher() call. Closes the
+    # Session 1 W2-β §SC5-NEW-ICS-7 hot-reload × plugin attack vector.
+    try:
+        from app.services.ics_protocol_catalog.plugins import (
+            register_default_plugins,
+        )
+
+        register_default_plugins(freeze=True)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception(
+            "ics_protocol_catalog: bundled plugin registration failed at "
+            "lifespan startup — walker will operate WITHOUT plugin "
+            "matchers; closed-grammar YAML detection still works",
+        )
+
     yield
 
     # Shutdown Redis

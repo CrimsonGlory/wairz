@@ -32,8 +32,14 @@ from app.services.ics_protocol_catalog.catalog import (
 from app.services.ics_protocol_catalog.resolver import (
     _SIGNAL_COST_CLASS,
     _SOURCE_PRECEDENCE,
+    PLUGIN_REGISTRY,
     SIGNAL_EVALUATORS,
+    IcsProtocolMatcherProto,
     IcsResolverContext,
+    _unfreeze_plugin_registry_for_tests,
+    freeze_plugin_registry,
+    is_plugin_registry_frozen,
+    register_matcher,
     resolve_all,
 )
 from app.services.ics_protocol_catalog.snapshot import (
@@ -49,13 +55,19 @@ def get_default_snapshot() -> IcsProtocolCatalogSnapshot:
 __all__ = [
     "IcsProtocolCatalog",
     "IcsProtocolCatalogSnapshot",
+    "IcsProtocolMatcherProto",
     "IcsResolverContext",
+    "PLUGIN_REGISTRY",
     "SIGNAL_EVALUATORS",
     "_SIGNAL_COST_CLASS",
     "_SOURCE_PRECEDENCE",
+    "_unfreeze_plugin_registry_for_tests",
     "derive_vendor_authority",
+    "freeze_plugin_registry",
     "get_default_catalog",
     "get_default_snapshot",
+    "is_plugin_registry_frozen",
+    "register_matcher",
     "reset_default_catalog",
     "resolve_all",
 ]
