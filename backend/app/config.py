@@ -88,9 +88,17 @@ class Settings(BaseSettings):
     abusech_auth_key: str = ""
     api_key: str | None = None
     # Accept both ALLOW_NO_AUTH and WAIRZ_ALLOW_NO_AUTH (the documented name).
-    # Set WAIRZ_ALLOW_NO_AUTH=true only for local-only single-user deployments.
+    # Default flipped from False → True 2026-05-21 per operator direction
+    # (backlog `auth-gate-removal-2026-05-21`). The lifespan refuse-to-start
+    # gate at app/main.py was redundant with the asgi_auth.py middleware's
+    # "Auth is disabled entirely when settings.api_key is falsy" behaviour;
+    # both removed/flipped together. Operators who want multi-user
+    # enforcement set API_KEY (asgi_auth.py enforces); operators who don't
+    # leave it unset (middleware no-ops). The env-var override still works
+    # for backward compat but is no longer required for single-operator
+    # deployments.
     allow_no_auth: bool = Field(
-        default=False,
+        default=True,
         validation_alias=AliasChoices("WAIRZ_ALLOW_NO_AUTH", "ALLOW_NO_AUTH", "allow_no_auth"),
     )
     log_level: str = "INFO"

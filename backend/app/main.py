@@ -56,24 +56,33 @@ from app.utils.sandbox import PathTraversalError
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    import sys
     settings = get_settings()
 
     os.makedirs(settings.storage_root, exist_ok=True)
     os.makedirs(settings.emulation_kernel_dir, exist_ok=True)
 
-    # Refuse to start if auth is not configured (B.1.a).
-    # Set API_KEY in .env (or environment) for production.
-    # Set WAIRZ_ALLOW_NO_AUTH=true only for local-only single-user deployments.
-    # Exit code 78 is EX_CONFIG from /usr/include/sysexits.h so docker compose
-    # ps and operators can distinguish config-loop failures from generic exits.
-    if not settings.api_key and not settings.allow_no_auth:
-        print(
-            "ERROR: api_key is required. Set API_KEY in .env or "
-            "WAIRZ_ALLOW_NO_AUTH=true for local-only deployments.",
-            file=sys.stderr,
-        )
-        sys.exit(78)
+    # Auth gate removed 2026-05-21 per operator direction (backlog
+    # `auth-gate-removal-2026-05-21`). The B.1.a refuse-to-start check
+    # at this point (pre-fix it raised sys.exit(EX_CONFIG) when the
+    # api_key + allow_no_auth pair were both falsy) forced operators
+    # to either set an API_KEY OR explicitly opt into
+    # WAIRZ_ALLOW_NO_AUTH=true. Wairz's single-
+    # operator firmware-RE deployment shape (local-only,
+    # BACKEND_HOST_BIND defaults 127.0.0.1) made the gate friction
+    # without a security gain — the asgi_auth.py middleware already
+    # no-ops cleanly on falsy api_key (per its module docstring:
+    # "Auth is disabled entirely when settings.api_key is falsy"), so
+    # the lifespan gate was strictly redundant with that pre-existing
+    # behaviour. Operators who want multi-user enforcement set
+    # API_KEY in .env and the middleware enforces; operators who don't
+    # leave it unset and the middleware no-ops. The Settings.allow_no_auth
+    # default is also flipped to True in app/config.py for the same
+    # reason — env-var override no longer required for single-operator
+    # deployments.
+    #
+    # The Rule #46 META-CANARY at
+    # tests/test_main_lifespan_auth_gate.py asserts the gate is gone
+    # so a future commit can't silently re-introduce it.
 
     # Connect Redis event bus
     try:
