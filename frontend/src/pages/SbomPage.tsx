@@ -35,6 +35,7 @@ import { useVulnerabilityStore } from '@/stores/vulnerabilityStore'
 import { useShallow } from 'zustand/react/shallow'
 import { useProjectStore } from '@/stores/projectStore'
 import FirmwareSelector from '@/components/projects/FirmwareSelector'
+import { FormatBanner } from '@/components/firmware/FormatBanner'
 import VulnerabilityRowVirtual, { COLUMN_TEMPLATE } from '@/components/sbom/VulnerabilityRowVirtual'
 import { List, useDynamicRowHeight } from 'react-window'
 import type {
@@ -173,14 +174,26 @@ export default function SbomPage() {
   }, [projectId, selectedFirmwareId])
 
   // Poll the SBOM /generate status while a generation is in flight.
-  // Mirrors the vuln-scan polling effect below; 2 s cadence; mounted-
-  // state-guarded cleanup. Auto-resumes on page re-mount via the
-  // initial status fetch when `generating` is true (Scout D mandatory
-  // re-mount auto-resume per W2-α).
+  // Exponential backoff per W2-β §SC5-NEW-SBOM-λ (Session 2b 2026-05-21):
+  // start at 2 s; double to 4/8/16/32 s if status doesn't change;
+  // reset to 2 s on a state transition OR a `document.visibilitychange`
+  // tab-becomes-visible event. This bounds the per-operator DB load
+  // during long-running generations (60 min Syft on a 16 GB image at
+  // 2 s polling would be 1800 GET hits; with backoff it's ~120).
+  // Auto-resumes on page re-mount via the initial status fetch when
+  // `generating` is true (Scout D mandatory re-mount auto-resume).
   useEffect(() => {
     if (!projectId || !generating) return
     let cancelled = false
+    let lastStatus: string | null = null
+    let intervalMs = 2000  // start at 2 s; back off on no-change
     const fwId = selectedFirmwareId || undefined
+    let timeoutId: number | null = null
+
+    const scheduleNext = () => {
+      if (cancelled) return
+      timeoutId = window.setTimeout(() => { void tick() }, intervalMs)
+    }
 
     const tick = async () => {
       if (cancelled) return
@@ -190,24 +203,50 @@ export default function SbomPage() {
         )
         if (cancelled) return
         setGenerateStatus(status)
+        const changed = lastStatus !== null && lastStatus !== status.status
+        lastStatus = status.status
         if (status.status === 'completed') {
           await reloadAfterGenerateCompleted()
           if (!cancelled) setGenerating(false)
+          return
         } else if (status.status === 'failed') {
           toast.error(status.error || 'SBOM generation failed')
           if (!cancelled) setGenerating(false)
+          return
         }
+        // Back off when status is unchanged; reset on state transition.
+        if (changed) {
+          intervalMs = 2000
+        } else {
+          intervalMs = Math.min(intervalMs * 2, 32000)
+        }
+        scheduleNext()
       } catch (err) {
         console.error('SBOM /generate status poll failed:', err)
-        // Don't tear down on transient errors — let the next tick retry.
+        // Don't tear down on transient errors — retry on next tick.
+        scheduleNext()
       }
     }
 
-    void tick()  // immediate first poll so UI sees state without 2 s wait
-    const interval = window.setInterval(() => { void tick() }, 2000)
+    // Reset cadence on tab-becomes-visible — operator returned to the
+    // page so they want fresh state, not a 32 s wait.
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible' && !cancelled) {
+        intervalMs = 2000
+        if (timeoutId !== null) {
+          window.clearTimeout(timeoutId)
+          timeoutId = null
+        }
+        void tick()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
+    void tick()  // immediate first poll
     return () => {
       cancelled = true
-      window.clearInterval(interval)
+      if (timeoutId !== null) window.clearTimeout(timeoutId)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [projectId, generating, selectedFirmwareId, reloadAfterGenerateCompleted])
 
@@ -451,34 +490,20 @@ export default function SbomPage() {
         </div>
       </div>
 
-      {/* Scout D mandatory unknown-format graceful-degrade banner
-          (Session 2a 2026-05-21). Renders when the SBOM /generate
-          status endpoint reports sbom_supported_for_format=false OR
-          extraction_capability is something other than 'full' for the
-          currently-selected firmware. Operator sees an explicit signal
-          instead of an empty SBOM page when format isn't recognised.
-          The full FormatBanner component extraction from
-          FirmwareUpload.tsx is queued for Session 2b — this minimal
-          inline rendering closes the operator-visible UX gap today. */}
-      {generateStatus && generateStatus.sbom_supported_for_format === false && (
-        <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
-          <div className="font-medium text-amber-900 dark:text-amber-200">
-            Format not recognized for SBOM strategy
-          </div>
-          <div className="mt-1 text-muted-foreground">
-            Detected format: <code>{generateStatus.detected_format || 'unknown'}</code>
-            {generateStatus.extraction_capability && (
-              <> · extraction capability: <code>{generateStatus.extraction_capability}</code></>
-            )}
-          </div>
-          <div className="mt-1 text-muted-foreground">
-            wairz doesn't have an SBOM strategy for this format yet. You can
-            still try the generic strategy via Regenerate, but results may be
-            sparse. (Per Rule #52 closed-grammar extensibility — operators
-            can ship YAML extending the file-format catalog without code
-            changes; Session 3 will expose this surface.)
-          </div>
-        </div>
+      {/* Scout D mandatory unknown-format graceful-degrade banner —
+          shared FormatBanner component (Session 2b 2026-05-21
+          extraction from FirmwareUpload.tsx's local FormatBanner).
+          Operator's Rule #52 mandate ("we won't be the only ones
+          ingesting files into the tool"): when SBOM /generate status
+          reports the firmware's extraction_capability != 'full' OR
+          sbom_supported_for_format=false, render an explicit advisory
+          instead of an empty results page. */}
+      {generateStatus && (
+        <FormatBanner
+          extraction_capability={generateStatus.extraction_capability}
+          detected_format={generateStatus.detected_format}
+          sbom_supported_for_format={generateStatus.sbom_supported_for_format}
+        />
       )}
 
       {/* Summary cards */}
