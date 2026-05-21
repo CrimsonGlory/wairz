@@ -140,7 +140,15 @@ async def start_campaign(
     # spawn phase is short-lived (typically <30 s) and the arq pool is
     # not currently wired for fuzzing jobs — this matches the firmware
     # unpack fallback path in routers/firmware.py lines 182-184.
-    asyncio.create_task(_run_campaign_spawn_background(campaign_id))
+    #
+    # GC-hardened spawn per Rule #51 §SC5-NEW-SBOM Fix #8-broader
+    # (Session 2a 2026-05-21). Bare asyncio.create_task has the
+    # GC-vanish risk Session 1 catalogued.
+    from app.utils.background import spawn_background_task
+    spawn_background_task(
+        _run_campaign_spawn_background(campaign_id),
+        name=f"fuzzing_spawn_{campaign_id}",
+    )
     return campaign
 
 

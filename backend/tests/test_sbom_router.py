@@ -348,35 +348,62 @@ class TestExport:
 
 
 class TestGenerateSbomCached:
+    """SBOM /generate post-Session-2a-Fix#1 is Rule #33 202+polling.
+
+    The legacy synchronous-return test asserted that force_rescan=False +
+    existing components returns the cached SbomGenerateResponse shape
+    inline. Post-conversion, the endpoint returns 202 with status='queued'
+    regardless of cache state (the cached-path discrimination happens
+    inside `_do_sbom_generate` and is reflected in the polled status's
+    `cached` field once the background runner completes).
+
+    This test now asserts the 202+polling shape: POST returns 202 with
+    `status='queued'` for an idle firmware. The cached-detection
+    behaviour itself is covered by the live-canary tests against
+    `_do_sbom_generate` directly (TestSbomGeneratePersistenceLiveCanary).
+    """
+
     @pytest.mark.asyncio
-    async def test_cached_response_when_components_exist_and_no_force(
-        self, client, project_id,
+    async def test_post_returns_202_and_queues_when_idle(
+        self, client, project_id, monkeypatch,
     ):
-        """``force_rescan=False`` + components in DB → return cached set."""
+        """Post-Session-2a-Fix#1: /generate returns 202 + status='queued'."""
         firmware = _make_firmware(project_id)
-        comp = _make_component(firmware.id)
-
-        # First db.execute() = SELECT count → returns 1 (cache hit).
-        # Second = SELECT components-with-vuln-counts in
-        # _get_components_with_vuln_counts → returns the [(comp, 0)] row.
-        count_result = MagicMock()
-        count_result.scalar.return_value = 1
-
-        components_result = MagicMock()
-        components_result.all.return_value = [(comp, 0)]
+        firmware.sbom_status = "idle"
+        firmware.sbom_status_started_at = None
+        firmware.sbom_status_finished_at = None
+        firmware.sbom_status_error = None
+        firmware.sbom_result = None
+        # Pydantic SbomGenerateStatusResponse expects str | None — set
+        # explicitly so MagicMock doesn't leak in.
+        firmware.detected_format = None
+        firmware.device_metadata = None
 
         db = AsyncMock()
-        db.execute = AsyncMock(side_effect=[count_result, components_result])
+        db.execute = AsyncMock(return_value=MagicMock())
+        db.scalar = AsyncMock(return_value=0)
+        db.commit = AsyncMock()
+
+        # Stub the spawn so the background runner does NOT actually run.
+        spawned: list = []
+
+        def fake_spawn(coro, *, name=None):
+            coro.close()
+            spawned.append(name)
+            return MagicMock()
+
+        monkeypatch.setattr(
+            "app.routers.sbom._spawn_background_task", fake_spawn,
+        )
 
         app.dependency_overrides[resolve_firmware_dep] = lambda: firmware
         app.dependency_overrides[get_db] = lambda: db
 
         resp = await client.post(f"/api/v1/projects/{project_id}/sbom/generate")
-        assert resp.status_code == 200, resp.text
+        assert resp.status_code == 202, resp.text
         body = resp.json()
-        assert body["cached"] is True
-        assert body["total"] == 1
-        assert body["components"][0]["name"] == "openssl"
+        assert body["status"] == "queued"
+        assert spawned == [f"sbom_generate_{firmware.id}"]
 
 
 # ===========================================================================
@@ -681,10 +708,22 @@ class TestSbomGeneratePersistenceLiveCanary:
             fake_svc = MagicMock()
             fake_svc.generate_sbom = MagicMock(return_value=stub_dicts)
 
-            # Per Rule #30: ``get_detection_roots`` is lazy-imported inside
-            # the endpoint body (sbom.py:137); patch the SOURCE module.
-            # ``SbomService`` is module-imported at top (sbom.py:32) so
-            # the router-level patch path works for it.
+            # Post-Session-2a-Fix#1, the /generate endpoint returns 202 +
+            # status='queued' and the work runs in a detached background
+            # task that owns its own session. Test the INNER Rule #39
+            # pure-logic runner `_do_sbom_generate` directly — it accepts
+            # the caller's session, returns a result-aggregate dict, and
+            # is the single point that wraps SbomService + persists rows.
+            # This avoids racing the background task in a test loop and
+            # matches the Rule #39 testing discipline (tier-1 tests call
+            # INNER runners via make_live_db; OUTER + SAFE wrappers are
+            # validated via mocks of the session factory).
+            #
+            # Per Rule #30: ``get_detection_roots`` is lazy-imported
+            # inside `_do_sbom_generate` (sbom.py); patch the SOURCE
+            # module. ``SbomService`` is module-imported at top of
+            # sbom.py so the router-level patch path works for it.
+            from app.routers.sbom import _do_sbom_generate
             with patch(
                 "app.services.firmware_paths.get_detection_roots",
                 new=AsyncMock(return_value=[str(tmp_path)]),
@@ -692,14 +731,10 @@ class TestSbomGeneratePersistenceLiveCanary:
                 "app.routers.sbom.SbomService",
                 return_value=fake_svc,
             ):
-                resp = await client.post(
-                    f"/api/v1/projects/{pid}/sbom/generate?force_rescan=true",
-                )
+                result = await _do_sbom_generate(db, firmware, force_rescan=True)
 
-            assert resp.status_code == 200, resp.text
-            body = resp.json()
-            assert body["cached"] is False
-            assert body["total"] == 2
+            assert result["cached"] is False
+            assert result["total_components"] == 2
 
             # Real SELECT — the canary that mocks cannot fake.
             persisted = (

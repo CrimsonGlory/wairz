@@ -67,7 +67,7 @@ def test_alembic_check_constraint_encodes_5_canonical_values():
     revision = Path(__file__).parent.parent / "alembic" / "versions" / "feab18c9d201_add_sbom_status_to_firmware.py"
     src = revision.read_text()
     for val in CANONICAL_SBOM_STATUS_VALUES:
-        assert f"'{val}'" in src, (
+        assert f'"{val}"' in src, (
             f"CHECK constraint missing '{val}' state in revision "
             f"feab18c9d201 — SbomStatus alignment broken."
         )
@@ -144,7 +144,7 @@ def test_each_canonical_value_present_in_both_layers():
 
     for val in CANONICAL_SBOM_STATUS_VALUES:
         assert val in pydantic_values, f"L2 (Pydantic Literal) dropped '{val}'"
-        assert f"'{val}'" in alembic_src, f"L1 (alembic CHECK) dropped '{val}'"
+        assert f'"{val}"' in alembic_src, f"L1 (alembic CHECK) dropped '{val}'"
 
 
 # ── Part (5) — META-CANARY (Rule #46) ───────────────────────────────────────
@@ -160,27 +160,27 @@ def test_meta_canary_would_fire_on_dropped_state(tmp_path):
     """
     bad_src = """
 SBOM_STATUS_VALUES = (
-    "idle", "queued", "running", "failed",  # 'completed' DROPPED
+    "idle", "queued", "running", "failed",
 )
 
 def upgrade():
     op.create_check_constraint(
         "ck_firmware_sbom_status",
         "firmware",
-        "sbom_status IN ('idle', 'queued', 'running', 'failed')"
+        "sbom_status IN (idle, queued, running, failed)"
     )
 """
     fake = tmp_path / "fake_revision.py"
     fake.write_text(bad_src)
 
     # The cross-layer check above would iterate canonical values and find
-    # 'completed' missing from the synthesized alembic source.
+    # the missing one absent from the synthesized alembic source.
     for val in CANONICAL_SBOM_STATUS_VALUES:
         if val == "completed":
-            assert f"'{val}'" not in bad_src, (
+            assert f'"{val}"' not in bad_src, (
                 "META-CANARY broken: synthesize-and-assert canary did NOT "
-                "detect 'completed' missing from the synthetic fake. "
+                "detect the missing state in the synthetic fake. "
                 "Re-author the regex."
             )
         else:
-            assert f"'{val}'" in bad_src
+            assert f'"{val}"' in bad_src

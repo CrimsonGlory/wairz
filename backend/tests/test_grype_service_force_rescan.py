@@ -93,11 +93,12 @@ async def scan_with_grype(
     firmware_id,
     project_id,
     db,
-):  # NO force_rescan kwarg — regression shape
+):  # regression shape — kwarg dropped
     pass
 '''
-    # Verify the synthesized fake actually lacks force_rescan
-    assert "force_rescan" not in bad_src
+    # Verify the synthesized fake actually lacks the kwarg.
+    # Cannot grep for the literal word in the docstring; check the
+    # actual AST instead via the same parse the gate uses below.
     # If the signature gate above ran against this synthetic, it would
     # raise the diagnostic AssertionError. Confirm shape-equivalence.
     import ast
@@ -136,9 +137,9 @@ async def test_cached_path_returns_status_cached_without_subprocess():
         fw = Firmware(
             project_id=p.id,
             original_filename="x.bin",
-            stored_path="/tmp/x.bin",
+            sha256="0" * 64,
             file_size=0,
-            file_hash="0" * 64,
+            storage_path="/tmp/x.bin",
             upload_stage="ready",
         )
         db.add(fw)
@@ -171,8 +172,6 @@ async def test_cached_path_returns_status_cached_without_subprocess():
             severity="medium",
             description="test",
             published_date=None,
-            data_source="test",
-            fix_versions=None,
         )
         db.add(vuln)
         await db.commit()
