@@ -216,6 +216,17 @@ SdbShimClass = Literal[
     "Other",
 ]
 
+# ICS protocol catalog walker (CLAUDE.md Rule #52 instance #3 — Session 2,
+# 2026-05-22). Rule #33 .c Pydantic Literal typo-gate at the trigger MCP
+# tool / status reader boundary. The DB CHECK constraint
+# ``ck_firmware_ics_protocol_walk_status`` (alembic revision 1c52a4b5c6d7)
+# is the durable safety floor; this Literal adds compile-time typo
+# detection for new callers. Mirrors the ContainerWalkStatus /
+# SystemdWalkStatus / EfsWalkStatus / EtlWalkStatus shapes.
+IcsProtocolWalkStatus = Literal[
+    "idle", "queued", "running", "completed", "failed"
+]
+
 
 class FirmwareUploadResponse(BaseModel):
     model_config = {"from_attributes": True}
