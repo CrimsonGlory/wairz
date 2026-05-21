@@ -1,0 +1,116 @@
+# yaml-language-server: $schema=../../.schema.json
+# Siemens S7Comm (S7 Communication) firmware-embedded protocol-stack
+# detector. Used by Siemens SIMATIC S7 PLCs (S7-300 / S7-400 / S7-1200 /
+# S7-1500); transported over TPKT (RFC 1006) + COTP (ISO 8073) on TCP
+# port 102 (IANA-registered ISO-TSAP).
+#
+# Three signals combine (all_required) for a high-confidence detection:
+#   1. ASCII string `s7comm` / `snap7` / `libsnap7` / `libs7` appearing
+#      in the binary's head window (library banner / SONAME). snap7
+#      (https://snap7.sourceforge.net) is the canonical open-source
+#      Siemens S7Comm client/server library.
+#   2. ISO-TSAP IANA port 102 (0x66) appearing as a little-endian uint16
+#      constant somewhere in the head.
+#   3. S7 Job/Userdata function-code lookup table — at least 3 of the
+#      standard S7Comm PDU codes:
+#        0x04 Read Var      0x05 Write Var
+#        0x1A Request Download   0x1B Download Block
+#        0x1C Download Ended     0x1D Start Upload
+#        0x1E Upload             0x1F End Upload
+#        0x28 PLC Control        0x29 PLC Stop
+#        0xF0 Setup Communication
+#      Floor of 3 codes within a 512-byte window per W2-β A8 high-collision
+#      mitigation (S7Comm FCs less common than Modbus; 3 is the
+#      discriminating floor for embedded library binaries).
+#
+# Per W2-β §SC5-NEW-ICS-2 mitigation: combine=all_required prevents
+# single-signal false positives. A binary that merely opens TCP port 102
+# (e.g. ISO-TSAP for X.25-style services) without ALSO showing the S7Comm
+# banner AND the function-code table DOES NOT fire this manifest.
+#
+# References:
+#   - Siemens S7 Communication via TCP/IP documentation
+#     (https://support.industry.siemens.com/cs/document/26483647)
+#   - snap7 project (https://snap7.sourceforge.net)
+#   - RFC 1006 "ISO Transport Service on top of the TCP"
+#   - RFC 905 / ISO 8073 "Connection-Oriented Transport Protocol (COTP)"
+#   - ICS-CERT ADVISORY-19-274-01 (S7Comm stack identification)
+schema_version: 1
+manifest_id: s7comm_v0_system
+manifest_source: _system
+precedence: 5
+detection:
+  combine: all_required
+  certainty: stack_present
+  signals:
+    - kind: string_in_binary
+      description: "'s7comm' / 'snap7' / 'libsnap7' / 'libs7' ASCII banner"
+      string_in_binary_constraint:
+        needles_hex:
+          - "7337636f6d6d"                          # 's7comm'
+          - "736e617037"                            # 'snap7'
+          - "6c6962736e617037"                      # 'libsnap7'
+          - "6c69627337"                            # 'libs7'
+        case_sensitive: false
+        combine: any
+        min_count: 1
+    - kind: port_signature
+      description: "IANA-assigned ISO-TSAP port 102 (S7Comm transport)"
+      ports: [102]
+      transport_required: tcp
+    - kind: function_code_set
+      description: "S7Comm standard Job/Userdata function-code lookup table"
+      function_code_constraint:
+        function_codes_hex:
+          - "04"   # Read Var
+          - "05"   # Write Var
+          - "1a"   # Request Download
+          - "1b"   # Download Block
+          - "1c"   # Download Ended
+          - "1d"   # Start Upload
+          - "1e"   # Upload
+          - "1f"   # End Upload
+          - "28"   # PLC Control
+          - "29"   # PLC Stop
+          - "f0"   # Setup Communication
+        # Floor of 3 codes within a 512-byte window per W2-β A8.
+        min_count: 3
+        window_bytes: 512
+output:
+  protocol_family: s7comm
+  layer: application
+  transport: tcp
+  vendor: siemens
+  vendor_product: simatic_s7
+  protocol_version: null
+  confidence: high
+notes: |
+  Generic S7Comm detector for the Siemens SIMATIC S7 family (S7-300 /
+  S7-400 / S7-1200 / S7-1500). vendor='siemens' attribution is safe at
+  the family level — S7Comm is a proprietary Siemens protocol; non-Siemens
+  S7Comm stacks (e.g. third-party gateways like Snap7) carry the same
+  banner + FC table but vendor MAY refine to 'snap7' in vendor-specific
+  manifests under data/ics_protocols/snap7/s7comm_*.yaml (v1).
+
+  vendor_product='simatic_s7' carries the family attribution; specific
+  PLC models (S7-1500, S7-300, etc.) ship as version-pinned manifests
+  with `protocol_version: "v3"` (S7Comm-Plus on S7-1200/1500) vs `null`
+  (legacy S7Comm on S7-300/400).
+
+  Per W2-β §SC5-NEW-ICS-2 mitigation: combine=all_required forces
+  co-occurrence of (banner + port + function-code table). Port 102 alone
+  is ambiguous (other ISO-TSAP services). The banner ('snap7' library
+  presence) + the S7 function-code table disambiguates.
+
+  Cross-manifest disjointness vs modbus_tcp_v0_system + dnp3_v0_system:
+  S7Comm port 102 is distinct from Modbus 502 + DNP3 20000; the S7 FC
+  table 0x04/0x05/0x1A-0x1F/0x28/0x29/0xF0 has minimal overlap with
+  Modbus 0x01-0x06 + DNP3 0x01-0x18 — the only overlap is 0x04 + 0x05
+  (Modbus + S7 both use these), but the banner + port co-requirement
+  resolves to S7Comm under all_required.
+references:
+  - "https://support.industry.siemens.com/cs/document/26483647"
+  - "https://snap7.sourceforge.net"
+  - "https://www.rfc-editor.org/rfc/rfc1006"
+  - "https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.xhtml"
+  - "https://www.cisa.gov/news-events/ics-advisories/icsa-19-274-01"
