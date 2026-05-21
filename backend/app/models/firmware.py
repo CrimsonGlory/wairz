@@ -993,6 +993,49 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # ── ICS protocol catalog walker (CLAUDE.md Rule #52 instance #3 —
+    # Session 2 of the 2026-05-20/22 ICS campaign) ──
+    # The schema-driven ICS protocol catalog walker reads the ICS protocol
+    # YAML catalog (``services/ics_protocol_catalog/catalog.py``), iterates
+    # every binary in ``get_detection_roots(firmware)`` per Rule #16,
+    # invokes the closed-grammar resolver (``resolve_all()``) against each
+    # binary, and stamps an aggregate JSONB result onto
+    # ``ics_protocol_walk_result``. Multi-protocol cardinality — a binary
+    # CAN speak Modbus + DNP3 + S7Comm simultaneously (Session 1
+    # postmortem Pattern #6).
+    #
+    # **PARSE-ONLY discipline — Rule #36 + closed-grammar Pydantic schema.**
+    # The walker NEVER invokes any extracted binary, NEVER instantiates
+    # operator-supplied YAML as code. Closed Literals + ``extra='forbid'``
+    # structurally guarantee no eval/exec path. Test gate
+    # ``test_ics_protocol_walker.py::test_walker_no_decrypt`` enforces;
+    # Rule #46 paired META-CANARY confirms the gate fires.
+    #
+    # Per-run JSONB pins ``snapshot_id_at_entry`` + ``snapshot_id_at_exit``
+    # so mid-walk hot-reload (W2-β §SC5-NEW-ICS-S2-β) surfaces as a
+    # ``consistency_warning`` rather than a silently-torn classification;
+    # ``provenance: "walker"`` sister key per W2-β §SC5-NEW-ICS-S2-1
+    # protects against descriptor-route pre-seed × CVE matcher attribution.
+    # Rule #33 .a 5-state machine + .c CHECK enforced via
+    # ``ck_firmware_ics_protocol_walk_status``; Rule #33 .d —
+    # asyncio.create_task dispatch (in-process pure-Python; no Docker
+    # spawn; reuses Session 1 ICS resolver).
+    ics_protocol_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    ics_protocol_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    ics_protocol_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    ics_protocol_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    ics_protocol_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
