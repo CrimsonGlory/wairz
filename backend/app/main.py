@@ -157,113 +157,35 @@ async def lifespan(app: FastAPI):
             exc_info=True,
         )
 
-    # Reap orphan cve-match firmware rows. Same shape as the device-dump
-    # reaper above: POST /cve-match's idempotency check (Rule #33a)
-    # returns 409 while ``cve_match_status`` sits in 'queued'/'running',
-    # and after a crash the asyncio runner that owned the row is gone.
-    # Flip stuck rows to 'failed' so the next run isn't blocked. Like
-    # device dumps the runner is in-process only (no Docker container
-    # side), so STARTUP cleanup is sufficient — no cron needed.
-    try:
-        from datetime import datetime
-
-        from sqlalchemy import update
-
-        from app.database import async_session_factory
-        from app.models.firmware import Firmware
-
-        async with async_session_factory() as db:
-            res = await db.execute(
-                update(Firmware)
-                .where(Firmware.cve_match_status.in_(("queued", "running")))
-                .values(
-                    cve_match_status="failed",
-                    cve_match_error="Backend restarted; runner state lost",
-                    cve_match_finished_at=datetime.now(UTC),
-                )
-            )
-            await db.commit()
-            if res.rowcount:
-                import logging
-                logging.getLogger(__name__).info(
-                    "Reaped %d orphan cve-match firmware row(s) on startup",
-                    res.rowcount,
-                )
-    except Exception:
-        import logging
-        logging.getLogger(__name__).warning(
-            "cve-match orphan reaper failed — phantom rows may block new "
-            "cve-match runs until the next startup",
-            exc_info=True,
-        )
-
-    # Reap orphan vuln-scan firmware rows. Identical shape to the
-    # cve-match reaper above (Rule #33a idempotency check returns 409
-    # while ``vuln_scan_status`` sits in 'queued'/'running'). The
-    # background runner ``_run_vuln_scan_background`` in
-    # ``app/routers/sbom.py`` is asyncio.create_task fire-and-forget; a
-    # backend restart loses the in-memory task and orphans the row.
-    # Without this reaper, the first POST /sbom/vulnerabilities/scan
-    # after restart 409s forever until manual DB cleanup. Scout 2's
-    # findings (2026-05-18 audit of f6dbc7b) flagged this as a HIGH
-    # gap — the device-dump and cve-match reapers existed but vuln-scan
-    # was missed when the row's state machine was added.
-    try:
-        from datetime import datetime
-
-        from sqlalchemy import update
-
-        from app.database import async_session_factory
-        from app.models.firmware import Firmware
-
-        async with async_session_factory() as db:
-            res = await db.execute(
-                update(Firmware)
-                .where(Firmware.vuln_scan_status.in_(("queued", "running")))
-                .values(
-                    vuln_scan_status="failed",
-                    vuln_scan_error="Backend restarted; runner state lost",
-                    vuln_scan_finished_at=datetime.now(UTC),
-                )
-            )
-            await db.commit()
-            if res.rowcount:
-                import logging
-                logging.getLogger(__name__).info(
-                    "Reaped %d orphan vuln-scan firmware row(s) on startup",
-                    res.rowcount,
-                )
-    except Exception:
-        import logging
-        logging.getLogger(__name__).warning(
-            "vuln-scan orphan reaper failed — phantom rows may block new "
-            "vuln-scan runs until the next startup",
-            exc_info=True,
-        )
-
-    # Reap orphan upload_stage firmware rows. Closes the W2-α convergence
-    # report root-cause #3 (2026-05-21 SBOM/vuln-scan regression
-    # investigation Fix #2). The upload-pipeline path
-    # ``_post_process_pipeline`` in app/services/firmware_service.py runs
-    # detached via ``asyncio.create_task`` from the upload endpoint; if
-    # the backend crashes mid-extraction or is restarted during a
-    # multi-GB unpack, the in-memory task is lost and the row sits in
-    # ``upload_stage IN ('detecting','extracting','analyzing')`` forever.
-    # The frontend's upload-progress poller sees the stage never advance
-    # and renders a stuck spinner with no recovery affordance.
+    # Data-driven orphan-reaper sweep (Session 2b Fix #11). Replaces the
+    # 6 hardcoded per-column reaper blocks that previously lived inline
+    # here — each was ~30 LOC of identical-shape Try/SQL/Except. The
+    # sweep iterates two registries declared in
+    # `app/workers/walker_registry.py`:
     #
-    # Rule #51 §SC5-NEW-SBOM-ε mitigation: a 15-minute grace window
-    # excludes rows whose `upload_stage_started_at` is recent — protects
-    # against the race where the lifespan reaper fires DURING a fresh
-    # upload that's just begun. 15 min exceeds the worst-case 16 GB
-    # tarball extraction window observed in production (Medtronic
-    # ILLUMISITE upload precedent — ~12 min cold-extract).
+    # - STATE_MACHINE_REAPER_CONFIGS (8 entries): explicit Rule #33 .a
+    #   state-machine columns (cve_match / vuln_scan / sbom /
+    #   bare_metal_audit / authenticode_chain / dotnet_decompile /
+    #   windows_update_diff / upload_stage). upload_stage carries a
+    #   15-min grace window per W2-β §SC5-NEW-SBOM-ε; all others have
+    #   None grace (in-process work; the runner sets started_at AFTER
+    #   acquiring its own session).
     #
-    # Rule #51 §SC5-NEW-SBOM-α / §SC5-NEW-SBOM-δ mitigation: the WHERE
-    # clause is `IS NOT NULL AND < interval` so freshly-created rows
-    # with NULL `upload_stage_started_at` are skipped (they're not yet
-    # eligible to be considered orphans — the post-process task may
-    # still be spinning up).
+    # - WALKER_REAPER_CONFIGS (25 entries): every *_walk_status column
+    #   on the Firmware model. Operator-trigger-MCP runs flip rows
+    #   idle → queued → running → completed | failed; auto-fire from
+    #   walker_registry.WALKER_AUTO_TRIGGERS leaves status='idle' per
+    #   Rule #39 .safe contract.
+    #
+    # Per W2-β §SC5-NEW-SBOM-S2-SEAM-B mandate: BOTH dicts ship in the
+    # same commit as the refactor (even if STATE_MACHINE side were
+    # mostly empty — it's actually 8 entries today). The Rule #46
+    # META-CANARY in tests/test_main_lifespan_reapers.py size-locks
+    # each dict + cross-checks WALKER_REAPER_CONFIGS membership against
+    # the Firmware model's *_walk_status column set.
+    #
+    # The device-dump session reaper above stays inline (different
+    # table: DeviceDumpSession; one-off, doesn't need the dict shape).
     try:
         from datetime import datetime, timedelta
 
@@ -271,123 +193,68 @@ async def lifespan(app: FastAPI):
 
         from app.database import async_session_factory
         from app.models.firmware import Firmware
-
-        cutoff = datetime.now(UTC) - timedelta(minutes=15)
-        async with async_session_factory() as db:
-            res = await db.execute(
-                update(Firmware)
-                .where(
-                    Firmware.upload_stage.in_(("detecting", "extracting", "analyzing")),
-                    Firmware.upload_stage_started_at.is_not(None),
-                    Firmware.upload_stage_started_at < cutoff,
-                )
-                .values(
-                    upload_stage="failed",
-                    upload_stage_error="Backend restarted; upload runner state lost",
-                    upload_stage_finished_at=datetime.now(UTC),
-                )
-            )
-            await db.commit()
-            if res.rowcount:
-                import logging
-                logging.getLogger(__name__).info(
-                    "Reaped %d orphan upload_stage firmware row(s) on startup",
-                    res.rowcount,
-                )
-    except Exception:
-        import logging
-        logging.getLogger(__name__).warning(
-            "upload_stage orphan reaper failed — phantom rows may render "
-            "stuck spinners in the frontend until the next startup",
-            exc_info=True,
+        from app.workers.walker_registry import (
+            STATE_MACHINE_REAPER_CONFIGS,
+            WALKER_REAPER_CONFIGS,
+            WalkerReaperConfig,
         )
 
-    # Reap orphan sbom-generate firmware rows. Same shape as the
-    # cve_match / vuln_scan reapers above. Session 2a 2026-05-21 added the
-    # `sbom_status` state-machine column when /sbom/generate was converted
-    # to 202+polling per Rule #33; Rule #51 .i mandates the orphan reaper
-    # companion in the SAME commit chain. Without this reaper, a backend
-    # restart mid-generation leaves the firmware in `sbom_status='running'`
-    # forever and the frontend polls forever. No grace window needed
-    # (mirroring cve_match / vuln_scan / bare_metal_audit) — the
-    # _run_sbom_generate_background runner sets started_at AFTER it
-    # acquires its own session, so a race against the lifespan startup
-    # reaper would only see rows whose runner is genuinely dead.
-    try:
-        from datetime import datetime
+        async def _reap_one_config(config: WalkerReaperConfig) -> None:
+            """Apply one reaper sweep entry against the Firmware table.
 
-        from sqlalchemy import update
+            Logs the rowcount on a non-zero reap; logs the exception on
+            failure but does NOT cascade — one bad reaper does not
+            block lifespan startup.
+            """
+            try:
+                now = datetime.now(UTC)
+                col = getattr(Firmware, config.column_name)
+                where_clauses = [col.in_(config.in_progress_states)]
+                if config.grace_minutes is not None and config.started_at_column:
+                    started_col = getattr(Firmware, config.started_at_column)
+                    cutoff = now - timedelta(minutes=config.grace_minutes)
+                    where_clauses.append(started_col.is_not(None))
+                    where_clauses.append(started_col < cutoff)
 
-        from app.database import async_session_factory
-        from app.models.firmware import Firmware
+                values: dict[str, object] = {config.column_name: "failed"}
+                if config.error_column:
+                    values[config.error_column] = config.failure_message
+                if config.finished_at_column:
+                    values[config.finished_at_column] = now
 
-        async with async_session_factory() as db:
-            res = await db.execute(
-                update(Firmware)
-                .where(Firmware.sbom_status.in_(("queued", "running")))
-                .values(
-                    sbom_status="failed",
-                    sbom_status_error="Backend restarted; runner state lost",
-                    sbom_status_finished_at=datetime.now(UTC),
-                )
-            )
-            await db.commit()
-            if res.rowcount:
+                async with async_session_factory() as db:
+                    res = await db.execute(
+                        update(Firmware).where(*where_clauses).values(**values)
+                    )
+                    await db.commit()
+                    if res.rowcount:
+                        import logging
+                        logging.getLogger(__name__).info(
+                            "Reaped %d orphan %s firmware row(s) on startup",
+                            res.rowcount, config.column_name,
+                        )
+            except Exception:
                 import logging
-                logging.getLogger(__name__).info(
-                    "Reaped %d orphan sbom-generate firmware row(s) on startup",
-                    res.rowcount,
+                logging.getLogger(__name__).warning(
+                    "orphan reaper for %s failed — phantom rows may block "
+                    "new runs until the next startup",
+                    config.column_name,
+                    exc_info=True,
                 )
+
+        # STATE_MACHINE first (more operator-visible — 202+polling pages
+        # rely on these flipping out of 'running' on restart). Then
+        # walker columns (operator-triggered re-walks).
+        for config in STATE_MACHINE_REAPER_CONFIGS.values():
+            await _reap_one_config(config)
+        for config in WALKER_REAPER_CONFIGS.values():
+            await _reap_one_config(config)
     except Exception:
         import logging
         logging.getLogger(__name__).warning(
-            "sbom-generate orphan reaper failed — phantom rows may block "
-            "new sbom-generate runs until the next startup",
-            exc_info=True,
-        )
-
-    # Reap orphan bare_metal_audit firmware rows. Same shape as the
-    # cve_match / vuln_scan reapers above. Scout C's live-DB probe found
-    # one TMS320F28066 firmware (firmware_id `78ad638b-...`) stuck in
-    # ``bare_metal_audit_status='queued'`` for 6 days after a backend
-    # restart lost its runner. Without this reaper, the next bare-metal
-    # audit attempt 409s indefinitely. The state machine was added with
-    # the Rule #52 first-application bare-metal walker (2026-05-19) and
-    # missed the Rule #51 .i reaper companion at that time — Fix #5 of
-    # the 2026-05-21 SBOM/vuln-scan regression investigation closes the
-    # gap. No grace window needed (unlike upload_stage's Fix #2) because
-    # the bare_metal audit is fully in-process and the 409 dedup check
-    # in the trigger MCP tool already gates against re-entrancy.
-    try:
-        from datetime import datetime
-
-        from sqlalchemy import update
-
-        from app.database import async_session_factory
-        from app.models.firmware import Firmware
-
-        async with async_session_factory() as db:
-            res = await db.execute(
-                update(Firmware)
-                .where(Firmware.bare_metal_audit_status.in_(("queued", "running")))
-                .values(
-                    bare_metal_audit_status="failed",
-                    bare_metal_audit_error="Backend restarted; runner state lost",
-                    bare_metal_audit_finished_at=datetime.now(UTC),
-                )
-            )
-            await db.commit()
-            if res.rowcount:
-                import logging
-                logging.getLogger(__name__).info(
-                    "Reaped %d orphan bare_metal_audit firmware row(s) on startup",
-                    res.rowcount,
-                )
-    except Exception:
-        import logging
-        logging.getLogger(__name__).warning(
-            "bare_metal_audit orphan reaper failed — phantom rows may block "
-            "new bare-metal audit runs until the next startup",
+            "two-axis orphan-reaper sweep failed — falling back to "
+            "no-reap (phantom rows may block 202+polling endpoints + "
+            "operator walker triggers until next startup)",
             exc_info=True,
         )
 

@@ -1,4 +1,8 @@
-"""Walker auto-trigger registry — single source of truth for post-extraction walker hooks.
+"""Walker auto-trigger registry + reaper-config registry.
+
+Single source of truth for (a) post-extraction walker auto-trigger hooks
+and (b) the lifespan orphan-reaper sweep configuration that pairs with
+every Rule #33 state-machine column.
 
 Every walker that ships a Rule #39 ``auto_<op>_walk_firmware_safe`` (or the older
 ``auto_walk_firmware_safe`` / ``auto_extract_drivers_safe`` shapes) registers in
@@ -33,6 +37,7 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -193,8 +198,195 @@ def _clear_walker_registry_cache() -> None:
 WALKER_AUTO_TRIGGERS = get_walker_auto_triggers()
 
 
+@dataclass(frozen=True)
+class WalkerReaperConfig:
+    """Configuration for one orphan-reaper sweep entry.
+
+    Drives the lifespan startup reaper in ``app/main.py`` that flips
+    rows stuck in ``in_progress_states`` to ``failed`` after a backend
+    crash. Same shape works for both axes:
+
+    - **WALKER_REAPER_CONFIGS** — operator-trigger-MCP runs against a
+      walker's ``*_walk_status`` column. The walker's auto-trigger runner
+      (Rule #39 .safe semantics) does NOT mutate the status column; only
+      the operator-triggered ``trigger_<op>_walk`` MCP tool does.
+    - **STATE_MACHINE_REAPER_CONFIGS** — operator-initiated 202+polling
+      runs against an explicit ``*_status`` column (sbom_status,
+      vuln_scan_status, cve_match_status, etc.).
+
+    The two-axis split is W2-β §SC5-NEW-SBOM-S2-SEAM-B mandate:
+    naive single-list (derive everything from WALKER_AUTO_TRIGGERS)
+    loses the defensive coverage for explicit state-machine columns
+    that AREN'T walkers (sbom_status / upload_stage / etc.). Both
+    dicts ship together; Rule #46 META-CANARY size-locks each.
+
+    Fields:
+        column_name: e.g. "sbom_status" / "appcompat_walk_status"
+        in_progress_states: states that mean "runner is dead; reap"
+            — typically ("queued", "running") for Rule #33 .a 5-state
+            machines; ("detecting", "extracting", "analyzing") for
+            upload_stage's pre-Rule-#33 shape
+        failure_message: human-readable error message written to the
+            error column on reap
+        finished_at_column: optional companion column to stamp with
+            ``NOW()`` on reap (None = skip)
+        error_column: optional companion column to write
+            ``failure_message`` to (None = skip)
+        started_at_column: optional started_at column used for the
+            grace window check (REQUIRED if grace_minutes is set)
+        grace_minutes: optional grace window per W2-β §SC5-NEW-SBOM-ε.
+            None = no grace (in-process work; runner sets started_at
+            AFTER acquiring its own session, so a race against the
+            startup reaper would only catch genuinely-dead rows).
+            int = detached background task that may still be spinning
+            up when the lifespan reaper fires — skip rows whose
+            started_at is recent.
+
+    Frozen dataclass so the registry can't be mutated at runtime by
+    misbehaving callers; size-lock META-CANARY in
+    ``tests/test_main_lifespan_reapers.py`` enforces the membership
+    contract.
+    """
+    column_name: str
+    in_progress_states: tuple[str, ...]
+    failure_message: str
+    finished_at_column: str | None = None
+    error_column: str | None = None
+    started_at_column: str | None = None
+    grace_minutes: int | None = None
+
+
+# ─────────────────────────────────────────────────────────────────────
+# STATE_MACHINE_REAPER_CONFIGS — explicit Rule #33 state-machine columns
+# (operator-initiated; pair with a Rule #33 sync→202+polling refactor +
+# its lifespan reaper companion per Rule #51 .i).
+# ─────────────────────────────────────────────────────────────────────
+STATE_MACHINE_REAPER_CONFIGS: dict[str, WalkerReaperConfig] = {
+    "cve_match_status": WalkerReaperConfig(
+        column_name="cve_match_status",
+        in_progress_states=("queued", "running"),
+        failure_message="Backend restarted; runner state lost",
+        finished_at_column="cve_match_finished_at",
+        error_column="cve_match_error",
+    ),
+    "vuln_scan_status": WalkerReaperConfig(
+        column_name="vuln_scan_status",
+        in_progress_states=("queued", "running"),
+        failure_message="Backend restarted; runner state lost",
+        finished_at_column="vuln_scan_finished_at",
+        error_column="vuln_scan_error",
+    ),
+    "sbom_status": WalkerReaperConfig(
+        column_name="sbom_status",
+        in_progress_states=("queued", "running"),
+        failure_message="Backend restarted; runner state lost",
+        finished_at_column="sbom_status_finished_at",
+        error_column="sbom_status_error",
+    ),
+    "bare_metal_audit_status": WalkerReaperConfig(
+        column_name="bare_metal_audit_status",
+        in_progress_states=("queued", "running"),
+        failure_message="Backend restarted; runner state lost",
+        finished_at_column="bare_metal_audit_finished_at",
+        error_column="bare_metal_audit_error",
+    ),
+    "authenticode_chain_status": WalkerReaperConfig(
+        column_name="authenticode_chain_status",
+        in_progress_states=("queued", "running"),
+        failure_message="Backend restarted; runner state lost",
+        finished_at_column="authenticode_chain_finished_at",
+        error_column="authenticode_chain_error",
+    ),
+    "dotnet_decompile_status": WalkerReaperConfig(
+        column_name="dotnet_decompile_status",
+        in_progress_states=("queued", "running"),
+        failure_message="Backend restarted; runner state lost",
+        finished_at_column="dotnet_decompile_finished_at",
+        error_column="dotnet_decompile_error",
+    ),
+    "windows_update_diff_status": WalkerReaperConfig(
+        column_name="windows_update_diff_status",
+        in_progress_states=("queued", "running"),
+        failure_message="Backend restarted; runner state lost",
+        finished_at_column="windows_update_diff_finished_at",
+        error_column="windows_update_diff_error",
+    ),
+    "upload_stage": WalkerReaperConfig(
+        # upload_stage uses pre-Rule-#33 vocabulary
+        # (detecting/extracting/analyzing) and a 15-min grace window
+        # per W2-β §SC5-NEW-SBOM-ε — the post-process background task
+        # runs detached via spawn_background_task and may still be
+        # spinning up when the lifespan reaper fires; the grace clause
+        # avoids reaping a fresh row mid-startup.
+        column_name="upload_stage",
+        in_progress_states=("detecting", "extracting", "analyzing"),
+        failure_message="Backend restarted; upload runner state lost",
+        finished_at_column="upload_stage_finished_at",
+        error_column="upload_stage_error",
+        started_at_column="upload_stage_started_at",
+        grace_minutes=15,
+    ),
+}
+
+
+# ─────────────────────────────────────────────────────────────────────
+# WALKER_REAPER_CONFIGS — *_walk_status columns. Operator-trigger-MCP
+# runs land here (trigger_<op>_walk MCP tool flips idle → queued; the
+# Rule #39 outer runner cycles queued → running → completed | failed).
+# Auto-fire (walker_registry.WALKER_AUTO_TRIGGERS) leaves status='idle'
+# per Rule #39 .safe contract so re-triggers don't 409.
+# ─────────────────────────────────────────────────────────────────────
+def _walker_reaper(column: str, *, prefix: str | None = None) -> WalkerReaperConfig:
+    """Helper: build a stock walker-reaper config from the column name."""
+    base = prefix or column.removesuffix("_walk_status")
+    return WalkerReaperConfig(
+        column_name=column,
+        in_progress_states=("queued", "running"),
+        failure_message="Backend restarted; walker runner state lost",
+        finished_at_column=f"{base}_walk_finished_at",
+        error_column=f"{base}_walk_error",
+    )
+
+
+# 25 walker status columns; each Rule #33 .a 5-state with NO grace
+# (operator-triggered in-process work). Per Rule #46 the META-CANARY
+# in tests/test_main_lifespan_reapers.py SIZE-LOCKS this dict and
+# CROSS-CHECKS that EVERY *_walk_status column on the Firmware model
+# is registered here.
+WALKER_REAPER_CONFIGS: dict[str, WalkerReaperConfig] = {
+    "registry_hive_walk_status": _walker_reaper("registry_hive_walk_status"),
+    "evtx_walk_status": _walker_reaper("evtx_walk_status"),
+    "prefetch_walk_status": _walker_reaper("prefetch_walk_status"),
+    "srum_walk_status": _walker_reaper("srum_walk_status"),
+    "scheduled_task_walk_status": _walker_reaper("scheduled_task_walk_status"),
+    "lnk_walk_status": _walker_reaper("lnk_walk_status"),
+    "mft_walk_status": _walker_reaper("mft_walk_status"),
+    "bcd_walk_status": _walker_reaper("bcd_walk_status"),
+    "journald_walk_status": _walker_reaper("journald_walk_status"),
+    "systemd_walk_status": _walker_reaper("systemd_walk_status"),
+    "etl_walk_status": _walker_reaper("etl_walk_status"),
+    "efs_walk_status": _walker_reaper("efs_walk_status"),
+    "container_walk_status": _walker_reaper("container_walk_status"),
+    "appcompat_walk_status": _walker_reaper("appcompat_walk_status"),
+    "persistence_walk_status": _walker_reaper("persistence_walk_status"),
+    "dpapi_walk_status": _walker_reaper("dpapi_walk_status"),
+    "usnjrnl_walk_status": _walker_reaper("usnjrnl_walk_status"),
+    "wmi_walk_status": _walker_reaper("wmi_walk_status"),
+    "esp_walk_status": _walker_reaper("esp_walk_status"),
+    "mbr_vbr_walk_status": _walker_reaper("mbr_vbr_walk_status"),
+    "sdb_walk_status": _walker_reaper("sdb_walk_status"),
+    "memory_dump_walk_status": _walker_reaper("memory_dump_walk_status"),
+    "windows_info_walk_status": _walker_reaper("windows_info_walk_status"),
+    "windows_processes_walk_status": _walker_reaper("windows_processes_walk_status"),
+    "windows_injection_walk_status": _walker_reaper("windows_injection_walk_status"),
+}
+
+
 __all__ = [
+    "STATE_MACHINE_REAPER_CONFIGS",
     "WALKER_AUTO_TRIGGERS",
+    "WALKER_REAPER_CONFIGS",
+    "WalkerReaperConfig",
     "WalkerSafeRunner",
     "_clear_walker_registry_cache",
     "get_walker_auto_triggers",

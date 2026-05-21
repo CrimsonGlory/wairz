@@ -31,31 +31,212 @@ def _main_py_source() -> str:
     return Path(__file__).parent.parent.joinpath("app/main.py").read_text()
 
 
-def test_upload_stage_reaper_present_in_lifespan():
-    """Fix #2 — `upload_stage` orphan reaper MUST exist in the lifespan block.
+# ─────────────────────────────────────────────────────────────────────
+# Session 2b Fix #11 — two-axis reaper-config registries
+# (STATE_MACHINE_REAPER_CONFIGS + WALKER_REAPER_CONFIGS in
+# walker_registry.py). The hardcoded 6-block reaper inline in main.py
+# was replaced with a data-driven sweep. These META-CANARIES size-lock
+# both registries + cross-check coverage against the Firmware model.
+# ─────────────────────────────────────────────────────────────────────
 
-    The reaper flips rows in `upload_stage IN ('detecting','extracting','analyzing')`
-    older than 15 minutes to `'failed'`. Pre-2026-05-21 Fix #2 this reaper
-    was absent — every backend restart during a multi-GB upload left the
-    row stuck in `upload_stage='extracting'` indefinitely with a permanent
-    stuck-spinner on the frontend (Scout D's #1 candidate symptom).
+
+def test_state_machine_reaper_configs_size_lock():
+    """STATE_MACHINE_REAPER_CONFIGS pinned at EXACTLY 8 entries.
+
+    8 entries today: cve_match_status, vuln_scan_status, sbom_status,
+    bare_metal_audit_status, authenticode_chain_status,
+    dotnet_decompile_status, windows_update_diff_status, upload_stage.
+
+    Drift forces a deliberate test edit + postmortem note (Rule #48
+    Part 3 size-lock discipline; W2-β §SC5-NEW-SBOM-S2-SEAM-B
+    mandate). Adding a new state-machine column means adding the
+    reaper config in the SAME Rule #25 atomic commit.
+    """
+    from app.workers.walker_registry import STATE_MACHINE_REAPER_CONFIGS
+
+    assert len(STATE_MACHINE_REAPER_CONFIGS) == 8, (
+        f"STATE_MACHINE_REAPER_CONFIGS has {len(STATE_MACHINE_REAPER_CONFIGS)} "
+        f"entries; expected exactly 8 (cve_match, vuln_scan, sbom, "
+        f"bare_metal_audit, authenticode_chain, dotnet_decompile, "
+        f"windows_update_diff, upload_stage). If you're adding a new "
+        f"state-machine column, also extend this dict + the META-CANARY "
+        f"size expectation."
+    )
+
+
+def test_walker_reaper_configs_size_lock_matches_firmware_model():
+    """WALKER_REAPER_CONFIGS covers EVERY *_walk_status column on
+    Firmware. Cross-axis check: enumerate via SQLAlchemy column
+    introspection.
+
+    Per W2-β §SC5-NEW-SBOM-S2-SEAM-B + Rule #46 META-CANARY discipline:
+    if a future commit adds a new walker WITH a *_walk_status column
+    but DOESN'T add the reaper config, the new walker's operator-
+    triggered runs would orphan permanently on backend restart.
+    """
+    from app.models.firmware import Firmware
+    from app.workers.walker_registry import WALKER_REAPER_CONFIGS
+
+    walker_status_columns = {
+        col.name for col in Firmware.__table__.columns
+        if col.name.endswith("_walk_status")
+    }
+    registered = set(WALKER_REAPER_CONFIGS.keys())
+    missing = walker_status_columns - registered
+    extra = registered - walker_status_columns
+
+    assert not missing, (
+        f"WALKER_REAPER_CONFIGS is MISSING reaper config for "
+        f"{sorted(missing)!r}. Every *_walk_status column on Firmware "
+        f"needs an entry in walker_registry.WALKER_REAPER_CONFIGS — "
+        f"see W2-β §SC5-NEW-SBOM-S2-SEAM-B. Add via _walker_reaper(...) "
+        f"helper at the top of WALKER_REAPER_CONFIGS dict."
+    )
+    assert not extra, (
+        f"WALKER_REAPER_CONFIGS has extra entries {sorted(extra)!r} not "
+        f"present on the Firmware model. Either remove the dict entry "
+        f"or add the corresponding column to the model."
+    )
+
+
+def test_walker_reaper_config_count_matches_documented():
+    """Numeric size-lock — 25 walker columns today (documented in
+    walker_registry.py docstring). Drift forces deliberate test edit.
+    """
+    from app.workers.walker_registry import WALKER_REAPER_CONFIGS
+
+    assert len(WALKER_REAPER_CONFIGS) == 25, (
+        f"WALKER_REAPER_CONFIGS has {len(WALKER_REAPER_CONFIGS)} entries; "
+        f"expected exactly 25 (matches the documented walker count in "
+        f"walker_registry.py docstring as of Session 2b 2026-05-21). "
+        f"Drift means a walker was added/removed without sweeping the "
+        f"size-lock — update the test + the docstring together."
+    )
+
+
+def test_main_py_lifespan_imports_both_registries():
+    """The lifespan code MUST import + iterate both STATE_MACHINE_REAPER_CONFIGS
+    and WALKER_REAPER_CONFIGS from walker_registry. A regression that
+    drops one registry from the import would silently skip the entire
+    half-axis (8 columns OR 25 columns of orphan-reaper coverage).
     """
     src = _main_py_source()
-    assert "Reap orphan upload_stage firmware rows" in src, (
-        "upload_stage orphan reaper missing from app/main.py lifespan — "
-        "see Fix #2 in .planning/research/sbom-vuln-scan-regression-2026-05-21/."
+    assert "STATE_MACHINE_REAPER_CONFIGS" in src, (
+        "main.py lifespan does NOT import STATE_MACHINE_REAPER_CONFIGS — "
+        "8 explicit Rule #33 state-machine columns lose orphan-reaper "
+        "coverage. W2-β §SC5-NEW-SBOM-S2-SEAM-B regression."
     )
-    # The reaper SQL must filter on upload_stage in the in-progress set.
-    assert "upload_stage.in_(" in src and "detecting" in src and "extracting" in src, (
-        "upload_stage reaper present but doesn't filter on the expected "
-        "in-progress states (detecting/extracting/analyzing). Re-verify "
-        "the firmware_service transition sequence."
+    assert "WALKER_REAPER_CONFIGS" in src, (
+        "main.py lifespan does NOT import WALKER_REAPER_CONFIGS — 25 "
+        "walker *_walk_status columns lose orphan-reaper coverage. "
+        "W2-β §SC5-NEW-SBOM-S2-SEAM-B regression."
+    )
+    # Both registries must be ITERATED, not just imported.
+    import re
+    iteration_pattern = re.compile(
+        r"for\s+\w+\s+in\s+STATE_MACHINE_REAPER_CONFIGS",
+        re.MULTILINE,
+    )
+    assert iteration_pattern.search(src), (
+        "STATE_MACHINE_REAPER_CONFIGS imported but NOT iterated in "
+        "main.py lifespan. The dict must be walked + each config applied."
+    )
+    iteration_pattern_walker = re.compile(
+        r"for\s+\w+\s+in\s+WALKER_REAPER_CONFIGS",
+        re.MULTILINE,
+    )
+    assert iteration_pattern_walker.search(src), (
+        "WALKER_REAPER_CONFIGS imported but NOT iterated in main.py "
+        "lifespan."
+    )
+
+
+def test_walker_reaper_config_meta_canary_would_fire_on_missing_entry(tmp_path):
+    """Paired synthesize-and-assert canary per Rule #46 §gate-canary-requirement.
+
+    Synthesize a fake walker_registry with WALKER_REAPER_CONFIGS missing
+    one of the 25 walker columns; assert the cross-axis test above
+    WOULD reject it.
+    """
+    from app.models.firmware import Firmware
+
+    walker_status_columns = {
+        col.name for col in Firmware.__table__.columns
+        if col.name.endswith("_walk_status")
+    }
+
+    # Synthesize a fake registry missing 'evtx_walk_status'.
+    fake_registered: set[str] = walker_status_columns - {"evtx_walk_status"}
+    missing = walker_status_columns - fake_registered
+
+    assert missing == {"evtx_walk_status"}, (
+        "META-CANARY broken: synthesize-and-assert canary did NOT "
+        "detect 'evtx_walk_status' as missing from the synthetic. "
+        "Re-author the missing-set computation."
+    )
+
+
+def test_state_machine_reaper_upload_stage_has_15_minute_grace():
+    """W2-β §SC5-NEW-SBOM-ε mandate: upload_stage MUST have a 15-min
+    grace window. All other state-machine configs MUST NOT (their
+    runners are in-process and the runner sets started_at AFTER
+    acquiring its own session; a race against the startup reaper
+    would only catch genuinely-dead rows).
+    """
+    from app.workers.walker_registry import STATE_MACHINE_REAPER_CONFIGS
+
+    upload = STATE_MACHINE_REAPER_CONFIGS["upload_stage"]
+    assert upload.grace_minutes == 15, (
+        f"upload_stage reaper grace_minutes={upload.grace_minutes}; "
+        f"expected 15 per W2-β §SC5-NEW-SBOM-ε."
+    )
+    assert upload.started_at_column == "upload_stage_started_at"
+
+    for key, config in STATE_MACHINE_REAPER_CONFIGS.items():
+        if key == "upload_stage":
+            continue
+        assert config.grace_minutes is None, (
+            f"{key} reaper has unexpected grace_minutes={config.grace_minutes}; "
+            f"in-process state machines should have None grace (their "
+            f"runner sets started_at after session acquisition)."
+        )
+
+
+def test_upload_stage_reaper_present_in_lifespan():
+    """Fix #2 — `upload_stage` reaper coverage MUST exist via
+    STATE_MACHINE_REAPER_CONFIGS registry (Session 2b Fix #11 refactor
+    consolidated the inline blocks into the data-driven sweep).
+
+    The reaper flips rows in `upload_stage IN
+    ('detecting','extracting','analyzing')` older than 15 minutes to
+    `'failed'`. Pre-2026-05-21 Fix #2 this reaper was absent — every
+    backend restart during a multi-GB upload left the row stuck
+    indefinitely with a permanent stuck-spinner on the frontend.
+    Pre-2026-05-21 Session 2b Fix #11 this was an inline block;
+    post-refactor it's an entry in STATE_MACHINE_REAPER_CONFIGS.
+    """
+    from app.workers.walker_registry import STATE_MACHINE_REAPER_CONFIGS
+
+    assert "upload_stage" in STATE_MACHINE_REAPER_CONFIGS, (
+        "upload_stage reaper config missing from STATE_MACHINE_REAPER_CONFIGS — "
+        "see Fix #2 (Session 1) + Fix #11 (Session 2b) in "
+        ".planning/research/sbom-vuln-scan-session2-2026-05-21/."
+    )
+    config = STATE_MACHINE_REAPER_CONFIGS["upload_stage"]
+    # The reaper config must filter on upload_stage's pre-Rule-#33 vocabulary.
+    expected_states = {"detecting", "extracting", "analyzing"}
+    assert set(config.in_progress_states) == expected_states, (
+        f"upload_stage reaper in_progress_states={config.in_progress_states}; "
+        f"expected {expected_states}. Re-verify the firmware_service "
+        f"transition sequence."
     )
 
 
 def test_upload_stage_reaper_uses_15_minute_grace():
     """Rule #51 §SC5-NEW-SBOM-ε mitigation — the upload_stage reaper MUST
-    have a grace window so freshly-started uploads aren't reaped mid-flight.
+    have a 15-min grace window so freshly-started uploads aren't reaped
+    mid-flight. Post Session 2b Fix #11 refactor, the grace lives in
+    `STATE_MACHINE_REAPER_CONFIGS["upload_stage"].grace_minutes`.
 
     Without a grace window (W2-β cross-feature critique catalogued this as
     HIGH severity), the lifespan reaper could fire during a legitimate
@@ -64,18 +245,17 @@ def test_upload_stage_reaper_uses_15_minute_grace():
     The 15-minute interval exceeds the worst-case observed extraction
     window (Medtronic ILLUMISITE 16 GB tarball, ~12 min cold-extract).
     """
-    src = _main_py_source()
-    # The grace window is expressed as a 15-minute timedelta.
-    assert "timedelta(minutes=15)" in src, (
-        "upload_stage reaper missing `timedelta(minutes=15)` grace window. "
-        "W2-β §SC5-NEW-SBOM-ε requires the grace clause to avoid reaping "
-        "fresh uploads mid-flight."
+    from app.workers.walker_registry import STATE_MACHINE_REAPER_CONFIGS
+
+    config = STATE_MACHINE_REAPER_CONFIGS["upload_stage"]
+    assert config.grace_minutes == 15, (
+        f"upload_stage reaper grace_minutes={config.grace_minutes}; "
+        f"expected 15 per W2-β §SC5-NEW-SBOM-ε."
     )
-    # The WHERE clause must exclude rows whose started_at is NULL OR fresh.
-    assert "upload_stage_started_at.is_not(None)" in src, (
-        "upload_stage reaper missing IS NOT NULL guard on upload_stage_started_at. "
-        "Rule #51 §SC5-NEW-SBOM-α NULL handling — freshly-created rows have "
-        "NULL started_at and should NOT be eligible for reaping."
+    assert config.started_at_column == "upload_stage_started_at", (
+        f"upload_stage reaper started_at_column={config.started_at_column!r}; "
+        f"expected 'upload_stage_started_at'. Rule #51 §SC5-NEW-SBOM-α NULL "
+        f"handling depends on the IS NOT NULL guard via this column."
     )
 
 
@@ -100,22 +280,30 @@ def lifespan():
 
 
 def test_existing_vuln_scan_reaper_still_present():
-    """Regression guard: the vuln_scan_status reaper shipped in 3d2454b
-    (2026-05-18 rate-limit campaign) MUST still be present. A future
-    refactor that bundles all reapers into a single helper could
-    accidentally drop one; this canary catches that.
+    """Regression guard: vuln_scan_status reaper coverage MUST exist
+    via STATE_MACHINE_REAPER_CONFIGS. Post Session 2b Fix #11 refactor,
+    the per-block inline reaper was consolidated into the data-driven
+    sweep — coverage now lives in the dict membership, not the
+    docstring string-match.
     """
-    src = _main_py_source()
-    assert "Reap orphan vuln-scan firmware rows" in src, (
-        "vuln_scan_status reaper accidentally removed — Rule #51 worked "
-        "example regression from the 2026-05-18 rate-limit campaign."
+    from app.workers.walker_registry import STATE_MACHINE_REAPER_CONFIGS
+    assert "vuln_scan_status" in STATE_MACHINE_REAPER_CONFIGS, (
+        "vuln_scan_status reaper accidentally removed from "
+        "STATE_MACHINE_REAPER_CONFIGS — Rule #51 worked-example regression "
+        "from the 2026-05-18 rate-limit campaign + Session 2b Fix #11 "
+        "refactor regression."
     )
 
 
 def test_existing_cve_match_reaper_still_present():
-    """Regression guard: the cve_match_status reaper MUST still be present."""
-    src = _main_py_source()
-    assert "Reap orphan cve-match firmware rows" in src
+    """Regression guard: cve_match_status reaper coverage MUST exist
+    via STATE_MACHINE_REAPER_CONFIGS post Session 2b Fix #11 refactor.
+    """
+    from app.workers.walker_registry import STATE_MACHINE_REAPER_CONFIGS
+    assert "cve_match_status" in STATE_MACHINE_REAPER_CONFIGS, (
+        "cve_match_status reaper accidentally removed from "
+        "STATE_MACHINE_REAPER_CONFIGS."
+    )
 
 
 def test_existing_device_dump_reaper_still_present():
@@ -125,53 +313,41 @@ def test_existing_device_dump_reaper_still_present():
 
 
 def test_bare_metal_audit_reaper_present_in_lifespan():
-    """Fix #5 — `bare_metal_audit_status` orphan reaper MUST exist.
-
-    The bare-metal walker shipped 2026-05-19 with its Rule #33 .a state
-    machine but missed the Rule #51 .i reaper companion. Scout C's live-DB
-    probe found one TMS320F28066 firmware stuck `bare_metal_audit_status='queued'`
-    for 6 days — the worked-example incident for this fix.
-
-    Unlike upload_stage's Fix #2 reaper (which needs a 15-min grace because
-    the upload work is on a long-running detached task), bare_metal_audit
-    is fully in-process via the existing trigger MCP tool's 409 dedup
-    check — no grace window needed.
+    """Fix #5 — `bare_metal_audit_status` reaper coverage MUST exist via
+    STATE_MACHINE_REAPER_CONFIGS (Session 2b Fix #11 refactor consolidated
+    the inline block).
     """
-    src = _main_py_source()
-    assert "Reap orphan bare_metal_audit firmware rows" in src, (
-        "bare_metal_audit_status reaper missing from app/main.py lifespan — "
-        "see Fix #5 in .planning/research/sbom-vuln-scan-regression-2026-05-21/."
+    from app.workers.walker_registry import STATE_MACHINE_REAPER_CONFIGS
+
+    assert "bare_metal_audit_status" in STATE_MACHINE_REAPER_CONFIGS, (
+        "bare_metal_audit_status reaper config missing from "
+        "STATE_MACHINE_REAPER_CONFIGS. See Fix #5 (Session 1) + Fix #11 "
+        "(Session 2b)."
     )
-    assert "bare_metal_audit_status.in_(" in src, (
-        "bare_metal_audit reaper present but doesn't filter on the expected "
-        "in-progress states. Re-verify against the state-machine column."
+    config = STATE_MACHINE_REAPER_CONFIGS["bare_metal_audit_status"]
+    assert set(config.in_progress_states) == {"queued", "running"}, (
+        f"bare_metal_audit_status in_progress_states={config.in_progress_states}; "
+        f"expected ('queued', 'running')."
     )
+    # No grace window — in-process work; runner sets started_at AFTER
+    # acquiring its own session.
+    assert config.grace_minutes is None
 
 
 def test_sbom_status_reaper_present_in_lifespan():
-    """Session 2a Fix #1 — `sbom_status` orphan reaper MUST exist.
-
-    The sbom_status state machine was added when /sbom/generate was
-    converted from sync to 202+polling per Rule #33 (Session 2a Fix #1).
-    Rule #51 .i mandates the orphan reaper companion in the SAME chain.
-    Without this reaper, a backend restart mid-generation leaves the row
-    in `sbom_status='running'` forever — frontend polls forever, operator
-    sees stuck-spinner with no recovery affordance. Same shape as the
-    vuln_scan reaper shipped at commit `3d2454b` (2026-05-18 rate-limit
-    campaign) — this canary catches a future regression that drops the
-    block.
+    """Session 2a Fix #1 — `sbom_status` reaper coverage MUST exist via
+    STATE_MACHINE_REAPER_CONFIGS (Session 2b Fix #11 refactor consolidated
+    the inline block).
     """
-    src = _main_py_source()
-    assert "Reap orphan sbom-generate firmware rows" in src, (
-        "sbom_status orphan reaper missing from app/main.py lifespan — "
-        "see Session 2a Fix #1 in "
-        ".planning/research/sbom-vuln-scan-session2-2026-05-21/."
+    from app.workers.walker_registry import STATE_MACHINE_REAPER_CONFIGS
+
+    assert "sbom_status" in STATE_MACHINE_REAPER_CONFIGS, (
+        "sbom_status reaper config missing from "
+        "STATE_MACHINE_REAPER_CONFIGS. See Session 2a Fix #1 + Session 2b Fix #11."
     )
-    assert "sbom_status.in_(" in src, (
-        "sbom_status reaper present but doesn't filter on the expected "
-        "in-progress states (queued/running). Re-verify against the "
-        "SbomStatus Literal in schemas/sbom.py."
-    )
+    config = STATE_MACHINE_REAPER_CONFIGS["sbom_status"]
+    assert set(config.in_progress_states) == {"queued", "running"}
+    assert config.grace_minutes is None
 
 
 def test_sbom_meta_canary_would_fire_on_dropped_reaper(tmp_path):
