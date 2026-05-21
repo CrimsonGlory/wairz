@@ -15,7 +15,7 @@ import tempfile
 import uuid
 from shutil import which
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -61,6 +61,7 @@ async def scan_with_grype(
     firmware_id: uuid.UUID,
     project_id: uuid.UUID,
     db: AsyncSession,
+    force_rescan: bool = False,
 ) -> dict:
     """Run Grype vulnerability scan on SBOM components.
 
@@ -70,6 +71,21 @@ async def scan_with_grype(
     4. Create grouped findings for critical/high vulnerabilities
 
     Returns dict with scan summary.
+
+    force_rescan semantics (Session 2a Fix #6 of the 2026-05-21
+    SBOM/vuln-scan regression sweep). Per Session 1 W2-β
+    §SC5-NEW-SBOM-μ, when force_rescan=False AND the firmware already
+    has persisted SbomVulnerability rows, the cached path returns the
+    existing counts WITHOUT re-running the Grype subprocess. When
+    force_rescan=True OR no vulns are persisted yet, the scan runs and
+    the DELETE+INSERT discipline of the matches-loop runs INSIDE the
+    caller's transaction — the outer `_run_vuln_scan_background`
+    runner's rollback (in `routers/sbom.py:_run_vuln_scan_background`)
+    reverts BOTH the DELETE and any partial INSERTs if the matches loop
+    raises. Pre-Fix #6 the function ignored `force_rescan` entirely,
+    unconditionally re-running the scan + DELETEing existing vulns on
+    every invocation (~30-60 s of wasted CPU + operator-visible
+    "scanning…" spinner on every poll-induced trigger).
     """
     settings = get_settings()
 
@@ -86,6 +102,38 @@ async def scan_with_grype(
             "findings_created": 0,
             "vulns_by_severity": {},
         }
+
+    # force_rescan=False short-circuit: if vulns are already persisted
+    # for this firmware, return the existing summary instead of re-running
+    # the Grype subprocess. Mirrors VulnerabilityService.scan_components's
+    # cached path. Per W2-β §SC5-NEW-SBOM-μ the cached path's count query
+    # is bounded + cheap (single COUNT + GROUP BY severity).
+    if not force_rescan:
+        existing_count = await db.scalar(
+            select(func.count(SbomVulnerability.id)).where(
+                SbomVulnerability.firmware_id == firmware_id
+            )
+        )
+        if existing_count and existing_count > 0:
+            findings_existing = await db.scalar(
+                select(func.count(SbomVulnerability.id)).where(
+                    SbomVulnerability.firmware_id == firmware_id,
+                    SbomVulnerability.finding_id.is_not(None),
+                )
+            ) or 0
+            severity_rows = (await db.execute(
+                select(SbomVulnerability.severity, func.count(SbomVulnerability.id))
+                .where(SbomVulnerability.firmware_id == firmware_id)
+                .group_by(SbomVulnerability.severity)
+            )).all()
+            vulns_by_severity = {(sev or "unknown").lower(): cnt for sev, cnt in severity_rows}
+            return {
+                "status": "cached",
+                "total_components_scanned": len(components),
+                "total_vulnerabilities_found": int(existing_count),
+                "findings_created": int(findings_existing),
+                "vulns_by_severity": vulns_by_severity,
+            }
 
     # Step 2: Build CycloneDX SBOM for Grype input
     cdx_components = []

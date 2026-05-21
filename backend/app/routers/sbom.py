@@ -704,6 +704,7 @@ async def _run_vuln_scan_background(
                         firmware_id=firmware_id,
                         project_id=project_id,
                         db=db,
+                        force_rescan=force_rescan,
                     )
                 else:
                     vuln_svc = VulnerabilityService(db)
