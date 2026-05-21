@@ -465,3 +465,58 @@ def test_ics_protocol_walk_status_literal_matches_db_check_values():
         f"the DB CHECK ck_firmware_ics_protocol_walk_status value set "
         f"{db_check_values!r}. Rule #33 .c contract."
     )
+
+
+# ───────────────────────────────────────────────────────────────────────
+# Phase 2: walker finding-emit Rule #25 Shape-1 alignment META-CANARIES.
+# ───────────────────────────────────────────────────────────────────────
+
+
+def test_walker_ics_finding_source_allowlist_matches_pydantic_literal():
+    """W2-β §SC5-NEW-ICS-S2-η META-CANARY — the walker's
+    ``_ALLOWED_ICS_FINDING_SOURCES`` frozenset MUST EXACTLY equal the
+    Pydantic ``IcsProtocolFindingSource`` Literal value set.
+
+    Drift means either: (a) the walker can emit a source the DB CHECK
+    rejects (Pydantic 422 at FindingService.create), or (b) the
+    Literal admits a value the walker would never emit (dead schema).
+    """
+    from typing import get_args
+
+    from app.schemas.finding import IcsProtocolFindingSource
+    from app.services.ics_protocol_walker import _ALLOWED_ICS_FINDING_SOURCES
+
+    literal_values = frozenset(get_args(IcsProtocolFindingSource))
+    assert _ALLOWED_ICS_FINDING_SOURCES == literal_values, (
+        f"_ALLOWED_ICS_FINDING_SOURCES {_ALLOWED_ICS_FINDING_SOURCES!r} "
+        f"MUST equal IcsProtocolFindingSource {literal_values!r}. "
+        f"Drift means the walker either emits a source the DB rejects "
+        f"or admits dead schema. Rule #25 Shape-1 cross-stack alignment."
+    )
+
+
+def test_walker_ics_finding_source_naming_convention():
+    """Every entry in the IcsProtocolFindingSource Literal MUST follow
+    the ``ics_<protocol_family>_detected`` naming convention so the
+    walker's per-family lookup
+    (``f"ics_{family}_detected"``) hits all declared values.
+
+    Without this canary, a future commit could rename a source value
+    (e.g. ``ics_modbus_tcp_detected`` -> ``modbus_detected``) and the
+    walker would silently stop emitting for that family.
+    """
+    from typing import get_args
+
+    from app.schemas.finding import IcsProtocolFindingSource
+
+    for source in get_args(IcsProtocolFindingSource):
+        assert source.startswith("ics_") and source.endswith("_detected"), (
+            f"source {source!r} does NOT match the "
+            f"`ics_<family>_detected` convention; the walker's per-family "
+            f"emit lookup `f'ics_{{family}}_detected'` will not hit it."
+        )
+        family = source[len("ics_") : -len("_detected")]
+        assert family, (
+            f"source {source!r} has empty protocol family between "
+            f"`ics_` and `_detected`"
+        )

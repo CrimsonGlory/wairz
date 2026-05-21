@@ -62,11 +62,18 @@ import os
 import traceback
 import uuid
 from collections import Counter
+from typing import get_args
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session_factory
 from app.models.firmware import Firmware
+from app.schemas.finding import (
+    FindingCreate,
+    IcsProtocolFindingSource,
+    Severity,
+)
+from app.services.finding_service import FindingService
 from app.services.firmware_paths import get_detection_roots
 from app.services.ics_protocol_catalog import (
     IcsResolverContext,
@@ -75,6 +82,19 @@ from app.services.ics_protocol_catalog import (
 )
 from app.services.jsonb_normalizers import (
     _stamp_firmware_ics_protocol_walk_result,
+)
+
+
+# Closed allowlist of ICS protocol-family finding sources (Rule #25 Shape-1
+# alignment surface — DB CHECK ↔ Pydantic Literal ↔ frontend mirror). The
+# walker emits a Finding per (firmware, protocol_family) tuple where the
+# source `ics_{protocol_family}_detected` is a declared member of
+# IcsProtocolFindingSource. Per W2-β §SC5-NEW-ICS-S2-η mitigation: if a
+# future protocol_family value lands in IcsProtocolFamily Literal without
+# a corresponding finding source declared here + in the DB CHECK, the
+# walker SKIPS emit (no silent FastAPI 422 on FindingService.create).
+_ALLOWED_ICS_FINDING_SOURCES: frozenset[str] = frozenset(
+    get_args(IcsProtocolFindingSource)
 )
 
 logger = logging.getLogger(__name__)
@@ -176,6 +196,7 @@ def _empty_result_aggregate(
         "protocol_family_counts": {},
         "manifest_ids_seen": [],
         "manifest_sources_seen": [],
+        "findings_emitted_count": 0,
         "errors": errors,
     }
 
@@ -294,6 +315,47 @@ async def _do_ics_protocol_walk(
                 "matches": match_dicts,
             })
 
+    # Emit findings — one per (firmware, protocol_family). Severity is
+    # always INFO (an ICS protocol detected on a PLC is informational
+    # context, not a vulnerability). Gated by closed allowlist to
+    # respect the Rule #25 Shape-1 cross-stack alignment contract per
+    # W2-β §SC5-NEW-ICS-S2-η — protocol families without a declared
+    # finding source skip emit silently.
+    findings_emitted = 0
+    finding_emit_errors: list[str] = []
+    if family_counts:
+        findings_service = FindingService(db)
+        for protocol_family, count in family_counts.items():
+            source = f"ics_{protocol_family}_detected"
+            if source not in _ALLOWED_ICS_FINDING_SOURCES:
+                finding_emit_errors.append(
+                    f"protocol_family={protocol_family!r} has no declared "
+                    f"finding source — manifest output declares a family "
+                    f"the IcsProtocolFindingSource Literal does not list"
+                )
+                continue
+            try:
+                await findings_service.create(
+                    project_id=firmware.project_id,
+                    data=FindingCreate(
+                        title=f"ICS protocol detected: {protocol_family}",
+                        severity=Severity.info,
+                        firmware_id=firmware_id,
+                        source=source,
+                        description=(
+                            f"Walker detected {count} binary match(es) for "
+                            f"ICS protocol family {protocol_family}. See "
+                            f"ics_protocol_walk_result JSONB for per-binary "
+                            f"match detail + manifest_ids_seen."
+                        ),
+                    ),
+                )
+                findings_emitted += 1
+            except Exception as exc:  # noqa: BLE001 — emit-boundary
+                finding_emit_errors.append(
+                    f"finding emit failed for {protocol_family}: {exc}"
+                )
+
     # W2-β §SC5-NEW-ICS-S2-β: read snapshot at EXIT; flag drift.
     exit_snapshot = catalog.get_snapshot()
     snapshot_id_at_exit = exit_snapshot.snapshot_id
@@ -316,7 +378,8 @@ async def _do_ics_protocol_walk(
         "protocol_family_counts": dict(family_counts),
         "manifest_ids_seen": manifest_ids,
         "manifest_sources_seen": manifest_sources,
-        "errors": errors,
+        "findings_emitted_count": findings_emitted,
+        "errors": errors + finding_emit_errors,
     }
 
 

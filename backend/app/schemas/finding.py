@@ -575,6 +575,36 @@ BareMetalFindingSource = Literal[
 ]
 
 
+# CLAUDE.md Rule #52 instance #3 — ICS protocol catalog walker emit sources.
+# Sibling of BareMetalFindingSource. Walker
+# (``backend/app/services/ics_protocol_walker.py``) emits one finding row per
+# ``(firmware, protocol_family)`` tuple at severity=info when the closed-
+# grammar resolver matches at least one binary against a manifest declaring
+# the family. The 5 family values mirror the IcsProtocolFamily Literal in
+# ``app/schemas/ics_protocol.py`` per W2-β §SC5-NEW-ICS-S2-η mitigation —
+# every protocol_family the catalog can output MUST have a corresponding
+# finding source declared here (catalog loader validates at YAML-load time
+# in a future Phase 4 commit; missing source rejects the manifest with
+# WARN, not silent skip).
+#
+# - ``ics_modbus_tcp_detected`` — Session 1's ``_system/modbus_tcp.yaml``
+#   exercises this source.
+# - ``ics_modbus_rtu_detected`` — forward-prepared for future Modbus-RTU
+#   serial YAML extension.
+# - ``ics_dnp3_detected`` — Phase 5 ``_system/dnp3.yaml`` exercises this.
+# - ``ics_s7comm_detected`` — Phase 5 ``_system/s7comm.yaml`` exercises this.
+# - ``ics_unknown_ics_detected`` — Phase 4 plugin escape hatch (W2-β
+#   §SC5-NEW-ICS-7 hot-reload mitigation envelope); reserved for plugins
+#   that detect an ICS stack but cannot identify the family.
+IcsProtocolFindingSource = Literal[
+    "ics_modbus_tcp_detected",
+    "ics_modbus_rtu_detected",
+    "ics_dnp3_detected",
+    "ics_s7comm_detected",
+    "ics_unknown_ics_detected",
+]
+
+
 class Severity(str, Enum):
     critical = "critical"
     high = "high"

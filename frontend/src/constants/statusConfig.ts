@@ -170,6 +170,11 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   c28x_csm_perma_lock: { icon: KeyRound, label: 'C28x CSM Perma-Lock', className: 'border-amber-600/50 text-amber-700 dark:text-amber-300' },
   bare_metal_chip_unknown_with_hints: { icon: Info, label: 'Bare-Metal Chip Unknown', className: 'border-blue-500/50 text-blue-600 dark:text-blue-400' },
   bare_metal_encrypted_region_skipped: { icon: Info, label: 'Encrypted Region Skipped', className: 'border-slate-500/50 text-slate-600 dark:text-slate-400' },
+  ics_modbus_tcp_detected: { icon: Network, label: 'ICS: Modbus/TCP', className: 'border-cyan-500/50 text-cyan-600 dark:text-cyan-400' },
+  ics_modbus_rtu_detected: { icon: Network, label: 'ICS: Modbus RTU', className: 'border-cyan-500/50 text-cyan-700 dark:text-cyan-300' },
+  ics_dnp3_detected: { icon: Network, label: 'ICS: DNP3', className: 'border-sky-500/50 text-sky-600 dark:text-sky-400' },
+  ics_s7comm_detected: { icon: Network, label: 'ICS: S7Comm', className: 'border-indigo-500/50 text-indigo-600 dark:text-indigo-400' },
+  ics_unknown_ics_detected: { icon: Info, label: 'ICS: Unknown Stack', className: 'border-slate-500/50 text-slate-600 dark:text-slate-400' },
 }
 
 // ── Finding confidence ──
