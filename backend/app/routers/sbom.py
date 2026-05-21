@@ -10,31 +10,16 @@ from datetime import UTC, datetime
 logger = logging.getLogger(__name__)
 
 
-# Module-level set of in-flight background tasks per the official asyncio
-# pattern (https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task,
-# "Important: Save a reference to the result of this function, to avoid a
-# task disappearing mid-execution"). Bare `asyncio.create_task(...)` returns
-# a task whose only reference is the asyncio scheduler's weak reference —
-# under memory pressure or GC the task can be collected mid-run, leaving
-# the firmware row stuck in `vuln_scan_status='running'` with no runner.
-# Scout D's #1 candidate symptom for the 2026-05-21 SBOM/vuln-scan
-# regression was a stuck-spinner pattern exactly matching this failure
-# mode. Wrap every detached coroutine via `_spawn_background_task` to keep
-# a strong reference until completion; the `add_done_callback(set.discard)`
-# trims the set on natural completion so it never grows unbounded.
-_BACKGROUND_TASKS: set[asyncio.Task] = set()
-
-
-def _spawn_background_task(coro, *, name: str | None = None) -> asyncio.Task:
-    """Create + track a detached background task with a strong reference.
-
-    Replaces bare `asyncio.create_task(coro)` calls per Rule #51 §SC5-NEW-SBOM
-    GC-hardening discipline (2026-05-21 SBOM/vuln-scan regression Fix #8).
-    """
-    task = asyncio.create_task(coro, name=name)
-    _BACKGROUND_TASKS.add(task)
-    task.add_done_callback(_BACKGROUND_TASKS.discard)
-    return task
+# Session 2a Fix #8-broader: the local `_spawn_background_task` helper +
+# `_BACKGROUND_TASKS` set originally lived here (Session 1 Fix #8). They
+# have been factored into `app/utils/background.py` and are now imported
+# by every router + service that fires detached coroutines (5+ call sites
+# across hardware_firmware.py / fuzzing.py / emulation.py / firmware_service.py
+# in addition to this file). The local names below are preserved as
+# re-export aliases so existing call sites + tests + the Rule #46 paired
+# META-CANARIES at `tests/test_sbom_router_background_tasks.py` keep
+# working without per-test patching changes.
+from app.utils.background import _BACKGROUND_TASKS, spawn_background_task as _spawn_background_task  # noqa: F401
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response

@@ -651,8 +651,16 @@ async def run_cve_match(
     await db.commit()
     await db.refresh(firmware)
 
-    asyncio.create_task(
-        _run_cve_match_background(firmware.id, force_rescan)
+    # GC-hardened spawn per Rule #51 §SC5-NEW-SBOM Fix #8-broader
+    # (Session 2a 2026-05-21). Bare `asyncio.create_task` has the GC-
+    # vanish risk Scout D catalogued in Session 1 — under memory
+    # pressure the runner can be collected mid-run, leaving the
+    # firmware row stuck in `cve_match_status='running'` forever and
+    # the frontend polling indefinitely.
+    from app.utils.background import spawn_background_task
+    spawn_background_task(
+        _run_cve_match_background(firmware.id, force_rescan),
+        name=f"cve_match_{firmware.id}",
     )
     return _firmware_to_status(firmware)
 
@@ -747,7 +755,12 @@ async def run_authenticode_chain(
     # observes the queued row (cve-match precedent).
     await db.commit()
 
-    asyncio.create_task(run_authenticode_chain_background(firmware.id))
+    # GC-hardened spawn per Rule #51 §SC5-NEW-SBOM Fix #8-broader.
+    from app.utils.background import spawn_background_task
+    spawn_background_task(
+        run_authenticode_chain_background(firmware.id),
+        name=f"authenticode_chain_{firmware.id}",
+    )
     return _firmware_to_authenticode_status(firmware)
 
 

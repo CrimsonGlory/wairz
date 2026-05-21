@@ -811,14 +811,26 @@ async def _post_process_pipeline(
         # Fire HW detection post-commit if extraction succeeded.
         # The HW detection runner itself dispatches the walker
         # auto-trigger registry (see app.workers.walker_registry +
-        # _run_hardware_firmware_detection_safe), so this single
-        # create_task covers BOTH HW-blob discovery AND every walker
-        # registered in WALKER_AUTO_TRIGGERS.
+        # _run_hardware_firmware_detection_safe), so this single spawn
+        # covers BOTH HW-blob discovery AND every walker registered
+        # in WALKER_AUTO_TRIGGERS (currently 27 safe-runners post
+        # Session 1 Fix #4).
+        #
+        # GC-hardened spawn per Rule #51 §SC5-NEW-SBOM-S2-SEAM-A (Session
+        # 2a Fix #8-broader, 2026-05-21). Pre-fix this was bare
+        # `asyncio.create_task` — W2-β identified this as HIGH-severity
+        # SEAM-A: under operator burst-upload + GC pressure, 1-of-N
+        # firmware silently loses its entire 27-walker fan-out with NO
+        # failed-status to surface the loss (the runner has no state-
+        # machine column to flip; the loss is invisible). _spawn_background_task
+        # keeps the strong reference until completion.
         if firmware.extracted_path:
-            asyncio.create_task(
+            from app.utils.background import spawn_background_task
+            spawn_background_task(
                 _run_hardware_firmware_detection_safe(
                     firmware.id, firmware.extracted_path,
                 ),
+                name=f"hw_firmware_detection_{firmware.id}",
             )
 
 

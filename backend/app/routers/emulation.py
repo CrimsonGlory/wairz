@@ -162,7 +162,11 @@ async def start_emulation(
             session.id,
         )
     else:
-        asyncio.create_task(
+        # GC-hardened spawn per Rule #51 §SC5-NEW-SBOM Fix #8-broader
+        # (Session 2a 2026-05-21). Bare `asyncio.create_task` has the GC-
+        # vanish risk Session 1 catalogued.
+        from app.utils.background import spawn_background_task
+        spawn_background_task(
             _run_spawn_background(
                 session_id=session.id,
                 firmware_id=firmware.id,
@@ -170,7 +174,8 @@ async def start_emulation(
                 init_path=body.init_path,
                 pre_init_script=body.pre_init_script,
                 stub_profile=body.stub_profile or "none",
-            )
+            ),
+            name=f"emulation_spawn_{session.id}",
         )
 
     return session
