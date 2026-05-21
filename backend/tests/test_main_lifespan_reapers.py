@@ -148,6 +148,48 @@ def test_bare_metal_audit_reaper_present_in_lifespan():
     )
 
 
+def test_sbom_status_reaper_present_in_lifespan():
+    """Session 2a Fix #1 — `sbom_status` orphan reaper MUST exist.
+
+    The sbom_status state machine was added when /sbom/generate was
+    converted from sync to 202+polling per Rule #33 (Session 2a Fix #1).
+    Rule #51 .i mandates the orphan reaper companion in the SAME chain.
+    Without this reaper, a backend restart mid-generation leaves the row
+    in `sbom_status='running'` forever — frontend polls forever, operator
+    sees stuck-spinner with no recovery affordance. Same shape as the
+    vuln_scan reaper shipped at commit `3d2454b` (2026-05-18 rate-limit
+    campaign) — this canary catches a future regression that drops the
+    block.
+    """
+    src = _main_py_source()
+    assert "Reap orphan sbom-generate firmware rows" in src, (
+        "sbom_status orphan reaper missing from app/main.py lifespan — "
+        "see Session 2a Fix #1 in "
+        ".planning/research/sbom-vuln-scan-session2-2026-05-21/."
+    )
+    assert "sbom_status.in_(" in src, (
+        "sbom_status reaper present but doesn't filter on the expected "
+        "in-progress states (queued/running). Re-verify against the "
+        "SbomStatus Literal in schemas/sbom.py."
+    )
+
+
+def test_sbom_meta_canary_would_fire_on_dropped_reaper(tmp_path):
+    """Paired synthesize-and-assert canary per Rule #46 §gate-canary-requirement.
+
+    Confirms the assertion gate above WOULD reject a regression that
+    removes the sbom_status reaper block.
+    """
+    bad_src = '''
+def lifespan():
+    """Reap orphan vuln-scan firmware rows."""
+    # NO sbom-generate reaper block — regression shape
+    pass
+'''
+    assert "Reap orphan sbom-generate firmware rows" not in bad_src
+    assert "sbom_status.in_(" not in bad_src
+
+
 def test_bare_metal_audit_meta_canary_would_fire_on_dropped_reaper(tmp_path):
     """Paired synthesize-and-assert canary per Rule #46 §gate-canary-requirement.
 

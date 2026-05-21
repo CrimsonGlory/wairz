@@ -302,6 +302,50 @@ async def lifespan(app: FastAPI):
             exc_info=True,
         )
 
+    # Reap orphan sbom-generate firmware rows. Same shape as the
+    # cve_match / vuln_scan reapers above. Session 2a 2026-05-21 added the
+    # `sbom_status` state-machine column when /sbom/generate was converted
+    # to 202+polling per Rule #33; Rule #51 .i mandates the orphan reaper
+    # companion in the SAME commit chain. Without this reaper, a backend
+    # restart mid-generation leaves the firmware in `sbom_status='running'`
+    # forever and the frontend polls forever. No grace window needed
+    # (mirroring cve_match / vuln_scan / bare_metal_audit) — the
+    # _run_sbom_generate_background runner sets started_at AFTER it
+    # acquires its own session, so a race against the lifespan startup
+    # reaper would only see rows whose runner is genuinely dead.
+    try:
+        from datetime import datetime
+
+        from sqlalchemy import update
+
+        from app.database import async_session_factory
+        from app.models.firmware import Firmware
+
+        async with async_session_factory() as db:
+            res = await db.execute(
+                update(Firmware)
+                .where(Firmware.sbom_status.in_(("queued", "running")))
+                .values(
+                    sbom_status="failed",
+                    sbom_status_error="Backend restarted; runner state lost",
+                    sbom_status_finished_at=datetime.now(UTC),
+                )
+            )
+            await db.commit()
+            if res.rowcount:
+                import logging
+                logging.getLogger(__name__).info(
+                    "Reaped %d orphan sbom-generate firmware row(s) on startup",
+                    res.rowcount,
+                )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning(
+            "sbom-generate orphan reaper failed — phantom rows may block "
+            "new sbom-generate runs until the next startup",
+            exc_info=True,
+        )
+
     # Reap orphan bare_metal_audit firmware rows. Same shape as the
     # cve_match / vuln_scan reapers above. Scout C's live-DB probe found
     # one TMS320F28066 firmware (firmware_id `78ad638b-...`) stuck in

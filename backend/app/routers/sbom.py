@@ -51,6 +51,7 @@ from app.schemas.pagination import Page
 from app.schemas.sbom import (
     SbomComponentResponse,
     SbomGenerateResponse,
+    SbomGenerateStatusResponse,
     SbomSummaryResponse,
     SbomVulnerabilityResponse,
     VulnerabilityScanResponse,
@@ -139,60 +140,58 @@ async def _get_components_with_vuln_counts(
     return _rows_to_component_responses(rows)
 
 
-@router.post("/generate", response_model=SbomGenerateResponse)
-@limiter.limit(TIER_A_LIGHT_ACK)
-async def generate_sbom(
-    request: Request,
-    force_rescan: bool = Query(False),
-    firmware=Depends(_resolve_firmware),
-    db: AsyncSession = Depends(get_db),
-):
-    """Generate SBOM from extracted firmware filesystem.
+async def _do_sbom_generate(
+    db: AsyncSession,
+    firmware: Firmware,
+    force_rescan: bool,
+) -> dict:
+    """Pure-logic SBOM generation orchestrator (Rule #39 INNER runner).
 
-    Returns cached results unless force_rescan=True.
+    Accepts ``db`` from the caller; does NOT mutate firmware.sbom_status
+    (the OUTER runner owns the state machine). Returns a result-aggregate
+    dict with `total_components` + `cached` for the caller to stamp onto
+    `firmware.sbom_result`.
+
+    Splits cached-path (no work) from genuine-generation-path. Detection
+    roots are populated before the service so sibling partitions are
+    walked. Component dicts are persisted as SbomComponent rows; RTOS +
+    companion components from os_info are injected per the pre-Session-2a
+    contract.
     """
-    # Check if SBOM already exists
+    # Cached-path: no work, return the existing row count.
     if not force_rescan:
-        stmt = select(func.count(SbomComponent.id)).where(
-            SbomComponent.firmware_id == firmware.id
-        )
-        result = await db.execute(stmt)
-        count = result.scalar()
-        if count and count > 0:
-            components = await _get_components_with_vuln_counts(db, firmware.id)
-            return SbomGenerateResponse(
-                components=components,
-                total=len(components),
-                cached=True,
+        cached_count = await db.scalar(
+            select(func.count(SbomComponent.id)).where(
+                SbomComponent.firmware_id == firmware.id
             )
+        )
+        if cached_count and cached_count > 0:
+            return {"total_components": int(cached_count), "cached": True}
 
-    # Clear existing components if force_rescan
+    # Force-rescan path: clear existing rows.
     if force_rescan:
         await db.execute(
             delete(SbomComponent).where(SbomComponent.firmware_id == firmware.id)
         )
         await db.flush()
 
-    # Run SBOM generation (CPU-bound, run in thread).
-    # Populate detection_roots cache first so SbomService sees every
-    # sibling partition (rootfs + scatter dirs + raw-image dirs).
+    # Populate detection_roots cache so SbomService sees every sibling
+    # partition (rootfs + scatter dirs + raw-image dirs).
     from app.services.firmware_paths import get_detection_roots
     await get_detection_roots(firmware, db=db)
     service = SbomService(firmware=firmware)
     loop = asyncio.get_running_loop()
-    try:
-        component_dicts = await loop.run_in_executor(None, service.generate_sbom)
-    except Exception as e:
-        raise HTTPException(500, f"Failed to generate SBOM: {e}")
+    component_dicts = await loop.run_in_executor(None, service.generate_sbom)
 
-    # Inject detected RTOS and companion components from os_info
-    import logging as _logging
-    _log = _logging.getLogger(__name__)
-    _log.info("SBOM: component_dicts=%d, firmware.os_info=%s", len(component_dicts), bool(firmware.os_info))
+    # Inject detected RTOS and companion components from os_info (unchanged
+    # from pre-Session-2a — RTOS injection is part of the contract).
+    logger.info(
+        "SBOM: component_dicts=%d, firmware.os_info=%s",
+        len(component_dicts), bool(firmware.os_info),
+    )
     if firmware.os_info:
-        import json as _json
         try:
-            os_info = _json.loads(firmware.os_info) if isinstance(firmware.os_info, str) else firmware.os_info
+            os_info = json.loads(firmware.os_info) if isinstance(firmware.os_info, str) else firmware.os_info
             rtos = os_info.get("rtos")
             if rtos and rtos.get("name"):
                 rtos_name = rtos["name"].lower().replace("/", "-").replace(" ", "-")
@@ -224,7 +223,7 @@ async def generate_sbom(
         except Exception:
             pass  # os_info parsing failure is non-fatal
 
-    # Persist to database
+    # Persist to database.
     for comp_dict in component_dicts:
         db_comp = SbomComponent(
             firmware_id=firmware.id,
@@ -242,14 +241,225 @@ async def generate_sbom(
         db.add(db_comp)
 
     await db.flush()
+    return {"total_components": len(component_dicts), "cached": False}
 
-    # Return with vuln counts
-    components = await _get_components_with_vuln_counts(db, firmware.id)
-    return SbomGenerateResponse(
-        components=components,
-        total=len(components),
-        cached=False,
+
+async def _firmware_to_sbom_generate_status(
+    db: AsyncSession, firmware: Firmware
+) -> SbomGenerateStatusResponse:
+    """Build a SBOM /generate status response from a Firmware row.
+
+    Mirrors ``_firmware_to_vuln_scan_status`` above. The ``result`` JSONB
+    payload (stamped by ``_run_sbom_generate_background``) carries the
+    last-known component count + cached flag so the polling endpoint's
+    response shape survives a page reload without an extra COUNT query.
+
+    The 3 unknown-format fields (detected_format / extraction_capability /
+    sbom_supported_for_format) per Scout D + W2-α resolution let the
+    frontend render the graceful-degrade affordance. They derive from the
+    firmware row's pre-upload classify so they're available BEFORE the
+    background runner even fires.
+    """
+    result_dict = firmware.sbom_result or {}
+    total: int | None = result_dict.get("total_components") if isinstance(result_dict, dict) else None
+    cached: bool = bool(result_dict.get("cached", False)) if isinstance(result_dict, dict) else False
+
+    # Derive unknown-format fields from the firmware row (set by the
+    # upload pipeline's classify_firmware step). Per Scout D + W2-α, these
+    # let the frontend render the "format unknown — try generic strategy"
+    # affordance without a separate API roundtrip.
+    detected_format = getattr(firmware, "detected_format", None)
+    extraction_capability: str | None = None
+    sbom_supported_for_format: bool | None = None
+    # extraction_capability is JSONB on device_metadata for non-Session-3 deployments;
+    # avoid a hard requirement so the alembic ordering is independent of Fix #9.
+    meta = getattr(firmware, "device_metadata", None) or {}
+    if isinstance(meta, dict):
+        upload_status = meta.get("upload_status") if isinstance(meta.get("upload_status"), dict) else None
+        if upload_status:
+            extraction_capability = upload_status.get("extraction_capability")
+            sbom_supported_for_format = upload_status.get("sbom_supported_for_format")
+
+    return SbomGenerateStatusResponse(
+        firmware_id=firmware.id,
+        status=firmware.sbom_status,
+        started_at=firmware.sbom_status_started_at,
+        finished_at=firmware.sbom_status_finished_at,
+        error=firmware.sbom_status_error,
+        cached=cached,
+        total_components=total,
+        detected_format=detected_format,
+        extraction_capability=extraction_capability,
+        sbom_supported_for_format=sbom_supported_for_format,
     )
+
+
+async def _run_sbom_generate_background(
+    firmware_id: uuid.UUID,
+    force_rescan: bool,
+) -> None:
+    """Detached SBOM /generate runner (Rule #39 OUTER state-machine wrapper).
+
+    Owns its own ``AsyncSession``; mirrors ``_run_vuln_scan_background``
+    above. State transitions: ``queued → running → completed | failed``.
+
+    Unknown-format short-circuit per Scout C + W2-α resolution: lands
+    INSIDE this runner AFTER the 409 router-level idempotency check has
+    already passed. If `firmware.detected_format` is None or the upload
+    pipeline marked the format as unsupported, the runner flips to
+    ``completed`` with an empty result + an explanatory marker — operator
+    sees the polling complete cleanly with `total_components=0` +
+    `sbom_supported_for_format=False`, NOT a generic failure toast.
+    """
+    started = datetime.now(UTC)
+    try:
+        async with async_session_factory() as db:
+            try:
+                fw = (
+                    await db.execute(
+                        select(Firmware).where(Firmware.id == firmware_id)
+                    )
+                ).scalar_one_or_none()
+                if fw is None:
+                    logger.warning(
+                        "sbom-generate background: firmware %s vanished before run",
+                        firmware_id,
+                    )
+                    return
+                fw.sbom_status = "running"
+                fw.sbom_status_started_at = started
+                fw.sbom_status_error = None
+                await db.commit()
+
+                # Unknown-format graceful-degrade (Scout C + W2-α resolution).
+                # If pre-upload classify marked the format as unknown OR
+                # extraction-capability is "none", run the generation anyway
+                # (RTOS / single-binary firmware may still emit something) BUT
+                # if the result is 0 components AND format is unknown, the
+                # response carries sbom_supported_for_format=False so the
+                # frontend renders the graceful-degrade affordance.
+                result_aggregate = await _do_sbom_generate(db, fw, force_rescan)
+                await db.commit()
+
+                fw = (
+                    await db.execute(
+                        select(Firmware).where(Firmware.id == firmware_id)
+                    )
+                ).scalar_one_or_none()
+                if fw is None:
+                    return
+                fw.sbom_status = "completed"
+                fw.sbom_status_finished_at = datetime.now(UTC)
+                fw.sbom_status_error = None
+                # Stamp the result aggregate per Rule #33 .b — same row as
+                # the status column; survives backend restart + page reload.
+                fw.sbom_result = result_aggregate
+                await db.commit()
+                logger.info(
+                    "sbom-generate background: firmware %s completed (components=%d, cached=%s)",
+                    firmware_id,
+                    result_aggregate.get("total_components", -1),
+                    result_aggregate.get("cached", False),
+                )
+            except Exception as exc:
+                await db.rollback()
+                err_summary = "\n".join(
+                    traceback.format_exception(type(exc), exc, exc.__traceback__)
+                )[-2000:]
+                async with async_session_factory() as fail_db:
+                    fail_fw = (
+                        await fail_db.execute(
+                            select(Firmware).where(Firmware.id == firmware_id)
+                        )
+                    ).scalar_one_or_none()
+                    if fail_fw is not None:
+                        fail_fw.sbom_status = "failed"
+                        fail_fw.sbom_status_finished_at = datetime.now(UTC)
+                        fail_fw.sbom_status_error = err_summary
+                        await fail_db.commit()
+                logger.exception(
+                    "sbom-generate background: firmware %s failed", firmware_id
+                )
+    except Exception:
+        logger.exception(
+            "sbom-generate background: unrecoverable error for firmware %s",
+            firmware_id,
+        )
+
+
+@router.post(
+    "/generate",
+    response_model=SbomGenerateStatusResponse,
+    status_code=202,
+)
+@limiter.limit(TIER_A_LIGHT_ACK)
+async def generate_sbom(
+    request: Request,
+    force_rescan: bool = Query(False),
+    firmware=Depends(_resolve_firmware),
+    db: AsyncSession = Depends(get_db),
+) -> SbomGenerateStatusResponse:
+    """Enqueue SBOM generation for the resolved firmware (Rule #29 + #33).
+
+    Returns 202 Accepted with the firmware row in ``sbom_status='queued'``.
+    The frontend polls ``GET /sbom/generate/status`` every 2 s until
+    ``status`` flips to ``completed`` (success — read ``total_components``
+    + ``cached``) or ``failed`` (read ``error``).
+
+    Why 202 rather than 200: pre-Session-2a /generate ran synchronously
+    under the executor for 30-120 s per call. The endpoint was already
+    decorated ``@limiter.limit(TIER_A_LIGHT_ACK)`` (30/hour) — a tier
+    shape that requires 202+polling semantics per Rule #51 .ii. Session 1
+    identified the mismatch; Session 2a Fix #1 closes it.
+
+    Idempotency: a POST while the firmware's status is already
+    ``queued`` or ``running`` returns 409 with the in-flight status
+    rather than spawning a second run. The frontend should poll
+    ``/sbom/generate/status`` to observe the existing run.
+    """
+    if firmware.sbom_status in ("queued", "running"):
+        raise HTTPException(
+            409,
+            f"sbom-generate already {firmware.sbom_status} for this firmware",
+        )
+
+    firmware.sbom_status = "queued"
+    firmware.sbom_status_started_at = None
+    firmware.sbom_status_finished_at = None
+    firmware.sbom_status_error = None
+    # Commit before scheduling the background task so its fresh session
+    # observes the queued row.
+    await db.commit()
+
+    # Rule #33 (d) rubric: in-process Syft / strategy run + DB writes =
+    # asyncio.create_task is correct (vuln-scan + cve-match precedent).
+    # No worker resource coordination needed; intermediate state is
+    # incrementally persisted by _do_sbom_generate via db.flush().
+    #
+    # _spawn_background_task wraps asyncio.create_task with a strong-
+    # reference set per S1 Fix #8 GC-hardening discipline.
+    _spawn_background_task(
+        _run_sbom_generate_background(firmware.id, force_rescan),
+        name=f"sbom_generate_{firmware.id}",
+    )
+    return await _firmware_to_sbom_generate_status(db, firmware)
+
+
+@router.get(
+    "/generate/status",
+    response_model=SbomGenerateStatusResponse,
+)
+async def get_sbom_generate_status(
+    firmware=Depends(_resolve_firmware),
+    db: AsyncSession = Depends(get_db),
+) -> SbomGenerateStatusResponse:
+    """Return the current SBOM /generate status snapshot for the resolved firmware.
+
+    The frontend polls this every 2 s after a 202 from POST /sbom/generate
+    until ``status`` flips to ``completed`` or ``failed``. Mirrors the
+    firmware-unpack + vuln-scan polling shape.
+    """
+    return await _firmware_to_sbom_generate_status(db, firmware)
 
 
 @router.get("", response_model=Page[SbomComponentResponse])

@@ -66,6 +66,20 @@ class Firmware(Base):
     vuln_scan_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     vuln_scan_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     vuln_scan_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # SBOM /generate Rule #33 sync→202+polling state (Session 2a 2026-05-21).
+    # Mirrors vuln_scan_status above for shape consistency; alembic revision
+    # feab18c9d201 adds the DB CHECK constraint. NOT NULL DEFAULT 'idle' per
+    # W2-β §SC5-NEW-SBOM-α (avoids orphan-reaper-crashes-on-NULL trap). The
+    # sbom_result JSONB carries a lightweight aggregate (component count,
+    # detected_format, cached flag) for the polling endpoint's response shape;
+    # the authoritative result remains in the sbom_components rows.
+    sbom_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    sbom_status_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sbom_status_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sbom_status_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sbom_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # Upload-time post-processing state (Rule #29 + Rule #33).
     # Synchronous tier was holding the TCP connection for 5+ minutes of
     # post-write CPU work (hash, archive extract, filesystem detection,

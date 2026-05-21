@@ -49,6 +49,44 @@ class SbomGenerateResponse(BaseModel):
     cached: bool
 
 
+# Rule #33 (c): both a Pydantic Literal AND a DB CHECK constraint.
+# Mirrors ck_firmware_sbom_status added in alembic revision feab18c9d201
+# (Session 2a of the 2026-05-21 SBOM/vuln-scan regression sweep).
+# Rule #48 5-part cross-stack alignment: see
+# backend/tests/test_sbom_status_alignment.py for the regression-canary
+# that pins DB CHECK ↔ Pydantic Literal pairwise agreement.
+SbomStatus = Literal["idle", "queued", "running", "completed", "failed"]
+
+
+class SbomGenerateStatusResponse(BaseModel):
+    """Polling-shape response for the 202+polling SBOM /generate flow.
+
+    POST /sbom/generate returns this with status='queued'; the frontend
+    polls GET /sbom/generate/status every 2 s (firmware-unpack +
+    vuln-scan precedent) until status flips to 'completed' or 'failed'.
+    On 'completed', `result` carries the last-known component-count
+    aggregate so the page reload renders without a re-COUNT query;
+    `summary` is None until 'completed'.
+
+    Per W2-α convergence resolution, the response shape includes
+    detected_format + extraction_capability + sbom_supported_for_format
+    so Scout D's mandatory frontend graceful-degrade can render the
+    correct affordance for unknown-format firmware (added via
+    Pydantic-`Field` defaults to keep the schema backward-compatible).
+    """
+    firmware_id: uuid.UUID
+    status: SbomStatus
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error: str | None = None
+    cached: bool = False
+    total_components: int | None = None
+    detected_format: str | None = None
+    extraction_capability: str | None = None
+    sbom_supported_for_format: bool | None = None
+    model_config = ConfigDict(from_attributes=True)
+
+
 class SbomVulnerabilityResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
