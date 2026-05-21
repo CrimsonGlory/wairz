@@ -5153,3 +5153,141 @@ def test_stamp_bare_metal_descriptor_payload_idempotent():
 
 def test_bare_metal_descriptor_payload_schema_version_constant():
     assert BARE_METAL_DESCRIPTOR_PAYLOAD_SCHEMA_VERSION == 1
+
+
+# ---------------------------------------------------------------------------
+# firmware.ics_protocol_walk_result (CLAUDE.md Rule #52 instance #3 —
+# Session 2 ICS protocol catalog walker, 2026-05-22)
+# ---------------------------------------------------------------------------
+
+
+from app.services.jsonb_normalizers import (  # noqa: E402
+    FIRMWARE_ICS_PROTOCOL_WALK_RESULT_SCHEMA_VERSION,
+    _normalize_firmware_ics_protocol_walk_result,
+    _stamp_firmware_ics_protocol_walk_result,
+)
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (
+            {
+                "schema_version": 1,
+                "provenance": "walker",
+                "walked_at": "2026-05-22T09:00:00+00:00",
+                "snapshot_id_at_entry": "snap-abc123",
+                "snapshot_id_at_exit": "snap-abc123",
+                "consistency_warning": None,
+                "binaries_scanned_count": 5,
+                "binaries_total_count": 5,
+                "per_binary": [
+                    {
+                        "blob_path": "/bin/modbus_server",
+                        "blob_size": 102400,
+                        "matches": [
+                            {
+                                "manifest_id": "modbus_tcp",
+                                "protocol_family": "modbus_tcp",
+                                "confidence": "high",
+                            }
+                        ],
+                    }
+                ],
+                "protocol_family_counts": {"modbus_tcp": 1},
+                "manifest_ids_seen": ["modbus_tcp"],
+                "manifest_sources_seen": ["_system"],
+                "errors": [],
+            },
+            {
+                "schema_version": 1,
+                "provenance": "walker",
+                "walked_at": "2026-05-22T09:00:00+00:00",
+                "snapshot_id_at_entry": "snap-abc123",
+                "snapshot_id_at_exit": "snap-abc123",
+                "consistency_warning": None,
+                "binaries_scanned_count": 5,
+                "binaries_total_count": 5,
+                "per_binary": [
+                    {
+                        "blob_path": "/bin/modbus_server",
+                        "blob_size": 102400,
+                        "matches": [
+                            {
+                                "manifest_id": "modbus_tcp",
+                                "protocol_family": "modbus_tcp",
+                                "confidence": "high",
+                            }
+                        ],
+                    }
+                ],
+                "protocol_family_counts": {"modbus_tcp": 1},
+                "manifest_ids_seen": ["modbus_tcp"],
+                "manifest_sources_seen": ["_system"],
+                "errors": [],
+            },
+        ),
+        ({}, {}),
+        (None, None),
+        ([{"a": 1}], None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_ics_protocol_walk_result(value, expected):
+    assert _normalize_firmware_ics_protocol_walk_result(value) == expected
+
+
+def test_stamp_firmware_ics_protocol_walk_result_adds_version():
+    out = _stamp_firmware_ics_protocol_walk_result({"binaries_scanned_count": 0})
+    assert out["schema_version"] == FIRMWARE_ICS_PROTOCOL_WALK_RESULT_SCHEMA_VERSION
+
+
+def test_stamp_firmware_ics_protocol_walk_result_idempotent():
+    once = _stamp_firmware_ics_protocol_walk_result({"binaries_scanned_count": 0})
+    twice = _stamp_firmware_ics_protocol_walk_result(once)
+    assert once == twice
+
+
+def test_firmware_ics_protocol_walk_result_schema_version_constant():
+    assert FIRMWARE_ICS_PROTOCOL_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+# ── W2-β §SC5-NEW-ICS-S2-1 sister-provenance gate META-CANARY (Rule #46) ────
+#
+# The ``_stamp_*`` helper MUST stamp ``provenance: "walker"`` onto every
+# walker-side commit so downstream CVE matcher consumers can distinguish a
+# walker-authored result from a pre-seed via descriptor route. Without this
+# gate, a future operator-supplied descriptor route could write
+# ``ics_protocol_walk_result = {"protocol_family_counts": {"s7comm": 1}}``
+# pre-walker, and the CVE matcher's downstream consumer would apply Siemens
+# CVEs to a non-Siemens firmware (false attribution at CRITICAL severity per
+# Wave-1 C §SC5-NEW-ICS-S2-1).
+
+
+def test_stamp_firmware_ics_protocol_walk_result_enforces_provenance_walker():
+    """Every walker-side stamp emits ``provenance: "walker"``. Asserts the
+    sister-key is present (W2-β §SC5-NEW-ICS-S2-1 gate fires)."""
+    out = _stamp_firmware_ics_protocol_walk_result({"binaries_scanned_count": 0})
+    assert out["provenance"] == "walker", (
+        "_stamp_firmware_ics_protocol_walk_result MUST stamp "
+        "provenance='walker' — W2-β §SC5-NEW-ICS-S2-1 sister-key gate."
+    )
+
+
+def test_stamp_firmware_ics_protocol_walk_result_overwrites_hostile_provenance():
+    """Gate-canary (Rule #46): a hostile pre-seed declaring
+    ``provenance: "descriptor"`` MUST be overwritten by the stamp helper.
+    Without this overwrite, the descriptor route could bypass the
+    sister-provenance check at downstream CVE matcher consumers."""
+    hostile_pre_seed = {
+        "binaries_scanned_count": 0,
+        "provenance": "descriptor",  # pretending to be operator-tier
+        "protocol_family_counts": {"s7comm": 99},  # over-attributed
+    }
+    out = _stamp_firmware_ics_protocol_walk_result(hostile_pre_seed)
+    assert out["provenance"] == "walker", (
+        "Stamp helper MUST overwrite hostile provenance — W2-β "
+        "§SC5-NEW-ICS-S2-1 mitigation. A descriptor route MUST NOT be able "
+        "to claim walker provenance via JSONB pre-seed."
+    )

@@ -4379,3 +4379,89 @@ def _stamp_bare_metal_descriptor_payload(payload: dict) -> dict:
     payload column. Idempotent."""
     payload["schema_version"] = BARE_METAL_DESCRIPTOR_PAYLOAD_SCHEMA_VERSION
     return payload
+
+
+# ── firmware.ics_protocol_walk_result (CLAUDE.md Rule #52 instance #3) ──────
+#
+# Aggregate of a single ``ics_protocol_walker`` run against a firmware's
+# detection roots. The walker is multi-protocol — a binary can speak Modbus +
+# DNP3 + S7Comm simultaneously (Session 1 postmortem Pattern #6: real-world
+# HMIs do). The JSONB column carries the snapshot-pinned cross-binary match
+# aggregate plus the provenance sister-key that gates downstream CVE
+# attribution (W2-β §SC5-NEW-ICS-S2-1 — operator-supplied descriptor route
+# pre-seed must not corrupt CVE matcher trust).
+#
+# Canonical shape (every key is load-bearing — consumers cite specific
+# fields):
+#
+#   {
+#     "schema_version": 1,
+#     "provenance": "walker",                     # SISTER-KEY per W2-β
+#                                                 # §SC5-NEW-ICS-S2-1; CVE
+#                                                 # matcher MUST check this
+#                                                 # before consuming
+#                                                 # protocol_family_counts.
+#     "walked_at": "<ISO-8601 UTC>",
+#     "snapshot_id_at_entry": "<str>",            # PIN at INNER entry per
+#                                                 # W2-β §SC5-NEW-ICS-S2-β
+#     "snapshot_id_at_exit": "<str>",             # READ at INNER exit; if
+#                                                 # ≠ entry → catalog
+#                                                 # changed mid-walk
+#     "consistency_warning": "<str>" | None,      # set when entry≠exit;
+#                                                 # downstream readers
+#                                                 # (CVE matcher, MCP
+#                                                 # cross-firmware lookup)
+#                                                 # MUST refuse to attribute
+#                                                 # when this is non-None.
+#     "binaries_scanned_count": int,
+#     "binaries_total_count": int,                # detection-roots × binary
+#                                                 # count from inner runner
+#     "per_binary": list[dict],                   # per-blob match record:
+#                                                 #   {blob_path, blob_size,
+#                                                 #    matches: list[match]}
+#     "protocol_family_counts": dict[str, int],   # {"modbus_tcp": 3, ...}
+#     "manifest_ids_seen": list[str],             # set-like ordered list
+#     "manifest_sources_seen": list[str],         # _system | core | operator
+#     "errors": list[str],                        # per-binary errors that
+#                                                 # didn't kill the walk
+#   }
+#
+# Rule #36 + Rule #45 parse-only contract: the walker NEVER invokes any
+# extracted binary, NEVER instantiates operator-supplied YAML as code.
+# Closed Literals + ``extra='forbid'`` in IcsProtocolManifest structurally
+# guarantee no eval/exec path. Test gate
+# ``test_ics_protocol_walker.py::test_walker_no_decrypt_no_execute`` enforces;
+# Rule #46 paired META-CANARY confirms the gate fires.
+
+FIRMWARE_ICS_PROTOCOL_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_ics_protocol_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.ics_protocol_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed walker run yet".
+    Wrong-typed values collapse to ``None``. Walker writes via the
+    ``_stamp_*`` companion which enforces the
+    ``schema_version`` + ``provenance: "walker"`` sister-key contract.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_ics_protocol_walk_result(payload: dict) -> dict:
+    """Stamp ``schema_version`` + ``provenance: "walker"`` onto a writer
+    payload for ``Firmware.ics_protocol_walk_result``. Idempotent.
+
+    The ``provenance`` SISTER-KEY is the W2-β §SC5-NEW-ICS-S2-1 mitigation:
+    even if a future operator-supplied descriptor route pre-seeds
+    ``ics_protocol_walk_result`` via JSONB write, this stamp helper
+    overwrites ``provenance`` to ``"walker"`` on every walker commit —
+    downstream readers (CVE matcher, cross-firmware lookup) MUST refuse
+    to attribute protocol-family findings when ``provenance != "walker"``
+    OR ``consistency_warning is not None``.
+    """
+    payload["schema_version"] = FIRMWARE_ICS_PROTOCOL_WALK_RESULT_SCHEMA_VERSION
+    payload["provenance"] = "walker"
+    return payload
