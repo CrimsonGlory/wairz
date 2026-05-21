@@ -36,6 +36,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useProjectStore } from '@/stores/projectStore'
 import FirmwareSelector from '@/components/projects/FirmwareSelector'
 import { FormatBanner } from '@/components/firmware/FormatBanner'
+import { usePollingBackoff } from '@/hooks/usePollingBackoff'
 import VulnerabilityRowVirtual, { COLUMN_TEMPLATE } from '@/components/sbom/VulnerabilityRowVirtual'
 import { List, useDynamicRowHeight } from 'react-window'
 import type {
@@ -316,45 +317,27 @@ export default function SbomPage() {
     }
   }, [projectId, selectedFirmwareId])
 
-  // Poll the vuln-scan status while a scan is in flight. Mirrors the
-  // firmware-unpack and cve-match polling shapes — 2 s interval,
-  // mounted-state-guarded cleanup via the useEffect cleanup function.
-  useEffect(() => {
-    if (!projectId || !scanning) return
-    let cancelled = false
-    const fwId = selectedFirmwareId || undefined
-
-    const tick = async () => {
-      if (cancelled) return
-      try {
-        const status: VulnerabilityScanStatus = await getVulnerabilityScanStatus(
-          projectId, fwId,
-        )
-        if (cancelled) return
-        if (status.status === 'completed') {
-          if (status.summary) setScanResult(status.summary)
-          await reloadAfterScanCompleted()
-          if (!cancelled) setScanning(false)
-        } else if (status.status === 'failed') {
-          toast.error(status.error || 'Vulnerability scan failed')
-          if (!cancelled) setScanning(false)
-        }
-      } catch (err) {
-        // Transient polling errors should not kill the loop; the next
-        // tick will retry. Surface only on the final timeout.
-        console.warn('vuln-scan status poll transient error:', err)
+  // Vuln-scan polling — uses shared usePollingBackoff hook (Session 2b
+  // Phase A polling-backoff-broader). Same exponential-backoff shape
+  // as the SBOM /generate polling above per W2-β §SC5-NEW-SBOM-λ.
+  usePollingBackoff<VulnerabilityScanStatus>({
+    enabled: !!projectId && scanning,
+    // `enabled` gates on !!projectId so the bang assertion is safe;
+    // tsc can't narrow useParams<{ projectId: string }>()'s `string | undefined`
+    // shape through the truthy check at the hook level.
+    fetchStatus: () => getVulnerabilityScanStatus(projectId!, selectedFirmwareId || undefined),
+    onStatus: async (status) => {
+      if (status.status === 'completed') {
+        if (status.summary) setScanResult(status.summary)
+        await reloadAfterScanCompleted()
+        setScanning(false)
+      } else if (status.status === 'failed') {
+        toast.error(status.error || 'Vulnerability scan failed')
+        setScanning(false)
       }
-    }
-
-    // Fire one immediate tick so the UI reflects existing in-flight
-    // runs (after a 409 short-circuit) without waiting 2 s.
-    void tick()
-    const id = window.setInterval(tick, 2000)
-    return () => {
-      cancelled = true
-      window.clearInterval(id)
-    }
-  }, [projectId, scanning, selectedFirmwareId, reloadAfterScanCompleted])
+    },
+    deps: [projectId, selectedFirmwareId, reloadAfterScanCompleted],
+  })
 
   // Export SBOM
   const [exportOpen, setExportOpen] = useState(false)

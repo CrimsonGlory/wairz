@@ -192,19 +192,35 @@ export default function HardwareFirmwarePage() {
         firmwareId: selectedFirmwareId,
       })
 
-      const POLL_INTERVAL_MS = 2000
-      // 15-minute ceiling — well past the observed 7-minute Yocto runtime
-      // so we never bail before the backend declares terminal status, but
-      // bounded so a runaway matcher can't pin the spinner forever.
+      // Exponential-backoff polling per W2-β §SC5-NEW-SBOM-λ (Session 2b
+      // Phase A polling-backoff-broader, 2026-05-21): start at 2 s; double
+      // to 4/8/16/32 s when status is unchanged. Bounds long-running
+      // matcher loads — a 7-min Yocto run at fixed 2 s would be 210 polling
+      // GETs; with backoff it's ~20. 15-min ceiling unchanged (well past
+      // the observed runtime).
+      //
+      // The while-loop shape (rather than the reactive usePollingBackoff
+      // hook used in SbomPage) is preserved because this handler is a
+      // promise-returning click handler, not a reactive useEffect — the
+      // backoff is inline.
+      const INITIAL_INTERVAL_MS = 2000
+      const MAX_INTERVAL_MS = 32000
       const POLL_DEADLINE_MS = 15 * 60 * 1000
       const deadline = Date.now() + POLL_DEADLINE_MS
+      let intervalMs = INITIAL_INTERVAL_MS
+      let lastStatus: string | null = null
       let snapshot: Awaited<ReturnType<typeof getCveMatchStatus>> | null = null
       while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS))
+        await new Promise((r) => setTimeout(r, intervalMs))
         snapshot = await getCveMatchStatus(projectId, selectedFirmwareId)
         if (snapshot.status === 'completed' || snapshot.status === 'failed') {
           break
         }
+        const changed = lastStatus !== null && lastStatus !== snapshot.status
+        lastStatus = snapshot.status
+        intervalMs = changed
+          ? INITIAL_INTERVAL_MS
+          : Math.min(intervalMs * 2, MAX_INTERVAL_MS)
       }
       if (!snapshot || (snapshot.status !== 'completed' && snapshot.status !== 'failed')) {
         setError('CVE matcher polling timed out — refresh to see the latest state.')
