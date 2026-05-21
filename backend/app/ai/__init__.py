@@ -13,6 +13,7 @@ from app.ai.tools.filesystem import register_filesystem_tools
 from app.ai.tools.fuzzing import register_fuzzing_tools
 from app.ai.tools.bare_metal import register_bare_metal_tools
 from app.ai.tools.hardware_firmware import register_hardware_firmware_tools
+from app.ai.tools.ics_protocol import register_ics_protocol_tools
 from app.ai.tools.linux_container import register_linux_container_tools
 from app.ai.tools.linux_journald import register_linux_journald_tools
 from app.ai.tools.linux_persistence import register_linux_persistence_tools
@@ -110,4 +111,8 @@ def create_tool_registry() -> ToolRegistry:
     register_linux_persistence_tools(registry)
     register_windows_dpapi_tools(registry)
     register_windows_usnjrnl_tools(registry)
+    # CLAUDE.md Rule #52 instance #3 — ICS protocol catalog MCP tools
+    # (Session 2 Phase 3, 2026-05-22). 4 tools: trigger / list /
+    # lookup_across_firmwares (Rule #44 MANDATORY) / describe_anomalies.
+    register_ics_protocol_tools(registry)
     return registry
