@@ -382,6 +382,29 @@ export interface VulnerabilityScanStatus {
   summary: VulnerabilityScanResult | null
 }
 
+// 202+polling response shape for SBOM /generate. Mirrors
+// SbomGenerateStatusResponse in backend/app/schemas/sbom.py
+// (Session 2a Fix #1, 2026-05-21). The cached + total_components fields
+// come from firmware.sbom_result JSONB (the lightweight aggregate).
+// The detected_format / extraction_capability / sbom_supported_for_format
+// trio is hydrated from device_metadata.upload_status by the polling
+// endpoint so the frontend can render the unknown-format graceful-degrade
+// affordance per Scout D mandatory UX item.
+export type SbomStatusValue = VulnScanStatusValue
+
+export interface SbomGenerateStatus {
+  firmware_id: string
+  status: SbomStatusValue
+  started_at: string | null
+  finished_at: string | null
+  error: string | null
+  cached: boolean
+  total_components: number | null
+  detected_format: string | null
+  extraction_capability: string | null
+  sbom_supported_for_format: boolean | null
+}
+
 // ── Document types ──
 
 export interface ProjectDocument {

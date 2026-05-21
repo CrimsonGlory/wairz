@@ -2,7 +2,7 @@ import apiClient from './client'
 import { SECURITY_SCAN_TIMEOUT } from './timeouts'
 import type {
   SbomComponent,
-  SbomGenerateResponse,
+  SbomGenerateStatus,
   SbomSummary,
   SbomVulnerability,
   VulnerabilityUpdate,
@@ -25,21 +25,42 @@ function unwrap<T>(data: PageEnvelope<T> | T[]): T[] {
   return Array.isArray(data) ? data : (data?.items ?? [])
 }
 
+// SBOM /generate is 202+polling per Rule #33 (Session 2a Fix #1, 2026-05-21).
+// POST returns immediately with status='queued'; the frontend polls
+// /sbom/generate/status every 2 s — see SbomPage.handleGenerate.
+// No timeout override needed: the 202 ack is sub-second so the default
+// 30 s axios floor on apiClient is correct.
 export async function generateSbom(
   projectId: string,
   forceRescan = false,
   firmwareId?: string,
-): Promise<SbomGenerateResponse> {
-  const { data } = await apiClient.post<SbomGenerateResponse>(
+): Promise<SbomGenerateStatus> {
+  const { data } = await apiClient.post<SbomGenerateStatus>(
     `/projects/${projectId}/sbom/generate`,
     null,
     {
       params: { force_rescan: forceRescan, firmware_id: firmwareId },
-      timeout: SECURITY_SCAN_TIMEOUT,
     },
   )
   return data
 }
+
+export async function getSbomGenerateStatus(
+  projectId: string,
+  firmwareId?: string,
+): Promise<SbomGenerateStatus> {
+  const { data } = await apiClient.get<SbomGenerateStatus>(
+    `/projects/${projectId}/sbom/generate/status`,
+    { params: { firmware_id: firmwareId } },
+  )
+  return data
+}
+
+// Note: SbomGenerateResponse remains exported from @/types for the
+// /sbom (list) endpoint and the cached-return UX in the unlikely event
+// any external integration calls /generate directly via the previous
+// shape. The post-Session-2a `generateSbom()` return type IS
+// SbomGenerateStatus (the 202+polling shape).
 
 export async function getSbomComponents(
   projectId: string,

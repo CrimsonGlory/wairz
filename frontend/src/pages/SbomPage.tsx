@@ -24,6 +24,7 @@ import { extractErrorMessage } from '@/utils/error'
 import {
   generateSbom,
   getSbomComponents,
+  getSbomGenerateStatus,
   exportSbom,
   runVulnerabilityScan,
   getVulnerabilityScanStatus,
@@ -38,6 +39,7 @@ import VulnerabilityRowVirtual, { COLUMN_TEMPLATE } from '@/components/sbom/Vuln
 import { List, useDynamicRowHeight } from 'react-window'
 import type {
   SbomComponent,
+  SbomGenerateStatus,
   SbomVulnerability,
   SbomSummary,
   Severity,
@@ -124,24 +126,115 @@ export default function SbomPage() {
     })
   }, [resolutionFilter, projectId, loading, selectedFirmwareId])
 
-  // Generate SBOM
+  // SBOM /generate is Rule #33 202+polling per Session 2a Fix #1 (2026-05-21).
+  // POST returns immediately with status='queued'; the polling effect
+  // below watches the status endpoint until 'completed' or 'failed',
+  // matching the vuln-scan / firmware-unpack / cve-match cadence (2 s).
+  // The generateStatus state carries the last polled snapshot so the
+  // unknown-format graceful-degrade banner can render even before the
+  // run completes (detected_format + extraction_capability +
+  // sbom_supported_for_format hydrated from the firmware row).
+  const [generateStatus, setGenerateStatus] = useState<SbomGenerateStatus | null>(null)
+
+  const reloadAfterGenerateCompleted = useCallback(async () => {
+    if (!projectId) return
+    const fwId = selectedFirmwareId || undefined
+    const comps = await getSbomComponents(projectId, { firmware_id: fwId })
+    setComponents(comps)
+    const s = await getVulnerabilitySummary(projectId, fwId).catch(() => null)
+    setSummary(s)
+    await useVulnerabilityStore.getState().loadVulnerabilities(projectId, fwId)
+  }, [projectId, selectedFirmwareId])
+
   const handleGenerate = useCallback(async (force = false) => {
     if (!projectId) return
     setGenerating(true)
     const fwId = selectedFirmwareId || undefined
     try {
-      const result = await generateSbom(projectId, force, fwId)
-      setComponents(result.components)
-      const s = await getVulnerabilitySummary(projectId, fwId).catch(() => null)
-      setSummary(s)
-      await useVulnerabilityStore.getState().loadVulnerabilities(projectId, fwId)
-    } catch (err) {
-      console.error('SBOM generation failed:', err)
-      toast.error(extractErrorMessage(err, 'SBOM generation failed'))
-    } finally {
-      setGenerating(false)
+      // POST returns 202 with status='queued'; polling effect picks it up.
+      const initial = await generateSbom(projectId, force, fwId)
+      setGenerateStatus(initial)
+    } catch (err: unknown) {
+      // 409 = generate already in flight for this firmware. Fall through
+      // to the polling loop, which will observe the existing run rather
+      // than spawning a second one. Mirrors the vuln-scan 409 handling
+      // below.
+      const isConflict =
+        typeof err === 'object'
+        && err !== null
+        && 'response' in err
+        && (err as { response?: { status?: number } }).response?.status === 409
+      if (!isConflict) {
+        console.error('SBOM generation failed to start:', err)
+        toast.error(extractErrorMessage(err, 'SBOM generation failed to start'))
+        setGenerating(false)
+      }
     }
   }, [projectId, selectedFirmwareId])
+
+  // Poll the SBOM /generate status while a generation is in flight.
+  // Mirrors the vuln-scan polling effect below; 2 s cadence; mounted-
+  // state-guarded cleanup. Auto-resumes on page re-mount via the
+  // initial status fetch when `generating` is true (Scout D mandatory
+  // re-mount auto-resume per W2-α).
+  useEffect(() => {
+    if (!projectId || !generating) return
+    let cancelled = false
+    const fwId = selectedFirmwareId || undefined
+
+    const tick = async () => {
+      if (cancelled) return
+      try {
+        const status: SbomGenerateStatus = await getSbomGenerateStatus(
+          projectId, fwId,
+        )
+        if (cancelled) return
+        setGenerateStatus(status)
+        if (status.status === 'completed') {
+          await reloadAfterGenerateCompleted()
+          if (!cancelled) setGenerating(false)
+        } else if (status.status === 'failed') {
+          toast.error(status.error || 'SBOM generation failed')
+          if (!cancelled) setGenerating(false)
+        }
+      } catch (err) {
+        console.error('SBOM /generate status poll failed:', err)
+        // Don't tear down on transient errors — let the next tick retry.
+      }
+    }
+
+    void tick()  // immediate first poll so UI sees state without 2 s wait
+    const interval = window.setInterval(() => { void tick() }, 2000)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [projectId, generating, selectedFirmwareId, reloadAfterGenerateCompleted])
+
+  // Re-mount auto-resume: on initial mount (or firmware switch), check
+  // if a generate is already in flight for this firmware. If so, flip
+  // `generating` true so the polling effect picks up — operator who
+  // navigated away + back sees the in-flight progress instead of an
+  // idle page (Scout D mandatory UX per W2-α convergence).
+  useEffect(() => {
+    if (!projectId || generating) return
+    let cancelled = false
+    const fwId = selectedFirmwareId || undefined
+    ;(async () => {
+      try {
+        const status = await getSbomGenerateStatus(projectId, fwId)
+        if (cancelled) return
+        setGenerateStatus(status)
+        if (status.status === 'queued' || status.status === 'running') {
+          setGenerating(true)
+        }
+      } catch {
+        // Initial fetch failure is non-fatal — the user can still click
+        // Generate and the post-202 polling will engage normally.
+      }
+    })()
+    return () => { cancelled = true }
+  }, [projectId, selectedFirmwareId, generating])
 
   // Vulnerability scan now uses Rule #33 202+polling.
   // POST returns immediately with status="queued"; the polling effect
@@ -357,6 +450,36 @@ export default function SbomPage() {
           )}
         </div>
       </div>
+
+      {/* Scout D mandatory unknown-format graceful-degrade banner
+          (Session 2a 2026-05-21). Renders when the SBOM /generate
+          status endpoint reports sbom_supported_for_format=false OR
+          extraction_capability is something other than 'full' for the
+          currently-selected firmware. Operator sees an explicit signal
+          instead of an empty SBOM page when format isn't recognised.
+          The full FormatBanner component extraction from
+          FirmwareUpload.tsx is queued for Session 2b — this minimal
+          inline rendering closes the operator-visible UX gap today. */}
+      {generateStatus && generateStatus.sbom_supported_for_format === false && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+          <div className="font-medium text-amber-900 dark:text-amber-200">
+            Format not recognized for SBOM strategy
+          </div>
+          <div className="mt-1 text-muted-foreground">
+            Detected format: <code>{generateStatus.detected_format || 'unknown'}</code>
+            {generateStatus.extraction_capability && (
+              <> · extraction capability: <code>{generateStatus.extraction_capability}</code></>
+            )}
+          </div>
+          <div className="mt-1 text-muted-foreground">
+            wairz doesn't have an SBOM strategy for this format yet. You can
+            still try the generic strategy via Regenerate, but results may be
+            sparse. (Per Rule #52 closed-grammar extensibility — operators
+            can ship YAML extending the file-format catalog without code
+            changes; Session 3 will expose this surface.)
+          </div>
+        </div>
+      )}
 
       {/* Summary cards */}
       {summary && summary.total_components > 0 && (
