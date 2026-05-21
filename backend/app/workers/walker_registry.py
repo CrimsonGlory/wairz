@@ -59,6 +59,7 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
     """
     # Phase γ — registry hives + driver INF/CAT + Windows event log.
     # Phase η/θ/ι/κ — Windows + Linux artefact walkers (each Rule #39 triplet).
+    # ICS Session 2 — ICS protocol catalog walker (Rule #52 instance #3).
     from app.services.appcompat_walker import auto_appcompat_walk_firmware_safe
     from app.services.bare_metal_walker import auto_bare_metal_audit_firmware_safe
     from app.services.bcd_walker import auto_bcd_walk_firmware_safe
@@ -69,6 +70,9 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
     from app.services.esp_walker import auto_esp_walk_firmware_safe
     from app.services.etl_walker import auto_etl_walk_firmware_safe
     from app.services.evtx_service import auto_walk_firmware_safe as evtx_auto_walk
+    from app.services.ics_protocol_walker import (
+        auto_ics_protocol_walk_firmware_safe,
+    )
     from app.services.journald_walker import auto_journald_walk_firmware_safe
     from app.services.linux_persistence_walker import (
         auto_linux_persistence_walk_firmware_safe,
@@ -125,6 +129,12 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
         auto_efs_walk_firmware_safe,
         auto_esp_walk_firmware_safe,
         auto_etl_walk_firmware_safe,
+        # ICS protocol catalog walker (Rule #52 instance #3 — Session 2).
+        # Operator-trigger via trigger_ics_protocol_walk MCP tool (Phase 3);
+        # this auto-fire stamps the JSONB result so operators see the
+        # last-known-result without manual MCP trigger. Status stays
+        # 'idle' per Rule #39 .safe so operator re-triggers don't 409.
+        auto_ics_protocol_walk_firmware_safe,
         auto_lnk_walk_firmware_safe,
         auto_mbr_vbr_walk_firmware_safe,
         # λ.α.B — memory-dump-image enumerator (metadata only; no Vol3
@@ -290,6 +300,23 @@ STATE_MACHINE_REAPER_CONFIGS: dict[str, WalkerReaperConfig] = {
         finished_at_column="bare_metal_audit_finished_at",
         error_column="bare_metal_audit_error",
     ),
+    # ICS protocol catalog walker (Rule #52 instance #3 — Session 2,
+    # 2026-05-22). DUAL REGISTRATION per Scout E + W2-α convergence
+    # synthesis: this column also lives in WALKER_REAPER_CONFIGS below
+    # because it carries the ``_walk_status`` suffix that
+    # ``test_walker_reaper_configs_size_lock_matches_firmware_model``
+    # enforces via SQLAlchemy introspection. The reaper sweep applies
+    # both passes; the second pass is a no-op (~1 ms) on a row already
+    # reaped by the first. The dual registration is deliberate —
+    # exclusion-list precedents erode the cross-axis suffix-introspection
+    # guarantee shipped Session 2b commit 95e47a6.
+    "ics_protocol_walk_status": WalkerReaperConfig(
+        column_name="ics_protocol_walk_status",
+        in_progress_states=("queued", "running"),
+        failure_message="Backend restarted; runner state lost",
+        finished_at_column="ics_protocol_walk_finished_at",
+        error_column="ics_protocol_walk_error",
+    ),
     "authenticode_chain_status": WalkerReaperConfig(
         column_name="authenticode_chain_status",
         in_progress_states=("queued", "running"),
@@ -348,7 +375,7 @@ def _walker_reaper(column: str, *, prefix: str | None = None) -> WalkerReaperCon
     )
 
 
-# 25 walker status columns; each Rule #33 .a 5-state with NO grace
+# 26 walker status columns; each Rule #33 .a 5-state with NO grace
 # (operator-triggered in-process work). Per Rule #46 the META-CANARY
 # in tests/test_main_lifespan_reapers.py SIZE-LOCKS this dict and
 # CROSS-CHECKS that EVERY *_walk_status column on the Firmware model
@@ -379,6 +406,14 @@ WALKER_REAPER_CONFIGS: dict[str, WalkerReaperConfig] = {
     "windows_info_walk_status": _walker_reaper("windows_info_walk_status"),
     "windows_processes_walk_status": _walker_reaper("windows_processes_walk_status"),
     "windows_injection_walk_status": _walker_reaper("windows_injection_walk_status"),
+    # ICS protocol catalog walker (Rule #52 instance #3 — Session 2,
+    # 2026-05-22). DUAL REGISTRATION per Scout E + W2-α — this column ALSO
+    # lives in STATE_MACHINE_REAPER_CONFIGS above. The suffix-introspection
+    # check at test_walker_reaper_configs_size_lock_matches_firmware_model
+    # requires every *_walk_status column to be registered here regardless
+    # of whether the column ALSO carries Rule #33 .b result JSONB
+    # semantics that route it through STATE_MACHINE.
+    "ics_protocol_walk_status": _walker_reaper("ics_protocol_walk_status"),
 }
 
 

@@ -41,11 +41,12 @@ def _main_py_source() -> str:
 
 
 def test_state_machine_reaper_configs_size_lock():
-    """STATE_MACHINE_REAPER_CONFIGS pinned at EXACTLY 8 entries.
+    """STATE_MACHINE_REAPER_CONFIGS pinned at EXACTLY 9 entries.
 
-    8 entries today: cve_match_status, vuln_scan_status, sbom_status,
+    9 entries today: cve_match_status, vuln_scan_status, sbom_status,
     bare_metal_audit_status, authenticode_chain_status,
-    dotnet_decompile_status, windows_update_diff_status, upload_stage.
+    dotnet_decompile_status, windows_update_diff_status, upload_stage,
+    ics_protocol_walk_status (ICS Session 2 — Rule #52 instance #3).
 
     Drift forces a deliberate test edit + postmortem note (Rule #48
     Part 3 size-lock discipline; W2-β §SC5-NEW-SBOM-S2-SEAM-B
@@ -54,13 +55,13 @@ def test_state_machine_reaper_configs_size_lock():
     """
     from app.workers.walker_registry import STATE_MACHINE_REAPER_CONFIGS
 
-    assert len(STATE_MACHINE_REAPER_CONFIGS) == 8, (
+    assert len(STATE_MACHINE_REAPER_CONFIGS) == 9, (
         f"STATE_MACHINE_REAPER_CONFIGS has {len(STATE_MACHINE_REAPER_CONFIGS)} "
-        f"entries; expected exactly 8 (cve_match, vuln_scan, sbom, "
+        f"entries; expected exactly 9 (cve_match, vuln_scan, sbom, "
         f"bare_metal_audit, authenticode_chain, dotnet_decompile, "
-        f"windows_update_diff, upload_stage). If you're adding a new "
-        f"state-machine column, also extend this dict + the META-CANARY "
-        f"size expectation."
+        f"windows_update_diff, upload_stage, ics_protocol_walk). If "
+        f"you're adding a new state-machine column, also extend this "
+        f"dict + the META-CANARY size expectation."
     )
 
 
@@ -100,15 +101,24 @@ def test_walker_reaper_configs_size_lock_matches_firmware_model():
 
 
 def test_walker_reaper_config_count_matches_documented():
-    """Numeric size-lock — 25 walker columns today (documented in
+    """Numeric size-lock — 26 walker columns today (documented in
     walker_registry.py docstring). Drift forces deliberate test edit.
+
+    Last bump: 25 → 26 in ICS Session 2 2026-05-22, adding
+    ics_protocol_walk_status (Rule #52 instance #3). Per Scout E +
+    W2-α DUAL REGISTRATION, this column also lives in
+    STATE_MACHINE_REAPER_CONFIGS (size-lock 9 above) — the
+    suffix-introspection check at
+    test_walker_reaper_configs_size_lock_matches_firmware_model
+    requires every *_walk_status column here regardless of whether
+    the column also carries Rule #33 .b result JSONB semantics.
     """
     from app.workers.walker_registry import WALKER_REAPER_CONFIGS
 
-    assert len(WALKER_REAPER_CONFIGS) == 25, (
+    assert len(WALKER_REAPER_CONFIGS) == 26, (
         f"WALKER_REAPER_CONFIGS has {len(WALKER_REAPER_CONFIGS)} entries; "
-        f"expected exactly 25 (matches the documented walker count in "
-        f"walker_registry.py docstring as of Session 2b 2026-05-21). "
+        f"expected exactly 26 (matches the documented walker count in "
+        f"walker_registry.py docstring as of ICS Session 2 2026-05-22). "
         f"Drift means a walker was added/removed without sweeping the "
         f"size-lock — update the test + the docstring together."
     )
@@ -123,11 +133,11 @@ def test_main_py_lifespan_imports_both_registries():
     src = _main_py_source()
     assert "STATE_MACHINE_REAPER_CONFIGS" in src, (
         "main.py lifespan does NOT import STATE_MACHINE_REAPER_CONFIGS — "
-        "8 explicit Rule #33 state-machine columns lose orphan-reaper "
+        "9 explicit Rule #33 state-machine columns lose orphan-reaper "
         "coverage. W2-β §SC5-NEW-SBOM-S2-SEAM-B regression."
     )
     assert "WALKER_REAPER_CONFIGS" in src, (
-        "main.py lifespan does NOT import WALKER_REAPER_CONFIGS — 25 "
+        "main.py lifespan does NOT import WALKER_REAPER_CONFIGS — 26 "
         "walker *_walk_status columns lose orphan-reaper coverage. "
         "W2-β §SC5-NEW-SBOM-S2-SEAM-B regression."
     )

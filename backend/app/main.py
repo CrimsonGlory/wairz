@@ -172,15 +172,18 @@ async def lifespan(app: FastAPI):
     # sweep iterates two registries declared in
     # `app/workers/walker_registry.py`:
     #
-    # - STATE_MACHINE_REAPER_CONFIGS (8 entries): explicit Rule #33 .a
+    # - STATE_MACHINE_REAPER_CONFIGS (9 entries): explicit Rule #33 .a
     #   state-machine columns (cve_match / vuln_scan / sbom /
     #   bare_metal_audit / authenticode_chain / dotnet_decompile /
-    #   windows_update_diff / upload_stage). upload_stage carries a
-    #   15-min grace window per W2-β §SC5-NEW-SBOM-ε; all others have
-    #   None grace (in-process work; the runner sets started_at AFTER
-    #   acquiring its own session).
+    #   windows_update_diff / upload_stage / ics_protocol_walk).
+    #   upload_stage carries a 15-min grace window per W2-β
+    #   §SC5-NEW-SBOM-ε; all others have None grace (in-process work;
+    #   the runner sets started_at AFTER acquiring its own session).
+    #   ics_protocol_walk DUAL-REGISTERS into WALKER_REAPER_CONFIGS
+    #   below because it carries the ``_walk_status`` suffix the
+    #   introspection cross-check enforces.
     #
-    # - WALKER_REAPER_CONFIGS (25 entries): every *_walk_status column
+    # - WALKER_REAPER_CONFIGS (26 entries): every *_walk_status column
     #   on the Firmware model. Operator-trigger-MCP runs flip rows
     #   idle → queued → running → completed | failed; auto-fire from
     #   walker_registry.WALKER_AUTO_TRIGGERS leaves status='idle' per
