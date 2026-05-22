@@ -593,8 +593,14 @@ def test_meta_canary_no_open_predicates_in_schema_source():
     Paired gate-canary :func:`test_meta_canary_no_open_predicates_gate_actually_fires`
     confirms the gate fires on a synthetic offending source.
     """
-    src_path = Path(
-        "/home/dustin/code/wairz/backend/app/schemas/file_format.py"
+    # Resolve relative to repo root so the test works in BOTH host-side
+    # dev/CI runs AND docker-backend-container runs (where the absolute
+    # /home/dustin/... path doesn't exist).  Mirrors the
+    # test_finding_source_alignment.py / test_file_format_detected_alignment.py
+    # path-resolution precedent.
+    src_path = (
+        Path(__file__).resolve().parents[1]
+        / "app" / "schemas" / "file_format.py"
     )
     forbidden = _scan_source_for_forbidden_field_decls(src_path.read_text(encoding="utf-8"))
     assert not forbidden, (

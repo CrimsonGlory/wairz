@@ -2157,7 +2157,14 @@ def test_cve_2021_1071_uses_r325_envelope_not_r3251() -> None:
 def test_cve_2021_1071_chipset_omitted_per_nvd_all_jetsons() -> None:
     """CVE-2021-1071 NVD CPE lists ALL Jetsons (AGX-Xavier + Xavier-NX +
     TX1 + TX2 + Nano + Nano-2GB). chipset_regex is intentionally omitted;
-    narrowing via category=kernel_module + version_regex r32.4-and-below.
+    narrowing via category=kernel + version_regex r32.4-and-below.
+
+    Originally drafted with category=kernel_module (matching the other 3
+    driver-CVE pins) but switched to category=kernel because the INA3221
+    driver is built INTO the kernel image via CONFIG_SENSORS_INA3221
+    (not a separate .ko module) — attribute to the kernel blob, not the
+    kernel_module category. YAML inline comment at the pin documents
+    this rationale.
     """
     families = _load_known_firmware()
     fam = _find_family_by_cve(list(families), "CVE-2021-1071")
@@ -2167,7 +2174,10 @@ def test_cve_2021_1071_chipset_omitted_per_nvd_all_jetsons() -> None:
         "should be omitted (do not narrow further than NVD)"
     )
     assert fam["vendor"] == "nvidia"
-    assert fam["category"] == "kernel_module"
+    assert fam["category"] == "kernel", (
+        "INA3221 driver is built INTO the kernel image (not a .ko module); "
+        "attribute to category=kernel — see YAML inline comment"
+    )
     assert fam.get("version_regex") is not None
 
 
