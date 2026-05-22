@@ -247,10 +247,20 @@ async def _do_sbom_generate(
             # exposed under the trailing-underscore alias).
             md = blob.metadata_ or {}
             version = blob.version or md.get("l4t_release") or None
+            # Qualcomm DSP/audio/modem blobs ship concatenated banners
+            # (VARIANT_STRING=... + VERSION_STRING=... + UUID_STRING=...)
+            # that can hit 128+ chars. sbom_components.version is
+            # VARCHAR(100); cap to 95 to fit + trailing "..." indicator.
+            # Rule #15 column-widening migration is queued as a follow-up.
+            if version and len(version) > 95:
+                version = version[:95] + "..."
             key = (vendor, category, blob_format, version)
             blob_dedup[key] = blob_dedup.get(key, 0) + 1
         for (vendor, category, blob_format, version), instance_count in blob_dedup.items():
+            # Defensive cap on name too — VARCHAR(255).
             comp_name = f"{vendor} {category} ({blob_format})"
+            if len(comp_name) > 250:
+                comp_name = comp_name[:250] + "..."
             if (comp_name, version) in existing_keys:
                 continue
             existing_keys.add((comp_name, version))
