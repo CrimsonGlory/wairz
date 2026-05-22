@@ -846,11 +846,17 @@ async def decompile_function(
             return code
 
     # If full analysis was done but this function wasn't decompiled,
-    # fall back to single-function decompilation
+    # fall back to single-function decompilation. Big handler functions
+    # (the kind you actually want to look at in a daemon) can take
+    # several minutes; bump well past the default 300s but stay under
+    # the MCP transport timeout (~600s) so the agent gets a real
+    # result instead of a transport-level "user doesn't want to
+    # proceed" rejection.
     raw_output = await run_ghidra_subprocess(
         binary_path,
         "DecompileFunction.java",
         script_args=[function_name],
+        timeout=540,
     )
 
     decompiled = _parse_decompile_output(raw_output)
