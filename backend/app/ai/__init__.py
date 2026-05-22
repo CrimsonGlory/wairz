@@ -3,6 +3,7 @@ from app.ai.tools.android import register_android_tools
 from app.ai.tools.android_bytecode import register_android_bytecode_tools
 from app.ai.tools.android_sast import register_android_sast_tools
 from app.ai.tools.attack_surface import register_attack_surface_tools
+from app.ai.tools.bare_metal import register_bare_metal_tools
 from app.ai.tools.binary import register_binary_tools
 from app.ai.tools.comparison import register_comparison_tools
 from app.ai.tools.cwe_checker import register_cwe_checker_tools
@@ -11,15 +12,14 @@ from app.ai.tools.emulation import register_emulation_tools
 from app.ai.tools.file_formats import register_file_format_tools
 from app.ai.tools.filesystem import register_filesystem_tools
 from app.ai.tools.fuzzing import register_fuzzing_tools
-from app.ai.tools.bare_metal import register_bare_metal_tools
 from app.ai.tools.hardware_firmware import register_hardware_firmware_tools
 from app.ai.tools.ics_protocol import register_ics_protocol_tools
 from app.ai.tools.linux_container import register_linux_container_tools
 from app.ai.tools.linux_journald import register_linux_journald_tools
-from app.ai.tools.linux_persistence import register_linux_persistence_tools
 from app.ai.tools.linux_kernel_hardening import (
     register_linux_kernel_hardening_tools,
 )
+from app.ai.tools.linux_persistence import register_linux_persistence_tools
 from app.ai.tools.linux_systemd import register_linux_systemd_tools
 from app.ai.tools.network import register_network_tools
 from app.ai.tools.reporting import register_reporting_tools

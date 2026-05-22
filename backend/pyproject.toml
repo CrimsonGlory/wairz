@@ -285,8 +285,13 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "F541", "F841"]
-# alembic migrations are auto-generated boilerplate — ignore style/import rules
-"alembic/**" = ["E", "W", "I", "UP", "F401", "F541"]
+# alembic migrations are auto-generated boilerplate — ignore style/import rules.
+# S608 (SQL injection): downgrade() builds `WHERE source IN (...)` from module-
+# local constants (the just-removed FindingSource Literal values), not user
+# input — false positive identical-shape across the cross-stack-alignment
+# alembic family (Rule #25 single-slice exception #2). Bandit also excludes
+# `alembic/` below.
+"alembic/**" = ["E", "W", "I", "UP", "F401", "F541", "S608"]
 
 [tool.bandit]
 exclude_dirs = ["tests", "alembic"]
