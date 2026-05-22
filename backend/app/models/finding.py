@@ -30,11 +30,19 @@ class Finding(Base):
         nullable=True,
         index=True,
     )
-    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    # title bumped 512 → 1024 on 2026-05-22 (over-constraint sweep, Rule #15
+    # family). CRA / compliance / windows / ICS finding titles can include
+    # OEM model + CWE list + check description and approach 512 chars;
+    # 1024 covers the worst observed without runaway growth risk.
+    title: Mapped[str] = mapped_column(String(1024), nullable=False)
     severity: Mapped[str] = mapped_column(String(20), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     evidence: Mapped[str | None] = mapped_column(Text)
-    file_path: Mapped[str | None] = mapped_column(String(512))
+    # file_path bumped 512 → 2048 on 2026-05-22 — Windows long-paths in
+    # Win11 ISO firmware (\Windows\WinSxS\amd64_microsoft-windows-...
+    # nested paths) routinely exceed 512 chars; cf. windows_mft_record
+    # already at String(4096) and windows_lnk_record at String(2048).
+    file_path: Mapped[str | None] = mapped_column(String(2048))
     line_number: Mapped[int | None] = mapped_column(Integer)
     cve_ids: Mapped[list[str] | None] = mapped_column(ARRAY(String))
     cwe_ids: Mapped[list[str] | None] = mapped_column(ARRAY(String))

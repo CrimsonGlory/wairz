@@ -34,7 +34,10 @@ class SbomComponent(Base):
     version: Mapped[str | None] = mapped_column(String(100))
     type: Mapped[str] = mapped_column(String(50), nullable=False)
     cpe: Mapped[str | None] = mapped_column(String(255))
-    purl: Mapped[str | None] = mapped_column(String(512))
+    # purl bumped 512 → 1024 on 2026-05-22 (over-constraint sweep, Rule #15
+    # family). Nested Maven shaded jars and npm scoped-package purls with
+    # full classifier metadata can exceed 512 chars.
+    purl: Mapped[str | None] = mapped_column(String(1024))
     supplier: Mapped[str | None] = mapped_column(String(255))
     detection_source: Mapped[str] = mapped_column(String(100), nullable=False)
     detection_confidence: Mapped[str | None] = mapped_column(String(20))
