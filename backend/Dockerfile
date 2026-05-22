@@ -159,6 +159,15 @@ RUN wget -q "https://github.com/NationalSecurityAgency/ghidra/releases/download/
     && mv /opt/ghidra_${GHIDRA_VERSION}_PUBLIC /opt/ghidra \
     && rm /tmp/ghidra.zip
 
+# Bump analyzeHeadless JVM tuning for large-binary analysis on modern
+# hardware: raise heap from 2G -> 16G and drop the GC/JIT thread caps
+# (-XX:ParallelGCThreads=2 -XX:CICompilerCount=2) that throttle Ghidra
+# on >2-core hosts. iCamera-class binaries (~7 MB MIPS daemons) stall
+# under the defaults; this unblocks them.
+RUN sed -i 's/^MAXMEM=2G/MAXMEM=16G/' /opt/ghidra/support/analyzeHeadless \
+    && sed -i 's/^VMARG_LIST="-XX:ParallelGCThreads=2 -XX:CICompilerCount=2 -Djava.awt.headless=true "/VMARG_LIST="-Djava.awt.headless=true "/' /opt/ghidra/support/analyzeHeadless \
+    && grep -E '^MAXMEM=|^VMARG_LIST=' /opt/ghidra/support/analyzeHeadless
+
 # Build Ghidra native components on ARM64 (decompiler, sleigh, demangler).
 # The pre-built Ghidra release only ships x86_64 Linux binaries. On ARM64
 # (e.g. Apple Silicon Macs running Docker), the decompiler is missing,
