@@ -175,6 +175,16 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   ics_dnp3_detected: { icon: Network, label: 'ICS: DNP3', className: 'border-sky-500/50 text-sky-600 dark:text-sky-400' },
   ics_s7comm_detected: { icon: Network, label: 'ICS: S7Comm', className: 'border-indigo-500/50 text-indigo-600 dark:text-indigo-400' },
   ics_unknown_ics_detected: { icon: Info, label: 'ICS: Unknown Stack', className: 'border-slate-500/50 text-slate-600 dark:text-slate-400' },
+  kernel_config_no_kaslr: { icon: ShieldAlert, label: 'Kernel: KASLR off', className: 'border-red-500/50 text-red-600 dark:text-red-400' },
+  kernel_config_devmem_enabled: { icon: ShieldAlert, label: 'Kernel: /dev/mem exposed', className: 'border-red-500/50 text-red-600 dark:text-red-400' },
+  kernel_config_devkmem_enabled: { icon: ShieldX, label: 'Kernel: /dev/kmem exposed', className: 'border-red-600/50 text-red-700 dark:text-red-300' },
+  kernel_config_no_module_sig: { icon: KeyRound, label: 'Kernel: unsigned modules', className: 'border-orange-500/50 text-orange-600 dark:text-orange-400' },
+  kernel_config_no_lsm: { icon: Lock, label: 'Kernel: no LSM (DAC only)', className: 'border-orange-500/50 text-orange-600 dark:text-orange-400' },
+  kernel_config_no_stackprotector: { icon: ShieldAlert, label: 'Kernel: no stack protector', className: 'border-orange-500/50 text-orange-600 dark:text-orange-400' },
+  kernel_config_no_hardened_usercopy: { icon: Shield, label: 'Kernel: no hardened usercopy', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
+  kernel_config_no_fortify_source: { icon: Shield, label: 'Kernel: no FORTIFY_SOURCE', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
+  kernel_config_io_uring_enabled: { icon: AlertTriangle, label: 'Kernel: io_uring enabled', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
+  kernel_config_no_dm_verity: { icon: HardDrive, label: 'Kernel: no dm-verity', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
 }
 
 // ── Finding confidence ──

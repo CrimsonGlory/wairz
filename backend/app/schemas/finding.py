@@ -605,6 +605,51 @@ IcsProtocolFindingSource = Literal[
 ]
 
 
+# Sibling of BareMetalFindingSource + IcsProtocolFindingSource. Emitted by
+# ``backend/app/services/linux_kernel_hardening_walker.py`` (separate PR)
+# reading ``HardwareFirmwareBlob.metadata.kernel_config`` populated by
+# ``parsers/kernel_image.py``. Per Rule #25 single-slice exception #2 +
+# Rule #48 5-part cross-stack alignment shape — DB CHECK + this Literal +
+# frontend ``FindingSource`` union + ``FINDING_SOURCE_CONFIG`` keys ship
+# in one atomic commit so the alignment test never goes RED between
+# commits. Sources are wairz-side derived from the KSPP catalogue + the
+# pre-existing security.py:1585 checks list; no upstream rename risk.
+#
+# - kernel_config_no_kaslr — CONFIG_RANDOMIZE_BASE missing/=n. CWE-330
+#   (predictable values; address-space layout unpredictability lost).
+# - kernel_config_devmem_enabled — CONFIG_DEVMEM=y exposes raw /dev/mem.
+#   CWE-732 (incorrect permission assignment).
+# - kernel_config_devkmem_enabled — CONFIG_DEVKMEM=y exposes raw kernel
+#   memory via /dev/kmem. CWE-732. Removed entirely in Linux 5.13+.
+# - kernel_config_no_module_sig — CONFIG_MODULE_SIG missing/=n. Modules
+#   can be loaded unsigned. CWE-345 (insufficient verification).
+# - kernel_config_no_lsm — none of SELINUX/APPARMOR/SMACK/TOMOYO active;
+#   DAC-only. CWE-272 (least-privilege violation envelope).
+# - kernel_config_no_stackprotector — CONFIG_STACKPROTECTOR_STRONG
+#   missing/=n. CWE-121 (stack-based buffer overflow class).
+# - kernel_config_no_hardened_usercopy — CONFIG_HARDENED_USERCOPY missing.
+#   CWE-120 (buffer copy without size checking).
+# - kernel_config_no_fortify_source — CONFIG_FORTIFY_SOURCE missing/=n.
+#   CWE-120 (compile-time buffer overflow detection lost).
+# - kernel_config_io_uring_enabled — CONFIG_IO_URING=y. Risk surface
+#   PRESENT — CVE-2021-41073 / CVE-2022-29582 / CVE-2023-2598 /
+#   CVE-2024-0582 all gate on this. CWE-1188 (insecure default).
+# - kernel_config_no_dm_verity — CONFIG_DM_VERITY missing/=n. Block-level
+#   integrity not enforced; rootfs mutability. CWE-353 (missing integrity).
+KernelConfigFindingSource = Literal[
+    "kernel_config_no_kaslr",
+    "kernel_config_devmem_enabled",
+    "kernel_config_devkmem_enabled",
+    "kernel_config_no_module_sig",
+    "kernel_config_no_lsm",
+    "kernel_config_no_stackprotector",
+    "kernel_config_no_hardened_usercopy",
+    "kernel_config_no_fortify_source",
+    "kernel_config_io_uring_enabled",
+    "kernel_config_no_dm_verity",
+]
+
+
 class Severity(str, Enum):
     critical = "critical"
     high = "high"
