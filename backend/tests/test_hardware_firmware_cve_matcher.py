@@ -2016,6 +2016,283 @@ def test_tegra_cve_pins_cvss_scores_match_nvd_primary() -> None:
 
 
 # ---------------------------------------------------------------------------
+# L4T pre-r32.5 / pre-r32.5.1 batch — added 2026-05-22 per operator report
+# "we are missing things still — for instance CVE-2021-1071 (NVIDIA Tegra
+# kernel INA3221 driver, all L4T versions prior to r32.5)". Audit added 19
+# new CVEs grouped into 8 Rule #50 shared-scope pins. Each pin's NVD CPE
+# verified via independent WebFetch on nvd.nist.gov/vuln/detail/<id> per
+# Rule #19 evidence-first.
+#
+# Rule #46 META-CANARY: a future YAML edit that drops one of these CVEs
+# from its pin group, or shifts a chipset/version envelope away from NVD,
+# fails this test family fast. CVE-2021-1071 (operator-named) gets its own
+# dedicated canary for the r32.5 vs r32.5.1 envelope distinction (it's the
+# only NEW CVE with versionEndExcluding=r32.5 — Trusty/MB2/TegraBoot cluster
+# uses 32.5.1).
+# ---------------------------------------------------------------------------
+
+
+_L4T_PRE_R325_NEW_CVES: tuple[str, ...] = (
+    # Group A — TX1-only Trusty heap (HIGH)
+    "CVE-2021-34373",
+    # Group B — TX1-only TLK family (MEDIUM, 7 CVEs)
+    "CVE-2021-34381",
+    "CVE-2021-34382",
+    "CVE-2021-34385",
+    "CVE-2021-34386",
+    "CVE-2021-34387",
+    "CVE-2021-34390",
+    "CVE-2021-34391",
+    # Group C — TX2/Xavier-family Trusty TA family (HIGH, 5 CVEs)
+    "CVE-2021-34374",
+    "CVE-2021-34375",
+    "CVE-2021-34376",
+    "CVE-2021-34378",
+    "CVE-2021-34379",
+    # Group D — TX2/Xavier-family Trusty OTE (MEDIUM)
+    "CVE-2021-34389",
+    # Group E — TX2/Xavier-family MB2 secure-boot (HIGH)
+    "CVE-2021-34380",
+    # Group F — TX2/Xavier-family MB2 (MEDIUM, 2 CVEs)
+    "CVE-2021-34383",
+    "CVE-2021-34384",
+    # Group G — ALL-Jetson TegraBoot (MEDIUM)
+    "CVE-2021-34388",
+    # Group H — ALL-Jetson kernel INA3221 (MEDIUM) — operator-named
+    "CVE-2021-1071",
+)
+
+
+def test_l4t_pre_r325_new_cve_pins_all_present() -> None:
+    """All 19 NEW L4T pre-r32.5/r32.5.1 CVEs are pinned in YAML.
+
+    Operator report 2026-05-22 named CVE-2021-1071 specifically; the audit
+    swept the surrounding NVIDIA security bulletin disclosure batch and
+    added 18 sibling CVEs from CVE-2021-34373..34391 (excluding -34377 and
+    -34396 which were not in the published batch). Future YAML edits that
+    drop one of these silently regress operator-facing coverage.
+    """
+    families = _load_known_firmware()
+    found: set[str] = set()
+    for fam in families:
+        for cve in fam.get("cves", []):
+            if cve in _L4T_PRE_R325_NEW_CVES:
+                found.add(cve)
+    missing = set(_L4T_PRE_R325_NEW_CVES) - found
+    assert not missing, (
+        f"L4T pre-r32.5 NEW CVE pins missing from YAML: {sorted(missing)}"
+    )
+
+
+def test_l4t_pre_r325_new_cve_pins_satisfy_f_forensic_10_narrowing() -> None:
+    """Each NEW L4T pre-r32.5 pin satisfies F-FORENSIC-10 (Rule #19
+    narrowing-fields gate at cve_matcher.py:241-270)."""
+    families = _load_known_firmware()
+    for cve in _L4T_PRE_R325_NEW_CVES:
+        fam = _find_family_by_cve(list(families), cve)
+        assert fam is not None, f"{cve} family not found"
+        narrowers_present = (
+            fam.get("chipset_regex") is not None
+            or fam.get("version_regex") is not None
+            or fam.get("category_regex") is not None
+            or fam.get("vendor_regex") is not None
+        )
+        assert narrowers_present, (
+            f"{cve} pin lacks all narrowing fields — F-FORENSIC-10 "
+            "over-attribution risk"
+        )
+
+
+def test_l4t_pre_r325_new_cve_pins_carry_nvd_url() -> None:
+    """Every NEW pin's notes field cites the NVD URL for the CVE(s) it
+    aggregates. Rule #19 evidence-first verifiability discipline."""
+    families = _load_known_firmware()
+    for cve in _L4T_PRE_R325_NEW_CVES:
+        fam = _find_family_by_cve(list(families), cve)
+        assert fam is not None
+        notes = fam.get("notes", "")
+        assert "nvd.nist.gov/vuln/detail/" in notes, (
+            f"{cve} pin notes missing NVD URL reference"
+        )
+        assert cve in notes, (
+            f"{cve} pin notes do not cite the CVE ID itself"
+        )
+
+
+def test_cve_2021_1071_uses_r325_envelope_not_r3251() -> None:
+    """CANARY (Rule #46 META-CANARY) — CVE-2021-1071 has the UNIQUE
+    versionEndExcluding=r32.5 envelope (fix in r32.5 itself), DISTINCT
+    from the 18 sibling Trusty/MB2/TegraBoot CVEs which fix at r32.5.1.
+
+    The pin's version_regex MUST match r32.4.x but MUST NOT match
+    r32.5.0 (which is the fix cohort for CVE-2021-1071, but still
+    pre-fix for the Trusty/MB2 cluster). Drift here means operators
+    miss the per-CVE fix-version distinction NVD documents.
+    """
+    import re as _re
+
+    families = _load_known_firmware()
+    fam = _find_family_by_cve(list(families), "CVE-2021-1071")
+    assert fam is not None
+    version_re = fam["version_regex"]
+
+    # Pre-fix: must match.
+    for pre_fix in ("R30", "R31", "R32.0", "R32.1", "R32.2", "R32.3",
+                    "R32.4", "R32.3.1", "R32.4.4"):
+        assert _re.search(version_re, pre_fix), (
+            f"CVE-2021-1071 version_regex did not match pre-fix {pre_fix!r}"
+        )
+
+    # Fix-cohort and post-fix: must NOT match. The KEY canary is
+    # r32.5.0 — it's pre-fix for CVE-2021-34372 (r32.5.1 fix) but
+    # IS the fix for CVE-2021-1071 (r32.5 fix).
+    for at_or_post_fix in ("R32.5", "R32.5.0", "R32.5.1", "R32.6", "R32.7"):
+        assert not _re.search(version_re, at_or_post_fix), (
+            f"CVE-2021-1071 version_regex accepted {at_or_post_fix!r} — "
+            "fix landed in r32.5 (NOT r32.5.1 like the Trusty cluster); "
+            "over-attribution to fixed firmware"
+        )
+
+
+def test_cve_2021_1071_chipset_omitted_per_nvd_all_jetsons() -> None:
+    """CVE-2021-1071 NVD CPE lists ALL Jetsons (AGX-Xavier + Xavier-NX +
+    TX1 + TX2 + Nano + Nano-2GB). chipset_regex is intentionally omitted;
+    narrowing via category=kernel_module + version_regex r32.4-and-below.
+    """
+    families = _load_known_firmware()
+    fam = _find_family_by_cve(list(families), "CVE-2021-1071")
+    assert fam is not None
+    assert fam.get("chipset_regex") is None, (
+        "CVE-2021-1071 affects ALL Jetson SoCs per NVD CPE; chipset_regex "
+        "should be omitted (do not narrow further than NVD)"
+    )
+    assert fam["vendor"] == "nvidia"
+    assert fam["category"] == "kernel_module"
+    assert fam.get("version_regex") is not None
+
+
+def test_l4t_pre_r325_new_cve_pins_cvss_match_nvd_cna_primary() -> None:
+    """Each NEW pin's CVSS score matches NVD-CNA primary CVSS 3.1 base
+    score (Rule #19 evening-postmortem 2026-05-15 discipline). Some
+    CVEs have NIST secondary scores HIGHER than CNA primary (e.g.
+    -34384: CNA 6.3 vs NIST 7.8) — we cite CNA primary.
+
+    For Rule #50 shared-scope pins, the cvss_score is the WORST-CASE
+    individual CVSS across the group (per evening-postmortem Pattern
+    #1 — FragAttacks LOW 3.5/2.6/3.5 → aggregate 3.5).
+    """
+    families = _load_known_firmware()
+    # Map: pin-identifying CVE → (severity, cvss_score) per NVD CNA primary.
+    # For shared-scope pins, the worst-case individual score is used.
+    expected = {
+        "CVE-2021-34373": ("high", 7.9),
+        # Group B (7 CVEs): worst-case = 6.7 (-34381/-34382)
+        "CVE-2021-34381": ("medium", 6.7),
+        # Group C (5 CVEs): all 7.7 HIGH per CNA primary
+        "CVE-2021-34374": ("high", 7.7),
+        "CVE-2021-34389": ("medium", 5.0),
+        "CVE-2021-34380": ("high", 7.0),
+        # Group F (2 CVEs): worst-case = 6.4 (-34383)
+        "CVE-2021-34383": ("medium", 6.4),
+        "CVE-2021-34388": ("medium", 6.3),
+        "CVE-2021-1071": ("medium", 5.6),
+    }
+    for cve, (expected_sev, expected_cvss) in expected.items():
+        fam = _find_family_by_cve(list(families), cve)
+        assert fam is not None, f"{cve} family not found"
+        assert fam["severity"] == expected_sev, (
+            f"{cve} severity drift: got {fam['severity']}, "
+            f"expected {expected_sev} per NVD CNA primary"
+        )
+        assert abs(fam["cvss_score"] - expected_cvss) < 0.05, (
+            f"{cve} cvss_score drift: got {fam['cvss_score']}, "
+            f"expected {expected_cvss} per NVD CNA primary"
+        )
+
+
+def test_l4t_pre_r325_tx1_only_pins_exclude_tx2_xavier_nano() -> None:
+    """TX1-only pins (Group A + Group B per NVD CPE jetson_tx1 hardware
+    anchor) must match TX1 chipsets and reject TX2 / Xavier / Nano.
+    Pins: CVE-2021-34373 (Group A), CVE-2021-34381 (Group B leader)."""
+    import re as _re
+
+    families = _load_known_firmware()
+    tx1_only_pin_cves = ("CVE-2021-34373", "CVE-2021-34381")
+    for cve in tx1_only_pin_cves:
+        fam = _find_family_by_cve(list(families), cve)
+        assert fam is not None
+        chipset_re = fam.get("chipset_regex")
+        assert chipset_re, f"{cve} pin missing chipset_regex"
+
+        # Positive — TX1 chipsets must match.
+        for tx1 in ("t210", "T210", "tegra210", "tx1", "TX1"):
+            assert _re.search(chipset_re, tx1), (
+                f"{cve} chipset_regex rejected TX1 chipset {tx1!r}"
+            )
+
+        # Negative — non-TX1 must NOT match.
+        for non_tx1 in ("t186", "t194", "t234", "tx2", "tx2-nx",
+                        "xavier-nx", "agx-xavier", "orin", "nano"):
+            assert not _re.search(chipset_re, non_tx1), (
+                f"{cve} chipset_regex accepted non-TX1 chipset {non_tx1!r}"
+                " — NVD CPE lists only jetson_tx1 hardware anchor"
+            )
+
+
+def test_l4t_pre_r325_tx2_xavier_pins_exclude_tx1_and_nano() -> None:
+    """TX2/Xavier-family pins (Groups C, D, E, F per NVD CPE) must match
+    TX2 + Xavier family chipsets and reject TX1 + Nano.
+    Pins: CVE-2021-34374 (C), -34389 (D), -34380 (E), -34383 (F)."""
+    import re as _re
+
+    families = _load_known_firmware()
+    tx2_xavier_pin_cves = (
+        "CVE-2021-34374",
+        "CVE-2021-34389",
+        "CVE-2021-34380",
+        "CVE-2021-34383",
+    )
+    for cve in tx2_xavier_pin_cves:
+        fam = _find_family_by_cve(list(families), cve)
+        assert fam is not None
+        chipset_re = fam.get("chipset_regex")
+        assert chipset_re, f"{cve} pin missing chipset_regex"
+
+        # Positive — TX2/Xavier-family must match.
+        for chipset in ("t186", "t194", "tx2", "tx2-nx",
+                        "xavier-nx", "agx-xavier"):
+            assert _re.search(chipset_re, chipset), (
+                f"{cve} chipset_regex rejected TX2/Xavier {chipset!r}"
+            )
+
+        # Negative — TX1 + Nano must NOT match per NVD CPE.
+        for excluded in ("t210", "tx1", "nano", "jetson-nano"):
+            assert not _re.search(chipset_re, excluded), (
+                f"{cve} chipset_regex accepted {excluded!r} — NVD CPE "
+                "lists only TX2 + Xavier-family hardware anchors"
+            )
+
+
+def test_l4t_pre_r325_all_jetson_pins_have_no_chipset_regex() -> None:
+    """ALL-Jetson pins (Group G CVE-2021-34388, Group H CVE-2021-1071)
+    omit chipset_regex per NVD CPE (all Tegra silicon in scope).
+    Narrowing via category + version_regex only."""
+    families = _load_known_firmware()
+    all_jetson_pin_cves = ("CVE-2021-34388", "CVE-2021-1071")
+    for cve in all_jetson_pin_cves:
+        fam = _find_family_by_cve(list(families), cve)
+        assert fam is not None
+        assert fam.get("chipset_regex") is None, (
+            f"{cve} affects ALL Jetson SoCs per NVD CPE; "
+            "chipset_regex should be omitted"
+        )
+        assert fam.get("version_regex") is not None, (
+            f"{cve} pin needs version_regex narrowing in absence of "
+            "chipset_regex (F-FORENSIC-10 gate)"
+        )
+
+
+# ---------------------------------------------------------------------------
 # MediaTek modem CDMA PPP RCE (CVE-2023-20819) version-regex narrowing —
 # Reviewer B 2026-05-15-PM HIGH carried-forward from postmortem
 # hw-firmware-tegra-activation-2026-05-15. NVD CPE narrows the CVE to

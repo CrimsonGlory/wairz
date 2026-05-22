@@ -1445,3 +1445,293 @@ families:
       nvidia.ko / nvgpu kernel module.
       Fix in L4T R32.7.2.
       Reference: https://nvd.nist.gov/vuln/detail/CVE-2022-42270
+
+  # -------------------------------------------------------------------
+  # L4T pre-r32.5 / pre-r32.5.1 batch — added 2026-05-22 per operator
+  # report "we are missing things still — for instance CVE-2021-1071
+  # (NVIDIA Tegra kernel INA3221 driver, all L4T versions prior to
+  # r32.5)". Audit covered NVD CVE-2021-1071, CVE-2021-34373..34391
+  # via per-CVE WebFetch on nvd.nist.gov/vuln/detail/<id> (Rule #19
+  # evidence-first — NO claims sourced from scout reports or
+  # disclosure-batch extrapolation; each pin's chipset + version
+  # envelope re-fetched independently).
+  #
+  # 19 NEW CVEs grouped into 8 pins via Rule #50 shared-scope dedup
+  # (same chipset_regex + version_regex + category + severity =
+  # single cves: [...] list):
+  #   * Group A — TX1-only Trusty heap (HIGH): CVE-2021-34373
+  #   * Group B — TX1-only TLK family (MEDIUM, 7 CVEs):
+  #       CVE-2021-34381, -34382, -34385, -34386, -34387,
+  #       -34390, -34391
+  #   * Group C — TX2/Xavier-family Trusty (HIGH, 5 CVEs):
+  #       CVE-2021-34374, -34375, -34376, -34378, -34379
+  #   * Group D — TX2/Xavier-family Trusty OTE (MEDIUM):
+  #       CVE-2021-34389
+  #   * Group E — TX2/Xavier-family MB2 secure-boot (HIGH):
+  #       CVE-2021-34380
+  #   * Group F — TX2/Xavier-family MB2 (MEDIUM, 2 CVEs):
+  #       CVE-2021-34383, -34384
+  #   * Group G — ALL-Jetson TegraBoot (MEDIUM): CVE-2021-34388
+  #   * Group H — ALL-Jetson kernel INA3221 (MEDIUM):
+  #       CVE-2021-1071 (operator-named — r32.5, NOT r32.5.1)
+  #
+  # CVE-2021-1072 EXCLUDED: NVD CPE = GeForce Experience (Windows
+  # desktop GameStream rxdiag.dll), NOT Tegra / Jetson. The
+  # operator's candidate list pre-suggested this CVE but NVD
+  # evidence overrules per Rule #19. Documented in the audit
+  # postmortem as a watch-item to confirm GeForce Experience
+  # firmware never gets cross-classified as Tegra in wairz.
+  #
+  # NVIDIA CNA primary CVSS per Rule #19 (NVD primary, not NIST
+  # secondary). Some CVEs have NIST secondary scores higher than
+  # CNA primary (e.g. -34384: CNA 6.3 MEDIUM, NIST 7.8 HIGH) —
+  # CNA primary cited per evening postmortem 2026-05-15 discipline.
+  #
+  # All Group A-G use version_regex covering r30+r31+r32.0..r32.5.0
+  # (versionEndExcluding=32.5.1 → r32.5.0 INCLUDED in the
+  # affected set; r32.5.1+ excluded). Group H uses the narrower
+  # r30+r31+r32.0..r32.4 envelope (versionEndExcluding=r32.5 →
+  # r32.4.x INCLUDED, r32.5+ excluded). Mirrors the existing
+  # CVE-2021-34372 / CVE-2021-34397 / CVE-2019-5680 regex shapes.
+  #
+  # All pins are FORWARD-PREPARED per Rule #49: the existing
+  # Tegra parser does NOT yet extract L4T release banners from
+  # blob content. Pins activate the moment a future Tegra parser
+  # enhancement populates blob.metadata["l4t_release"] OR
+  # firmware.device_metadata["l4t_release"] (e.g. by parsing
+  # /etc/nv_tegra_release or the BSP .deb basename). Until then
+  # the hard-reject contract at cve_matcher.py:480-491 ensures
+  # ZERO over-attribution — Reviewer B 2026-05-18 discipline.
+  # -------------------------------------------------------------------
+
+  - name: Tegra TX1 Trusty heap-hardening (CVE-2021-34373)
+    vendor: nvidia
+    category: tee
+    chipset_regex: "(?i)^(t210|tegra210|tx1)$"
+    version_regex: "(?i)(r3[01]\\b|r32\\.[0-4]\\b|r32\\.5\\.0\\b|r3[01]\\.|r32\\.[0-4]\\.|r32\\.5\\.0\\.)"
+    strict_chipset: false
+    cves:
+      - CVE-2021-34373
+    severity: high
+    cvss_score: 7.9
+    notes: |
+      Lack of heap hardening in NVIDIA Trusty trusted Linux kernel —
+      heap overflows leading to information disclosure and DoS.
+      NVD CPE: jetson_linux versionEndExcluding=32.5.1 AND
+      jetson_tx1 hardware anchor (TX1-ONLY per NVD).
+      CWE-787 (Out-of-bounds Write).
+      Fix in L4T R32.5.1.
+      CVSS 3.1 Base Score 7.9 HIGH per NVIDIA CNA (NVD primary);
+      NIST secondary = 6.0 MEDIUM.
+      Reference: https://nvd.nist.gov/vuln/detail/CVE-2021-34373
+
+  - name: Tegra TX1 Trusty TLK kernel family (CVE-2021-34381..34391)
+    vendor: nvidia
+    category: tee
+    chipset_regex: "(?i)^(t210|tegra210|tx1)$"
+    version_regex: "(?i)(r3[01]\\b|r32\\.[0-4]\\b|r32\\.5\\.0\\b|r3[01]\\.|r32\\.[0-4]\\.|r32\\.5\\.0\\.)"
+    strict_chipset: false
+    cves:
+      - CVE-2021-34381
+      - CVE-2021-34382
+      - CVE-2021-34385
+      - CVE-2021-34386
+      - CVE-2021-34387
+      - CVE-2021-34390
+      - CVE-2021-34391
+    severity: medium
+    cvss_score: 6.7
+    notes: |
+      NVIDIA Trusty TLK kernel vulnerability family — all 7 CVEs
+      share scope (TX1-only per NVD CPE jetson_tx1 hardware anchor,
+      jetson_linux versionEndExcluding=32.5.1):
+        -34381: tz_map_shared_mem int overflow → DoS/info-disc/tamper
+        -34382: tz_map_shared_mem int overflow → arbitrary kernel write
+        -34385: int overflow in length calc → heap overflow
+        -34386: int overflow in calloc size calc → heap overflow
+        -34387: TrustZone DRAM identity-map with RWX permissions
+                (CWE-276 Incorrect Default Permissions)
+        -34390: SMC call int overflow → DoS
+        -34391: SMC call int overflow → DoS (duplicate-mechanism
+                of -34390 per NVD; both listed in same bulletin)
+      Per-CVE NVIDIA CNA CVSS 3.1: -34381/-34382=6.7, -34385/-34386/
+      -34387=6.3, -34390/-34391=5.3. Pin uses worst-case 6.7 MEDIUM
+      per Rule #50 shared-scope aggregate (worst-case individual).
+      All CWE-190 (Integer Overflow) except -34387 (CWE-276).
+      Fix in L4T R32.5.1.
+      References:
+        https://nvd.nist.gov/vuln/detail/CVE-2021-34381
+        https://nvd.nist.gov/vuln/detail/CVE-2021-34382
+        https://nvd.nist.gov/vuln/detail/CVE-2021-34385
+        https://nvd.nist.gov/vuln/detail/CVE-2021-34386
+        https://nvd.nist.gov/vuln/detail/CVE-2021-34387
+        https://nvd.nist.gov/vuln/detail/CVE-2021-34390
+        https://nvd.nist.gov/vuln/detail/CVE-2021-34391
+
+  - name: Tegra TX2/Xavier Trusty TA family (CVE-2021-34374..34379)
+    vendor: nvidia
+    category: tee
+    chipset_regex: "(?i)^(t186|t194|tegra186|tegra194|tx2|tx2-4gb|tx2-nx|tx2nx|tx2i|xavier-nx|xaviernx|xavier-nx-16gb|agx-xavier|agxxavier|agx-xavier-8gb|agx-xavier-16gb|agx-xavier-32gb|agx-xavier-64gb|agx-xavier-industrial)$"
+    version_regex: "(?i)(r3[01]\\b|r32\\.[0-4]\\b|r32\\.5\\.0\\b|r3[01]\\.|r32\\.[0-4]\\.|r32\\.5\\.0\\.)"
+    strict_chipset: false
+    cves:
+      - CVE-2021-34374
+      - CVE-2021-34375
+      - CVE-2021-34376
+      - CVE-2021-34378
+      - CVE-2021-34379
+    severity: high
+    cvss_score: 7.7
+    notes: |
+      NVIDIA Trusty trusted-application vulnerability family — all 5
+      CVEs share scope (TX2 family + AGX-Xavier + Xavier-NX per NVD
+      CPE; TX1 + Nano EXCLUDED; jetson_linux versionEndExcluding=
+      32.5.1):
+        -34374: cmd handlers missing input-buffer length check
+                (CWE-20 Improper Input Validation)
+        -34375: TA stack cookie not randomized → stack overflow
+                (CWE-787 Out-of-bounds Write)
+        -34376: HDCP service TA cmd 5 bounds-check missing (CWE-119)
+        -34378: HDCP service TA cmd 11 bounds-check missing (CWE-119)
+        -34379: HDCP service TA cmd 10 I/O buffer length unchecked
+                (CWE-787)
+      All CVSS 3.1 Base Score 7.7 HIGH per NVIDIA CNA (NVD primary);
+      NIST secondary = 6.7 MEDIUM. Hardware = jetson_tx2 +
+      jetson_tx2_4gb + jetson_tx2_nx + jetson_tx2i + jetson_xavier_nx
+      + jetson_agx_xavier_8gb + jetson_agx_xavier_16gb +
+      jetson_agx_xavier_32gb.
+      Fix in L4T R32.5.1.
+      References:
+        https://nvd.nist.gov/vuln/detail/CVE-2021-34374
+        https://nvd.nist.gov/vuln/detail/CVE-2021-34375
+        https://nvd.nist.gov/vuln/detail/CVE-2021-34376
+        https://nvd.nist.gov/vuln/detail/CVE-2021-34378
+        https://nvd.nist.gov/vuln/detail/CVE-2021-34379
+
+  - name: Tegra TX2/Xavier Trusty OTE bounds-check (CVE-2021-34389)
+    vendor: nvidia
+    category: tee
+    chipset_regex: "(?i)^(t186|t194|tegra186|tegra194|tx2|tx2-4gb|tx2-nx|tx2nx|tx2i|xavier-nx|xaviernx|xavier-nx-16gb|agx-xavier|agxxavier|agx-xavier-8gb|agx-xavier-16gb|agx-xavier-32gb|agx-xavier-64gb|agx-xavier-industrial)$"
+    version_regex: "(?i)(r3[01]\\b|r32\\.[0-4]\\b|r32\\.5\\.0\\b|r3[01]\\.|r32\\.[0-4]\\.|r32\\.5\\.0\\.)"
+    strict_chipset: false
+    cves:
+      - CVE-2021-34389
+    severity: medium
+    cvss_score: 5.0
+    notes: |
+      Trusty OTE protocol message-parsing incorrect bounds check
+      allows local user via malicious client to access TrustZone
+      heap memory → info disclosure. NVD CPE: jetson_linux
+      versionEndExcluding=32.5.1; TX2 family + AGX-Xavier + Xavier-NX
+      ONLY (TX1 + Nano EXCLUDED).
+      CWE-401 (Missing Release of Memory after Effective Lifetime).
+      Fix in L4T R32.5.1.
+      CVSS 3.1 Base Score 5.0 MEDIUM per NVIDIA CNA (NVD primary);
+      NIST secondary v2.0 = 1.9 LOW (no NIST 3.1).
+      Reference: https://nvd.nist.gov/vuln/detail/CVE-2021-34389
+
+  - name: Tegra TX2/Xavier MB2 secure-boot heap overflow (CVE-2021-34380)
+    vendor: nvidia
+    category: bootloader
+    chipset_regex: "(?i)^(t186|t194|tegra186|tegra194|tx2|tx2-4gb|tx2-nx|tx2nx|tx2i|xavier-nx|xaviernx|xavier-nx-16gb|agx-xavier|agxxavier|agx-xavier-8gb|agx-xavier-16gb|agx-xavier-32gb|agx-xavier-64gb|agx-xavier-industrial)$"
+    version_regex: "(?i)(r3[01]\\b|r32\\.[0-4]\\b|r32\\.5\\.0\\b|r3[01]\\.|r32\\.[0-4]\\.|r32\\.5\\.0\\.)"
+    strict_chipset: false
+    cves:
+      - CVE-2021-34380
+    severity: high
+    cvss_score: 7.0
+    notes: |
+      MB2 bootloader heap overflow corrupting heap metadata —
+      arbitrary code execution / DoS / info disclosure DURING
+      SECURE BOOT (highest impact in the MB2 family). NVD CPE:
+      jetson_linux versionEndExcluding=32.5.1; TX2 family +
+      AGX-Xavier + Xavier-NX ONLY (TX1 + Nano EXCLUDED).
+      CWE-787 (Out-of-bounds Write).
+      Fix in L4T R32.5.1.
+      CVSS 3.1 Base Score 7.0 HIGH per NVIDIA CNA (NVD primary);
+      NIST secondary = 7.8 HIGH.
+      Sister-CVE to CVE-2021-34397 (MB2 free-the-wrong-heap, LOW
+      2.3) but with FAR higher impact — code-exec during boot
+      vs limited DoS post-boot.
+      Reference: https://nvd.nist.gov/vuln/detail/CVE-2021-34380
+
+  - name: Tegra TX2/Xavier MB2 heap overflow (CVE-2021-34383,34384)
+    vendor: nvidia
+    category: bootloader
+    chipset_regex: "(?i)^(t186|t194|tegra186|tegra194|tx2|tx2-4gb|tx2-nx|tx2nx|tx2i|xavier-nx|xaviernx|xavier-nx-16gb|agx-xavier|agxxavier|agx-xavier-8gb|agx-xavier-16gb|agx-xavier-32gb|agx-xavier-64gb|agx-xavier-industrial)$"
+    version_regex: "(?i)(r3[01]\\b|r32\\.[0-4]\\b|r32\\.5\\.0\\b|r3[01]\\.|r32\\.[0-4]\\.|r32\\.5\\.0\\.)"
+    strict_chipset: false
+    cves:
+      - CVE-2021-34383
+      - CVE-2021-34384
+    severity: medium
+    cvss_score: 6.4
+    notes: |
+      MB2 bootloader heap overflow family — both CVEs share scope
+      (TX2 family + AGX-Xavier + Xavier-NX per NVD CPE; TX1 + Nano
+      EXCLUDED; jetson_linux versionEndExcluding=32.5.1):
+        -34383: heap overflow → DoS / escalation of privileges
+                (CNA 6.4 MEDIUM)
+        -34384: heap overflow → memory corruption, DoS / code-exec
+                (CNA 6.3 MEDIUM)
+      Pin uses worst-case 6.4 MEDIUM per Rule #50 shared-scope
+      aggregate. Both CWE-787 (Out-of-bounds Write).
+      NIST secondary for both = 7.8 HIGH; CNA primary cited per
+      Rule #19 evidence-first.
+      Fix in L4T R32.5.1.
+      References:
+        https://nvd.nist.gov/vuln/detail/CVE-2021-34383
+        https://nvd.nist.gov/vuln/detail/CVE-2021-34384
+
+  - name: Tegra TegraBoot heap overflow ALL-Jetson (CVE-2021-34388)
+    vendor: nvidia
+    category: bootloader
+    version_regex: "(?i)(r3[01]\\b|r32\\.[0-4]\\b|r32\\.5\\.0\\b|r3[01]\\.|r32\\.[0-4]\\.|r32\\.5\\.0\\.)"
+    strict_chipset: false
+    cves:
+      - CVE-2021-34388
+    severity: medium
+    cvss_score: 6.3
+    notes: |
+      NVIDIA TegraBoot bootloader heap overflow allowing attacker
+      to control all RAM after the heap block → DoS or code
+      execution. NVD CPE: jetson_linux versionEndExcluding=32.5.1.
+      Hardware list = ALL Jetsons (TX1 + Nano + Nano-2GB + TX2
+      family + AGX-Xavier 3 SKUs + Xavier-NX) — broadest chipset
+      scope of the MB2/TegraBoot family.
+      CWE-787 (Out-of-bounds Write).
+      No chipset_regex (matches all Jetson Tegra silicon per NVD
+      CPE; narrowing via category=bootloader + version_regex,
+      mirroring CVE-2021-34372 schema shape).
+      Fix in L4T R32.5.1.
+      CVSS 3.1 Base Score 6.3 MEDIUM per NVIDIA CNA (NVD primary);
+      NIST secondary = 7.8 HIGH.
+      Reference: https://nvd.nist.gov/vuln/detail/CVE-2021-34388
+
+  - name: Tegra kernel INA3221 driver ACL bypass (CVE-2021-1071)
+    vendor: nvidia
+    category: kernel_module
+    version_regex: "(?i)(r3[01]\\b|r32\\.[0-4]\\b|r3[01]\\.|r32\\.[0-4]\\.)"
+    strict_chipset: false
+    cves:
+      - CVE-2021-1071
+    severity: medium
+    cvss_score: 5.6
+    notes: |
+      NVIDIA Tegra kernel INA3221 driver improper access control —
+      unauthorized users gain access to system power-usage data
+      (CWE-Other / info-disc). NVD CPE: linux_for_tegra
+      versionEndExcluding=r32.5 (NOTE: r32.5 itself is the FIX
+      cohort, NOT r32.5.1 like the Trusty/MB2 cluster — operator-
+      reported CVE; description verbatim "all L4T versions prior
+      to r32.5").
+      Hardware list = ALL Jetsons (AGX-Xavier + Xavier-NX + TX1 +
+      TX2 + Nano + Nano-2GB per NVD CPE). No chipset_regex
+      (broadest scope; narrowing via category=kernel_module +
+      version_regex r32.4-and-below).
+      Fix in L4T R32.5 (vs Trusty/MB2 cluster fix in R32.5.1).
+      CVSS 3.1 Base Score 5.6 MEDIUM per NVIDIA CNA (NVD primary;
+      AV:L/AC:H/PR:L/UI:N/S:C/C:H/I:N/A:N); NIST secondary = 5.5
+      MEDIUM. Information-disclosure ONLY — no integrity or
+      availability impact per NVD.
+      Reference: https://nvd.nist.gov/vuln/detail/CVE-2021-1071
