@@ -185,6 +185,7 @@ export const FINDING_SOURCE_CONFIG: Record<FindingSource, FindingSourceConfigEnt
   kernel_config_no_fortify_source: { icon: Shield, label: 'Kernel: no FORTIFY_SOURCE', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
   kernel_config_io_uring_enabled: { icon: AlertTriangle, label: 'Kernel: io_uring enabled', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
   kernel_config_no_dm_verity: { icon: HardDrive, label: 'Kernel: no dm-verity', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
+  kernel_config_kspp_extended: { icon: Shield, label: 'Kernel: KSPP hardening check', className: 'border-amber-500/50 text-amber-600 dark:text-amber-400' },
 }
 
 // ── Finding confidence ──

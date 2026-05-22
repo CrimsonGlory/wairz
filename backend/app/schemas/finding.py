@@ -647,6 +647,16 @@ KernelConfigFindingSource = Literal[
     "kernel_config_no_fortify_source",
     "kernel_config_io_uring_enabled",
     "kernel_config_no_dm_verity",
+    # ── KSPP extended (upstream kernel-hardening-checker, Phase
+    # kernel-image-followup-T3) — generic catch-all source for ANY
+    # upstream KSPP rule not in the wairz-curated 10 above. Walker
+    # emits this for the ~250 additional checks per arch from the
+    # upstream catalogue; evidence text carries the upstream rule
+    # name + decision + reason so operators can filter via
+    # evidence-text search. Severity derived from upstream
+    # ``KconfigCheck.decision`` (kspp→high, defconfig→medium, etc).
+    # CWE inferred from upstream ``KconfigCheck.reason``.
+    "kernel_config_kspp_extended",
 ]
 
 

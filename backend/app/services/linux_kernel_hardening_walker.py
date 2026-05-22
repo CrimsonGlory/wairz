@@ -235,6 +235,38 @@ _LSM_FINDING = _KsppRule(
 )
 
 
+# ── KSPP EXTENDED placeholder (Phase kernel-image-followup-T3 Phase 2)
+#
+# This constant declares the ``kernel_config_kspp_extended`` finding
+# source so the alignment test can pair the new Pydantic Literal value
+# with an authoring intent.  Walker swap (Phase 3) replaces this
+# placeholder with dynamic emission from the upstream
+# ``kernel-hardening-checker`` catalogue — at which point upstream rules
+# beyond the wairz-curated 10 will emit ``kernel_config_kspp_extended``
+# Findings carrying the upstream rule name + decision + reason in the
+# Finding evidence text.
+#
+# Currently ``evaluate_kernel_config`` does NOT emit this source —
+# Phase 2 ships the schema/Literal vocabulary; Phase 3 wires the walker
+# to upstream. Aligns with the historical pattern from γ.4
+# (windows_etl_provider_disabled landed in the cross-stack-alignment
+# commit one ahead of the actual emitter wire-up; see
+# 2cba3d4e5f6a_extend_findings_source_ics_protocol.py commit chain).
+_KSPP_EXTENDED_FINDING = _KsppRule(
+    config_name="(extended)",
+    check_kind="missing",
+    severity="medium",
+    cwe_ids=("CWE-693",),
+    finding_source="kernel_config_kspp_extended",
+    title="Kernel hardening: upstream KSPP rule",
+    description=(
+        "Generic KSPP-aligned hardening check from upstream "
+        "``kernel-hardening-checker`` (Phase 3 wires the actual upstream "
+        "evaluator; Phase 2 ships the source vocabulary)."
+    ),
+)
+
+
 # -----------------------------------------------------------------------------
 # Pure-logic evaluator (no DB, no I/O — testable in isolation).
 # -----------------------------------------------------------------------------

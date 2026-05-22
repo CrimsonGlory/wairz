@@ -20,6 +20,7 @@ from sqlalchemy import select
 from app.models import Finding, Firmware, HardwareFirmwareBlob, Project
 from app.schemas.finding import KernelConfigFindingSource
 from app.services.linux_kernel_hardening_walker import (
+    _KSPP_EXTENDED_FINDING,
     _KSPP_RULES,
     _LSM_FINDING,
     _LSM_MAJOR_ALTERNATIVES,
@@ -147,14 +148,19 @@ def test_evaluate_kernel_config_tegra_l4t_real_case() -> None:
 
 
 def test_kspp_rule_sources_align_with_pydantic_literal() -> None:
-    """Every rule in _KSPP_RULES + the composite LSM rule must use a
-    finding_source declared in the Pydantic KernelConfigFindingSource
-    Literal (which itself aligns with the DB CHECK + frontend mirror per
-    Rule #48)."""
+    """Every rule in _KSPP_RULES + the composite LSM rule + the extended
+    placeholder must use a finding_source declared in the Pydantic
+    KernelConfigFindingSource Literal (which itself aligns with the DB
+    CHECK + frontend mirror per Rule #48).
+    """
     import typing
     literal_values = set(typing.get_args(KernelConfigFindingSource))
     rule_sources = {rule.finding_source for rule in _KSPP_RULES}
     rule_sources.add(_LSM_FINDING.finding_source)
+    # Phase kernel-image-followup-T3 Phase 2 — extended placeholder
+    # documents the source vocabulary the Phase 3 walker swap will emit
+    # dynamically (upstream kernel-hardening-checker catalogue).
+    rule_sources.add(_KSPP_EXTENDED_FINDING.finding_source)
 
     assert rule_sources <= literal_values, (
         f"walker emits sources NOT in KernelConfigFindingSource Literal: "
