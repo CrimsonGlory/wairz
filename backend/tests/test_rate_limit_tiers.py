@@ -34,22 +34,41 @@ _REPO_BACKEND = Path(__file__).parent.parent
 # Map each (router file, endpoint regex marker) → expected tier constant.
 #
 # Tier assignment per rate_limit.py module docstring:
-# - TIER_A_HEAVY (5/hour): sync OR ≥5-min ack-bound runs (security audit
-#   is synchronous; cve-match is 202+polling but pins the event loop on
-#   bulk SQL inserts for ~7 min on Yocto-scale corpora; firmware unpack +
-#   device dumps spawn background work that routinely runs >2 min on
-#   large firmware / multi-partition devices).
-# - TIER_A_LIGHT_ACK (30/hour): 202+polling endpoints whose detached work
-#   completes in ≤2 min (SBOM generate / vuln-scan / authenticode-chain).
-#   Originally rode TIER_A_HEAVY pre-2026-05-18 split; see commit message
-#   for derivation against scout-investigation evidence.
+# - TIER_A_HEAVY (5/hour): sync OR ≥5-min event-loop-pinning runs.
+#   Reference cases:
+#     * security_audit /audit — fully synchronous, 2-10 min, blocks HTTP.
+#     * hardware_firmware /cve-match — 202+polling but pins event loop
+#       for ~7 min on Yocto-scale bulk inserts.
+#     * comparison /decompilation — 2× cold-cache Ghidra calls = ~10 min.
+#     * apk_scan + attack_surface — CPU-bound sync, executor-bound,
+#       multi-minute on large APKs.
+# - TIER_A_LIGHT_ACK (30/hour): event-loop-FREE work bounded ≤2 min.
+#   Covers both 202+polling (ack sub-second + detached task) AND
+#   sync-executor (event loop free while executor runs) shapes. The
+#   server-saturation profile is the same: 30/hour × ~30s typical =
+#   ~15 min/hour CPU budget on a single-uvicorn-process backend.
+#   Reference cases:
+#     * sbom /generate + /vulnerabilities/scan — 202+polling, 30-120 s.
+#     * hardware_firmware /authenticode-chain — 202+polling, 1-3 min.
+#     * firmware /{id}/unpack — 202+polling, arq-dispatched (was
+#       mis-tiered TIER_A_HEAVY pre-2026-05-22; Rule #51 corrects).
+#     * device /dumps — 202+polling, in-process detached runner (same
+#       mis-tier corrected 2026-05-22).
+#     * comparison /firmware + /binary — sync but `run_in_executor`,
+#       typically ≤2 min on representative firmware.
+#     * bare_metal /bare-metal-hint — sub-second ack + detached walker.
 # - TIER_B_DOCKER (20/hour): Docker-spawn jobs (emulation, fuzzing).
+# - TIER_C_DEFAULT (100/minute): implicit default, suitable for sub-second
+#   sync endpoints. Reference cases:
+#     * comparison /text + /instructions — pure-Python / Capstone diff,
+#       milliseconds-to-seconds (was mis-tiered TIER_A_HEAVY pre-
+#       2026-05-22; Rule #51 corrects).
 _EXPECTED_TIERS: dict[tuple[str, str], str] = {
     ("app/routers/security_audit.py", r'@router\.post\("/audit"'): "TIER_A_HEAVY",
     ("app/routers/hardware_firmware.py", r'@router\.post\("/cve-match"'): "TIER_A_HEAVY",
-    ("app/routers/firmware.py", r'@router\.post\("/\{firmware_id\}/unpack"'): "TIER_A_HEAVY",
-    ("app/routers/device.py", r'@router\.post\("/dumps"'): "TIER_A_HEAVY",
-    ("app/routers/sbom.py", r'@router\.post\("/generate"'): "TIER_A_LIGHT_ACK",
+    ("app/routers/firmware.py", r'@router\.post\("/\{firmware_id\}/unpack"'): "TIER_A_LIGHT_ACK",
+    ("app/routers/device.py", r'@router\.post\("/dumps"'): "TIER_A_LIGHT_ACK",
+    ("app/routers/sbom.py", r'@router\.post\(\s*\n?\s*"/generate"'): "TIER_A_LIGHT_ACK",
     ("app/routers/sbom.py", r'@router\.post\(\s*\n?\s*"/vulnerabilities/scan"'): "TIER_A_LIGHT_ACK",
     ("app/routers/hardware_firmware.py", r'@router\.post\(\s*\n?\s*"/authenticode-chain"'): "TIER_A_LIGHT_ACK",
     ("app/routers/fuzzing.py", r'@router\.post\(\s*\n?\s*"/campaigns/\{campaign_id\}/start"'): "TIER_B_DOCKER",
@@ -60,14 +79,16 @@ _EXPECTED_TIERS: dict[tuple[str, str], str] = {
     ("app/routers/bare_metal.py", r'@router\.post\(\s*\n?\s*"/bare-metal-hint"'): "TIER_A_LIGHT_ACK",
     # ratelimit scout1 (2026-05-19) — CPU-bound sync static-analysis +
     # diff endpoints. Synchronous heavy work = TIER_A_HEAVY (5/hour).
-    # 3 APK scan + 5 comparison + 1 attack-surface = 9 endpoints.
     ("app/routers/apk_scan.py", r'@router\.post\("/manifest"'): "TIER_A_HEAVY",
     ("app/routers/apk_scan.py", r'@router\.post\("/bytecode"'): "TIER_A_HEAVY",
     ("app/routers/apk_scan.py", r'@router\.post\("/sast"'): "TIER_A_HEAVY",
-    ("app/routers/comparison.py", r'@router\.post\("/firmware"'): "TIER_A_HEAVY",
-    ("app/routers/comparison.py", r'@router\.post\("/binary"'): "TIER_A_HEAVY",
-    ("app/routers/comparison.py", r'@router\.post\("/text"'): "TIER_A_HEAVY",
-    ("app/routers/comparison.py", r'@router\.post\("/instructions"'): "TIER_A_HEAVY",
+    # over-constraint sweep 2026-05-22 — comparison endpoints re-tiered
+    # by work shape (was uniformly TIER_A_HEAVY; only /decompilation
+    # genuinely fits HEAVY due to 2× cold-cache Ghidra calls).
+    ("app/routers/comparison.py", r'@router\.post\("/firmware"'): "TIER_A_LIGHT_ACK",
+    ("app/routers/comparison.py", r'@router\.post\("/binary"'): "TIER_A_LIGHT_ACK",
+    ("app/routers/comparison.py", r'@router\.post\("/text"'): "TIER_C_DEFAULT",
+    ("app/routers/comparison.py", r'@router\.post\("/instructions"'): "TIER_C_DEFAULT",
     ("app/routers/comparison.py", r'@router\.post\("/decompilation"'): "TIER_A_HEAVY",
     ("app/routers/attack_surface.py", r'@router\.post\("/scan"'): "TIER_A_HEAVY",
 }
@@ -206,19 +227,20 @@ def test_meta_canary_missing_endpoint_detected(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_dynamic_429_response_shape_on_unpack():
-    """Hit POST /firmware/{id}/unpack TIER_A_HEAVY+1 = 6 times and assert
+async def test_dynamic_429_response_shape_on_security_audit():
+    """Hit POST /security/audit TIER_A_HEAVY+1 = 6 times and assert
     the last response is 429 with the structured body shape that
     ``custom_rate_limit_exceeded_handler`` produces (commit 616e89d +
     afa23a9). Rule #35b live canary: proves SlowAPIMiddleware is wired
     + custom handler is installed + reverse-tier-map resolves correctly.
 
-    Uses the FastAPI app's TestClient against a mocked-out router so we
-    don't need a real firmware row. The unpack endpoint's dependencies
-    (``db``, ``service``) don't raise 404 before the function body — the
-    rate-limit decorator fires first per slowapi's middleware ordering.
-    The function body returns 404/409/etc. on the first 5 calls (any
-    non-2xx is fine — we only care that the 6th is 429).
+    Uses POST /security/audit (canonical TIER_A_HEAVY example, synchronous,
+    rate_limit.py docstring reference case). Was POST /firmware/{id}/unpack
+    pre-over-constraint-sweep-2026-05-22; switched because unpack's correct
+    tier per Rule #51 is TIER_A_LIGHT_ACK (event-loop-free arq dispatch),
+    not HEAVY. The decorator fires before the function body, so the 404
+    from a fake firmware row never reaches the test — we only care the
+    6th call returns 429.
     """
     from app.main import app
     from app.middleware import asgi_auth as _auth_mod
@@ -242,8 +264,7 @@ async def test_dynamic_429_response_shape_on_unpack():
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             # 6 POSTs — TIER_A_HEAVY is 5/hour, so the 6th must 429.
             project_id = "00000000-0000-0000-0000-000000000001"
-            firmware_id = "00000000-0000-0000-0000-000000000002"
-            url = f"/api/v1/projects/{project_id}/firmware/{firmware_id}/unpack"
+            url = f"/api/v1/projects/{project_id}/security/audit"
             responses = []
             for _ in range(6):
                 r = await client.post(url)

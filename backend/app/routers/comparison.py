@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.rate_limit import TIER_A_HEAVY, limiter
+from app.rate_limit import TIER_A_HEAVY, TIER_A_LIGHT_ACK, TIER_C_DEFAULT, limiter
 from app.schemas.comparison import (
     BinaryDiffRequest,
     BinaryDiffResponse,
@@ -52,7 +52,7 @@ async def _get_firmware(
 
 
 @router.post("/firmware", response_model=FirmwareDiffResponse)
-@limiter.limit(TIER_A_HEAVY)
+@limiter.limit(TIER_A_LIGHT_ACK)
 async def compare_firmware(
     request: Request,
     project_id: uuid.UUID,
@@ -80,7 +80,7 @@ async def compare_firmware(
 
 
 @router.post("/binary", response_model=BinaryDiffResponse)
-@limiter.limit(TIER_A_HEAVY)
+@limiter.limit(TIER_A_LIGHT_ACK)
 async def compare_binary(
     request: Request,
     project_id: uuid.UUID,
@@ -126,7 +126,7 @@ async def compare_binary(
 
 
 @router.post("/text", response_model=TextDiffResponse)
-@limiter.limit(TIER_A_HEAVY)
+@limiter.limit(TIER_C_DEFAULT)
 async def compare_text_file(
     request: Request,
     project_id: uuid.UUID,
@@ -167,7 +167,7 @@ async def compare_text_file(
 
 
 @router.post("/instructions", response_model=InstructionDiffResponse)
-@limiter.limit(TIER_A_HEAVY)
+@limiter.limit(TIER_C_DEFAULT)
 async def compare_instructions(
     request: Request,
     project_id: uuid.UUID,

@@ -11,7 +11,7 @@ from app.config import get_settings
 from app.database import async_session_factory, get_db
 from app.models.firmware import Firmware
 from app.models.project import Project
-from app.rate_limit import TIER_A_HEAVY, limiter
+from app.rate_limit import TIER_A_LIGHT_ACK, limiter
 from app.schemas.firmware import (
     FirmwareDetailResponse,
     FirmwareDetectionAuditResponse,
@@ -249,7 +249,7 @@ async def delete_firmware(
 
 
 @router.post("/{firmware_id}/unpack", response_model=FirmwareDetailResponse, status_code=202)
-@limiter.limit(TIER_A_HEAVY)
+@limiter.limit(TIER_A_LIGHT_ACK)
 async def unpack(
     request: Request,
     project_id: uuid.UUID,

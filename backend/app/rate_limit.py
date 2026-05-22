@@ -31,31 +31,46 @@ SlowAPIMiddleware applies it to every route).
     * POST /hardware-firmware/cve-match — 202+polling but 7-min peak on
       Yocto-sized corpora; bulk SQL inserts pin the single event loop
       hard enough that concurrent runs starve other tasks.
+    * POST /compare/decompilation  — 2× cold-cache Ghidra calls = ~10 min
+      worst-case event-loop time (executor-bound but uvicorn awaits).
+    * POST /apk-scan/{manifest,bytecode,sast} + /attack-surface/scan
+      — CPU-bound sync, executor-bound, multi-minute on large APKs /
+      firmware.
   5/hour × ~10 min ≈ 50 min/hour of saturation — the original F-B-07
   envelope.  Heuristic, not a measurement.
 
-- TIER_A_LIGHT_ACK (30/hour): 202+polling endpoints whose ACK is sub-second
-  and whose detached background work completes in ≤2 min.  The rate limit
-  is here to bound how fast an operator (or runaway script) can spawn N
-  concurrent background tasks — NOT to protect uvicorn workers from a
-  long-held HTTP request (the Rule #33 split decoupled that already).
+- TIER_A_LIGHT_ACK (30/hour): EVENT-LOOP-FREE work bounded ≤2 min.  Covers
+  two shapes with the same server-saturation profile:
+    (a) 202+polling — sub-second ACK + detached background task (arq job
+        or `asyncio.create_task`).  The rate limit bounds how fast an
+        operator (or runaway script) can SPAWN N concurrent background
+        tasks — NOT to protect uvicorn workers from a long-held HTTP
+        request (Rule #33 decoupled that already).
+    (b) Sync `run_in_executor` — request handler awaits an executor for
+        ≤2 min.  Event loop is FREE during the executor work; the threat
+        is threadpool starvation if 30+ concurrent calls land, not event-
+        loop pinning.
   Currently applied to:
-    * POST /sbom/generate                    — Syft, 30-120 s
-    * POST /sbom/vulnerabilities/scan        — Grype offline DB, 15-45 s
-    * POST /hardware-firmware/authenticode-chain — PE-walk, 1-3 min
+    * POST /sbom/generate                    — Syft, 30-120 s            (a)
+    * POST /sbom/vulnerabilities/scan        — Grype offline DB, 15-45 s (a)
+    * POST /hardware-firmware/authenticode-chain — PE-walk, 1-3 min      (a)
+    * POST /firmware/{id}/unpack             — arq job, sub-sec ack       (a)
+    * POST /device/dumps                     — detached runner, sub-sec   (a)
+    * POST /compare/firmware                 — executor filesystem diff   (b)
+    * POST /compare/binary                   — executor LIEF binary diff  (b)
+    * POST /bare-metal-hint                  — sub-sec ack + walker fire  (a)
   Derivation: vuln-scan ~30 s typical × 30 = 15 min/hour CPU budget on a
-  single-uvicorn-process backend with a 4 GB memory cap — safe.  Still
-  rejects runaway scripts (a stuck `while True: requests.post(...)` hits
-  30 in <1 min and fails fast).  1-per-2-min is comfortable for iterative
-  research workflow (the operator we observed hitting 5/hour was doing
-  legitimate per-firmware scans on a single project).
+  single-uvicorn-process backend with an 8 GB memory cap (post-2026-05-22
+  bump) — safe.  Still rejects runaway scripts (a stuck `while True:
+  requests.post(...)` hits 30 in <1 min and fails fast).  1-per-2-min is
+  comfortable for iterative research workflow.
 
-  Originally these endpoints rode TIER_A_HEAVY based on a "~10-minute jobs"
-  envelope that no longer fits — the Rule #33 sync→202+polling conversion
-  changed the threat from "worker held for minutes" to "background task
-  spawned per ACK", which is a different cost shape.  See
-  `.planning/postmortems/postmortem-rate-limit-tier-split-2026-05-18.md`
-  (when written) for the scout investigation that drove the split.
+  Pre-2026-05-22, /firmware/{id}/unpack, /device/dumps, /compare/firmware,
+  /compare/binary all rode TIER_A_HEAVY based on a "background work runs
+  >2 min on large input" envelope — but the Rule #33 framework prescribes
+  classification by event-loop pinning, not detached-work duration.  The
+  over-constraint-sweep-2026-05-22 corrects this; see
+  `.planning/postmortems/postmortem-over-constraint-sweep-2026-05-22.md`.
 
 - TIER_B_DOCKER (20/hour): Docker-spawn jobs that allocate kernel resources
   (QEMU emulation, AFL++ fuzzing, system-emulation FirmAE).  These are
@@ -64,7 +79,9 @@ SlowAPIMiddleware applies it to every route).
 
 - TIER_C_DEFAULT is the existing implicit `100/minute` from Limiter's
   `default_limits`; included here as a documented constant so future
-  tiers slot in naturally.
+  tiers slot in naturally.  Suitable for sub-second sync endpoints:
+    * POST /compare/text         — pure-Python text diff, milliseconds.
+    * POST /compare/instructions — Capstone disassembly diff, μs-to-ms.
 """
 
 import logging

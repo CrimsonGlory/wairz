@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from app.database import get_db
-from app.rate_limit import TIER_A_HEAVY, limiter
+from app.rate_limit import TIER_A_LIGHT_ACK, limiter
 from app.models.device_dump import DeviceDumpSession
 from app.schemas.device import (
     DeviceBridgeStatus,
@@ -99,7 +99,7 @@ async def device_info(
 
 
 @router.post("/dumps", response_model=DumpStatusResponse, status_code=202)
-@limiter.limit(TIER_A_HEAVY)
+@limiter.limit(TIER_A_LIGHT_ACK)
 async def start_dump(
     request: Request,
     project_id: uuid.UUID,
