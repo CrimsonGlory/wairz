@@ -52,14 +52,16 @@ logger = logging.getLogger(__name__)
 # coroutines may run in parallel (the upload endpoint spawns one per firmware
 # via ``asyncio.create_task``). A bare burst of 5 simultaneous bare-metal
 # uploads × 27 walkers × short-lived sessions could spike the DB connection
-# pool — this semaphore caps cross-firmware walker fan-out at 4 in-flight,
+# pool — this semaphore caps cross-firmware walker fan-out at 6 in-flight,
 # leaving headroom for unrelated HTTP traffic against the 40-connection pool.
 #
-# N=4 chosen: ~10% of pool=40 (Rule #51 .iv DB-pool-headroom math), well above
-# typical single-operator triage cadence (~1 upload at a time), avoids the
-# §SC5-NEW-SBOM-θ "5 firmware × 27 walkers" detonation case while still
-# keeping per-firmware fan-out latency under a second when slots are free.
-_WALKER_FANOUT_SEMAPHORE = asyncio.Semaphore(4)
+# N=6 chosen (bumped from 4 on 2026-05-22): ~15% of pool=40 (Rule #51 .iv
+# DB-pool-headroom math), matches the new arq max_jobs=6 envelope so a single
+# fully-saturated arq worker doesn't queue the semaphore on its own jobs.
+# Still well above typical single-operator triage cadence (~1 upload at a
+# time), avoids the §SC5-NEW-SBOM-θ "5 firmware × 27 walkers" detonation case
+# while keeping per-firmware fan-out latency under a second when slots free.
+_WALKER_FANOUT_SEMAPHORE = asyncio.Semaphore(6)
 
 
 # Sibling directory names that indicate extracted_path is ONE partition

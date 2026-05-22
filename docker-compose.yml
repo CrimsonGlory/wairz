@@ -335,7 +335,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1024M
+          # Bumped 1024M → 2048M on 2026-05-22 (over-constraint sweep).
+          # config.py:32 emulation_memory_limit_mb=1024 is the QEMU guest
+          # RAM cap; the compose cap is the cgroup HOST memory limit for
+          # the qemu PROCESS, which needs guest_ram + ~1024M for QEMU
+          # internals (TCG translation cache, device-model state, KVM/QEMU
+          # bookkeeping). Equal values were double-gating on the same
+          # constraint with no overhead — QEMU OOM-killed under load.
+          memory: 2048M
           pids: 256
 
   fuzzing:

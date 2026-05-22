@@ -881,5 +881,11 @@ class WorkerSettings:
     # hardware with multi-GB images the Android pipeline alone can take 15-20
     # minutes, and unblob's own timeout is 1200s.
     job_timeout = 1800  # 30 minutes
-    max_jobs = 4
+    # Bumped 4 → 6 on 2026-05-22 (over-constraint sweep) to match Rule #51 .iv
+    # 30/hour TIER_A_LIGHT_ACK burst envelope. Each job opens its own async
+    # DB session via async_session_factory; 6 sessions = 15% of 40-connection
+    # pool, leaves headroom for unrelated HTTP traffic. Matches the new
+    # _WALKER_FANOUT_SEMAPHORE=6 in workers/unpack.py:65 so a fully-saturated
+    # arq worker doesn't queue the walker semaphore on its own jobs.
+    max_jobs = 6
     poll_delay = 0.5  # seconds between Redis polls
