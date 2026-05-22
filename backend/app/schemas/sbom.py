@@ -91,7 +91,10 @@ class SbomVulnerabilityResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    component_id: uuid.UUID
+    # component_id is None for hardware-firmware-blob-linked vulns
+    # (curated YAML tier — Tier 2-5 via cve_matcher). SBOM-component-
+    # linked vulns (Tier 1 Grype) have component_id populated.
+    component_id: uuid.UUID | None = None
     cve_id: str
     cvss_score: float | None
     cvss_vector: str | None
@@ -101,6 +104,14 @@ class SbomVulnerabilityResponse(BaseModel):
     finding_id: uuid.UUID | None
     component_name: str | None = None
     component_version: str | None = None
+    # Hardware-firmware blob context — populated when the vuln was
+    # matched via the curated-YAML pin tier against a blob (no SBOM
+    # component link). Mutually exclusive with component_name/version
+    # in practice (component_id is None when blob_id is populated).
+    blob_id: uuid.UUID | None = None
+    blob_path: str | None = None
+    match_tier: str | None = None
+    match_confidence: str | None = None
 
     # Resolution fields
     resolution_status: str = "open"

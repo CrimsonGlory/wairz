@@ -939,12 +939,31 @@ async def list_vulnerabilities(
     firmware=Depends(_resolve_firmware),
     db: AsyncSession = Depends(get_db),
 ):
-    """List vulnerability matches for this firmware's SBOM (paged)."""
+    """List vulnerability matches for this firmware (paged).
+
+    Includes both SBOM-component-linked vulns (Tier 1 Grype-based via
+    POST /vulnerabilities/scan — populates component_id) AND
+    hardware-firmware-blob-linked vulns (Tier 2-5 curated YAML via
+    POST /cve-match against hardware_firmware_blobs — populates blob_id).
+    Pre-2026-05-22 this endpoint INNER-JOIN'ed on component_id, silently
+    dropping all blob-linked rows; operators with HW-shape firmware
+    (L4T BSP, Tegra, MCU BSPs) saw "No vulnerabilities found" despite
+    populated sbom_vulnerabilities. LEFT JOIN'ed since.
+    """
     stmt = (
-        select(SbomVulnerability, SbomComponent.name, SbomComponent.version)
-        .join(
+        select(
+            SbomVulnerability,
+            SbomComponent.name,
+            SbomComponent.version,
+            HardwareFirmwareBlob.blob_path,
+        )
+        .outerjoin(
             SbomComponent,
             SbomVulnerability.component_id == SbomComponent.id,
+        )
+        .outerjoin(
+            HardwareFirmwareBlob,
+            SbomVulnerability.blob_id == HardwareFirmwareBlob.id,
         )
         .where(SbomVulnerability.firmware_id == firmware.id)
         .order_by(SbomVulnerability.cvss_score.desc().nullslast())
@@ -964,10 +983,18 @@ async def list_vulnerabilities(
     rows, total = await paginate_query_rows(db, stmt, offset=offset, limit=limit)
 
     responses = []
-    for vuln, comp_name, comp_version in rows:
+    for vuln, comp_name, comp_version, blob_path in rows:
         resp = SbomVulnerabilityResponse.model_validate(vuln)
         resp.component_name = comp_name
         resp.component_version = comp_version
+        resp.blob_path = blob_path
+        # Synthesize display fields when only blob context exists, so the
+        # existing frontend's "Component" column shows something useful
+        # without UI changes. Format: "<basename> (<category>)" e.g.
+        # "Image (kernel)" or "mb1_t194_prod.bin (bootloader)".
+        if resp.component_name is None and blob_path:
+            import os as _os
+            resp.component_name = _os.path.basename(blob_path)
         responses.append(resp)
 
     return Page[SbomVulnerabilityResponse](

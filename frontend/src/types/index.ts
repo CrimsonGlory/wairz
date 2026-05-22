@@ -312,7 +312,10 @@ export type VulnerabilityResolutionStatus = 'open' | 'resolved' | 'ignored' | 'f
 
 export interface SbomVulnerability {
   id: string
-  component_id: string
+  // component_id is null when the vuln was matched against a hardware-
+  // firmware blob (Tier 2-5 curated YAML via cve_matcher) rather than an
+  // SBOM component (Tier 1 Grype). blob_id is populated in that case.
+  component_id: string | null
   cve_id: string
   cvss_score: number | null
   cvss_vector: string | null
@@ -322,6 +325,10 @@ export interface SbomVulnerability {
   finding_id: string | null
   component_name: string | null
   component_version: string | null
+  blob_id: string | null
+  blob_path: string | null
+  match_tier: string | null
+  match_confidence: string | null
   resolution_status: VulnerabilityResolutionStatus
   resolution_justification: string | null
   resolved_by: string | null
