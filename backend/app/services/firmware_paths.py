@@ -269,6 +269,33 @@ def _is_partition_like_name(name: str) -> bool:
     return False
 
 
+# Vendor BSP component-name conventions. When ``firmware.extracted_path``
+# is set to one of these subdirs (the pre-fix historical behaviour for L4T
+# / NVIDIA / similar vendor BSPs that emit a top-level component tree —
+# ``Linux_for_Tegra/{bootloader,kernel,nv_tegra,tools,source}/``), the
+# climb in ``_find_extraction_container`` must traverse past the component
+# name to reach the BSP-level container so siblings (the rest of the BSP
+# tree) become visible. Without this, detection roots get trapped inside
+# whichever component the unpacker happened to pick as ``extracted_path``.
+#
+# ``rootfs`` is intentionally duplicated here (already in partition-like)
+# so callers can grep this set as the BSP catalogue without missing it.
+_BSP_COMPONENT_NAMES: frozenset[str] = frozenset({
+    "bootloader", "kernel", "nv_tegra", "tools", "source",
+    "linux_for_tegra", "rootfs",
+})
+
+
+def _is_bsp_component_name(name: str) -> bool:
+    """True if ``name`` is a vendor-BSP component subdir to climb past.
+
+    Mirrors ``_is_partition_like_name``'s climb contract — the predicate
+    returns True for names the climb should traverse past on its way to
+    the extraction container, NOT names that mark a container itself.
+    """
+    return name.lower() in _BSP_COMPONENT_NAMES
+
+
 def _path_isfile(base: str, *parts: str) -> bool:
     """Safe ``os.path.isfile(os.path.join(base, *parts))`` with OSError suppression."""
     try:
@@ -454,8 +481,17 @@ def _find_unblob_extraction_top(root: str) -> str:
         # Hit the storage-root marker — stop, cur is the per-firmware container.
         if parent_name in {"extracted", "Extracted", "extraction"}:
             return cur
-        # Climb through _extract-chained dirs.
-        if cur_name.endswith("_extract") or parent_name.endswith("_extract"):
+        # Climb through _extract / _extracted-chained dirs. The ``_extracted``
+        # variant is emitted by gtar + binwalk for ``*.tar.gz`` style
+        # archives; the ``_extract`` variant by unblob's recursive cracker.
+        # Both share the same climb semantics — recursive archive content
+        # that's a sibling of the extraction-container we want to land on.
+        if (
+            cur_name.endswith("_extract")
+            or cur_name.endswith("_extracted")
+            or parent_name.endswith("_extract")
+            or parent_name.endswith("_extracted")
+        ):
             cur = parent
             climbed_any = True
             continue
@@ -485,7 +521,10 @@ def _find_unblob_extraction_top(root: str) -> str:
             extracted_idx = i
     if extracted_idx >= 0 and extracted_idx + 1 < len(parts):
         for i in range(extracted_idx + 1, len(parts)):
-            if parts[i].endswith("_extract"):
+            # Recognise both unblob-style ``_extract`` and gtar / binwalk
+            # ``_extracted`` suffixes (see climb comment above for
+            # provenance). The two share fallback semantics.
+            if parts[i].endswith("_extract") or parts[i].endswith("_extracted"):
                 outer = os.sep.join(parts[:i + 1])
                 if not os.path.isdir(outer):
                     break
@@ -565,11 +604,18 @@ def _walk_for_additional_roots(
 
 
 def _find_extraction_container(root: str) -> tuple[str, bool]:
-    """Climb ``root`` until we find a dir that is NOT partition-like.
+    """Climb ``root`` until we find a dir that is NOT partition-like or BSP-component-like.
 
     Returns ``(container_path, climbed)`` where ``climbed`` is True when
-    at least one partition-like parent was traversed (i.e., the caller
-    pointed us at a sub-partition, not the extraction container itself).
+    at least one partition-like / BSP-component-like parent was traversed
+    (i.e., the caller pointed us at a sub-partition or BSP subdir, not
+    the extraction container itself).
+
+    BSP component names (``bootloader`` / ``kernel`` / ``nv_tegra`` /
+    ``tools`` / ``source`` / ``linux_for_tegra``) are traversed the same
+    way as partition-like names so vendor-BSP shapes (L4T) where
+    ``extracted_path`` lands on a component subdir don't trap detection
+    roots inside that subdir, missing siblings (the rest of the BSP).
     """
     cur = root
     climbed = False
@@ -582,14 +628,21 @@ def _find_extraction_container(root: str) -> tuple[str, bool]:
             break
         parent_name = os.path.basename(parent.rstrip("/"))
         cur_name = os.path.basename(cur.rstrip("/"))
-        # Climb while the current dir looks like a partition AND the
-        # parent has a reasonable "container" shape (multiple qualifying
-        # children or a non-partition name).
-        if _is_partition_like_name(cur_name) and parent_name and not _is_partition_like_name(parent_name):
+        cur_climbable = (
+            _is_partition_like_name(cur_name)
+            or _is_bsp_component_name(cur_name)
+        )
+        parent_climbable = (
+            _is_partition_like_name(parent_name)
+            or _is_bsp_component_name(parent_name)
+        )
+        # Climb while the current dir looks climbable AND the parent has
+        # a reasonable "container" shape (a non-climbable name).
+        if cur_climbable and parent_name and not parent_climbable:
             cur = parent
             climbed = True
             break
-        if _is_partition_like_name(cur_name):
+        if cur_climbable:
             cur = parent
             climbed = True
             continue
@@ -682,6 +735,61 @@ def _compute_roots_sync(extracted_path: str | None) -> list[str]:
             existing = {os.path.realpath(r) for r in roots}
             if real_parent not in existing:
                 roots.append(parent)
+
+    # Sibling-archive promotion: when ``container`` is itself an
+    # ``_extract``/``_extracted`` archive directory sitting directly under
+    # the extraction marker (``extracted/``), scan that marker dir for
+    # sibling archives with the same suffix and promote them as
+    # additional detection roots. This is the multi-archive vendor BSP
+    # shape (e.g. Tegra L4T ships a bootloader BSP + a separate
+    # ``tegraflash.tar.gz_extracted`` sibling — both belong to the same
+    # firmware and the SBOM walker needs to see both).
+    #
+    # Guard rails to avoid over-inclusion:
+    #   * container must end in ``_extract`` or ``_extracted``.
+    #   * container's parent must be the extraction-root marker.
+    #   * Each sibling must also end in ``_extract``/``_extracted`` AND
+    #     pass ``_scan_container_for_roots`` (it has a hint-name child,
+    #     raw-image child, OR Android-sibling shape). This stops empty
+    #     archive dirs / log dirs from being promoted.
+    if container and os.path.isdir(container):
+        container_name = os.path.basename(container.rstrip("/"))
+        container_parent = os.path.dirname(container.rstrip("/"))
+        container_parent_name = os.path.basename(container_parent.rstrip("/"))
+        if (
+            (container_name.endswith("_extract") or container_name.endswith("_extracted"))
+            and container_parent_name in {"extracted", "Extracted", "extraction"}
+            and os.path.isdir(container_parent)
+        ):
+            try:
+                with os.scandir(container_parent) as it:
+                    sibling_entries = list(it)
+            except OSError:
+                sibling_entries = []
+            existing_real = {os.path.realpath(r) for r in roots}
+            real_container = os.path.realpath(container)
+            for sib in sibling_entries:
+                try:
+                    if not sib.is_dir(follow_symlinks=False):
+                        continue
+                except OSError:
+                    continue
+                sib_name = sib.name
+                if sib_name.startswith(".") or sib_name in _IGNORED_BASENAMES:
+                    continue
+                if not (sib_name.endswith("_extract") or sib_name.endswith("_extracted")):
+                    continue
+                sib_real = os.path.realpath(sib.path)
+                if sib_real == real_container or sib_real in existing_real:
+                    continue
+                # Promote the sibling only if IT or its children look
+                # like substantive content. We treat the sibling as a
+                # detection root when (a) it directly holds a raw image,
+                # or (b) at least one of its children qualifies via the
+                # shallow sweep.
+                if _dir_has_raw_image(sib.path) or _scan_container_for_roots(sib.path):
+                    roots.append(sib.path)
+                    existing_real.add(sib_real)
 
     # If the extracted_path itself is directly a candidate root (e.g. a
     # bare Linux rootfs with etc/, bin/ children), ensure it leads the

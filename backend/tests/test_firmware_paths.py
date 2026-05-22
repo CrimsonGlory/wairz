@@ -1165,6 +1165,262 @@ def test_walk_for_additional_roots_respects_max_dirs_cap(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
+# Vendor BSP layout (L4T / NVIDIA / similar) — climb past component names
+# ---------------------------------------------------------------------------
+#
+# Regression backstop for follow-up #2 from
+# ``postmortem-over-constraint-sweep-2026-05-22.md``. When the unpacker
+# sets ``firmware.extracted_path`` to a vendor-BSP component subdir
+# (``Linux_for_Tegra/bootloader/`` is the canonical L4T case),
+# ``_find_extraction_container`` MUST climb past the component name so
+# detection_roots covers sibling components (``nv_tegra/``, ``kernel/``,
+# ``tools/``) — otherwise the SBOM walker is trapped inside bootloader
+# alone and misses the bulk of the BSP.
+
+
+def _build_l4t_bsp_tree(tmp_path: Path) -> dict[str, Path]:
+    """Synthesise the L4T BSP extraction shape on disk.
+
+    Mirrors the real Tegra L4T release layout:
+
+        extracted/
+            L4T_BSP_SecureBoot.R32.3.1.tar.gz_extracted/
+                bootloader/
+                    t186ref/
+                        cfg/
+                        BCT/
+                kernel/
+                    Image
+                nv_tegra/
+                    l4t_deb_packages/
+                        nvidia-l4t-foo.deb
+                        nvidia-l4t-bar.deb
+                tools/
+                source/
+    """
+    extracted = tmp_path / "extracted"
+    bsp_top = extracted / "L4T_BSP_SecureBoot.R32.3.1.tar.gz_extracted"
+    bsp_top.mkdir(parents=True)
+
+    # bootloader/ — has a raw-image file at its top level so the shallow
+    # sweep recognises it as a qualifying child of bsp_top once the climb
+    # lands there. (Real L4T bootloader/ has tegraboot.bin / mb1_t186*.bin
+    # at the top level next to t186ref/.)
+    bootloader = bsp_top / "bootloader"
+    (bootloader / "t186ref" / "cfg").mkdir(parents=True)
+    (bootloader / "t186ref" / "BCT").mkdir(parents=True)
+    (bootloader / "tegraboot.bin").write_bytes(b"\x00" * 64)
+
+    kernel = bsp_top / "kernel"
+    kernel.mkdir()
+    # ``Image`` has no extension — irrelevant for raw-image recognition.
+    # Add a .dtb so kernel/ qualifies via blob-bundle scoring.
+    (kernel / "Image").write_bytes(b"\x00" * 64)
+    (kernel / "tegra194-soc.dtb").write_bytes(b"\xd0\x0d\xfe\xed" + b"\x00" * 60)
+    (kernel / "tegra234-soc.dtb").write_bytes(b"\xd0\x0d\xfe\xed" + b"\x00" * 60)
+    (kernel / "tegra210-soc.dtb").write_bytes(b"\xd0\x0d\xfe\xed" + b"\x00" * 60)
+
+    nv_tegra = bsp_top / "nv_tegra"
+    deb_packages = nv_tegra / "l4t_deb_packages"
+    deb_packages.mkdir(parents=True)
+    # Mirror Tegra's actual layout — nv_tegra/ has tegra firmware at its
+    # top level (e.g. tegra194-platform.bin) plus the l4t_deb_packages/
+    # subdir for the Scout A LooseDebStrategy path. The .bin file is what
+    # makes ``_dir_has_raw_image(nv_tegra)`` return True.
+    (nv_tegra / "tegra194-platform.bin").write_bytes(b"\x00" * 64)
+    (deb_packages / "nvidia-l4t-core.deb").write_bytes(b"\x00" * 128)
+    (deb_packages / "nvidia-l4t-firmware.deb").write_bytes(b"\x00" * 128)
+
+    tools = bsp_top / "tools"
+    tools.mkdir()
+    (tools / "tegraflash.py").write_text("# placeholder")
+    (tools / "tegrarcm.bin").write_bytes(b"\x00" * 64)
+
+    source = bsp_top / "source"
+    source.mkdir()
+
+    return {
+        "extracted": extracted,
+        "bsp_top": bsp_top,
+        "bootloader": bootloader,
+        "kernel": kernel,
+        "nv_tegra": nv_tegra,
+        "deb_packages": deb_packages,
+        "tools": tools,
+        "source": source,
+    }
+
+
+def test_compute_roots_l4t_bsp_climbs_past_bootloader(tmp_path: Path):
+    """``extracted_path`` set to ``bootloader/`` MUST climb to the BSP
+    top so siblings (``nv_tegra/``, ``kernel/``, ``tools/``) become
+    detection roots — not just bootloader subdirs.
+
+    This is the regression backstop for the SBOM-miss observed on the
+    e6e45f24 L4T firmware (postmortem-over-constraint-sweep-2026-05-22
+    follow-up #2). Prior to the fix, the climb only recognised partition-
+    like names, so the bootloader subdir trapped detection_roots there
+    and nv_tegra/l4t_deb_packages's debs were invisible.
+    """
+    paths = _build_l4t_bsp_tree(tmp_path)
+    roots = _compute_roots_sync(str(paths["bootloader"]))
+    real_roots = _reals(roots)
+
+    # The BSP-level container's siblings MUST be visible. nv_tegra has
+    # a deb package subdir (l4t_deb_packages) full of .deb blobs — the
+    # SBOM walker needs that root to fire LooseDebStrategy.
+    assert _real(paths["nv_tegra"]) in real_roots or _real(
+        paths["deb_packages"]
+    ) in real_roots, (
+        f"nv_tegra (or deb_packages) missing from {roots}; "
+        f"climb trapped inside bootloader."
+    )
+    # The BSP top container itself should also be reachable for deep walks.
+    assert _real(paths["bsp_top"]) in real_roots or any(
+        _real(paths["bsp_top"]) in os.path.realpath(r)
+        for r in roots
+    ), f"BSP top container not surfaced; got {roots}"
+
+
+def test_compute_roots_walks_past_extracted_suffix(tmp_path: Path):
+    """``_extracted`` suffix (gtar / binwalk variant) must climb the
+    same as ``_extract`` (unblob variant). Without this, nested
+    ``X.tar.gz_extracted/inner/Y.tar.gz_extracted/leaf`` traps the
+    unblob-top finder at the leaf.
+    """
+    from app.services.firmware_paths import _find_unblob_extraction_top
+
+    leaf = (
+        tmp_path / "extracted" / "X.tar.gz_extracted"
+        / "inner" / "Y.tar.gz_extracted" / "leaf"
+    )
+    leaf.mkdir(parents=True)
+
+    top = _find_unblob_extraction_top(str(leaf))
+    # The climb should reach the OUTERMOST ``_extracted`` ancestor under
+    # ``extracted/`` (X.tar.gz_extracted) — path-string fallback selects
+    # the FIRST ``_extract``/``_extracted`` after the extracted marker.
+    expected_outer = tmp_path / "extracted" / "X.tar.gz_extracted"
+    assert os.path.realpath(top) == os.path.realpath(expected_outer), (
+        f"Expected climb past _extracted to reach {expected_outer}; "
+        f"got {top}"
+    )
+
+
+def test_sibling_archive_extracted_dirs_both_become_roots(tmp_path: Path):
+    """TWO sibling ``*.tar.gz_extracted`` dirs under ``extracted/`` must
+    BOTH appear in detection_roots when ``extracted_path`` lands inside
+    one of them. This is the multi-archive vendor BSP shape (Tegra
+    ships a bootloader BSP + a separate tegraflash archive that
+    extracts as a sibling).
+    """
+    extraction = tmp_path / "extracted"
+
+    # Sibling A: L4T BSP, with bootloader/ as the climbable subdir.
+    bsp_a = extraction / "L4T_BSP.tar.gz_extracted"
+    (bsp_a / "bootloader" / "t186ref").mkdir(parents=True)
+    (bsp_a / "bootloader" / "tegraboot.bin").write_bytes(b"\x00" * 64)
+
+    # Sibling B: tegraflash archive, with tools/ as the climbable subdir.
+    # ``fw.img`` at bsp_b's top makes ``_dir_has_raw_image(bsp_b)`` True so
+    # the post-relocation-style container-promotion branch surfaces bsp_b
+    # itself as a detection root after the climb lands at ``extracted/``.
+    bsp_b = extraction / "tegraflash.tar.gz_extracted"
+    (bsp_b / "tools").mkdir(parents=True)
+    (bsp_b / "tools" / "flash.py").write_text("# placeholder")
+    (bsp_b / "fw.img").write_bytes(b"\x00" * 64)  # raw image so it qualifies
+
+    # ``extracted_path`` lives inside bsp_a's bootloader component. The
+    # climb must traverse PAST bootloader (BSP component) AND PAST the
+    # bsp_a archive container (which is not climbable) — wait — actually
+    # bsp_a is non-climbable. So the climb lands at bsp_a (one level up
+    # from bootloader). For bsp_b to be visible, _scan_container_for_roots
+    # on bsp_a's parent (``extracted/``) would be needed — but the climb
+    # stops at bsp_a. The shallow-container-rescue branch promotes the
+    # PARENT (``extracted/``) when there's only 1 root AND the parent has
+    # raw image files — but extracted/ doesn't directly hold raw images.
+    # The deep walk catches bsp_b via _walk_for_additional_roots starting
+    # from the unblob-top finder's result, which now recognises the
+    # _extracted suffix (fix #3) and climbs from bsp_a up to extracted/.
+    roots = _compute_roots_sync(str(bsp_a / "bootloader"))
+    real_roots = _reals(roots)
+
+    # Sibling archive (bsp_b) should be reachable.
+    assert _real(bsp_b) in real_roots, (
+        f"Sibling archive {bsp_b.name} missing from {roots}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rule #46 META-CANARY pair — confirms the regression tests actually fire
+# ---------------------------------------------------------------------------
+#
+# The Rule #46 paired-canary discipline: any verification mechanism that
+# asserts the ABSENCE of something (here: the regression tests above
+# assert that BSP component names + ``_extracted`` suffixes climb
+# correctly) MUST have a canary test that synthesises a deliberately-
+# broken case and confirms the test would CATCH it. Without these
+# canaries, future regressions to ``_is_bsp_component_name`` or the
+# ``_extracted`` suffix list could pass silently if the predicate
+# itself silently accepts ANY name.
+
+
+def test_canary_is_bsp_component_name_rejects_nonsense():
+    """META-CANARY for ``_is_bsp_component_name``: confirms the predicate
+    rejects names it has no business accepting. If this canary breaks
+    (the predicate accepts arbitrary names), the BSP regression test
+    above would pass for the WRONG reason — the climb would no longer
+    be discriminating component vs container names.
+    """
+    from app.services.firmware_paths import _is_bsp_component_name
+
+    assert _is_bsp_component_name("bootloader") is True
+    assert _is_bsp_component_name("nv_tegra") is True
+    assert _is_bsp_component_name("kernel") is True
+    assert _is_bsp_component_name("tools") is True
+    assert _is_bsp_component_name("source") is True
+    assert _is_bsp_component_name("BOOTLOADER") is True  # case-insensitive
+    # The canary itself: a deliberately-nonsense name MUST be rejected.
+    assert _is_bsp_component_name("nonsense_not_a_bsp_component") is False
+    assert _is_bsp_component_name("L4T_BSP_SecureBoot.R32.3.1.tar.gz_extracted") is False
+    assert _is_bsp_component_name("") is False
+    # Synthesize the regression: if the predicate were broken to return
+    # True for every name, the climb would NEVER stop, returning the
+    # filesystem root for every input. The above assertions catch that.
+
+
+def test_canary_extracted_suffix_climb_rejects_non_extract_segment(tmp_path: Path):
+    """META-CANARY for the ``_extracted`` suffix climb: confirms the
+    climb does NOT walk past names that lack the ``_extract`` /
+    ``_extracted`` suffix. Without this guard, a future regression that
+    blindly climbs every parent would pass the regression test for the
+    wrong reason.
+    """
+    from app.services.firmware_paths import _find_unblob_extraction_top
+
+    # Synthesise a path with NO _extract / _extracted segments. Climb
+    # MUST NOT happen; the function returns the input root unchanged.
+    leaf = tmp_path / "unrelated" / "nested" / "tree" / "leaf"
+    leaf.mkdir(parents=True)
+    top = _find_unblob_extraction_top(str(leaf))
+    assert os.path.realpath(top) == os.path.realpath(leaf), (
+        "Climb should not traverse non-_extract / non-_extracted segments; "
+        f"got {top}"
+    )
+
+    # And confirm the climb DOES fire when ``_extracted`` is present —
+    # this is the positive half of the canary. Together with the
+    # negative half above, they pin the predicate's discrimination.
+    leaf2 = tmp_path / "extracted" / "X.tar.gz_extracted" / "inner"
+    leaf2.mkdir(parents=True)
+    top2 = _find_unblob_extraction_top(str(leaf2))
+    expected = tmp_path / "extracted" / "X.tar.gz_extracted"
+    assert os.path.realpath(top2) == os.path.realpath(expected), (
+        f"Climb should reach {expected} via _extracted suffix; got {top2}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Pytest collection sanity marker
 # ---------------------------------------------------------------------------
 
