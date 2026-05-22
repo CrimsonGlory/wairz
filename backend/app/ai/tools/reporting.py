@@ -110,9 +110,10 @@ def register_reporting_tools(registry: ToolRegistry) -> None:
     registry.register(
         name="update_finding",
         description=(
-            "Update an existing finding's status or details. "
-            "Use this to mark findings as confirmed, false_positive, or fixed, "
-            "or to refine the description/evidence."
+            "Update an existing finding's severity, status, or details. "
+            "Use this to re-rate severity after further analysis, "
+            "mark findings as confirmed/false_positive/fixed, "
+            "or refine the description/evidence."
         ),
         input_schema={
             "type": "object",
@@ -120,6 +121,11 @@ def register_reporting_tools(registry: ToolRegistry) -> None:
                 "finding_id": {
                     "type": "string",
                     "description": "UUID of the finding to update",
+                },
+                "severity": {
+                    "type": "string",
+                    "enum": ["critical", "high", "medium", "low", "info"],
+                    "description": "New severity level for the finding",
                 },
                 "status": {
                     "type": "string",
@@ -281,6 +287,8 @@ async def _handle_update_finding(input: dict, context: ToolContext) -> str:
         return f"Error: Finding {input['finding_id']} not found in this project."
 
     update_fields = {}
+    if "severity" in input:
+        update_fields["severity"] = Severity(input["severity"])
     if "status" in input:
         update_fields["status"] = FindingStatus(input["status"])
     if "description" in input:
