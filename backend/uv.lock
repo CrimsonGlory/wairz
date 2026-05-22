@@ -1403,6 +1403,11 @@ wheels = [
 ]
 
 [[package]]
+name = "kernel-hardening-checker"
+version = "0.6.17.1"
+source = { git = "https://github.com/a13xp0p0v/kernel-hardening-checker?rev=b9b83a01ef2f959de1643104de15f696812f8ad9#b9b83a01ef2f959de1643104de15f696812f8ad9" }
+
+[[package]]
 name = "kiwisolver"
 version = "1.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3716,6 +3721,7 @@ dependencies = [
     { name = "fdt" },
     { name = "flare-capa" },
     { name = "httpx" },
+    { name = "kernel-hardening-checker" },
     { name = "libesedb-python" },
     { name = "lief" },
     { name = "lnkparse3" },
@@ -3778,6 +3784,7 @@ requires-dist = [
     { name = "fdt", specifier = ">=0.3.3" },
     { name = "flare-capa", specifier = ">=9.4" },
     { name = "httpx", specifier = ">=0.27.0" },
+    { name = "kernel-hardening-checker", git = "https://github.com/a13xp0p0v/kernel-hardening-checker?rev=b9b83a01ef2f959de1643104de15f696812f8ad9" },
     { name = "libesedb-python", specifier = ">=20240420" },
     { name = "lief", specifier = ">=0.15.0" },
     { name = "lnkparse3", specifier = ">=1.5" },

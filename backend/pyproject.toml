@@ -198,6 +198,28 @@ dependencies = [
     # registers an ETW logger, invokes any process referenced in event
     # payloads, or loads any embedded provider manifest as code.
     "dissect.etl>=3.14",
+    # ── Phase kernel-image-followup-T3: KSPP catalogue expansion ───
+    # kernel-hardening-checker — upstream KSPP-aligned Linux kernel
+    # hardening checker by a13xp0p0v. Wairz pins the master SHA
+    # b9b83a01ef2f959de1643104de15f696812f8ad9 (2026-05-09) for
+    # reproducible builds — git-pip URL form ensures the lockfile
+    # captures exactly this revision. Walker calls into
+    # ``kernel_hardening_checker.checks.add_kconfig_checks(checklist,
+    # arch)`` + ``kernel_hardening_checker.engine.populate_with_data
+    # + .perform_checks`` to evaluate the parser-extracted
+    # ``HardwareFirmwareBlob.metadata.kernel_config`` dict against
+    # ~350 KSPP-aligned rules (expanding from the wairz-curated 10).
+    #
+    # Rule #45 no-execute discipline: wairz imports ONLY
+    # ``kernel_hardening_checker.checks`` + ``.engine`` — both pure-
+    # Python data evaluators (zero subprocess, zero socket, zero
+    # eval/exec). The ``kernel_hardening_checker.cli`` module (NOT
+    # imported by wairz) does subprocess.run([sysctl_bin,'-a']) and
+    # gzip.open() for CLI mode; a tokenize-scan test gates against
+    # accidental ``from kernel_hardening_checker.cli`` imports.
+    #
+    # Reference: https://github.com/a13xp0p0v/kernel-hardening-checker
+    "kernel-hardening-checker @ git+https://github.com/a13xp0p0v/kernel-hardening-checker@b9b83a01ef2f959de1643104de15f696812f8ad9",
 ]
 
 [project.scripts]
@@ -211,6 +233,14 @@ testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
+
+# Allow direct-reference deps (git+https URLs in project.dependencies)
+# so wairz can pin upstream tools at specific commits. Currently used
+# for kernel-hardening-checker (Phase kernel-image-followup-T3) —
+# pinning a SHA is more reproducible than a PyPI version (the upstream
+# release cadence is slower than the rule-catalogue updates we want).
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [build-system]
 requires = ["hatchling"]
