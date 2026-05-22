@@ -359,7 +359,7 @@ async def _do_kernel_config_audit_run(
         for rule in fails:
             evidence = (
                 f"Kernel: Linux {kernel_semver} "
-                f"(blob {blob.id} / {blob.file_path or blob.file_name or '<unknown>'})\n"
+                f"(blob {blob.id} / {blob.blob_path or '<unknown>'})\n"
                 f"Config check: {rule.config_name} ({rule.check_kind})\n"
             )
             if rule.config_name != "(composite)":
@@ -404,8 +404,7 @@ async def _do_kernel_config_audit_run(
 
         per_blob.append({
             "blob_id": str(blob.id),
-            "file_name": blob.file_name,
-            "file_path": blob.file_path,
+            "blob_path": blob.blob_path,
             "kernel_semver": kernel_semver,
             "config_entries": len(config),
             "findings": blob_findings,
