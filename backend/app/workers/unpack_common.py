@@ -81,6 +81,14 @@ _NESTED_ARCHIVE_SUFFIXES: tuple[str, ...] = (
     ".zip",
     ".lz4",
     ".apex",
+    # .img → Android sparse / ext4 / boot.img / raw disk image. Magic-
+    # byte dispatch at _extract_single_archive routes through simg2img
+    # (sparse) or unblob (ext4 / boot / GPT / raw). Closes the operator-
+    # reported gap on DS1 e6e45f24 where ds1-image.img (5.6 GB Android
+    # sparse) sat inside DS1.2-jetson-tx2-cot.tegraflash.tar.gz_extracted/
+    # and never got walked. Bootloader-style .img files (small, no
+    # filesystem magic) gracefully skip via the False-return path.
+    ".img",
 )
 
 
@@ -433,6 +441,16 @@ def _extract_single_archive(
         _extract_zip_safe(archive_path, out_dir)
         return True
 
+    # .img → Android sparse / ext4 / boot / raw disk. Magic-byte dispatch.
+    # Universal handler — adding a new .img variant = adding a magic-byte
+    # branch here, not touching the nested-recursion engine. Closes the
+    # operator-reported gap on DS1 e6e45f24 where ds1-image.img (5.6 GB
+    # Android sparse) sat inside DS1.2-jetson-tx2-cot.tegraflash.tar.gz_extracted/
+    # and was silently invisible to the SBOM (live_base→tar→tegraflash.tar.gz→
+    # tar→ds1-image.img chain of nesting).
+    if matched_suffix == ".img":
+        return _extract_img_recursive(archive_path, out_dir)
+
     # .apex (Android Pony EXpress) — Scout-2 G32 gap close 2026-05-22.
     # Outer is a ZIP carrying apex_manifest.pb + apex_payload.img (or
     # original_apex for CAPEX). Extract the outer, then crack the inner
@@ -453,6 +471,137 @@ def _extract_single_archive(
         return True
 
     return False
+
+
+_ANDROID_SPARSE_MAGIC = b"\x3a\xff\x26\xed"  # bytes 0..3 of Android sparse format
+_EXT4_MAGIC_OFFSET = 1080  # superblock at byte 1024 + magic at +56
+_EXT4_MAGIC = b"\x53\xef"   # ext2/3/4 share this magic
+_GPT_MAGIC = b"EFI PART"    # at byte 512 (after MBR)
+_BOOT_ANDROID_MAGIC = b"ANDROID!"  # bytes 0..7 of Android boot.img
+_IMG_RECURSE_MIN_SIZE = 1 * 1024 * 1024  # 1 MiB — skip tiny .img firmware blobs
+
+
+def _extract_img_recursive(archive_path: str, out_dir: str) -> bool:
+    """Universal .img recursion handler — magic-byte dispatch.
+
+    Branches:
+      1. Android sparse (magic 3a ff 26 ed): simg2img → raw.img → unblob it
+      2. Android boot (magic 'ANDROID!'): unblob (handles boot.img layout)
+      3. ext2/3/4 filesystem (magic 53 ef at byte 1080): unblob (extracts inode tree)
+      4. GPT-partitioned disk (magic 'EFI PART' at byte 512): unblob
+      5. Anything else < 1 MiB: skip (typical bootloader / signature blob)
+      6. Anything else >= 1 MiB: run unblob with --no-sandbox; if 0 output,
+         clean up and return False so the walker skips
+
+    Adding a new .img format = add a magic-byte branch here. NO downstream
+    code changes (the nested walker just sees the populated out_dir).
+    """
+    import subprocess
+
+    try:
+        with open(archive_path, "rb") as f:
+            head = f.read(8192)  # cheap; 8 KiB covers all known magic offsets
+    except OSError:
+        return False
+
+    # Branch 1: Android sparse image
+    if head[:4] == _ANDROID_SPARSE_MAGIC:
+        if not _shutil.which("simg2img"):
+            logger.info(
+                ".img extract: %s is Android sparse but simg2img not in PATH",
+                archive_path,
+            )
+            return False
+        raw_path = os.path.join(out_dir, "raw.img")
+        try:
+            result = subprocess.run(
+                ["simg2img", archive_path, raw_path],
+                timeout=600,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                logger.info(
+                    ".img extract: simg2img failed on %s: %s",
+                    archive_path,
+                    result.stderr[:200],
+                )
+                return False
+            # Now run unblob on the raw image to extract the filesystem.
+            return _run_unblob_on_img(raw_path, out_dir)
+        except subprocess.TimeoutExpired:
+            logger.info(".img extract: simg2img timed out on %s", archive_path)
+            return False
+        except Exception as e:  # noqa: BLE001
+            logger.info(".img extract: sparse path failed on %s: %s", archive_path, e)
+            return False
+
+    # Branch 2: Android boot image
+    if head[:8] == _BOOT_ANDROID_MAGIC:
+        return _run_unblob_on_img(archive_path, out_dir)
+
+    # Branch 3: ext4 (check superblock magic)
+    try:
+        with open(archive_path, "rb") as f:
+            f.seek(_EXT4_MAGIC_OFFSET - 2)  # the magic 53 ef starts at +56 in superblock
+            ext_check = f.read(2)
+            if ext_check == _EXT4_MAGIC:
+                return _run_unblob_on_img(archive_path, out_dir)
+    except OSError:
+        pass
+
+    # Branch 4: GPT-partitioned
+    try:
+        with open(archive_path, "rb") as f:
+            f.seek(512)
+            gpt_check = f.read(8)
+            if gpt_check == _GPT_MAGIC:
+                return _run_unblob_on_img(archive_path, out_dir)
+    except OSError:
+        pass
+
+    # Branch 5/6: anything else — unblob can probe.
+    try:
+        size = os.path.getsize(archive_path)
+    except OSError:
+        return False
+    if size < _IMG_RECURSE_MIN_SIZE:
+        return False  # skip tiny .img firmware blobs (bootloader, EKS, etc.)
+    return _run_unblob_on_img(archive_path, out_dir)
+
+
+def _run_unblob_on_img(img_path: str, out_dir: str) -> bool:
+    """Invoke unblob on a .img file. Returns True if extraction produced
+    any output. False on tool-missing / timeout / empty-output."""
+    import subprocess
+
+    if not _shutil.which("unblob"):
+        logger.info(".img extract: unblob not in PATH for %s", img_path)
+        return False
+    try:
+        result = subprocess.run(
+            [
+                "unblob",
+                "--no-sandbox",
+                "--extract-dir", out_dir,
+                "--depth", "1",
+                img_path,
+            ],
+            timeout=1200,  # 20 min for large disk images
+            capture_output=True,
+            text=True,
+        )
+        # Unblob exits 0 on success even when extracting; check whether
+        # out_dir actually got populated.
+        if any(os.scandir(out_dir)):
+            return True
+        return False
+    except subprocess.TimeoutExpired:
+        logger.info(".img extract: unblob timed out on %s", img_path)
+        return False
+    except Exception as e:  # noqa: BLE001
+        logger.info(".img extract: unblob failed on %s: %s", img_path, e)
+        return False
 
 
 def _decompress_lz4(src: str, dst: str) -> None:
