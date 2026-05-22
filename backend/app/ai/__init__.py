@@ -17,6 +17,9 @@ from app.ai.tools.ics_protocol import register_ics_protocol_tools
 from app.ai.tools.linux_container import register_linux_container_tools
 from app.ai.tools.linux_journald import register_linux_journald_tools
 from app.ai.tools.linux_persistence import register_linux_persistence_tools
+from app.ai.tools.linux_kernel_hardening import (
+    register_linux_kernel_hardening_tools,
+)
 from app.ai.tools.linux_systemd import register_linux_systemd_tools
 from app.ai.tools.network import register_network_tools
 from app.ai.tools.reporting import register_reporting_tools
@@ -71,6 +74,7 @@ def create_tool_registry() -> ToolRegistry:
     register_android_sast_tools(registry)
     register_hardware_firmware_tools(registry)
     register_bare_metal_tools(registry)
+    register_linux_kernel_hardening_tools(registry)
     register_file_format_tools(registry)
     register_emulation_tools(registry)
     register_fuzzing_tools(registry)
