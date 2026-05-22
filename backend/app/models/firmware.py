@@ -765,6 +765,36 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # kernel_config_audit walker columns (CLAUDE.md Rule #33 contract).
+    # Background runner ``run_kernel_config_audit_background`` reads
+    # ``HardwareFirmwareBlob.metadata.kernel_config`` populated by the
+    # ``kernel_image`` parser (commit 108102b) and emits Findings via
+    # ``FindingService`` for each insecure / missing hardening config
+    # against the KSPP catalogue.  Result aggregate persisted as JSONB
+    # via Rule #35c normaliser pair.  Companion to ``bare_metal_audit_*``
+    # columns above (same shape — bare-metal MCU/DSP register policies vs
+    # Linux kernel CONFIG_* hardening flags).
+    #
+    # DS1 Tegra L4T R32.3.1 (project d360f8f5-...) is the reference case:
+    # CONFIG_DEVMEM=y + CONFIG_DEVKMEM=y + CONFIG_MODULE_SIG=n + no LSM,
+    # all firing high-severity Findings on the embedded IKCFG-extracted
+    # 5,293-entry .config from the kernel/Image binary.
+    kernel_config_audit_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    kernel_config_audit_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    kernel_config_audit_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    kernel_config_audit_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    kernel_config_audit_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     # Phase θ.B.C WMI persistence walker columns (CLAUDE.md Rule #33 contract).
     # Background runner ``run_wmi_walk_background`` opens each WMI
     # OBJECTS.DATA file (typically under ``Windows/System32/wbem/Repository/``
