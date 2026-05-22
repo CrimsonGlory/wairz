@@ -866,7 +866,7 @@ async def list_pe_signatures(
     chain_status: str | None = None,
     dbx_revoked_only: bool = False,
     offset: int = 0,
-    limit: int = 50,
+    limit: int = 100,
     firmware=Depends(_resolve_firmware),
     db: AsyncSession = Depends(get_db),
 ) -> WindowsPESignatureListResponse:
@@ -881,8 +881,12 @@ async def list_pe_signatures(
       the offline DBX bundle (the highest-impact chip for incident-
       response triage).
 
-    Pagination: ``offset`` + ``limit``; default 50/page caps response
-    size for Win11 ISO firmware (~1000 PEs). Order: chain_status
+    Pagination: ``offset`` + ``limit``; default 100/page, max 1000.
+    Bumped 2026-05-22 (over-constraint sweep) from 50/200 to align with
+    platform-wide PageParams (`schemas/pagination.py` default 100/max
+    1000). Win11 ISO firmware routinely has ~1000 PEs — 50/page forced
+    20 round-trips per triage; 100/page halves that, max 1000 covers
+    full-firmware pulls in a single request. Order: chain_status
     ascending so ``revoked`` / ``never_valid`` rows surface first
     (lexicographic order coincidentally puts them at the top), then
     ``blob_path`` for stable paging.
@@ -895,8 +899,8 @@ async def list_pe_signatures(
         )
     if offset < 0:
         raise HTTPException(400, "offset must be ≥ 0")
-    if limit < 1 or limit > 200:
-        raise HTTPException(400, "limit must be between 1 and 200")
+    if limit < 1 or limit > 1000:
+        raise HTTPException(400, "limit must be between 1 and 1000")
 
     blob_id_subq = select(HardwareFirmwareBlob.id).where(
         HardwareFirmwareBlob.firmware_id == firmware.id

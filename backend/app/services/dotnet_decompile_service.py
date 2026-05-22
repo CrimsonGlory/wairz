@@ -400,10 +400,22 @@ def _run_ilspycmd_sync(
         count += sum(1 for f in files if f.endswith((".il", ".cs", ".decompiled.cs")))
     errors: list[str] = []
     if proc.stderr:
-        errors = [
+        # Filter to error/warning lines, then cap at 50 with a +N-more
+        # sentinel when truncated (over-constraint sweep 2026-05-22 —
+        # poorly-decompiled bundles can emit hundreds of warnings, and
+        # the operator's primary signal is "how broken is this decompile";
+        # silently capping at 50 lost that signal).
+        all_errors = [
             line for line in proc.stderr.splitlines()
             if line.strip() and ("error" in line.lower() or "warning" in line.lower())
-        ][:50]
+        ]
+        if len(all_errors) > 50:
+            errors = all_errors[:50]
+            errors.append(
+                f"... +{len(all_errors) - 50} more decompile warnings/errors (cap=50)"
+            )
+        else:
+            errors = all_errors
     return {"count": count, "errors": errors}
 
 

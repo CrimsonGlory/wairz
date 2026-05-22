@@ -775,6 +775,39 @@ async def _handle_list_vulnerabilities_for_assessment(
     return "\n".join(lines)
 
 
+_SBOM_EXPORT_MAX_BYTES = 30_000
+
+
+def _sbom_truncation_marker(
+    fmt: str, original_bytes: int, project_id: str, firmware_id: str,
+) -> str:
+    """Return a clean structured-JSON truncation marker for oversized SBOM
+    export output (over-constraint sweep 2026-05-22).
+
+    Replaces the legacy ``json.dumps(...)[:30000]`` pattern that cut JSON
+    documents mid-token, producing parse-broken output. The returned
+    string is itself a valid JSON document the MCP client can parse to
+    discover the REST endpoint that returns the full document.
+    """
+    import json
+    return json.dumps({
+        "status": "truncated",
+        "reason": "SBOM export exceeds MCP 30 KB output cap",
+        "format": fmt,
+        "original_size_bytes": original_bytes,
+        "limit_bytes": _SBOM_EXPORT_MAX_BYTES,
+        "rest_endpoint": (
+            f"GET /api/v1/projects/{project_id}/firmware/{firmware_id}"
+            f"/sbom/export?format={fmt}"
+        ),
+        "note": (
+            "MCP output is capped at 30 KB (config.py: max_tool_output_kb). "
+            "Use the REST endpoint above to retrieve the full document; "
+            "the response streams without size limits."
+        ),
+    }, indent=2)
+
+
 async def _handle_export_sbom(input: dict, context: ToolContext) -> str:
     """Export the SBOM in CycloneDX, SPDX, or CycloneDX VEX format."""
     export_format = input.get("format", "cyclonedx-json")
@@ -796,7 +829,13 @@ async def _handle_export_sbom(input: dict, context: ToolContext) -> str:
 
         resp = _build_spdx_response(components, fw_stub)
         doc = json.loads(resp.body.decode())
-        return json.dumps(doc, indent=2)[:30000]
+        out = json.dumps(doc, indent=2)
+        if len(out.encode("utf-8")) > _SBOM_EXPORT_MAX_BYTES:
+            return _sbom_truncation_marker(
+                "spdx-json", len(out.encode("utf-8")),
+                str(context.project_id), str(context.firmware_id),
+            )
+        return out
 
     if export_format == "cyclonedx-vex-json":
         # Load vulnerabilities joined with components
@@ -858,7 +897,13 @@ async def _handle_export_sbom(input: dict, context: ToolContext) -> str:
                 f"?format=cyclonedx-vex-json for the full CycloneDX VEX document."
             ),
         }
-        return json.dumps(summary, indent=2)[:30000]
+        out = json.dumps(summary, indent=2)
+        if len(out.encode("utf-8")) > _SBOM_EXPORT_MAX_BYTES:
+            return _sbom_truncation_marker(
+                "cyclonedx-vex-json", len(out.encode("utf-8")),
+                str(context.project_id), str(context.firmware_id),
+            )
+        return out
 
     # Default: CycloneDX 1.7 SBOM
     bom = {
@@ -877,7 +922,13 @@ async def _handle_export_sbom(input: dict, context: ToolContext) -> str:
             cdx["cpe"] = comp.cpe
         bom["components"].append(cdx)
 
-    return json.dumps(bom, indent=2)[:30000]
+    out = json.dumps(bom, indent=2)
+    if len(out.encode("utf-8")) > _SBOM_EXPORT_MAX_BYTES:
+        return _sbom_truncation_marker(
+            "cyclonedx-json", len(out.encode("utf-8")),
+            str(context.project_id), str(context.firmware_id),
+        )
+    return out
 
 
 async def _handle_push_to_dependency_track(

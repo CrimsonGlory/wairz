@@ -10,7 +10,19 @@ import os
 from collections import Counter
 from dataclasses import dataclass, field
 
-MAX_FINDINGS_PER_CHECK = 50
+# Bumped 50 → 500 on 2026-05-22 (over-constraint sweep). Original 50-cap was
+# silently truncating security audit results on real-world firmware:
+# Medtronic ILLUMISITE-class images surface hundreds of insecure permissions
+# / dozens of hardcoded credentials / many network misconfigs, all
+# legitimately distinct findings. The 50-cap dropped findings 51-N with no
+# `... +N more` notice and no operator override, masking systemic
+# insecurity. 500 covers the vast majority of legitimate workflows; any
+# firmware with >500 findings per check is "remediate holistically"
+# territory where the operator's response doesn't depend on seeing
+# items 501-N individually. Follow-up: add a +N-more sentinel at every
+# call site (~25 edit sites across credentials/network/permissions/
+# external_scanners) — deferred per Rule #25 single-slice discipline.
+MAX_FINDINGS_PER_CHECK = 500
 
 # Binary extensions to skip during text scanning
 _BINARY_EXTENSIONS = frozenset({

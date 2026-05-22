@@ -229,10 +229,24 @@ async def check_yaraify(sha256: str) -> YARAifyResult:
                     if rule_name:
                         rules.add(rule_name)
 
+            # Cap at 50 to keep finding evidence readable; surface a +N
+            # more sentinel as the final entry when truncated so the
+            # operator can tell legitimate "exactly 50 matches" apart
+            # from "more matches exist but were dropped" (over-constraint
+            # sweep 2026-05-22 — Scout D HIGH severity finding).
+            sorted_rules = sorted(rules)
+            if len(sorted_rules) > 50:
+                rule_matches = sorted_rules[:50]
+                rule_matches.append(
+                    f"... +{len(sorted_rules) - 50} more YARA rule matches (cap=50)"
+                )
+            else:
+                rule_matches = sorted_rules
+
             return YARAifyResult(
                 sha256=sha256,
                 found=bool(rules),
-                rule_matches=sorted(rules)[:50],
+                rule_matches=rule_matches,
             )
 
     except Exception as e:
