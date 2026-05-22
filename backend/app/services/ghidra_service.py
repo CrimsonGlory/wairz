@@ -216,9 +216,17 @@ async def run_ghidra_subprocess(
     binary_path: str,
     script_name: str,
     script_args: list[str] | None = None,
+    timeout: int | None = None,
 ) -> str:
-    """Run a Ghidra headless script and return the raw stdout."""
+    """Run a Ghidra headless script and return the raw stdout.
+
+    timeout: optional override (seconds). Defaults to settings.ghidra_timeout,
+    which is appropriate for synchronous tool calls bounded by the MCP
+    transport. Background workers (start_binary_analysis) pass a much
+    larger value since they're not on the MCP request path.
+    """
     settings = get_settings()
+    effective_timeout = timeout if timeout is not None else settings.ghidra_timeout
 
     with tempfile.TemporaryDirectory(prefix="ghidra_") as project_dir:
         cmd = _build_analyze_command(binary_path, script_name, project_dir, script_args)
@@ -254,13 +262,13 @@ async def run_ghidra_subprocess(
             try:
                 await asyncio.wait_for(
                     process.wait(),
-                    timeout=settings.ghidra_timeout,
+                    timeout=effective_timeout,
                 )
             except asyncio.TimeoutError:
                 process.kill()
                 await process.wait()
                 raise TimeoutError(
-                    f"Ghidra analysis timed out after {settings.ghidra_timeout}s"
+                    f"Ghidra analysis timed out after {effective_timeout}s"
                 )
 
             stdout_f.seek(0)
@@ -401,9 +409,14 @@ async def _run_full_analysis(
     firmware_id: uuid.UUID,
     binary_sha256: str,
     db: AsyncSession,
+    timeout: int | None = None,
 ) -> None:
-    """Run AnalyzeBinary.java and store all results in DB."""
-    raw_output = await run_ghidra_subprocess(binary_path, "AnalyzeBinary.java")
+    """Run AnalyzeBinary.java and store all results in DB.
+
+    timeout: passed through to run_ghidra_subprocess. None means use
+    the global ghidra_timeout. Background workers pass a larger value.
+    """
+    raw_output = await run_ghidra_subprocess(binary_path, "AnalyzeBinary.java", timeout=timeout)
 
     data = _parse_analysis_output(raw_output)
     if data is None:
