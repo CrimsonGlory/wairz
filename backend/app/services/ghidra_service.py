@@ -22,6 +22,7 @@ import logging
 import os
 import pathlib
 import tempfile
+import time
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -540,6 +541,62 @@ async def get_functions_if_cached(
         return []
     cached = await _get_cached(firmware_id, binary_sha256, "functions", db)
     return cached.get("functions", []) if cached else []
+
+
+async def get_run_status(
+    firmware_id: uuid.UUID,
+    binary_sha256: str,
+    db: AsyncSession,
+) -> dict | None:
+    """Read the most recent background-analysis run row.
+
+    Returned dict has keys: status ("running"|"complete"|"failed"),
+    started_at (epoch seconds), optional finished_at, optional pid,
+    optional error. None means no run has been kicked off via
+    start_binary_analysis.
+    """
+    return await _get_cached(firmware_id, binary_sha256, "ghidra_analysis_run", db)
+
+
+async def mark_run_started(
+    firmware_id: uuid.UUID,
+    binary_path: str,
+    binary_sha256: str,
+    pid: int,
+    db: AsyncSession,
+) -> None:
+    await _store_cached(
+        firmware_id, binary_path, binary_sha256, "ghidra_analysis_run",
+        {"status": "running", "started_at": time.time(), "pid": pid},
+        db,
+    )
+
+
+async def mark_run_complete(
+    firmware_id: uuid.UUID,
+    binary_path: str,
+    binary_sha256: str,
+    db: AsyncSession,
+) -> None:
+    await _store_cached(
+        firmware_id, binary_path, binary_sha256, "ghidra_analysis_run",
+        {"status": "complete", "finished_at": time.time()},
+        db,
+    )
+
+
+async def mark_run_failed(
+    firmware_id: uuid.UUID,
+    binary_path: str,
+    binary_sha256: str,
+    error: str,
+    db: AsyncSession,
+) -> None:
+    await _store_cached(
+        firmware_id, binary_path, binary_sha256, "ghidra_analysis_run",
+        {"status": "failed", "finished_at": time.time(), "error": error[:2000]},
+        db,
+    )
 
 
 async def get_functions(

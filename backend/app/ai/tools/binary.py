@@ -7,6 +7,9 @@ import logging
 import os
 import re
 import shutil
+import subprocess
+import sys
+import time
 
 from elftools.elf.elffile import ELFFile
 from elftools.elf.sections import SymbolTableSection
@@ -2062,8 +2065,180 @@ async def _handle_detect_rtos(input: dict, context: ToolContext) -> str:
     return "\n".join(lines)
 
 
+async def _handle_start_binary_analysis(
+    input: dict, context: ToolContext,
+) -> str:
+    """Kick off Ghidra analysis in a detached worker, return immediately."""
+    path = context.resolve_path(input["binary_path"])
+    if not os.path.isfile(path):
+        return f"Error: binary not found: {input['binary_path']}"
+
+    sha256 = await ghidra_service._get_binary_sha256(path)
+
+    if await ghidra_service._is_analysis_complete(context.firmware_id, sha256, context.db):
+        return (
+            f"already_complete - {os.path.basename(path)} is already analyzed "
+            f"(sha256={sha256[:12]}). Call list_functions/decompile_function/etc. "
+            f"directly."
+        )
+
+    status_row = await ghidra_service.get_run_status(
+        context.firmware_id, sha256, context.db,
+    )
+    if status_row and status_row.get("status") == "running":
+        elapsed = int(time.time() - status_row.get("started_at", 0))
+        pid = status_row.get("pid")
+        return (
+            f"already_running - analysis is already in progress for "
+            f"{os.path.basename(path)} ({elapsed}s elapsed, pid={pid}). "
+            f"Poll check_binary_analysis_status."
+        )
+
+    # Spawn the detached worker. start_new_session=True makes it survive
+    # the wairz-mcp process dying (e.g. if the MCP client reconnects mid-
+    # analysis). stdio is detached so the parent doesn't keep pipes open.
+    proc = subprocess.Popen(
+        [
+            sys.executable, "-m", "app.workers.run_ghidra_analysis",
+            "--firmware-id", str(context.firmware_id),
+            "--binary-path", path,
+            "--sha256", sha256,
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+        close_fds=True,
+    )
+
+    await ghidra_service.mark_run_started(
+        context.firmware_id, path, sha256, proc.pid, context.db,
+    )
+    await context.db.flush()
+
+    return (
+        f"started - Ghidra analysis kicked off for {os.path.basename(path)} "
+        f"(pid={proc.pid}, sha256={sha256[:12]}). Poll "
+        f"check_binary_analysis_status until status=complete; multi-MB "
+        f"binaries typically take 5-30 minutes on cold cache. The worker "
+        f"runs independently of this MCP session, so the analysis "
+        f"continues even if you /mcp reconnect."
+    )
+
+
+async def _handle_check_binary_analysis_status(
+    input: dict, context: ToolContext,
+) -> str:
+    """Report the current state of a background Ghidra analysis."""
+    path = context.resolve_path(input["binary_path"])
+    if not os.path.isfile(path):
+        return f"Error: binary not found: {input['binary_path']}"
+
+    sha256 = await ghidra_service._get_binary_sha256(path)
+
+    if await ghidra_service._is_analysis_complete(context.firmware_id, sha256, context.db):
+        return (
+            f"complete - {os.path.basename(path)} analyzed and cached "
+            f"(sha256={sha256[:12]}). Call list_functions/decompile_function/etc."
+        )
+
+    status_row = await ghidra_service.get_run_status(
+        context.firmware_id, sha256, context.db,
+    )
+    if status_row is None:
+        return (
+            f"not_started - no background analysis has been kicked off for "
+            f"{os.path.basename(path)}. Call start_binary_analysis first."
+        )
+
+    status = status_row.get("status", "unknown")
+    if status == "running":
+        elapsed = int(time.time() - status_row.get("started_at", 0))
+        pid = status_row.get("pid")
+        # Check whether the worker is still alive — a stale "running" row
+        # from a worker that crashed without writing the cache is the
+        # main false-positive we want to flag.
+        alive = pid is not None and _pid_is_alive(int(pid))
+        if not alive and elapsed > 30:
+            return (
+                f"orphaned - worker (pid={pid}) is no longer running but "
+                f"analysis never completed ({elapsed}s elapsed). Call "
+                f"start_binary_analysis again to restart."
+            )
+        return f"running - {elapsed}s elapsed (pid={pid})"
+    if status == "failed":
+        err = status_row.get("error", "unknown error")
+        return f"failed - {err}"
+    if status == "complete":
+        # Sentinel says complete but ghidra_full_analysis row missing —
+        # treat as a logic error, prefer the sentinel.
+        return "complete - (cache rows may have been pruned)"
+    return f"unknown status: {status}"
+
+
+def _pid_is_alive(pid: int) -> bool:
+    """Return True if the given pid exists. Best-effort, no privileges needed."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Process exists but we can't signal it — counts as alive.
+        return True
+    return True
+
+
 def register_binary_tools(registry: ToolRegistry) -> None:
     """Register all binary analysis tools with the given registry."""
+
+    registry.register(
+        name="start_binary_analysis",
+        description=(
+            "Kick off Ghidra analysis for a binary in a detached background "
+            "worker and return immediately. Use this for large binaries "
+            "(multi-MB) where synchronous calls like list_functions or "
+            "decompile_function would exceed the MCP tool timeout (~10 min) "
+            "on cold cache. After this returns, poll "
+            "check_binary_analysis_status until status=complete, then call "
+            "the regular analysis tools which will hit the now-warm cache. "
+            "The worker runs independently of this MCP session, so the "
+            "analysis continues even if you reconnect."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "binary_path": {
+                    "type": "string",
+                    "description": "Path to the ELF binary in the firmware filesystem",
+                },
+            },
+            "required": ["binary_path"],
+        },
+        handler=_handle_start_binary_analysis,
+    )
+
+    registry.register(
+        name="check_binary_analysis_status",
+        description=(
+            "Poll the status of a Ghidra analysis previously kicked off "
+            "with start_binary_analysis. Returns one of: complete (cache "
+            "warm, safe to call other analysis tools), running (with "
+            "elapsed time), failed (with error), orphaned (worker died "
+            "without finishing — retry start_binary_analysis), or "
+            "not_started (no background run has been kicked off)."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "binary_path": {
+                    "type": "string",
+                    "description": "Path to the ELF binary in the firmware filesystem",
+                },
+            },
+            "required": ["binary_path"],
+        },
+        handler=_handle_check_binary_analysis_status,
+    )
 
     registry.register(
         name="list_functions",
