@@ -122,9 +122,36 @@ class SbomService:
             os.path.realpath(r) for r in detection_roots if r and os.path.isdir(r)
         ]
 
-        # Pick the primary root (first entry) so legacy code that reads
-        # ``self.extracted_root`` directly keeps working.
-        if self._detection_roots:
+        # Pick the primary root. When a Firmware row is bound, PREFER
+        # ``firmware.extracted_path`` over ``_detection_roots[0]`` —
+        # extracted_path is the operator-declared "this is the firmware
+        # root" path AND for multi-archive vendor firmwares it's the
+        # COMMON ANCESTOR of all detection_roots (e.g. the outer
+        # extracted/ container for an L4T BSP whose detection_roots are
+        # the per-archive subdirs). Without this preference, Syft (which
+        # is invoked ONCE against self.extracted_root) only sees the
+        # FIRST detection_root and misses packages in sibling archives.
+        #
+        # Pre-2026-05-22, this site used _detection_roots[0]
+        # unconditionally; that worked for Linux rootfs firmwares (where
+        # extracted_path IS the only detection_root) but produced
+        # 0-or-1-component SBOMs on vendor BSP shapes. See postmortem
+        # over-constraint-sweep-2026-05-22 addendum.
+        primary: str | None = None
+        if firmware is not None:
+            fp = getattr(firmware, "extracted_path", None)
+            if fp and os.path.isdir(fp):
+                primary = os.path.realpath(fp)
+                # Ensure extracted_path is at the FRONT of _detection_roots
+                # so _get_all_scan_roots() iterates it first (legacy
+                # primary-root contract). De-dupe if it already appeared.
+                self._detection_roots = (
+                    [primary]
+                    + [r for r in self._detection_roots if r != primary]
+                )
+        if primary is not None:
+            self.extracted_root = primary
+        elif self._detection_roots:
             self.extracted_root = self._detection_roots[0]
         elif extracted_root:
             # Degraded fallback: single root even if it doesn't exist on

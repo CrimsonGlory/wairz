@@ -1345,14 +1345,33 @@ def _etc_entry_count(path: str) -> int:
     return 0
 
 
-def find_filesystem_root(extraction_dir: str) -> str | None:
-    """Find the extracted filesystem root by looking for Linux directory markers."""
-    candidates: list[tuple[str, int, int, int]] = []
+def find_filesystem_root_strict(extraction_dir: str) -> str | None:
+    """Marker-only variant of find_filesystem_root.
 
+    Returns the best directory in ``extraction_dir`` whose layout has
+    Linux-rootfs markers (``etc + bin/usr`` OR ``init + system + bin/apex``).
+    Returns None when NO directory in the tree has markers — does NOT
+    fall back to entry-count guessing.
+
+    Use this post-recursion in ``_post_process_pipeline``: the
+    entry-count fallback inside ``find_filesystem_root`` is unsafe when
+    called on an already-recursed tree because it picks the dir with the
+    most direct children, which on vendor BSP layouts (Tegra L4T,
+    similar multi-archive vendor firmwares) is a deep blob subdir —
+    wrong as ``fs_root``. See
+    ``.planning/postmortems/postmortem-over-constraint-sweep-2026-05-22.md``
+    addendum + ``backend/tests/test_unpack_common_filesystem_root.py``
+    regression cases for the canonical L4T BSP shape.
+
+    Originally extracted from ``find_filesystem_root`` 2026-05-22 as
+    the SBOM completeness investigation surfaced the
+    post-recursion-relocation regression introduced by commit
+    ``e2f8333`` (adaptive nested-archive recursion gate).
+    """
+    candidates: list[tuple[str, int, int, int]] = []
     for root, dirs, _files in os.walk(extraction_dir):
         if not _has_linux_markers(root):
             continue
-
         dirname = os.path.basename(root)
         priority = 10 if dirname in _FS_ROOT_NAMES else 0
         try:
@@ -1367,10 +1386,23 @@ def find_filesystem_root(extraction_dir: str) -> str | None:
         except OSError:
             total_entries = 0
         candidates.append((root, priority, etc_count, total_entries))
-
     if candidates:
         candidates.sort(key=lambda c: (c[1], c[2], c[3]), reverse=True)
         return candidates[0][0]
+    return None
+
+
+def find_filesystem_root(extraction_dir: str) -> str | None:
+    """Find the extracted filesystem root by looking for Linux directory markers.
+
+    Falls back to the directory with the most direct entries when no
+    Linux markers are found. Note: the fallback is UNSAFE when called
+    on an already-recursed tree (post nested-archive expansion); use
+    ``find_filesystem_root_strict`` post-recursion instead.
+    """
+    marker_hit = find_filesystem_root_strict(extraction_dir)
+    if marker_hit is not None:
+        return marker_hit
 
     best_dir = None
     best_count = 0

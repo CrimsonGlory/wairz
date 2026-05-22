@@ -34,6 +34,7 @@ from app.workers.unpack import (
     detect_kernel,
     detect_os_info,
     find_filesystem_root,
+    find_filesystem_root_strict,
 )
 from app.workers.unpack_common import (
     _is_archive_dense_layout,
@@ -634,12 +635,29 @@ async def _post_process_pipeline(
                         extraction_diagnostics.setdefault(
                             "nested_extract", {}
                         )["levels_expanded"] = len(new_dirs)
-                        # Re-probe — a deeper layer may now expose a
-                        # real rootfs OR the recursion may have just
-                        # made leaf binaries visible to detection.
-                        fs_root = await loop.run_in_executor(
-                            None, find_filesystem_root, extraction_dir
+                        # Re-probe with STRICT marker-only logic. If
+                        # recursion exposed a real rootfs (DS1 Moto
+                        # super.img → ext4 with /etc + /bin case), the
+                        # strict variant returns that. If recursion
+                        # only expanded vendor archives that have NO
+                        # rootfs (L4T BSP case), the strict probe
+                        # returns None — keep the OUTER extraction_dir
+                        # as fs_root so detection_roots can sweep all
+                        # sibling extracted/ subdirs (where the
+                        # *.deb / kernel / source content lives).
+                        #
+                        # Pre-2026-05-22, this site used the
+                        # entry-count-fallback `find_filesystem_root`
+                        # which mis-located fs_root to deep BSP
+                        # subdirs like .../bootloader (92 entries,
+                        # entry-count winner) for the L4T BSP shape,
+                        # cascading into a 1-component SBOM. See
+                        # postmortem-over-constraint-sweep-2026-05-22
+                        # addendum for the regression analysis.
+                        new_fs_root = await loop.run_in_executor(
+                            None, find_filesystem_root_strict, extraction_dir
                         )
+                        fs_root = new_fs_root if new_fs_root is not None else extraction_dir
 
                 if fs_root:
                     firmware.extracted_path = fs_root

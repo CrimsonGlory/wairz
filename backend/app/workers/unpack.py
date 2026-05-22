@@ -25,6 +25,7 @@ from app.workers.unpack_common import (  # noqa: F401
     cleanup_unblob_artifacts,
     convert_intel_hex_to_binary,
     find_filesystem_root,
+    find_filesystem_root_strict,
     remove_extraction_escape_symlinks,
     run_binwalk_extraction,
     run_uefi_extraction,
