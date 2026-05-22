@@ -1114,9 +1114,15 @@ async def _handle_scan_with_yara(input: dict, context: ToolContext) -> str:
 # extract_kernel_config
 # ---------------------------------------------------------------------------
 
-# Magic bytes marking the start of an embedded kernel config (IKCONFIG)
-_IKCFG_ST = b"IKCFG_ST"
-_IKCFG_ED = b"IKCFG_ED"
+# Lifted from the local fork — single source of truth for IKCFG magic +
+# bounded extraction lives in parsers/_kernel_ikconfig.py so both the
+# MCP tool path AND the per-blob parser pipeline share the same
+# gzip-bomb mitigation (Wave-2 attack F per kernel_image campaign).
+from app.services.hardware_firmware.parsers._kernel_ikconfig import (
+    IKCFG_ED as _IKCFG_ED,
+    IKCFG_ST as _IKCFG_ST,
+    extract_ikconfig as _extract_ikconfig,
+)
 
 # Common locations for kernel images in firmware
 _KERNEL_IMAGE_NAMES = [
@@ -1131,36 +1137,6 @@ _CONFIG_SEARCH_PATHS = [
     "lib/modules/*/build/.config",
     "etc/kernel/config",
 ]
-
-
-def _extract_ikconfig(data: bytes) -> str | None:
-    """Extract kernel config from a binary image containing IKCFG_ST magic."""
-    offset = 0
-    while True:
-        idx = data.find(_IKCFG_ST, offset)
-        if idx == -1:
-            return None
-        # The gzip data starts immediately after the IKCFG_ST marker
-        gz_start = idx + len(_IKCFG_ST)
-        # Find the end marker to know the extent
-        end_idx = data.find(_IKCFG_ED, gz_start)
-        if end_idx == -1:
-            # Try to decompress anyway from gz_start
-            gz_blob = data[gz_start:]
-        else:
-            gz_blob = data[gz_start:end_idx]
-
-        try:
-            config_text = gzip.decompress(gz_blob).decode("utf-8", errors="replace")
-            if "CONFIG_" in config_text:
-                return config_text
-        except Exception:
-            pass
-
-        # Try next occurrence
-        offset = idx + 1
-
-    return None
 
 
 def _extract_kernel_config_from_path_sync(full_path: str, path: str) -> str:
