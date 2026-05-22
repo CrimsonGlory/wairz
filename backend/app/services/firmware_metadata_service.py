@@ -174,7 +174,12 @@ class FirmwareMetadataService:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+            # Bumped 120 → 300 on 2026-05-22 (over-constraint sweep): binwalk3
+            # over a multi-GB firmware (15+ GB Medtronic ILLUMISITE per Rule #47)
+            # streaming-reads the entire file looking for embedded signatures.
+            # At ~100 MB/s sequential I/O that's ~150s for 15 GB; 120s aborted
+            # legitimate scans pre-completion. Tool itself has no internal timeout.
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
         except FileNotFoundError:
             return []
         except TimeoutError:

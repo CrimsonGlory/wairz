@@ -478,7 +478,12 @@ class AssessmentService:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+            # Bumped outer wait_for 120 → 300 on 2026-05-22 (over-constraint
+            # sweep). Inner `semgrep --timeout 60` is the PER-FILE limit;
+            # `targets` can contain hundreds of files on a multi-GB firmware
+            # PE catalog scan, so the OUTER wait_for must cover the aggregate.
+            # 300s accommodates a ~5-file batch at the worst-case 60s/file.
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=300)
         except (TimeoutError, OSError) as e:
             logger.warning("Semgrep timed out or failed: %s", e)
             return 0

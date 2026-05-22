@@ -195,7 +195,12 @@ export default function DeviceAcquisitionPage() {
 
   useEffect(() => {
     if (step !== 2) return
-    const interval = setInterval(pollDump, 1000)
+    // Bumped 1000 → 2000ms on 2026-05-22 (over-constraint sweep). Rule #33
+    // prescribes 2s polling for 202+polling endpoints (firmware-unpack
+    // precedent). 1s on a 30-min full-flash dump = 1800 GETs vs ~900 at
+    // 2s — pure server-load reduction with no UX gain (operator can't
+    // perceive sub-2s progress updates on partition dumps).
+    const interval = setInterval(pollDump, 2000)
     return () => clearInterval(interval)
   }, [step, pollDump])
 

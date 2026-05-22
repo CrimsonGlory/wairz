@@ -24,6 +24,19 @@ export const RADARE2_ANALYSIS_TIMEOUT = 150_000
 // ghidra_timeout=300 × 1.2 grace.
 export const GHIDRA_ANALYSIS_TIMEOUT = 360_000
 
+// Ghidra decompilation diff — matches backend
+// app/services/comparison_service.py:861-867 which calls
+// ghidra_service.decompile_function TWICE (firmware A + firmware B),
+// each at config.py:24 ghidra_timeout=300. Worst case cold-cache:
+// 2 × 300s × 1.2 grace = 720_000ms. The analysis_cache table typically
+// shortcuts repeat calls to sub-second, but a cache-cold pair on a
+// large binary needs the full 12-minute budget.
+//
+// Bumped from inline `timeout: 120_000` on 2026-05-22 (over-constraint
+// sweep). Prior value would abort axios while Ghidra was still working
+// on cold-cache pairs.
+export const GHIDRA_PAIR_TIMEOUT = 720_000
+
 // Hash lookup scans (NVD / OSV / per-binary CVE matchers).
 export const HASH_SCAN_TIMEOUT = 300_000
 

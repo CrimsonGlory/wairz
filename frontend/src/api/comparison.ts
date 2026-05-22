@@ -1,5 +1,6 @@
 import apiClient from './client'
 import type { BinaryDiff, DecompilationDiff, FirmwareDiff, InstructionDiff, TextDiff } from '@/types'
+import { GHIDRA_PAIR_TIMEOUT } from './timeouts'
 
 export async function diffFirmware(
   projectId: string,
@@ -67,7 +68,7 @@ export async function diffDecompilation(
   const { data } = await apiClient.post<DecompilationDiff>(
     `/projects/${projectId}/compare/decompilation`,
     { firmware_a_id: firmwareAId, firmware_b_id: firmwareBId, binary_path: binaryPath, function_name: functionName },
-    { timeout: 120_000 },
+    { timeout: GHIDRA_PAIR_TIMEOUT },
   )
   return data
 }
