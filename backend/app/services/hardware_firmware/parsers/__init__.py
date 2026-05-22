@@ -15,6 +15,7 @@ from app.services.hardware_firmware.parsers import (  # noqa: F401,E402
     bt_firmware_banner,
     dtb,
     elf_tee,
+    kernel_image,
     kmod,
     mediatek_atf,
     mediatek_geniezone,
