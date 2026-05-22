@@ -104,9 +104,33 @@ class AndroidStrategy(SbomStrategy):
     )
 
     def run(self, ctx: StrategyContext) -> None:
-        # Check if this is an Android filesystem
+        # Check if this is an Android filesystem. Search ALL the common
+        # build.prop locations — Android OTAs ship build.prop in different
+        # places depending on the partition layout:
+        #   * system/build.prop — standard SYSTEM partition
+        #   * build.prop — when ctx.extracted_root IS the system partition
+        #   * vendor/build.prop — vendor partition (Motorola, Samsung)
+        #   * system/etc/ramdisk/build.prop — recovery + boot ramdisks
+        #     (Elo Tablet OTA + many Snapdragon vendors)
+        #   * vendor/etc/build.prop — alternate vendor location
+        #   * product/build.prop — product partition (modern AOSP)
+        #   * system_ext/build.prop — system_ext partition
+        #   * odm/build.prop — odm partition
         build_prop: str | None = None
-        for bp_path in ("system/build.prop", "build.prop", "vendor/build.prop"):
+        for bp_path in (
+            "system/build.prop",
+            "build.prop",
+            "vendor/build.prop",
+            "vendor/etc/build.prop",
+            "system/etc/ramdisk/build.prop",
+            "etc/ramdisk/build.prop",
+            "product/build.prop",
+            "product/etc/build.prop",
+            "system_ext/build.prop",
+            "system_ext/etc/build.prop",
+            "odm/build.prop",
+            "odm/etc/build.prop",
+        ):
             abs_bp = os.path.join(ctx.extracted_root, bp_path)
             if os.path.isfile(abs_bp):
                 build_prop = abs_bp
@@ -253,28 +277,59 @@ class AndroidStrategy(SbomStrategy):
         except OSError:
             return
 
-        # Android OS version
+        # Android OS version — ALL partition-prefix variants checked.
+        # Motorola/Samsung/etc. vendor partitions use `ro.vendor.build.*`;
+        # product partitions use `ro.product.build.*`; system_ext uses
+        # `ro.system_ext.build.*`; odm uses `ro.odm.build.*`. Pre-2026-05-22
+        # only `ro.build.*` and `ro.system.build.*` were checked, so any
+        # build.prop landing on a vendor/product/odm partition produced
+        # 0 components (operator-reported gap on Moto G32 + Elo Tablet).
         android_version = (
             props.get("ro.build.version.release")
             or props.get("ro.system.build.version.release")
+            or props.get("ro.vendor.build.version.release")
+            or props.get("ro.product.build.version.release")
+            or props.get("ro.odm.build.version.release")
+            or props.get("ro.system_ext.build.version.release")
+            or props.get("ro.bootimage.build.version.release")
         )
-        security_patch = props.get("ro.build.version.security_patch")
+        security_patch = (
+            props.get("ro.build.version.security_patch")
+            or props.get("ro.vendor.build.version.security_patch")
+            or props.get("ro.product.build.version.security_patch")
+        )
         build_id = (
             props.get("ro.build.id")
             or props.get("ro.system.build.id")
+            or props.get("ro.vendor.build.id")
+            or props.get("ro.product.build.id")
+            or props.get("ro.odm.build.id")
             or props.get("ro.build.display.id")
         )
-        platform = props.get("ro.board.platform", "")
+        platform = (
+            props.get("ro.board.platform")
+            or props.get("ro.vendor.board.platform")
+            or ""
+        )
         model = (
             props.get("ro.product.model")
-            or props.get("ro.product.system.model", "")
+            or props.get("ro.product.system.model")
+            or props.get("ro.product.vendor.model")
+            or props.get("ro.product.odm.model", "")
         )
 
         if android_version:
-            sdk_version = props.get("ro.build.version.sdk")
+            sdk_version = (
+                props.get("ro.build.version.sdk")
+                or props.get("ro.vendor.build.version.sdk")
+                or props.get("ro.product.build.version.sdk")
+                or props.get("ro.system_ext.build.version.sdk")
+            )
             incremental = (
                 props.get("ro.build.version.incremental")
                 or props.get("ro.system.build.version.incremental")
+                or props.get("ro.vendor.build.version.incremental")
+                or props.get("ro.product.build.version.incremental")
             )
 
             # Resolve AOSP tag and base patch date from build ID

@@ -257,8 +257,24 @@ async def _do_sbom_generate(
             key = (vendor, category, blob_format, version)
             blob_dedup[key] = blob_dedup.get(key, 0) + 1
         for (vendor, category, blob_format, version), instance_count in blob_dedup.items():
+            # Special-case kernel blobs: emit as type=operating-system with
+            # name=linux-kernel so the SBOM page surfaces them as the OS
+            # component operators expect. Pre-2026-05-22 the L4T BSP kernel
+            # Image was bridged as type=firmware, leaving the SBOM with
+            # zero OS components for Tegra firmware (operator-reported
+            # "SBOMs are missing trivial things like linux kernel").
+            if category == "kernel":
+                comp_name = "linux-kernel"
+                comp_type = "operating-system"
+                cpe = (
+                    f"cpe:2.3:o:linux:linux_kernel:{version}:*:*:*:*:*:*:*"
+                    if version else None
+                )
+            else:
+                comp_name = f"{vendor} {category} ({blob_format})"
+                comp_type = "firmware"
+                cpe = None
             # Defensive cap on name too — VARCHAR(255).
-            comp_name = f"{vendor} {category} ({blob_format})"
             if len(comp_name) > 250:
                 comp_name = comp_name[:250] + "..."
             if (comp_name, version) in existing_keys:
@@ -275,8 +291,8 @@ async def _do_sbom_generate(
             component_dicts.append({
                 "name": comp_name,
                 "version": version,
-                "type": "firmware",
-                "cpe": None,
+                "type": comp_type,
+                "cpe": cpe,
                 "purl": purl,
                 "supplier": vendor if vendor != "unknown" else None,
                 "detection_source": "hardware_firmware_blob",
