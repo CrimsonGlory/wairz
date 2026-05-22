@@ -8,8 +8,17 @@
 #     (blob.version matches entry.version_regex) OR
 #     (any string in blob.metadata values matches entry.version_regex)
 #   - optional entry.chipset_regex, blob.chipset_target matches
+#   - optional entry.config_required dict — gate config-gated kernel CVEs.
+#     Each {CONFIG_NAME: required_value} pair MUST match blob.metadata.
+#     kernel_config (extracted by the kernel-image parser from IKCFG-bearing
+#     Linux Image / zImage / vmlinuz / bzImage blobs).  Rule #49 hard-reject:
+#     blob without metadata.kernel_config OR with mismatched value → REJECT
+#     (no soft-fallback; the pin author declares config_required to make
+#     the kernel-config evidence THE gate — soft-fallback re-opens the
+#     over-attribution the field was added to prevent).
 #
 # Written 2026-04-17 for Wairz hw-firmware Phase 4.
+# config_required added 2026-05-22 for kernel-image-ikcfg-walker follow-up.
 
 families:
   - name: BroadPwn

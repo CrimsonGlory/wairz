@@ -2959,3 +2959,162 @@ def test_shared_advisory_id_warn_fires_when_neither_entry_opts_in() -> None:
         if "duplicate" in r.message and "advisory_id" in r.message
     ]
     assert len(duplicate_warns) == 1
+
+
+# ---------------------------------------------------------------------------
+# Rule #49 hard-reject contract — config_required narrowing field.
+# Added 2026-05-22 for kernel-image-ikcfg-walker follow-up.
+# ---------------------------------------------------------------------------
+
+
+def test_match_curated_config_required_hard_rejects_blob_with_null_kernel_config() -> None:
+    """Rule #49 hard-reject: when ``config_required`` is declared, a blob
+    with NO ``metadata.kernel_config`` (parser didn't extract IKCFG —
+    either not a kernel image OR CONFIG_IKCONFIG stripped at build) MUST
+    NOT match. Zero matches expected.
+    """
+    families = [
+        {
+            "name": "Linux Filesystem Context heap overflow (CVE-2022-0185)",
+            "vendor": "linux",
+            "category": "kernel",
+            "config_required": {"CONFIG_USER_NS": "y"},
+            "cves": ["CVE-2022-0185"],
+        },
+    ]
+    blob = _make_blob(
+        vendor="linux",
+        category="kernel",
+        metadata={},  # no kernel_config key
+        detection_confidence="high",
+    )
+    matches = _match_curated(blob, families)
+    assert matches == [], (
+        "Rule #49 violation — config_required hard-reject contract: "
+        "blob without metadata.kernel_config matched a pin declaring "
+        "config_required"
+    )
+
+
+def test_match_curated_config_required_hard_rejects_when_value_mismatches() -> None:
+    """Rule #49 hard-reject: when ``config_required`` is declared, a blob
+    with the required key present but with the WRONG value MUST NOT match.
+    Note: ``# CONFIG_FOO is not set`` parses to ``'n'`` per
+    ``_kernel_ikconfig.py:128`` — explicit-disabled vs required=y mismatch.
+    """
+    families = [
+        {
+            "name": "Linux Filesystem Context heap overflow (CVE-2022-0185)",
+            "vendor": "linux",
+            "category": "kernel",
+            "config_required": {"CONFIG_USER_NS": "y"},
+            "cves": ["CVE-2022-0185"],
+        },
+    ]
+    blob = _make_blob(
+        vendor="linux",
+        category="kernel",
+        metadata={"kernel_config": {"CONFIG_USER_NS": "n"}},
+        detection_confidence="high",
+    )
+    matches = _match_curated(blob, families)
+    assert matches == [], (
+        "Rule #49 violation — config_required hard-reject contract: "
+        "blob with mismatched value matched a pin declaring config_required"
+    )
+
+
+def test_match_curated_config_required_accepts_when_all_keys_match() -> None:
+    """Rule #46 META-CANARY (positive direction): the gate's accept path
+    fires when blob.metadata.kernel_config has every required key + value.
+    Without this canary the rejection tests above would be Rule #17
+    silent-passes — proves the gate ACTUALLY fires correctly on satisfied
+    config_required.
+    """
+    families = [
+        {
+            "name": "Linux Filesystem Context heap overflow (CVE-2022-0185)",
+            "vendor": "linux",
+            "category": "kernel",
+            "config_required": {"CONFIG_USER_NS": "y"},
+            "cves": ["CVE-2022-0185"],
+        },
+    ]
+    blob = _make_blob(
+        vendor="linux",
+        category="kernel",
+        metadata={"kernel_config": {"CONFIG_USER_NS": "y"}},
+        detection_confidence="high",
+    )
+    matches = _match_curated(blob, families)
+    assert len(matches) == 1
+    assert matches[0].cve_id == "CVE-2022-0185"
+    assert matches[0].confidence == "high"
+
+
+def test_match_curated_config_required_dict_implicit_AND_semantics() -> None:
+    """Multi-key config_required is ANDed: ALL keys must satisfy.
+
+    CVE-2021-29154 requires CONFIG_BPF=y AND CONFIG_BPF_JIT=y. A blob with
+    only one of them set should be rejected.
+    """
+    families = [
+        {
+            "name": "Linux BPF compiler bug (CVE-2021-29154)",
+            "vendor": "linux",
+            "category": "kernel",
+            "config_required": {"CONFIG_BPF": "y", "CONFIG_BPF_JIT": "y"},
+            "cves": ["CVE-2021-29154"],
+        },
+    ]
+    # Only CONFIG_BPF=y; CONFIG_BPF_JIT absent → reject.
+    blob_partial = _make_blob(
+        vendor="linux",
+        category="kernel",
+        metadata={"kernel_config": {"CONFIG_BPF": "y"}},
+        detection_confidence="high",
+    )
+    assert _match_curated(blob_partial, families) == [], (
+        "config_required AND semantics violated: partial-match accepted"
+    )
+
+    # Both present → accept.
+    blob_full = _make_blob(
+        vendor="linux",
+        category="kernel",
+        metadata={
+            "kernel_config": {"CONFIG_BPF": "y", "CONFIG_BPF_JIT": "y"},
+        },
+        detection_confidence="high",
+    )
+    matches = _match_curated(blob_full, families)
+    assert len(matches) == 1
+    assert matches[0].cve_id == "CVE-2021-29154"
+
+
+def test_match_curated_config_required_strips_quoted_values() -> None:
+    """LOCALVERSION-style values come QUOTED from the parser (kernel
+    config string values can be ``"v1.2"``). The matcher must strip outer
+    quotes before comparing — required value is the unquoted string.
+    """
+    families = [
+        {
+            "name": "test-quoted-value",
+            "vendor": "linux",
+            "category": "kernel",
+            "config_required": {"CONFIG_LOCALVERSION": "myversion"},
+            "cves": ["CVE-9999-0099"],
+        },
+    ]
+    blob = _make_blob(
+        vendor="linux",
+        category="kernel",
+        # Parser keeps the quotes when extracting from .config
+        metadata={"kernel_config": {"CONFIG_LOCALVERSION": '"myversion"'}},
+        detection_confidence="high",
+    )
+    matches = _match_curated(blob, families)
+    assert len(matches) == 1, (
+        "matcher should strip outer quotes before comparing "
+        "kernel_config values"
+    )

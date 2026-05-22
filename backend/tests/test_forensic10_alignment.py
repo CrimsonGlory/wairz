@@ -168,6 +168,7 @@ def test_curated_tier_accepts_advisory_only_entry() -> None:
         ("category_regex", "^wifi$"),
         ("version_regex", "^1\\.0\\.0$"),
         ("vendor_regex", "(?i)^qualcomm$"),
+        ("config_required", {"CONFIG_USER_NS": "y"}),
     ],
 )
 def test_curated_tier_accepts_entry_with_each_narrowing_field(
@@ -362,9 +363,11 @@ def test_cross_layer_narrowing_field_counts_documented() -> None:
         _KNOWN_FIRMWARE_NARROWING_FIELDS,
     )
 
-    # L1 — 4 narrowing fields.
-    assert len(_KNOWN_FIRMWARE_NARROWING_FIELDS) == 4, (
-        "L1 _KNOWN_FIRMWARE_NARROWING_FIELDS size changed from 4 to "
+    # L1 — 5 narrowing fields (was 4 until 2026-05-22; ``config_required``
+    # added as part of the kernel-image-ikcfg-walker follow-up to gate
+    # config-gated kernel CVEs against blob.metadata.kernel_config).
+    assert len(_KNOWN_FIRMWARE_NARROWING_FIELDS) == 5, (
+        "L1 _KNOWN_FIRMWARE_NARROWING_FIELDS size changed from 5 to "
         f"{len(_KNOWN_FIRMWARE_NARROWING_FIELDS)} — update this test "
         "alongside the postmortem alignment commentary so the "
         "cross-stack discipline stays explicit"
@@ -374,6 +377,7 @@ def test_cross_layer_narrowing_field_counts_documented() -> None:
         "category_regex",
         "version_regex",
         "vendor_regex",
+        "config_required",
     }, (
         "L1 narrowing-field set changed — update this test + the "
         "alignment-test parametrization above"

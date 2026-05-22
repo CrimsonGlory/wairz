@@ -126,6 +126,16 @@ _KNOWN_FIRMWARE_NARROWING_FIELDS: tuple[str, ...] = (
     "category_regex",
     "version_regex",
     "vendor_regex",
+    # ``config_required`` (Rule-of-One 2026-05-22 — kernel-image-ikcfg-walker
+    # follow-up): gate config-gated kernel CVEs against the kernel-image
+    # parser's ``HardwareFirmwareBlob.metadata.kernel_config`` dict. Same
+    # F-FORENSIC-10 narrowing-allowlist shape as the regex siblings —
+    # presence of this field satisfies the disclosure-batch invariant.
+    # Hard-reject per Rule #49: when declared, blob MUST have
+    # ``metadata.kernel_config`` populated AND every required key MUST
+    # match its value (no soft-fallback — see ``_match_curated`` for the
+    # gate's full semantics).
+    "config_required",
 )
 
 
@@ -460,7 +470,12 @@ def _match_curated(
     blob_category = (blob.category or "").lower()
     blob_version = blob.version or ""
     blob_chipset = blob.chipset_target or ""
-    metadata_values = _stringify_metadata(_normalize_hardware_firmware_blobs_metadata(blob.metadata_))
+    # Compute the normalized metadata dict ONCE — used by the version_regex
+    # branch (stringified) AND by the new config_required branch (raw dict
+    # lookup into ``metadata.kernel_config``).  Rule #19 + Rule #6 — measure
+    # once, reuse.
+    normalized_meta = _normalize_hardware_firmware_blobs_metadata(blob.metadata_)
+    metadata_values = _stringify_metadata(normalized_meta)
 
     for fam in families:
         # Vendor matching — exact OR vendor_regex (one of them required).
@@ -524,6 +539,40 @@ def _match_curated(
                         version_ok = True
                         break
             if not version_ok:
+                continue
+
+        # Optional config_required dict — gate config-gated kernel CVEs against
+        # the kernel-image parser's ``HardwareFirmwareBlob.metadata.kernel_config``.
+        # Rule #49 hard-reject contract: when declared, EVERY required key MUST
+        # match its required value. No soft-fallback — a pin author declares
+        # ``config_required`` to assert the kernel-config evidence IS the
+        # CVE-narrowing gate; soft-fallback would re-open over-attribution
+        # (e.g. CVE-2022-0185 should fire ONLY when CONFIG_USER_NS=y is
+        # observably present). Future authors who want soft-fallback must
+        # justify it AND add a strict_* opt-out — DO NOT default-add.
+        config_required = fam.get("config_required")
+        if config_required:
+            # Schema sanity — should be caught at load time, but defend.
+            if not isinstance(config_required, dict):
+                continue
+            kernel_config = normalized_meta.get("kernel_config")
+            if not isinstance(kernel_config, dict):
+                # Parser didn't extract kernel_config — either not a kernel
+                # image, or IKCFG absent (CONFIG_IKCONFIG stripped at build).
+                # Hard-reject per Rule #49.
+                continue
+            config_ok = True
+            for req_key, req_val in config_required.items():
+                actual = kernel_config.get(req_key)
+                # LOCALVERSION-style values come quoted from the parser;
+                # strip outer quotes before comparing. ``# CONFIG_FOO is
+                # not set`` parses to 'n' (per _kernel_ikconfig.py:128).
+                if isinstance(actual, str):
+                    actual = actual.strip('"').strip("'")
+                if actual != req_val:
+                    config_ok = False
+                    break
+            if not config_ok:
                 continue
 
         cves = fam.get("cves", [])
