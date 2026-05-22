@@ -41,6 +41,7 @@ from app.services.sbom.strategies.firmware_markers_strategy import (
 )
 from app.services.sbom.strategies.gcc_strategy import GccStrategy
 from app.services.sbom.strategies.kernel_strategy import KernelStrategy
+from app.services.sbom.strategies.loose_deb_strategy import LooseDebStrategy
 from app.services.sbom.strategies.opkg_strategy import OpkgStrategy
 from app.services.sbom.strategies.python_packages_strategy import (
     PythonPackagesStrategy,
@@ -68,6 +69,7 @@ class SbomService:
     _STRATEGY_CLASSES: tuple[type[SbomStrategy], ...] = (
         # Package managers
         DpkgStrategy,
+        LooseDebStrategy,
         OpkgStrategy,
         PythonPackagesStrategy,
         # OS / kernel
