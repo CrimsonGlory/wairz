@@ -516,7 +516,7 @@ async def _run_sbom_generate_background(
                                     sfw.vuln_scan_started_at = datetime.now(UTC)
                                     await scan_db.commit()
                                     svc = VulnerabilityService(scan_db)
-                                    await svc.scan_firmware(fid, sfw.project_id, force_rescan=False)
+                                    await svc.scan_components(fid, sfw.project_id, force_rescan=False)
                                     await scan_db.commit()
                                     sfw.vuln_scan_status = "completed"
                                     sfw.vuln_scan_finished_at = datetime.now(UTC)
