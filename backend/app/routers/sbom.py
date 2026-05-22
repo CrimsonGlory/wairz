@@ -569,10 +569,15 @@ async def export_sbom(
         raise HTTPException(404, "No SBOM generated yet. Run POST /generate first.")
 
     if format == "cyclonedx-vex-json":
-        # Load vulnerabilities joined with components
+        # outerjoin per over-constraint-sweep-2026-05-22: blob-pipeline
+        # vulns have component_id NULL but blob_id populated; INNER JOIN
+        # silently dropped them from VEX exports, undercounting affected
+        # components and severity totals. `_build_vex_response` handles
+        # the SbomComponent==None case via the same blob-fallback shape
+        # the components list uses.
         vuln_stmt = (
             select(SbomVulnerability, SbomComponent)
-            .join(SbomComponent, SbomVulnerability.component_id == SbomComponent.id)
+            .outerjoin(SbomComponent, SbomVulnerability.component_id == SbomComponent.id)
             .where(SbomVulnerability.firmware_id == firmware.id)
             .order_by(SbomVulnerability.cvss_score.desc().nullslast())
         )

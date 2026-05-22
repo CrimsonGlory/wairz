@@ -705,11 +705,20 @@ async def _handle_list_vulnerabilities_for_assessment(
     offset = input.get("offset", 0)
     limit = min(input.get("limit", 50), 50)
 
+    # outerjoin per over-constraint-sweep-2026-05-22: blob-pipeline vulns
+    # have component_id NULL but blob_id populated; INNER JOIN silently
+    # dropped them from MCP results. Now also outer-joins HardwareFirmwareBlob
+    # for blob_path display fallback.
+    from app.models.hardware_firmware import HardwareFirmwareBlob
     stmt = (
-        select(SbomVulnerability, SbomComponent.name, SbomComponent.version)
-        .join(
+        select(SbomVulnerability, SbomComponent.name, SbomComponent.version, HardwareFirmwareBlob.blob_path)
+        .outerjoin(
             SbomComponent,
             SbomVulnerability.component_id == SbomComponent.id,
+        )
+        .outerjoin(
+            HardwareFirmwareBlob,
+            SbomVulnerability.blob_id == HardwareFirmwareBlob.id,
         )
         .where(SbomVulnerability.firmware_id == context.firmware_id)
     )
@@ -751,19 +760,23 @@ async def _handle_list_vulnerabilities_for_assessment(
         f"Vulnerabilities for assessment ({offset + 1}-{offset + len(rows)} of {total}):\n"
     ]
 
-    for vuln, comp_name, comp_version in rows:
+    import os as _os
+    for vuln, comp_name, comp_version, blob_path in rows:
         score_str = f" CVSS {vuln.cvss_score}" if vuln.cvss_score else ""
         desc_snippet = ""
         if vuln.description:
             desc_snippet = vuln.description[:150]
             if len(vuln.description) > 150:
                 desc_snippet += "..."
+        # Use component name when present, fall back to blob basename for
+        # blob-pipeline vulns (HW-firmware curated CVE matcher rows).
+        subject_name = comp_name or (_os.path.basename(blob_path) if blob_path else "(unattributed)")
         version_str = f" {comp_version}" if comp_version else ""
 
         lines.append(
             f"- ID: {vuln.id}\n"
             f"  {vuln.cve_id} [{vuln.severity.upper()}{score_str}] "
-            f"in {comp_name}{version_str}\n"
+            f"in {subject_name}{version_str}\n"
             f"  {desc_snippet}"
         )
 
@@ -838,10 +851,11 @@ async def _handle_export_sbom(input: dict, context: ToolContext) -> str:
         return out
 
     if export_format == "cyclonedx-vex-json":
-        # Load vulnerabilities joined with components
+        # outerjoin per over-constraint-sweep-2026-05-22 — blob-pipeline
+        # vulns have component_id NULL; INNER JOIN silently dropped them.
         vuln_stmt = (
             select(SbomVulnerability, SbomComponent)
-            .join(SbomComponent, SbomVulnerability.component_id == SbomComponent.id)
+            .outerjoin(SbomComponent, SbomVulnerability.component_id == SbomComponent.id)
             .where(SbomVulnerability.firmware_id == context.firmware_id)
             .order_by(SbomVulnerability.cvss_score.desc().nullslast())
         )
