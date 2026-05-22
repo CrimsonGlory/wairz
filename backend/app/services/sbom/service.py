@@ -47,6 +47,7 @@ from app.services.sbom.strategies.python_packages_strategy import (
     PythonPackagesStrategy,
 )
 from app.services.sbom.strategies.so_files_strategy import SoFilesStrategy
+from app.services.sbom.strategies.standalone_apk_strategy import StandaloneApkStrategy
 from app.services.sbom.strategies.syft_strategy import SyftStrategy
 from app.utils.sandbox import validate_path
 
@@ -82,8 +83,13 @@ class SbomService:
         # Libraries + generic binary strings
         SoFilesStrategy,
         BinaryStringsStrategy,
-        # Android (walks system/vendor/product directly)
+        # Android (walks system/vendor/product directly for Android system
+        # images with build.prop)
         AndroidStrategy,
+        # Standalone Android APK — parses META-INF/*.version + lib/*/*.so
+        # for individual .apk uploads (no build.prop). Complements
+        # AndroidStrategy which gates on system-image-shape paths.
+        StandaloneApkStrategy,
     )
 
     def __init__(

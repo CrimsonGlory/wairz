@@ -415,20 +415,49 @@ async def _unpack_firmware_inner(
 
     if fw_type == "android_apk":
         import shutil
-        await _report("Standalone APK detected — preserving for scan", 15)
+        await _report("Standalone APK detected — extracting + preserving", 15)
         apk_name = os.path.basename(firmware_path)
         if not apk_name.lower().endswith(".apk"):
             apk_name += ".apk"
         dest = os.path.join(extraction_dir, apk_name)
         shutil.copy2(firmware_path, dest)
+
+        # ALSO unzip the APK into a sibling `<apk_name>_extract/` dir so
+        # AndroidStrategy + Syft can walk AndroidManifest.xml + classes.dex
+        # + lib/ + META-INF/ + assets/ for SBOM component identification.
+        # Pre-2026-05-22, this fast path only COPIED the .apk file —
+        # leaving SBOM empty (0 components) because no strategy could
+        # walk the zip's interior. Operators had to manually use
+        # `Security > APK Scan`, which produces FINDINGS but not SBOM
+        # COMPONENTS. Operator-reported gap on project 6f9008cb.
+        apk_extract_dir = os.path.join(extraction_dir, f"{apk_name}_extract")
+        try:
+            os.makedirs(apk_extract_dir, exist_ok=True)
+            from app.workers.safe_extract import safe_extract_zip
+            await _report("Extracting APK contents for SBOM walking", 35)
+            safe_extract_zip(firmware_path, apk_extract_dir)
+            unzip_status = (
+                f"Standalone APK: copied as {apk_name} + "
+                f"extracted to {os.path.basename(apk_extract_dir)}/ "
+                "for SBOM walking.\n"
+            )
+        except Exception as e:
+            # Non-fatal: keep the standalone copy even if extraction
+            # fails so APK Scan workflow remains usable. SBOM stays empty
+            # in this case (same as pre-fix behavior).
+            unzip_status = (
+                f"Standalone APK: copied as {apk_name}. "
+                f"Extraction failed: {type(e).__name__}: {str(e)[:80]}\n"
+            )
+
         result.extracted_path = extraction_dir
         result.extraction_dir = extraction_dir
         result.success = True
         result.unpack_log += (
-            f"Standalone APK: copied as {apk_name}.\n"
-            "Use Security > APK Scan to analyze.\n"
+            unzip_status
+            + "Use Security > APK Scan to analyze.\n"
         )
-        await _report("APK ready for scanning", 100)
+        await _report("APK ready — SBOM + scan paths both unblocked", 100)
         return result
 
     if fw_type == "uefi_firmware":
