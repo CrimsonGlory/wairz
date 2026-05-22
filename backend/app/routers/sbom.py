@@ -29,6 +29,7 @@ from starlette.requests import Request
 
 from app.database import async_session_factory, get_db
 from app.models.firmware import Firmware
+from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.models.sbom import SbomComponent, SbomVulnerability
 from app.rate_limit import TIER_A_LIGHT_ACK, limiter
 from app.routers.deps import resolve_firmware as _resolve_firmware
@@ -207,6 +208,82 @@ async def _do_sbom_generate(
                 })
         except Exception:
             pass  # os_info parsing failure is non-fatal
+
+    # Bridge hardware_firmware_blobs into the SBOM as components
+    # (over-constraint sweep 2026-05-22 follow-up). For HW-shape
+    # firmware (L4T BSP, vendor BSPs, MCU firmware), the strategy
+    # pipeline finds only software packages (DEBs etc.) — the rich
+    # hardware-firmware-blob inventory (bootloader / kernel Image /
+    # TEE / DTB / MCU firmware blobs) lives in a parallel table and
+    # never appears in the SBOM view. The operator's mental model
+    # is unified ("show me ALL my firmware's components"), so bridge
+    # blobs into sbom_components here, deduplicated by
+    # (vendor, product, version) so multi-file products (23 DTB
+    # files, 18 bootloader stages) collapse to one IdentifiedComponent
+    # per logical product.
+    try:
+        blobs = (await db.execute(
+            select(HardwareFirmwareBlob).where(
+                HardwareFirmwareBlob.firmware_id == firmware.id
+            )
+        )).scalars().all()
+        existing_keys = {(c["name"], c.get("version")) for c in component_dicts}
+        # Group blobs by (vendor, category, format, version) — HardwareFirmwareBlob
+        # has no `product` field; the descriptive product name lives in
+        # firmware_patterns.yaml + classifier metadata. Use the available
+        # fields to derive a stable component name: "{vendor} {category}
+        # ({format})" e.g. "nvidia bootloader (Tegra-MB1)" or
+        # "nvidia kernel (Image)". Version pulled from blob.version OR
+        # metadata.l4t_release. Multi-file products (23 DTB files, 18
+        # bootloader stages of different types) collapse cleanly because
+        # the format differs per stage.
+        blob_dedup: dict[tuple[str, str, str, str | None], int] = {}
+        for blob in blobs:
+            vendor = blob.vendor or "unknown"
+            category = blob.category or "other"
+            blob_format = blob.format or "unknown"
+            # Model attribute is `metadata_` (the SQLAlchemy ORM `metadata`
+            # name is reserved at the class level; the JSONB column is
+            # exposed under the trailing-underscore alias).
+            md = blob.metadata_ or {}
+            version = blob.version or md.get("l4t_release") or None
+            key = (vendor, category, blob_format, version)
+            blob_dedup[key] = blob_dedup.get(key, 0) + 1
+        for (vendor, category, blob_format, version), instance_count in blob_dedup.items():
+            comp_name = f"{vendor} {category} ({blob_format})"
+            if (comp_name, version) in existing_keys:
+                continue
+            existing_keys.add((comp_name, version))
+            slug = "".join(
+                ch.lower() if ch.isalnum() or ch in "-_" else "-"
+                for ch in f"{category}-{blob_format}"
+            ).strip("-")[:80]
+            purl = (
+                f"pkg:firmware/{vendor.lower()}/{slug}@{version}"
+                if version else f"pkg:firmware/{vendor.lower()}/{slug}"
+            )
+            component_dicts.append({
+                "name": comp_name,
+                "version": version,
+                "type": "firmware",
+                "cpe": None,
+                "purl": purl,
+                "supplier": vendor if vendor != "unknown" else None,
+                "detection_source": "hardware_firmware_blob",
+                "detection_confidence": "high",
+                "file_paths": None,
+                "metadata": {
+                    "instance_count": instance_count,
+                    "category": category,
+                    "format": blob_format,
+                },
+            })
+    except Exception:
+        logger.exception(
+            "SBOM hardware-firmware-blob bridge failed for firmware %s "
+            "(non-fatal — software components still persisted)",
+            firmware.id,
+        )
 
     # Persist to database.
     for comp_dict in component_dicts:
