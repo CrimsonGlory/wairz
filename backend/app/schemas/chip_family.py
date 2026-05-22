@@ -257,7 +257,7 @@ class AddressRegion(BaseModel):
     model_config = {"extra": "forbid"}
 
     @model_validator(mode="after")
-    def _normalise_size_and_end(self) -> "AddressRegion":
+    def _normalise_size_and_end(self) -> AddressRegion:
         if self.size is None and self.end is None:
             raise ValueError(f"region {self.name!r}: must declare size: or end:")
         if self.size is not None and self.end is not None:
@@ -355,7 +355,7 @@ class Domain(BaseModel):
     model_config = {"extra": "forbid"}
 
     @model_validator(mode="after")
-    def _check_region_constraints(self) -> "Domain":
+    def _check_region_constraints(self) -> Domain:
         region_names = {r.name for r in self.address_regions}
         if len(region_names) != len(self.address_regions):
             seen: dict[str, int] = {}
@@ -421,7 +421,7 @@ class ChipFamilyManifest(BaseModel):
     model_config = {"extra": "forbid"}
 
     @model_validator(mode="after")
-    def _check_unique_domain_names(self) -> "ChipFamilyManifest":
+    def _check_unique_domain_names(self) -> ChipFamilyManifest:
         names = [d.name for d in self.domains]
         if len(set(names)) != len(names):
             raise ValueError(

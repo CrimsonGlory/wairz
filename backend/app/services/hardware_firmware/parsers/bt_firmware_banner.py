@@ -1031,7 +1031,7 @@ def _coerce_build_id(raw: Any) -> int | None:
         return None
 
 
-def _parse_build_date(raw: Any) -> "datetime | None":
+def _parse_build_date(raw: Any) -> datetime | None:
     """Parse a BCM HCD-style build date ('Sep 12 2017') to a datetime.
 
     Returns ``None`` on any failure so the build_date_before gate fails

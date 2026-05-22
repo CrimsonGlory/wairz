@@ -311,7 +311,7 @@ async def _do_kernel_config_audit_run(
     runs the rule catalogue and emits Findings.  Returns the result
     aggregate UNSTAMPED — caller stamps via ``_stamp_kernel_config_audit_result``.
     """
-    audited_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    audited_at = dt.datetime.now(dt.UTC).isoformat()
     firmware = await db.get(Firmware, firmware_id)
     if firmware is None:
         return {
@@ -449,13 +449,13 @@ async def run_kernel_config_audit_background(
                 )
                 return
             firmware.kernel_config_audit_status = "running"
-            firmware.kernel_config_audit_started_at = dt.datetime.now(dt.timezone.utc)
+            firmware.kernel_config_audit_started_at = dt.datetime.now(dt.UTC)
             firmware.kernel_config_audit_error = None
             await db.commit()
             try:
                 result = await _do_kernel_config_audit_run(db, firmware_id)
                 firmware.kernel_config_audit_status = "completed"
-                firmware.kernel_config_audit_finished_at = dt.datetime.now(dt.timezone.utc)
+                firmware.kernel_config_audit_finished_at = dt.datetime.now(dt.UTC)
                 firmware.kernel_config_audit_result = _stamp_kernel_config_audit_result(result)
                 await db.commit()
             except Exception as exc:
@@ -467,7 +467,7 @@ async def run_kernel_config_audit_background(
                     fail_row = await fail_db.get(Firmware, firmware_id)
                     if fail_row is not None:
                         fail_row.kernel_config_audit_status = "failed"
-                        fail_row.kernel_config_audit_finished_at = dt.datetime.now(dt.timezone.utc)
+                        fail_row.kernel_config_audit_finished_at = dt.datetime.now(dt.UTC)
                         fail_row.kernel_config_audit_error = err
                         await fail_db.commit()
                 logger.exception(

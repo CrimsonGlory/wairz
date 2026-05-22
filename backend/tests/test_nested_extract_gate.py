@@ -41,7 +41,6 @@ from app.workers.unpack_common import (
     _recursive_extract_nested,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helper builders for the 5 fixtures.
 # ---------------------------------------------------------------------------

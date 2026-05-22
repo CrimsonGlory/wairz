@@ -19,8 +19,6 @@ logger = logging.getLogger(__name__)
 # re-export aliases so existing call sites + tests + the Rule #46 paired
 # META-CANARIES at `tests/test_sbom_router_background_tasks.py` keep
 # working without per-test patching changes.
-from app.utils.background import _BACKGROUND_TASKS, spawn_background_task as _spawn_background_task  # noqa: F401
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import delete, func, select
@@ -47,6 +45,8 @@ from app.schemas.sbom import (
 from app.services.jsonb_normalizers import _normalize_firmware_device_metadata
 from app.services.sbom import SbomService
 from app.services.vulnerability_service import VulnerabilityService
+from app.utils.background import _BACKGROUND_TASKS  # noqa: F401
+from app.utils.background import spawn_background_task as _spawn_background_task
 from app.utils.pagination import paginate_query_rows
 
 router = APIRouter(

@@ -242,11 +242,13 @@ async def test_dynamic_429_response_shape_on_security_audit():
     from a fake firmware row never reaches the test — we only care the
     6th call returns 429.
     """
+    from unittest.mock import MagicMock
+
+    from httpx import ASGITransport, AsyncClient
+
     from app.main import app
     from app.middleware import asgi_auth as _auth_mod
     from app.rate_limit import limiter
-    from httpx import ASGITransport, AsyncClient
-    from unittest.mock import MagicMock
 
     # Disable auth so we don't need an API key.
     fake_settings = MagicMock()

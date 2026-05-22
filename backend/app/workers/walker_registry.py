@@ -74,11 +74,11 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
         auto_ics_protocol_walk_firmware_safe,
     )
     from app.services.journald_walker import auto_journald_walk_firmware_safe
-    from app.services.linux_persistence_walker import (
-        auto_linux_persistence_walk_firmware_safe,
-    )
     from app.services.linux_kernel_hardening_walker import (
         auto_kernel_config_audit_firmware_safe,
+    )
+    from app.services.linux_persistence_walker import (
+        auto_linux_persistence_walk_firmware_safe,
     )
     from app.services.lnk_walker import auto_lnk_walk_firmware_safe
     from app.services.mbr_vbr_walker import auto_mbr_vbr_walk_firmware_safe

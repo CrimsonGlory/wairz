@@ -16,7 +16,7 @@ import hashlib
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 
 from sqlalchemy import select
 
@@ -140,7 +140,7 @@ async def _handle_submit_bare_metal_descriptor(input: dict, context: ToolContext
         "chip_family_hint": chip_family_hint,
         "domain_hint": domain_hint,
         "evidence": input.get("evidence") or {},
-        "received_at": datetime.now(timezone.utc).isoformat(),
+        "received_at": datetime.now(UTC).isoformat(),
     })
     descriptor_hash = hashlib.sha256(
         json.dumps(payload_dict, sort_keys=True).encode("utf-8")

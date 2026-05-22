@@ -27,7 +27,6 @@ import pytest
 
 from app.services.hardware_firmware import patterns_loader as PL
 
-
 # ---------------------------------------------------------------------------
 # Bootloaders — BPMP, MB1, MB2/nvtboot, cboot, u-boot, warmboot,
 # slot_metadata. All should map to vendor=nvidia, category=bootloader.

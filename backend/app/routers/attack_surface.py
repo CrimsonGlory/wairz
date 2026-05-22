@@ -9,9 +9,9 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.rate_limit import TIER_A_HEAVY, limiter
 from app.models.attack_surface import AttackSurfaceEntry
 from app.models.finding import Finding
+from app.rate_limit import TIER_A_HEAVY, limiter
 from app.routers.deps import resolve_firmware as _resolve_firmware
 from app.schemas.attack_surface import (
     AttackSurfaceEntryResponse,

@@ -39,7 +39,6 @@ from app.services import ics_protocol_walker
 from app.services.ics_protocol_catalog.snapshot import IcsProtocolCatalogSnapshot
 from tests._live_db import make_live_db
 
-
 # ───────────────────────────────────────────────────────────────────────
 # Rule #36 + Rule #45 no-execute + no-decrypt token-scan + Rule #46
 # paired META-CANARY.

@@ -16,7 +16,7 @@ Add new patterns here, not in per-strategy code.
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 # SemVer-like patterns ordered from most-specific to most-permissive.
 # Anchored at start-of-string OR after a non-alnum boundary so we don't

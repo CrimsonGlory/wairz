@@ -459,7 +459,7 @@ class RtosDetection:
 #: ``by_rtos_family`` dispatch evaluator reads it to route via
 #: ``manifest.dispatch.cases[rtos_family]``. Reset between resolve() calls
 #: by the resolver itself. P3.2.c.
-_RTOS_DETECTION_CONTEXT: ContextVar["RtosDetection | None"] = ContextVar(
+_RTOS_DETECTION_CONTEXT: ContextVar[RtosDetection | None] = ContextVar(
     "_RTOS_DETECTION_CONTEXT", default=None,
 )
 

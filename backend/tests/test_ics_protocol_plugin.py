@@ -22,8 +22,8 @@ from __future__ import annotations
 import pytest
 
 from app.services.ics_protocol_catalog.resolver import (
-    PLUGIN_REGISTRY,
     _PLUGIN_REGISTRY,
+    PLUGIN_REGISTRY,
     _unfreeze_plugin_registry_for_tests,
     freeze_plugin_registry,
     is_plugin_registry_frozen,

@@ -812,7 +812,7 @@ async def recover_sparsechunk_extracts_async(
             continue
         for entry in entries:
             ent_path = os.path.join(chunk_dir, entry)
-            if not os.path.isfile(ent_path):
+            if not os.path.isfile(ent_path):  # noqa: ASYNC240 — pre-flight stat in bounded chunk-dir loop (typically <20 carved partitions); Rule #43 category 1+3
                 continue
             # Carved filenames are like "partition_0_ext4.ext4" /
             # "partition_1_erofs.erofs".

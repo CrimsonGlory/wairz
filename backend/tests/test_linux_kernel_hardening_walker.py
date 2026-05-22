@@ -17,15 +17,14 @@ import pytest
 
 from app.schemas.finding import KernelConfigFindingSource
 from app.services.linux_kernel_hardening_walker import (
-    KERNEL_CONFIG_AUDIT_SCHEMA_VERSION,
     _KSPP_RULES,
     _LSM_FINDING,
     _LSM_MAJOR_ALTERNATIVES,
+    KERNEL_CONFIG_AUDIT_SCHEMA_VERSION,
     _normalize_kernel_config_audit_result,
     _stamp_kernel_config_audit_result,
     evaluate_kernel_config,
 )
-
 
 # -----------------------------------------------------------------------------
 # Pure-logic evaluator.

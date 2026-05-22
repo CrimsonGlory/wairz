@@ -26,7 +26,6 @@ from app.schemas.chip_family import (
 )
 from app.services.bare_metal_walker import POLICY_EVALUATORS
 
-
 # ---------------------------------------------------------------------------
 # Rule #46 META-CANARY: POLICY_EVALUATORS exhaustive.
 # ---------------------------------------------------------------------------

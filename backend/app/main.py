@@ -115,6 +115,7 @@ async def lifespan(app: FastAPI):
         )
         register_default_plugins(freeze=True)
         import logging
+
         from app.services.file_format_catalog import PLUGIN_REGISTRY
         logging.getLogger(__name__).info(
             "file-format catalog: registered %d plugin(s); registry frozen",

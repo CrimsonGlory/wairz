@@ -412,7 +412,7 @@ class TextFormatConstraint(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
-    def _check_length_bounds(self) -> "TextFormatConstraint":
+    def _check_length_bounds(self) -> TextFormatConstraint:
         if self.min_line_length > self.max_line_length:
             raise ValueError(
                 f"text_format_constraint: min_line_length="
@@ -517,7 +517,7 @@ class SubstringInHeadConstraint(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
-    def _check_needles(self) -> "SubstringInHeadConstraint":
+    def _check_needles(self) -> SubstringInHeadConstraint:
         for i, needle in enumerate(self.needles_hex):
             if len(needle) % 2 != 0:
                 raise ValueError(
@@ -625,7 +625,7 @@ class DetectionSignal(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
-    def _check_kind_fields(self) -> "DetectionSignal":
+    def _check_kind_fields(self) -> DetectionSignal:
         if self.kind == "magic_bytes":
             if self.bytes_hex is None or self.offset is None:
                 raise ValueError(
@@ -753,7 +753,7 @@ class Detection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
-    def _check_combine_constraints(self) -> "Detection":
+    def _check_combine_constraints(self) -> Detection:
         if self.combine == "weighted" and self.min_confidence_score is None:
             raise ValueError(
                 "detection.combine=weighted requires min_confidence_score"
@@ -768,7 +768,7 @@ class Detection(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _check_sort_tier_invariants(self) -> "Detection":
+    def _check_sort_tier_invariants(self) -> Detection:
         # always_matches and sort_tier are SEPARATE concepts but correlate:
         # every always_matches=True manifest is a catch-all sentinel and
         # MUST sort to the floor. Mis-authored manifests are rejected here.
@@ -807,7 +807,7 @@ class Dispatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
-    def _check_cases(self) -> "Dispatch":
+    def _check_cases(self) -> Dispatch:
         if self.kind == "none":
             if self.cases or self.default:
                 raise ValueError("dispatch.kind=none rejects cases/default")
@@ -850,7 +850,7 @@ class Refinement(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
-    def _check_path_floor(self) -> "Refinement":
+    def _check_path_floor(self) -> Refinement:
         for p in self.path_substrings_any_of:
             if not p.startswith("/") or len(p) < 6:
                 raise ValueError(
@@ -976,7 +976,7 @@ class Deprecation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
-    def _check_lifecycle(self) -> "Deprecation":
+    def _check_lifecycle(self) -> Deprecation:
         if self.status in ("deprecated", "removed") and not self.replaced_by:
             raise ValueError(
                 f"deprecation.status={self.status}: replaced_by is REQUIRED"
@@ -1129,7 +1129,7 @@ class FileFormatManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
-    def _check_cross_field_invariants(self) -> "FileFormatManifest":
+    def _check_cross_field_invariants(self) -> FileFormatManifest:
         if self.mode == "override" and not self.overrides:
             raise ValueError(
                 "mode=override requires overrides: <path> (Wave-1 S5 C)"

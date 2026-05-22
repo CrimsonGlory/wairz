@@ -47,7 +47,6 @@ from app.services.file_format_catalog.resolver import (
     resolve,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers — minimal manifest dict that satisfies the FileFormatManifest schema
 # ---------------------------------------------------------------------------

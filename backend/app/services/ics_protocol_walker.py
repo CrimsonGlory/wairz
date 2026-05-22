@@ -84,7 +84,6 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_ics_protocol_walk_result,
 )
 
-
 # Closed allowlist of ICS protocol-family finding sources (Rule #25 Shape-1
 # alignment surface — DB CHECK ↔ Pydantic Literal ↔ frontend mirror). The
 # walker emits a Finding per (firmware, protocol_family) tuple where the
@@ -222,7 +221,7 @@ async def _do_ics_protocol_walk(
     ``firmware.ics_protocol_walk_result`` to NULL at entry per W2-β
     §SC5-NEW-ICS-S2-δ (clears stale partial state from previous runs).
     """
-    walked_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    walked_at = dt.datetime.now(dt.UTC).isoformat()
 
     # W2-β §SC5-NEW-ICS-S2-β: pin snapshot at INNER entry.
     catalog = get_default_catalog()
@@ -411,13 +410,13 @@ async def run_ics_protocol_walk_background(firmware_id: uuid.UUID) -> None:
                 )
                 return
             firmware.ics_protocol_walk_status = "running"
-            firmware.ics_protocol_walk_started_at = dt.datetime.now(dt.timezone.utc)
+            firmware.ics_protocol_walk_started_at = dt.datetime.now(dt.UTC)
             firmware.ics_protocol_walk_error = None
             await db.commit()
             try:
                 result = await _do_ics_protocol_walk(db, firmware_id)
                 firmware.ics_protocol_walk_status = "completed"
-                firmware.ics_protocol_walk_finished_at = dt.datetime.now(dt.timezone.utc)
+                firmware.ics_protocol_walk_finished_at = dt.datetime.now(dt.UTC)
                 firmware.ics_protocol_walk_result = (
                     _stamp_firmware_ics_protocol_walk_result(result)
                 )
@@ -431,7 +430,7 @@ async def run_ics_protocol_walk_background(firmware_id: uuid.UUID) -> None:
                     fail_row = await fail_db.get(Firmware, firmware_id)
                     if fail_row is not None:
                         fail_row.ics_protocol_walk_status = "failed"
-                        fail_row.ics_protocol_walk_finished_at = dt.datetime.now(dt.timezone.utc)
+                        fail_row.ics_protocol_walk_finished_at = dt.datetime.now(dt.UTC)
                         fail_row.ics_protocol_walk_error = err
                         # W2-β §SC5-NEW-ICS-S2-δ — clear partial JSONB on fail.
                         fail_row.ics_protocol_walk_result = None

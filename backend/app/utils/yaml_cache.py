@@ -367,7 +367,7 @@ class MtimeCachedYamlLoader(Generic[T]):
                 import datetime as _dt
 
                 mtime_iso: str | None = _dt.datetime.fromtimestamp(
-                    mtime_ns / 1_000_000_000, tz=_dt.timezone.utc,
+                    mtime_ns / 1_000_000_000, tz=_dt.UTC,
                 ).isoformat()
             else:
                 mtime_iso = None

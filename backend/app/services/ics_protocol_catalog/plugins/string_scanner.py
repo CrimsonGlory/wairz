@@ -67,7 +67,7 @@ class StringScannerPlugin:
         blob_head: bytes,
         path: str,
         size: int,
-        context: "IcsResolverContext | None",
+        context: IcsResolverContext | None,
     ) -> list[dict] | None:
         """Return a list of ``{protocol_family, evidence}`` dicts or None.
 

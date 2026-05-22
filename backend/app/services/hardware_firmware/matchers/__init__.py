@@ -29,7 +29,6 @@ from app.services.hardware_firmware.matchers.yaml_driven import (  # noqa: F401
     get_default_matcher,
 )
 
-
 __all__ = [
     "MATCHER_REGISTRY",
     "REJECT",

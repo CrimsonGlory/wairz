@@ -14,14 +14,13 @@ import uuid
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-
-from app.rate_limit import TIER_A_HEAVY, limiter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.tools._android_helpers import is_priv_app_path
 from app.database import get_db
 from app.models.firmware import Firmware
+from app.rate_limit import TIER_A_HEAVY, limiter
 from app.schemas.apk_scan import (
     BytecodeFindingResponse,
     BytecodeScanResponse,

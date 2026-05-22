@@ -36,21 +36,22 @@ from app.schemas.file_format import (
 from app.services.file_format_catalog.plugins import register_default_plugins
 from app.services.file_format_catalog.plugins.rtos_detection_default import (
     NAME as RTOS_DEFAULT_NAME,
+)
+from app.services.file_format_catalog.plugins.rtos_detection_default import (
     _DefaultRtosMatcher,
 )
 from app.services.file_format_catalog.resolver import (
+    _RTOS_DETECTION_CONTEXT,
     DISPATCH_EVALUATORS,
     PLUGIN_REGISTRY,
     RTOS_FAMILY_ADVISORY,
     RtosDetection,
-    _RTOS_DETECTION_CONTEXT,
     _dispatch_by_rtos_family,
     _eval_rtos_check,
     _unfreeze_plugin_registry_for_tests,
     freeze_plugin_registry,
     register_matcher,
 )
-
 
 # ---------------------------------------------------------------------------
 # Per-test fixture: reset PLUGIN_REGISTRY around tests

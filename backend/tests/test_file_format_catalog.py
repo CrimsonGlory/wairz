@@ -41,10 +41,10 @@ from app.schemas.file_format import (
 )
 from app.services.file_format_catalog import (
     DISPATCH_EVALUATORS,
-    FormatCatalog,
-    FormatCatalogSnapshot,
     PLUGIN_REGISTRY,
     SIGNAL_EVALUATORS,
+    FormatCatalog,
+    FormatCatalogSnapshot,
     freeze_plugin_registry,
     register_matcher,
     resolve,
@@ -59,7 +59,6 @@ from app.services.file_format_catalog.resolver import (
     _SOURCE_PRECEDENCE,
     _unfreeze_plugin_registry_for_tests,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures + helpers

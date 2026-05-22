@@ -2526,6 +2526,7 @@ def test_f_forensic_10_gate_rejects_family_only_cve_entry() -> None:
     ``_parse_banner_cve_pin`` family-only rejection at the curated tier.
     """
     import logging
+
     from app.services.hardware_firmware.cve_matcher import (
         _parse_known_firmware_data,
     )
@@ -2637,6 +2638,7 @@ def test_f_forensic_10_gate_canary_synthesized_violation_actually_fires() -> (
     operator knows exactly what to add.
     """
     import logging
+
     from app.services.hardware_firmware.cve_matcher import (
         _parse_known_firmware_data,
     )

@@ -727,8 +727,8 @@ def test_kernel_image_parser_no_decrypt_gate_actually_fires() -> None:
     `test_kernel_image_parser_no_decrypt_gate` is only meaningful if
     we ALSO know the gate's regex would catch a violation.
     """
-    import tokenize
     import io as _io
+    import tokenize
 
     # Synthesize source that contains a forbidden pattern AFTER tokenize
     # joins tokens with spaces.  Use NORMAL Python code paths (not

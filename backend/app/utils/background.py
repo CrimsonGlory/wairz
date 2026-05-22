@@ -40,7 +40,6 @@ import asyncio
 from collections.abc import Coroutine
 from typing import Any
 
-
 # Module-level strong-reference set per the asyncio documentation. Tasks
 # added here cannot be collected mid-run; the `add_done_callback` removes
 # them on natural completion so the set self-trims and never grows

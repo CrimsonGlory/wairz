@@ -21,7 +21,6 @@ from app.services.hardware_firmware.parsers.tegra_blob import (
     parse_tegra_blob,
 )
 
-
 # ---------------------------------------------------------------------------
 # Magic-byte constants for fixture synthesis. Pinned to actual values
 # (Rule #19 evidence-first — magic bytes not guessed at).

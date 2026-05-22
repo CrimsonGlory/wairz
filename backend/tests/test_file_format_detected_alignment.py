@@ -29,11 +29,15 @@ import pytest
 
 from app.schemas.file_format import (
     DetectedFormat as PydanticDetectedFormat,
+)
+from app.schemas.file_format import (
     ExtractionCapability as PydanticExtractionCapability,
 )
 from app.services.file_format_catalog import get_default_catalog
 from app.services.format_detection import (
     DetectedFormat as EnumDetectedFormat,
+)
+from app.services.format_detection import (
     ExtractionCapability as EnumExtractionCapability,
 )
 

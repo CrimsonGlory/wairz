@@ -277,7 +277,7 @@ class IcsStringInBinaryConstraint(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
-    def _check_needles(self) -> "IcsStringInBinaryConstraint":
+    def _check_needles(self) -> IcsStringInBinaryConstraint:
         for i, needle in enumerate(self.needles_hex):
             if len(needle) % 2 != 0:
                 raise ValueError(
@@ -342,7 +342,7 @@ class IcsFunctionCodeSetConstraint(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
-    def _check_codes(self) -> "IcsFunctionCodeSetConstraint":
+    def _check_codes(self) -> IcsFunctionCodeSetConstraint:
         for i, code in enumerate(self.function_codes_hex):
             if len(code) != 2:
                 raise ValueError(
@@ -439,7 +439,7 @@ class IcsDetectionSignal(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
-    def _check_kind_fields(self) -> "IcsDetectionSignal":
+    def _check_kind_fields(self) -> IcsDetectionSignal:
         if self.kind == "magic_bytes":
             if self.bytes_hex is None or self.offset is None:
                 raise ValueError(
@@ -557,7 +557,7 @@ class IcsDetection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
-    def _check_combine(self) -> "IcsDetection":
+    def _check_combine(self) -> IcsDetection:
         if self.combine == "weighted" and self.min_confidence_score is None:
             raise ValueError(
                 "detection.combine=weighted requires min_confidence_score"
@@ -672,7 +672,7 @@ class IcsProtocolManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
-    def _check_precedence_floor(self) -> "IcsProtocolManifest":
+    def _check_precedence_floor(self) -> IcsProtocolManifest:
         if self.precedence < 10 and self.manifest_source != "_system":
             raise ValueError(
                 f"precedence={self.precedence} reserved to manifest_source="

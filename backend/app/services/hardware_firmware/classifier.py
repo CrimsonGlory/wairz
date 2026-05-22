@@ -39,7 +39,6 @@ from app.services.hardware_firmware.patterns_loader import (
     match_path_context as _path_context_match,
 )
 
-
 # Kept for backward compatibility with import sites that introspect these
 # sets at runtime (frontend lookups, test discovery, MCP tool descriptions).
 # The catalog is the source of truth for new formats — these sets are NOT

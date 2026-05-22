@@ -34,6 +34,7 @@ from uuid import uuid4
 import pytest
 import yaml
 
+from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.ai.tools.file_formats import (
     _handle_cross_firmware_format_collision_audit,
     _handle_list_file_formats,
@@ -43,16 +44,14 @@ from app.ai.tools.file_formats import (
     _render_validation_error_safe,
     register_file_format_tools,
 )
-from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.schemas.file_format import FileFormatManifest
 from app.services.file_format_catalog import (
-    FormatCatalog,
     PLUGIN_REGISTRY,
+    FormatCatalog,
 )
 from app.services.file_format_catalog.resolver import (
     _unfreeze_plugin_registry_for_tests,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers + fixtures.

@@ -32,10 +32,9 @@ from pathlib import Path
 
 import pytest
 
-from app.utils import yaml_cache as YC
 from app.services.hardware_firmware import cve_matcher as CM
 from app.services.hardware_firmware import patterns_loader as PL
-
+from app.utils import yaml_cache as YC
 
 # ---------------------------------------------------------------------------
 # A tiny self-contained loader for the generic-contract tests so they

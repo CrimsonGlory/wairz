@@ -500,7 +500,7 @@ class IcsProtocolMatcherProto(Protocol):
         blob_head: bytes,
         path: str,
         size: int,
-        context: "IcsResolverContext | None",
+        context: IcsResolverContext | None,
     ) -> Any: ...  # pragma: no cover - protocol
 
 
@@ -514,7 +514,7 @@ _PLUGIN_REGISTRY: dict[str, IcsProtocolMatcherProto] = {}
 # raises RuntimeError — and even if a hostile module reaches in via
 # ``__dict__`` introspection, the proxy still prevents direct
 # ``PLUGIN_REGISTRY[...] = ...`` writes.
-PLUGIN_REGISTRY: "MappingProxyType[str, IcsProtocolMatcherProto]" = (
+PLUGIN_REGISTRY: MappingProxyType[str, IcsProtocolMatcherProto] = (
     MappingProxyType(_PLUGIN_REGISTRY)
 )
 

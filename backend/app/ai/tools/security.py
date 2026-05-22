@@ -1120,7 +1120,11 @@ async def _handle_scan_with_yara(input: dict, context: ToolContext) -> str:
 # gzip-bomb mitigation (Wave-2 attack F per kernel_image campaign).
 from app.services.hardware_firmware.parsers._kernel_ikconfig import (
     IKCFG_ED as _IKCFG_ED,
+)
+from app.services.hardware_firmware.parsers._kernel_ikconfig import (
     IKCFG_ST as _IKCFG_ST,
+)
+from app.services.hardware_firmware.parsers._kernel_ikconfig import (
     extract_ikconfig as _extract_ikconfig,
 )
 

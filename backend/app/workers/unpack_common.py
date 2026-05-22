@@ -1817,6 +1817,8 @@ def classify_firmware(firmware_path: str) -> str:
     try:
         from app.services.file_format_catalog import (
             get_default_catalog,
+        )
+        from app.services.file_format_catalog import (
             resolve as _catalog_resolve,
         )
 

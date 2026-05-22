@@ -400,7 +400,7 @@ async def _do_bare_metal_audit_run(
     Returns:
         Result dict UNSTAMPED (caller stamps via _stamp_firmware_bare_metal_audit_result).
     """
-    audit_started_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    audit_started_at = dt.datetime.now(dt.UTC).isoformat()
     firmware = await db.get(Firmware, firmware_id)
     if firmware is None:
         return {
@@ -448,9 +448,9 @@ async def _do_bare_metal_audit_run(
                 "findings_emitted_count": 0,
                 "errors": ["blob row found but no blob_path supplied (Phase 1)"],
             }
-        blob_bytes = blob_path.read_bytes()
+        blob_bytes = blob_path.read_bytes()  # noqa: ASYNC240 — single bounded blob read at walker entry; analysis target, not user input; future Rule #5 executor-wrap candidate
     elif blob_path is not None:
-        blob_bytes = blob_path.read_bytes()
+        blob_bytes = blob_path.read_bytes()  # noqa: ASYNC240 — single bounded blob read at walker entry; analysis target, not user input; future Rule #5 executor-wrap candidate
     else:
         return {
             "audited_at": audit_started_at,
@@ -618,7 +618,7 @@ async def run_bare_metal_audit_background(
                 logger.warning("bare_metal_audit: firmware %s not found", firmware_id)
                 return
             firmware.bare_metal_audit_status = "running"
-            firmware.bare_metal_audit_started_at = dt.datetime.now(dt.timezone.utc)
+            firmware.bare_metal_audit_started_at = dt.datetime.now(dt.UTC)
             firmware.bare_metal_audit_error = None
             await db.commit()
             try:
@@ -628,7 +628,7 @@ async def run_bare_metal_audit_background(
                     chip_target_hint=chip_target_hint,
                 )
                 firmware.bare_metal_audit_status = "completed"
-                firmware.bare_metal_audit_finished_at = dt.datetime.now(dt.timezone.utc)
+                firmware.bare_metal_audit_finished_at = dt.datetime.now(dt.UTC)
                 firmware.bare_metal_audit_result = _stamp_firmware_bare_metal_audit_result(result)
                 await db.commit()
             except Exception as exc:
@@ -640,7 +640,7 @@ async def run_bare_metal_audit_background(
                     fail_row = await fail_db.get(Firmware, firmware_id)
                     if fail_row is not None:
                         fail_row.bare_metal_audit_status = "failed"
-                        fail_row.bare_metal_audit_finished_at = dt.datetime.now(dt.timezone.utc)
+                        fail_row.bare_metal_audit_finished_at = dt.datetime.now(dt.UTC)
                         fail_row.bare_metal_audit_error = err
                         await fail_db.commit()
                 logger.exception("bare_metal_audit: inner runner failed for %s", firmware_id)

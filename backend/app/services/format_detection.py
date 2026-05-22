@@ -40,6 +40,8 @@ from pathlib import Path
 
 from app.services.file_format_catalog import (
     get_default_catalog,
+)
+from app.services.file_format_catalog import (
     resolve as _catalog_resolve,
 )
 

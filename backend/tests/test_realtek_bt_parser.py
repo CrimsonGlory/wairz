@@ -45,7 +45,6 @@ from app.services.hardware_firmware.parsers.bt_firmware_banner import (
     _scan_realtek_project_id_from_tail,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixture helpers — synthesize the binary shapes the parser expects.
 # ---------------------------------------------------------------------------

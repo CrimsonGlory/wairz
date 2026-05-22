@@ -34,7 +34,7 @@ import hashlib
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
@@ -162,7 +162,7 @@ async def push_bare_metal_hint(
         "chip_family_hint": body.chip_family_hint,
         "domain_hint": domain_hint,
         "evidence": body.evidence or {},
-        "received_at": datetime.now(timezone.utc).isoformat(),
+        "received_at": datetime.now(UTC).isoformat(),
     })
     # Stable hash excluding the received_at timestamp (replay across days = same descriptor)
     hash_input = {k: v for k, v in payload.items() if k != "received_at"}

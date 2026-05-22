@@ -511,6 +511,7 @@ async def test_verify_cve_attribution_returns_unmatched_when_row_missing() -> No
 @pytest.mark.asyncio
 async def test_verify_cve_attribution_rejects_invalid_blob_id() -> None:
     import json as _json
+
     from app.ai.tools.hardware_firmware import _handle_verify_cve_attribution
 
     db = AsyncMock()
@@ -526,6 +527,7 @@ async def test_verify_cve_attribution_rejects_invalid_blob_id() -> None:
 @pytest.mark.asyncio
 async def test_verify_cve_attribution_missing_args_returns_error() -> None:
     import json as _json
+
     from app.ai.tools.hardware_firmware import _handle_verify_cve_attribution
 
     db = AsyncMock()

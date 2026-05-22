@@ -51,10 +51,10 @@ from app.schemas.file_format import (
     VendorAuthority,
 )
 from app.services.file_format_catalog.resolver import (
-    PLUGIN_REGISTRY,
-    RTOS_FAMILY_ADVISORY,
     _SIGNAL_COST_CLASS,
     _SOURCE_PRECEDENCE,
+    PLUGIN_REGISTRY,
+    RTOS_FAMILY_ADVISORY,
 )
 from app.services.file_format_catalog.snapshot import FormatCatalogSnapshot
 

@@ -193,7 +193,7 @@ async def unpack_apex(
     original_apex_path = os.path.join(outer_dir, "original_apex")  # noqa: ASYNC240 — path math
     is_capex = False
 
-    if not os.path.isfile(payload_img_path) and os.path.isfile(original_apex_path):
+    if not os.path.isfile(payload_img_path) and os.path.isfile(original_apex_path):  # noqa: ASYNC240 — pre-flight stat before sync 7z subprocess; Rule #43 category 1
         is_capex = True
         await _report("Extracting CAPEX nested original_apex", 35)
         orig_dir = os.path.join(outer_dir, "orig")  # noqa: ASYNC240
@@ -214,7 +214,7 @@ async def unpack_apex(
         log_head += f"7z x original_apex exit={rc2} (CAPEX variant)\n"
         payload_img_path = os.path.join(orig_dir, "apex_payload.img")  # noqa: ASYNC240
 
-    if not os.path.isfile(payload_img_path):
+    if not os.path.isfile(payload_img_path):  # noqa: ASYNC240 — pre-flight stat before sync 7z subprocess; Rule #43 category 1
         result.error = (
             "APEX payload missing — neither apex_payload.img nor "
             "original_apex/apex_payload.img found after outer extraction"
@@ -281,7 +281,7 @@ async def unpack_apex(
 
 
 async def _run_seven_z(
-    cmd: list[str], timeout: int,
+    cmd: list[str], timeout: int,  # noqa: ASYNC109 — caller-supplied timeout per Rule #29 contract; plumbed to communicate(timeout=...) below; Rule #43 category 4
 ) -> tuple[int | None, str]:
     """Run 7z and capture (rc, combined-output).
 

@@ -52,7 +52,6 @@ from app.schemas.file_format import (
     Refinement,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixture builders — produce VALID manifest dicts that survive Pydantic
 # validation. Each test mutates a deep-copy to exercise one failure mode.

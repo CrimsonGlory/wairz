@@ -32,7 +32,6 @@ from app.services.hardware_firmware.matchers import (
 )
 from app.services.hardware_firmware.matchers.yaml_driven import REJECT
 
-
 # ---------------------------------------------------------------------------
 # Closed-grammar guarantee: every DetectionSignalKind has an evaluator.
 # Rule #46 META-CANARY shape — confirms the gate that SIGNAL_EVALUATORS is

@@ -40,7 +40,6 @@ from pathlib import Path
 
 import pytest
 
-
 CANONICAL_SBOM_STATUS_VALUES = ("idle", "queued", "running", "completed", "failed")
 
 
