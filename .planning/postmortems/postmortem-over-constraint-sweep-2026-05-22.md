@@ -148,3 +148,42 @@ When running the mandatory tsc canary at the start of Commit 3, I used `npx tsc 
 - `.planning/knowledge/over-constraint-sweep-2026-05-22-antipatterns.md` (4 NEW antipatterns: pipe-induced silent exit on tsc canary; tier-by-duration not tier-by-loop-pinning; consumer-cap drift on pool resize; silent truncation without `+N more`)
 - Rule #51 reinforcement (broad application beyond original commit)
 - Rule #15 family Rule-of-Three+ confirmation
+
+## Addendum (2026-05-22 evening) — SBOM Completeness Wave + Cross-Project Retro-Fix
+
+Operator reported SBOM generation incompleteness on the just-uploaded
+NVIDIA Jetson L4T BSP firmware. 4-scout Wave-1 investigation surfaced
+a 2-layer regression originating from commit `e2f8333` (adaptive
+nested-archive recursion gate, 2026-05-15) + a latent SbomService
+primary-root preference bug. Fix shipped in commit `88b3826`; 3
+follow-up commits hardened detection_roots (Scout B: `5bfb71e`),
+added `LooseDebStrategy` (Scout A: `249c3e8`), and added a regression
+test suite (Scout C: `637b01b`).
+
+**Cross-project retro-fix sweep** (via `scripts/retro-fix-sbom.py`):
+
+| Firmware | Project | Before | After | Note |
+|---|---|---|---|---|
+| `e6e45f24` live_base May 22 | DS1 | 1 | 28 | L4T BSP — primary case (commit `88b3826`) |
+| `295eaf7a` live_base May 15 | DS1 | 28 | 28 | retro-fix matched May 15 baseline + LooseDeb source migration |
+| `5b7735cd` target-ld | ACM test | 0 | **937** | Linux rootfs at depth 4 — strict-probe relocated extracted_path |
+| `eed5db82` Moto G32 | DS1 Moto G32 | 2 | 2 | Android image — see Android SBOM coverage gap intake |
+| `7433dfb1` Elo Tablet | DS1 Elo Tablet | 2 | 2 | Android image — same |
+| `1165fe74` Horizon APK | Horizon Tablet App | 0 | 0 | APK not auto-unzipped — same |
+| `4e6da402` PowerPack | test | 0 | 0 | Raw binary blob — 0 is correct |
+
+**Healthy firmware unchanged** (regression backstop): RespArray
+(2086), DPCS10 family (424-495), Moto G30 (147), GL-RM10 (178),
+RespArray-older (304), usb-stick-developer (72), eaton-network-m3 (52).
+
+**Follow-up intake filed:**
+`.planning/intake/android-image-sbom-coverage-gap-2026-05-22.md` —
+Android system images and APK-only uploads produce ≤2 SBOM components
+despite real Android rootfs content; needs AndroidStrategy
+investigation + new APK strategy + APK auto-unzip in the upload
+pipeline.
+
+**Net total SBOM components added by this sweep**: 937 + 27 (L4T BSP
+primary firmware: 1 → 28) = ~964 net new components surfaced across
+the cross-project corpus. The single ACM target-ld retro-fix was the
+biggest win.
