@@ -294,6 +294,7 @@ TieBreaker = Literal[
 DetectedFormat = Literal[
     "linux_firmware_blob",
     "android_apk",
+    "android_apex",
     "android_ota",
     "windows_installer_iso",
     "acronis_backup",

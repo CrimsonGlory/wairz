@@ -66,6 +66,7 @@ class DetectedFormat(str, Enum):
 
     LINUX_FIRMWARE_BLOB = "linux_firmware_blob"
     ANDROID_APK = "android_apk"
+    ANDROID_APEX = "android_apex"
     ANDROID_OTA = "android_ota"
     WINDOWS_INSTALLER_ISO = "windows_installer_iso"
     ACRONIS_BACKUP = "acronis_backup"
@@ -140,6 +141,7 @@ def _build_capability_tables() -> tuple[
 _LEGACY_CAPABILITY_FALLBACK: dict[DetectedFormat, ExtractionCapability] = {
     DetectedFormat.LINUX_FIRMWARE_BLOB: ExtractionCapability.FULL,
     DetectedFormat.ANDROID_APK: ExtractionCapability.FULL,
+    DetectedFormat.ANDROID_APEX: ExtractionCapability.FULL,
     DetectedFormat.ANDROID_OTA: ExtractionCapability.FULL,
     DetectedFormat.TAR_ARCHIVE: ExtractionCapability.FULL,
     DetectedFormat.ZIP_ARCHIVE: ExtractionCapability.FULL,
@@ -394,6 +396,18 @@ def _classify_zip(path: Path) -> DetectedFormat | None:
         for n in names
     ):
         return DetectedFormat.ANDROID_APK
+
+    # APEX = Android Pony EXpress. Standard variant carries apex_manifest.pb
+    # + apex_payload.img; CAPEX (Android 12+) carries apex_manifest.pb +
+    # original_apex (a nested standard APEX). Either marker plus the
+    # AndroidManifest.xml + META-INF/CERT.* signing co-presence positively
+    # disambiguates from generic ZIPs that may happen to carry a stray
+    # protobuf with the same basename.
+    if (
+        "apex_manifest.pb" in names
+        and ("apex_payload.img" in names or "original_apex" in names)
+    ):
+        return DetectedFormat.ANDROID_APEX
 
     basenames = {os.path.basename(n) for n in names}
     if "payload.bin" in basenames:

@@ -19,6 +19,7 @@
 export type DetectedFormat =
   | 'linux_firmware_blob'
   | 'android_apk'
+  | 'android_apex'
   | 'android_ota'
   | 'windows_installer_iso'
   | 'acronis_backup'
@@ -55,6 +56,7 @@ export type ExtractionCapability = 'full' | 'partial' | 'none'
 export const DETECTED_FORMAT_VALUES: readonly DetectedFormat[] = [
   'linux_firmware_blob',
   'android_apk',
+  'android_apex',
   'android_ota',
   'windows_installer_iso',
   'acronis_backup',

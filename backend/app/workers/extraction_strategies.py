@@ -26,6 +26,7 @@ from typing import TypeAlias
 
 from app.services.format_detection import DetectedFormat
 from app.workers.unpack import unpack_firmware
+from app.workers.unpack_apex import unpack_apex
 from app.workers.unpack_cab import unpack_cab
 from app.workers.unpack_common import UnpackResult
 from app.workers.unpack_driver_package import unpack_driver_package
@@ -63,6 +64,7 @@ _DEFAULT: Strategy = unpack_firmware
 STRATEGIES: dict[DetectedFormat, Strategy] = {
     DetectedFormat.LINUX_FIRMWARE_BLOB: _DEFAULT,
     DetectedFormat.ANDROID_APK: _DEFAULT,
+    DetectedFormat.ANDROID_APEX: unpack_apex,         # APEX handler — Scout-2 G32 gap close (FULL)
     DetectedFormat.ANDROID_OTA: _DEFAULT,
     DetectedFormat.TAR_ARCHIVE: _DEFAULT,
     DetectedFormat.ZIP_ARCHIVE: _DEFAULT,

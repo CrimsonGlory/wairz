@@ -80,6 +80,7 @@ _NESTED_ARCHIVE_SUFFIXES: tuple[str, ...] = (
     ".tar",
     ".zip",
     ".lz4",
+    ".apex",
 )
 
 
@@ -432,6 +433,18 @@ def _extract_single_archive(
         _extract_zip_safe(archive_path, out_dir)
         return True
 
+    # .apex (Android Pony EXpress) — Scout-2 G32 gap close 2026-05-22.
+    # Outer is a ZIP carrying apex_manifest.pb + apex_payload.img (or
+    # original_apex for CAPEX). Extract the outer, then crack the inner
+    # ext4 payload via 7z so the recursive walker can see the actual
+    # libraries / binaries / manifest. Without this branch, G32-style
+    # firmwares where unblob fails to recurse leave 25+ APEX modules
+    # opaque (cf. .planning/scout-2 report). Rule #36 no-execute /
+    # Rule #45 no-decrypt: NEVER invokes any binary inside the APEX,
+    # NEVER touches the CERT.RSA / apex_pubkey beyond data extraction.
+    if matched_suffix == ".apex":
+        return _extract_apex_recursive(archive_path, out_dir)
+
     # All remaining: tar family (.tar / .tar.gz / .tar.xz / .tar.bz2 / .tar.md5)
     # .tar.md5 is just a regular tar with an MD5 checksum appended at EOF;
     # tarfile silently ignores the trailing junk when `ignore_zeros=True`.
@@ -524,6 +537,98 @@ def _extract_zip_safe(zip_path: str, out_dir: str) -> None:
     """
     from app.workers.safe_extract import safe_extract_zip
     safe_extract_zip(zip_path, out_dir)
+
+
+def _extract_apex_recursive(apex_path: str, out_dir: str) -> bool:
+    """Extract an APEX (standard or CAPEX) into ``out_dir/payload/<tree>``.
+
+    Two-stage extraction:
+
+    1. ``safe_extract_zip`` cracks the outer APEX ZIP (zipslip-safe).
+       Surfaces apex_manifest.pb + AndroidManifest.xml + META-INF/* and
+       either apex_payload.img (standard) or original_apex (CAPEX).
+    2. ``7z x`` walks the inner apex_payload.img ext2/ext4 filesystem.
+       Built-in p7zip handles "Type = Ext" cleanly. For CAPEX, we first
+       7z-extract the nested original_apex (which is itself a standard
+       APEX zip) and then recurse to its apex_payload.img.
+
+    The final tree lives at ``out_dir/payload/<bin|lib|javalib|priv-app|...>``
+    so the firmware walker + SBOM extractors surface the actual library
+    binaries + AndroidManifest.xml + service definitions.
+
+    No-execute (Rule #36) + no-decrypt (Rule #45): NEVER invokes any
+    binary inside the APEX; NEVER touches CERT.RSA or apex_pubkey
+    beyond the natural 7z-extract surfacing. The cert + key bytes are
+    surfaced as data for downstream signify / asn1crypto parsing only.
+
+    Returns True on success (payload extracted), False on any failure
+    (caller cleans up out_dir). Mirrors the contract of the other
+    ``_extract_*`` helpers in this module — purely sync, raises no
+    exception that the outer loop can't swallow.
+    """
+    if not _zipfile.is_zipfile(apex_path):
+        return False
+
+    outer_dir = os.path.join(out_dir, "outer")
+    payload_dir = os.path.join(out_dir, "payload")
+    os.makedirs(outer_dir, exist_ok=True)
+    os.makedirs(payload_dir, exist_ok=True)
+
+    # Stage 1 — outer ZIP extract (zipslip-safe).
+    try:
+        from app.workers.safe_extract import safe_extract_zip
+        safe_extract_zip(apex_path, outer_dir)
+    except Exception as e:  # noqa: BLE001 — defensive top-level swallow
+        logger.info("APEX outer extract failed for %s: %s", apex_path, e)
+        return False
+
+    # Sanity gate — apex_manifest.pb must be present (else we extracted
+    # a generic ZIP that happens to share the .apex extension).
+    if not os.path.isfile(os.path.join(outer_dir, "apex_manifest.pb")):
+        return False
+
+    payload_img = os.path.join(outer_dir, "apex_payload.img")
+    original_apex = os.path.join(outer_dir, "original_apex")
+
+    if not os.path.isfile(payload_img) and os.path.isfile(original_apex):
+        # CAPEX — recurse one level into the nested standard APEX.
+        orig_dir = os.path.join(outer_dir, "orig")
+        os.makedirs(orig_dir, exist_ok=True)
+        rc = _run_7z_extract(original_apex, orig_dir, timeout=300)
+        if rc not in (0, 1):
+            return False
+        payload_img = os.path.join(orig_dir, "apex_payload.img")
+
+    if not os.path.isfile(payload_img):
+        return False
+
+    # Stage 2 — inner ext2/ext4 payload extract via 7z (built-in Ext support).
+    rc = _run_7z_extract(payload_img, payload_dir, timeout=300)
+    return rc in (0, 1)
+
+
+def _run_7z_extract(src: str, out_dir: str, *, timeout: int) -> int:
+    """Run ``7z x -y -o<out_dir> <src>`` and return the exit code.
+
+    Returns -1 if the 7z binary is missing OR the call times out. Used
+    by :func:`_extract_apex_recursive` for inner ext-filesystem walking.
+    7z 25+ supports "Type = Ext" natively so this is the canonical path
+    for cracking the apex_payload.img without mount privileges.
+    """
+    if not _shutil.which("7z"):
+        return -1
+    try:
+        proc = _subprocess.run(
+            ["7z", "x", "-y", f"-o{out_dir}", src],
+            stdout=_subprocess.PIPE,
+            stderr=_subprocess.STDOUT,
+            timeout=timeout,
+            check=False,
+        )
+    except (_subprocess.TimeoutExpired, OSError) as e:
+        logger.info("7z extract failed for %s: %s", src, e)
+        return -1
+    return proc.returncode
 
 
 # Known vendor-encrypted container magics — first 16 bytes.

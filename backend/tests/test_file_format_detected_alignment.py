@@ -135,14 +135,15 @@ def test_every_detected_format_value_is_wired_via_a_manifest() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_detected_format_value_count_locked_at_19() -> None:
+def test_detected_format_value_count_locked_at_20() -> None:
     """DetectedFormat cardinality pinned. Drift forces a deliberate edit."""
-    assert len(_PYDANTIC_VALUES) == 19, (
-        f"DetectedFormat values: {len(_PYDANTIC_VALUES)} (expected 19). "
+    assert len(_PYDANTIC_VALUES) == 20, (
+        f"DetectedFormat values: {len(_PYDANTIC_VALUES)} (expected 20 — "
+        f"includes android_apex added 2026-05-22 for Scout-2 G32 APEX gap). "
         f"Cross-stack alignment must update all 4 surfaces in one commit."
     )
-    assert len(_ENUM_VALUES) == 19
-    assert len(_TS_VALUES) == 19
+    assert len(_ENUM_VALUES) == 20
+    assert len(_TS_VALUES) == 20
 
 
 def test_extraction_capability_value_count_locked_at_3() -> None:

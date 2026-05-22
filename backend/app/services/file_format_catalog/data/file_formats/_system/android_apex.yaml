@@ -1,0 +1,50 @@
+# yaml-language-server: $schema=../../.schema.json
+schema_version: 1
+format_id: android_apex
+manifest_source: _system
+precedence: 75
+category: android_apex
+vendor: google
+confidence: high
+notes: |
+  Android Pony EXpress (APEX) — Google's signed ZIP wrapper for system
+  module updates introduced in Android 10 (Tethering, Conscrypt, Tzdata,
+  Media, ART, etc.). Standard variant carries:
+    - apex_manifest.pb         (protobuf manifest)
+    - apex_payload.img         (ext2 / ext4 filesystem payload)
+    - apex_pubkey              (signing key)
+    - AndroidManifest.xml
+    - META-INF/{CERT.SF,CERT.RSA,MANIFEST.MF}
+  CAPEX (Android 12+ compressed variant) replaces apex_payload.img with
+  ``original_apex`` (a nested standard APEX whose own apex_payload.img
+  carries the actual filesystem). The unpacker handles both shapes.
+
+  Precedence 75 beats generic ZIP (500) and ANDROID_OTA (70 — keeps OTA
+  factory bundles winning when their META-INF/com/google/android markers
+  fire) while sitting under android_apk (80) since APEX has no
+  classes.dex by construction (the APK branch can never fire on APEX).
+  References:
+    https://source.android.com/docs/core/ota/apex
+detection:
+  combine: any
+  signals:
+    - kind: zip_markers
+      inner_basenames:
+        - apex_manifest.pb
+        - apex_payload.img
+      inner_min_count: 2
+      description: "Standard APEX — apex_manifest.pb + apex_payload.img"
+    - kind: zip_markers
+      inner_basenames:
+        - apex_manifest.pb
+        - original_apex
+      inner_min_count: 2
+      description: "Compressed APEX (CAPEX) — apex_manifest.pb + original_apex"
+output:
+  classifier_format: android_apex
+  classifier_category: android_apex
+  classifier_vendor: google
+  confidence: high
+pre_upload:
+  detected_format: android_apex
+  extraction_capability: full
