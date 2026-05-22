@@ -266,16 +266,32 @@ async def _do_sbom_generate(
             if category == "kernel":
                 comp_name = "linux-kernel"
                 comp_type = "operating-system"
-                # Only emit a Linux kernel CPE when the version looks like
-                # a canonical SemVer string (e.g. "4.9.140"). L4T release
-                # tags like "R32.3.1" and Tegra-suffixed strings would
-                # produce zero NVD matches — emit None instead so the
-                # enrichment post-processor can fall back to a sibling
-                # nvidia-l4t-kernel deb component's canonical version.
-                # Per Scout D 2026-05-22 audit.
-                import re as _re
-                if version and _re.match(r"^\d+\.\d+(\.\d+)?$", version):
-                    cpe = f"cpe:2.3:o:linux:linux_kernel:{version}:*:*:*:*:*:*:*"
+                # Universal canonical kernel version extraction — use the
+                # shared helper to handle ANY firmware shape:
+                # - L4T BSP: blob.metadata.l4t_release="R32.3.1" is non-
+                #   canonical. Fall back to sibling nvidia-l4t-kernel
+                #   deb component's version field "4.9.140-tegra-..." which
+                #   contains the canonical kernel SemVer 4.9.140.
+                # - Generic Linux: blob.version "5.15.118-yocto-..." →
+                #   "5.15.118".
+                # - Android: blob.version "5.4.106-tegra" → "5.4.106".
+                # Single source of truth; no per-firmware-shape hand-patching
+                # downstream. New shapes add a regex pattern to
+                # `app/services/sbom/version_normalize.py`, not here.
+                from app.services.sbom.version_normalize import canonical_kernel_version
+                sibling_versions = [
+                    c["version"] for c in component_dicts
+                    if c.get("version") and isinstance(c.get("name"), str)
+                    and "kernel" in c["name"].lower()
+                ]
+                kernel_v = canonical_kernel_version(
+                    version, sibling_versions=sibling_versions
+                )
+                if kernel_v:
+                    # Replace the bridged version with the canonical one
+                    # so the operator-facing SBOM page also shows it.
+                    version = kernel_v
+                    cpe = f"cpe:2.3:o:linux:linux_kernel:{kernel_v}:*:*:*:*:*:*:*"
                 else:
                     cpe = None
             else:
