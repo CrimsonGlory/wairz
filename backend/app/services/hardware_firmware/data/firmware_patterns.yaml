@@ -932,6 +932,22 @@ patterns:
     confidence: high
     format: vmlinuz
 
+  # NVIDIA Tegra / L4T BSP convention — kernel Image lives at
+  # `<extracted>/kernel/Image` (no extension, no suffix). Added
+  # 2026-05-22 to unblock CVE-2021-1071 matching (Tegra INA3221
+  # driver, kernel built-in via CONFIG_SENSORS_INA3221) which
+  # otherwise had no blob to attach to. Pattern is intentionally
+  # narrower than `^image$` (case-sensitive `^Image$`) so we don't
+  # collide with arbitrary `image.bin` payloads that other vendors
+  # ship — NVIDIA's bare `Image` filename is the canonical L4T
+  # kernel artifact.
+  - pattern: "^Image([-_.][A-Za-z0-9._-]*)?$"
+    vendor: nvidia
+    product: "NVIDIA L4T Linux kernel (Tegra)"
+    category: kernel
+    confidence: high
+    format: Image
+
   # =====================================================================
   # MediaTek vendor/firmware partition blobs (DPCS10 / Genio / aiot* SKUs)
   # Surfaced 2026-04-17 from live-audit of DPCS10_260413-1709 — these were

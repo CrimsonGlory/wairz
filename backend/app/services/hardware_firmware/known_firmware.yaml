@@ -1710,7 +1710,19 @@ families:
 
   - name: Tegra kernel INA3221 driver ACL bypass (CVE-2021-1071)
     vendor: nvidia
-    category: kernel_module
+    # category: kernel — the INA3221 driver is built INTO the kernel
+    # image via CONFIG_SENSORS_INA3221 (not a separate .ko module),
+    # so attribute to the kernel blob itself. Originally drafted as
+    # `kernel_module` (matching the other 3 driver-CVE pins) but
+    # firmware_patterns.yaml's detector emits `kernel` for the L4T
+    # Image file, not `kernel_module`. Vocabulary drift between
+    # curated pins and detector classifier is documented as a
+    # follow-up — 3 remaining `kernel_module` pins (MediaTek WLAN
+    # CVE-2024-20100, NVDLA CVE-2022-42270, Linux LKM cluster)
+    # need a future LKM-aware classifier OR similar category
+    # realignment. This pin stays on `kernel` since INA3221 is
+    # built-in.
+    category: kernel
     version_regex: "(?i)(r3[01]\\b|r32\\.[0-4]\\b|r3[01]\\.|r32\\.[0-4]\\.)"
     strict_chipset: false
     cves:
