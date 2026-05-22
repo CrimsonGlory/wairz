@@ -1244,10 +1244,16 @@ async def _handle_search_binary_content(input: dict, context: ToolContext) -> st
     chunk_size = 65536
     overlap = len(search_bytes) - 1
 
-    # Get function address ranges for mapping offsets to functions
+    # Cache-only function-range lookup: this annotation is best-effort and
+    # must never trigger Ghidra analysis — a byte-scan against a multi-MB
+    # binary that hasn't been analyzed would otherwise block for 10+ minutes,
+    # and concurrent retries can spawn multiple Ghidra processes against the
+    # same binary.
     func_ranges: list[tuple[int, int, str]] = []
     try:
-        functions = await ghidra_service.get_functions(path, context.firmware_id, context.db)
+        functions = await ghidra_service.get_functions_if_cached(
+            path, context.firmware_id, context.db,
+        )
         for fn in functions:
             addr_str = fn.get("address", "0")
             size = fn.get("size", 0)

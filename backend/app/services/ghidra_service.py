@@ -469,6 +469,28 @@ async def ensure_analysis(
 # ---------------------------------------------------------------------------
 
 
+async def get_functions_if_cached(
+    binary_path: str,
+    firmware_id: uuid.UUID,
+    db: AsyncSession,
+) -> list[dict]:
+    """Like get_functions but never triggers Ghidra analysis.
+
+    Use this when function metadata is a nice-to-have annotation (e.g.
+    mapping byte-scan offsets to enclosing functions) rather than the
+    primary product of the call. Returns [] if the binary has not been
+    analyzed yet.
+    """
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, binary_path):
+        return []
+    binary_sha256 = await _get_binary_sha256(binary_path)
+    if not await _is_analysis_complete(firmware_id, binary_sha256, db):
+        return []
+    cached = await _get_cached(firmware_id, binary_sha256, "functions", db)
+    return cached.get("functions", []) if cached else []
+
+
 async def get_functions(
     binary_path: str,
     firmware_id: uuid.UUID,
