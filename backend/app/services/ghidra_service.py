@@ -15,15 +15,19 @@ concurrency guard so only one Ghidra process runs per binary SHA.
 """
 
 import asyncio
+import contextlib
+import fcntl
 import json
 import logging
 import os
+import pathlib
 import tempfile
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.database import async_session_factory
 from app.services import _cache
 from app.utils.hashing import compute_file_sha256
 
@@ -45,6 +49,47 @@ _ARCH_MAP = {
     "PowerPC": "ppc",
     "sparc": "sparc",
 }
+
+
+_ANALYSIS_LOCK_DIR = pathlib.Path(tempfile.gettempdir()) / "wairz-analysis-locks"
+
+
+def _acquire_analysis_flock(lock_path: str) -> int:
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _release_analysis_flock(fd: int) -> None:
+    try:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
+@contextlib.asynccontextmanager
+async def _cross_process_analysis_lock(binary_sha256: str):
+    """Host-wide exclusive lock keyed by binary sha256.
+
+    The asyncio.Event guard only dedupes coroutines within a single Python
+    process. Each MCP client connection spawns its own wairz-mcp process, so
+    concurrent connections can otherwise each decide "no cache yet, I'll run
+    Ghidra" and spawn duplicate analyses against the same binary — observed
+    in the wild as 7 parallel Ghidras on a 7 MB binary, none finishing.
+    fcntl.flock serializes them at the OS level and is released automatically
+    if a process crashes, so failed analyses don't leave the binary blocked.
+    """
+    _ANALYSIS_LOCK_DIR.mkdir(parents=True, exist_ok=True)
+    lock_path = str(_ANALYSIS_LOCK_DIR / f"{binary_sha256}.lock")
+    fd = await asyncio.to_thread(_acquire_analysis_flock, lock_path)
+    try:
+        yield
+    finally:
+        await asyncio.to_thread(_release_analysis_flock, fd)
 
 
 def _map_architecture(ghidra_arch: str) -> str:
@@ -429,7 +474,7 @@ async def ensure_analysis(
     if await _is_analysis_complete(firmware_id, binary_sha256, db):
         return binary_sha256
 
-    # Concurrency guard
+    # Within-process concurrency guard: dedupe parallel coroutines
     should_analyze = False
     lock = _get_lock()
     async with lock:
@@ -448,14 +493,20 @@ async def ensure_analysis(
         await event.wait()
         return binary_sha256
 
-    # We're responsible for running the analysis
+    # We're responsible for running the analysis. Wrap in an OS-level flock
+    # to dedupe across multiple wairz-mcp processes (each MCP connection is
+    # a separate process; asyncio.Event only guards within one process).
     try:
-        # Double-check after acquiring — might have been completed
-        # between our first check and acquiring the lock
-        if not await _is_analysis_complete(firmware_id, binary_sha256, db):
-            await _run_full_analysis(
-                binary_path, firmware_id, binary_sha256, db,
-            )
+        async with _cross_process_analysis_lock(binary_sha256):
+            # Re-check under the cross-process lock with a fresh session so
+            # we see rows committed by a sibling process that just finished.
+            async with async_session_factory() as recheck_db:
+                if not await _is_analysis_complete(firmware_id, binary_sha256, recheck_db):
+                    async with async_session_factory() as analysis_db:
+                        await _run_full_analysis(
+                            binary_path, firmware_id, binary_sha256, analysis_db,
+                        )
+                        await analysis_db.commit()
     finally:
         async with lock:
             _analysis_locks.pop(binary_sha256, None)
