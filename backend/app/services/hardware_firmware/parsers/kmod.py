@@ -182,13 +182,84 @@ class KmodParser:
             signed = "signed"
             signature_algorithm = "CMS (kernel module)"
 
+        # Vendor inference from filename + modinfo metadata. The kmod parser
+        # historically left `vendor=NULL` on all .ko blobs, which structurally
+        # blocked vendor-narrowed curated CVE pins (MediaTek WLAN
+        # CVE-2024-20100, BleedingTooth Linux LKM, NVDLA Tegra) from firing
+        # against blobs that are CLEARLY from those vendors (e.g. `wlan_drv_gen3.ko`
+        # = MediaTek MT76xx-family naming convention). Filename-driven
+        # inference is universal (works for any firmware) — adding a new
+        # vendor = add a regex pattern to the dict below, NOT touching the
+        # cve_matcher or pin YAML.
+        vendor = _infer_kmod_vendor(path, meta)
+
         return ParsedBlob(
             version=version,
             signed=signed,
             signature_algorithm=signature_algorithm,
             chipset_target=chipset_target,
+            vendor=vendor,
             metadata=meta,
         )
+
+
+# Filename-driven kernel module vendor inference.
+# Patterns ordered most-specific to most-generic. Each entry maps a
+# regex against the .ko file basename (or vermagic / alias substrings)
+# to a canonical vendor string that matches curated CVE pin vendor:
+# values.
+import re as _re
+
+_KMOD_VENDOR_PATTERNS: list[tuple[_re.Pattern[str], str]] = [
+    # MediaTek wireless family
+    (_re.compile(r"^(wlan_drv_gen\d|wifi_drv|mt76\d+|mtk_wmt|mtkfb|mtk_lcd|mtk_battery|mtk_iommu|mtk_cqdma|mtk_clk|mtk_pmic|mtk_efuse|mtk_kpd|mt\d{4,5}_)", _re.IGNORECASE), "mediatek"),
+    # NVIDIA Tegra family
+    (_re.compile(r"^(nvgpu|nvidia|nvmap|nvhost|nvdla|tegra_)", _re.IGNORECASE), "nvidia"),
+    # Qualcomm family (msm-, ath10k/ath11k/ath12k from QC platform, etc.)
+    (_re.compile(r"^(msm_|qcom_|q[cd]\w*_|wcnss_|cnss_|ath\d+k|wlan_q\w*)", _re.IGNORECASE), "qualcomm"),
+    # Broadcom
+    (_re.compile(r"^(brcm|bcm_|wl_brcm)", _re.IGNORECASE), "broadcom"),
+    # Realtek
+    (_re.compile(r"^(rtl\w+|r8\d{3}|rtw_|rtw88|rtw89)", _re.IGNORECASE), "realtek"),
+    # Intel
+    (_re.compile(r"^(i915|iwlwifi|iwlmvm|iwldvm|e1000e?|ixgbe|i40e|igb)$", _re.IGNORECASE), "intel"),
+    # AMD
+    (_re.compile(r"^(amdgpu|amd_pmc|radeon|amdkfd)", _re.IGNORECASE), "amd"),
+    # Samsung
+    (_re.compile(r"^(samsung_|s5p_|exynos_|sec_)", _re.IGNORECASE), "samsung"),
+]
+
+
+def _infer_kmod_vendor(path: str, meta: dict[str, Any]) -> str | None:
+    """Derive a vendor string from .ko filename + modinfo metadata.
+
+    Filename-driven (most reliable for kmods named after their SoC family).
+    Falls through to vermagic / alias substring match. Returns None when
+    no signal — preserves the legacy "unknown vendor" surface for generic
+    Linux modules like `bluetooth.ko` (which IS BlueZ Linux but matches
+    no specific vendor; the BleedingTooth advisory pin uses `vendor=unknown`).
+    """
+    import os as _os
+    basename = _os.path.basename(path).lower()
+    # Strip .ko suffix if present
+    if basename.endswith(".ko"):
+        basename = basename[:-3]
+    for pattern, vendor_name in _KMOD_VENDOR_PATTERNS:
+        if pattern.match(basename):
+            return vendor_name
+    # Fall through to vermagic / alias substring (less reliable but
+    # covers vendor-specific kernel builds where stock names like
+    # `bluetooth.ko` are recompiled for a specific platform).
+    vermagic = (meta.get("vermagic") or "").lower()
+    for pattern, vendor_name in _KMOD_VENDOR_PATTERNS:
+        if pattern.search(vermagic):
+            return vendor_name
+    aliases = meta.get("alias") or []
+    for alias in aliases:
+        for pattern, vendor_name in _KMOD_VENDOR_PATTERNS:
+            if pattern.search(str(alias).lower()):
+                return vendor_name
+    return None
 
 
 register_parser(KmodParser())

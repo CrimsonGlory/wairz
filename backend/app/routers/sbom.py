@@ -473,6 +473,111 @@ async def _run_sbom_generate_background(
                     result_aggregate.get("total_components", -1),
                     result_aggregate.get("cached", False),
                 )
+
+                # ===== POST-SBOM AUTO-CHAIN (universal) =====
+                # Operator-reported gap (2026-05-22): SBOM completes with
+                # populated components, but vulnerabilities list shows
+                # "Run a scan first" because vuln_scan + cve_match are
+                # operator-initiated only. Auto-chain them here so SBOM
+                # completion deterministically populates the downstream
+                # CVE surfaces. Each downstream runner owns its own
+                # Rule #33 .a 409-on-conflict guard so re-uploads or
+                # concurrent triggers won't double-fire.
+                #
+                # Scope (kept narrow per Scout 3 architecture-health audit):
+                #  - cve_match: fire when hardware_firmware_blobs > 0.
+                #    Curated YAML pin match + Tier 4 kernel_cpe mirror;
+                #    no network call at curated tier. Cost: 1-7 min on
+                #    Yocto-scale corpora.
+                #  - vuln_scan: fire when sbom_components > 0. Grype
+                #    against local NVD DB (image-bundled). Cost: 30-60 s.
+                # Both are detached so SBOM status stays "completed" even
+                # if downstream fails — preserves Rule #33 .a state
+                # machine contract.
+                if result_aggregate.get("total_components", 0) > 0:
+                    try:
+                        from app.utils.background import spawn_background_task as _spawn
+                        # Vuln-scan auto-trigger (idempotent via existing
+                        # 409 in routers/sbom.py:run_vuln_scan; we go
+                        # via the inner runner so we don't go through
+                        # the rate limiter on internal traffic).
+                        async def _auto_vuln_scan(fid: uuid.UUID) -> None:
+                            from app.services.vulnerability_service import VulnerabilityService
+                            try:
+                                async with async_session_factory() as scan_db:
+                                    sfw = (await scan_db.execute(
+                                        select(Firmware).where(Firmware.id == fid)
+                                    )).scalar_one_or_none()
+                                    if sfw is None or sfw.vuln_scan_status in ("queued", "running"):
+                                        return
+                                    sfw.vuln_scan_status = "queued"
+                                    await scan_db.commit()
+                                    sfw.vuln_scan_status = "running"
+                                    sfw.vuln_scan_started_at = datetime.now(UTC)
+                                    await scan_db.commit()
+                                    svc = VulnerabilityService(scan_db)
+                                    await svc.scan_firmware(fid, sfw.project_id, force_rescan=False)
+                                    await scan_db.commit()
+                                    sfw.vuln_scan_status = "completed"
+                                    sfw.vuln_scan_finished_at = datetime.now(UTC)
+                                    await scan_db.commit()
+                                    logger.info(
+                                        "post-sbom auto-vuln-scan: firmware %s completed", fid,
+                                    )
+                            except Exception:
+                                logger.exception(
+                                    "post-sbom auto-vuln-scan: firmware %s failed (non-fatal)", fid,
+                                )
+                        _spawn(_auto_vuln_scan(firmware_id))
+
+                        # cve_match auto-trigger when blobs exist.
+                        async def _auto_cve_match(fid: uuid.UUID) -> None:
+                            from app.models.hardware_firmware import HardwareFirmwareBlob
+                            from app.services.hardware_firmware.cve_matcher import match_firmware_cves
+                            try:
+                                async with async_session_factory() as cm_db:
+                                    cfw = (await cm_db.execute(
+                                        select(Firmware).where(Firmware.id == fid)
+                                    )).scalar_one_or_none()
+                                    if cfw is None or cfw.cve_match_status in ("queued", "running"):
+                                        return
+                                    blob_count = (await cm_db.execute(
+                                        select(func.count(HardwareFirmwareBlob.id))
+                                        .where(HardwareFirmwareBlob.firmware_id == fid)
+                                    )).scalar() or 0
+                                    if blob_count == 0:
+                                        return  # no HW blobs → curated tier has nothing to match
+                                    cfw.cve_match_status = "queued"
+                                    await cm_db.commit()
+                                    cfw.cve_match_status = "running"
+                                    cfw.cve_match_started_at = datetime.now(UTC)
+                                    await cm_db.commit()
+                                    await match_firmware_cves(fid, cm_db, force_rescan=False)
+                                    await cm_db.commit()
+                                    # Auto-create Findings from new cve_match rows
+                                    try:
+                                        n_findings = await VulnerabilityService(cm_db)._create_findings_from_vulns(fid, cfw.project_id)
+                                        await cm_db.commit()
+                                    except Exception:
+                                        logger.exception("post-sbom auto-cve-match: finding creation failed (non-fatal)")
+                                        n_findings = 0
+                                    cfw.cve_match_status = "completed"
+                                    cfw.cve_match_finished_at = datetime.now(UTC)
+                                    await cm_db.commit()
+                                    logger.info(
+                                        "post-sbom auto-cve-match: firmware %s completed (+%d findings)", fid, n_findings,
+                                    )
+                            except Exception:
+                                logger.exception(
+                                    "post-sbom auto-cve-match: firmware %s failed (non-fatal)", fid,
+                                )
+                        # Re-import for the inner closure scope
+                        from app.services.vulnerability_service import VulnerabilityService
+                        _spawn(_auto_cve_match(firmware_id))
+                    except Exception:
+                        logger.exception(
+                            "post-sbom auto-chain dispatch: firmware %s failed (non-fatal — SBOM status remains completed)", firmware_id,
+                        )
             except Exception as exc:
                 await db.rollback()
                 err_summary = "\n".join(
