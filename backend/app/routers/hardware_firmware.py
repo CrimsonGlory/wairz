@@ -557,6 +557,41 @@ async def _run_cve_match_background(
                 )
                 await db.commit()
 
+                # Auto-create Findings from the new cve_match rows. Pre-
+                # 2026-05-22 this was ONLY invoked by /vulnerabilities/scan
+                # (Grype path) — operators triggering /cve-match (curated
+                # YAML pin path) saw zero Findings created despite hundreds
+                # of CVE matches in sbom_vulnerabilities (operator-reported
+                # gap on DS1 + RespArray + DPCS10 etc.). Wire the auto-
+                # create here so both write paths produce the operator's
+                # primary triage surface. Non-fatal on exception — the
+                # cve_match itself stays "completed" even if finding
+                # creation has an issue.
+                try:
+                    from app.services.vulnerability_service import VulnerabilityService
+                    # Need project_id for Finding rows
+                    proj_fw = (await db.execute(
+                        select(Firmware).where(Firmware.id == firmware_id)
+                    )).scalar_one_or_none()
+                    if proj_fw is not None and proj_fw.project_id is not None:
+                        svc = VulnerabilityService(db)
+                        # The INNER method takes (firmware_id, project_id).
+                        # Outer-join now (post-47ecadb) so blob-linked vulns
+                        # produce Findings via the blob-fallback subject.
+                        n_findings = await svc._create_findings_from_vulns(
+                            firmware_id, proj_fw.project_id
+                        )
+                        await db.commit()
+                        logger.info(
+                            "cve-match background: firmware %s auto-created %d Findings from cve_match rows",
+                            firmware_id, n_findings,
+                        )
+                except Exception:
+                    logger.exception(
+                        "cve-match background: firmware %s — Finding auto-create failed (non-fatal)",
+                        firmware_id,
+                    )
+
                 aggregate = _aggregate_match_result(result)
                 fw = (
                     await db.execute(

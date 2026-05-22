@@ -266,10 +266,18 @@ async def _do_sbom_generate(
             if category == "kernel":
                 comp_name = "linux-kernel"
                 comp_type = "operating-system"
-                cpe = (
-                    f"cpe:2.3:o:linux:linux_kernel:{version}:*:*:*:*:*:*:*"
-                    if version else None
-                )
+                # Only emit a Linux kernel CPE when the version looks like
+                # a canonical SemVer string (e.g. "4.9.140"). L4T release
+                # tags like "R32.3.1" and Tegra-suffixed strings would
+                # produce zero NVD matches — emit None instead so the
+                # enrichment post-processor can fall back to a sibling
+                # nvidia-l4t-kernel deb component's canonical version.
+                # Per Scout D 2026-05-22 audit.
+                import re as _re
+                if version and _re.match(r"^\d+\.\d+(\.\d+)?$", version):
+                    cpe = f"cpe:2.3:o:linux:linux_kernel:{version}:*:*:*:*:*:*:*"
+                else:
+                    cpe = None
             else:
                 comp_name = f"{vendor} {category} ({blob_format})"
                 comp_type = "firmware"
