@@ -77,6 +77,9 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
     from app.services.linux_persistence_walker import (
         auto_linux_persistence_walk_firmware_safe,
     )
+    from app.services.linux_kernel_hardening_walker import (
+        auto_kernel_config_audit_firmware_safe,
+    )
     from app.services.lnk_walker import auto_lnk_walk_firmware_safe
     from app.services.mbr_vbr_walker import auto_mbr_vbr_walk_firmware_safe
     from app.services.memory_image_enumerator import (
@@ -135,6 +138,12 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
         # last-known-result without manual MCP trigger. Status stays
         # 'idle' per Rule #39 .safe so operator re-triggers don't 409.
         auto_ics_protocol_walk_firmware_safe,
+        # Linux kernel-image IKCFG hardening walker (KSPP audit). Fires
+        # post-detection so any firmware with a kernel Image / zImage /
+        # vmlinuz / uImage that the parser populated with kernel_config
+        # gets a Findings emit. DS1 Tegra L4T R32.3.1 is the reference
+        # case (DEVMEM=y, DEVKMEM=y, MODULE_SIG=n, no LSM → 7 Findings).
+        auto_kernel_config_audit_firmware_safe,
         auto_lnk_walk_firmware_safe,
         auto_mbr_vbr_walk_firmware_safe,
         # λ.α.B — memory-dump-image enumerator (metadata only; no Vol3
@@ -299,6 +308,13 @@ STATE_MACHINE_REAPER_CONFIGS: dict[str, WalkerReaperConfig] = {
         failure_message="Backend restarted; runner state lost",
         finished_at_column="bare_metal_audit_finished_at",
         error_column="bare_metal_audit_error",
+    ),
+    "kernel_config_audit_status": WalkerReaperConfig(
+        column_name="kernel_config_audit_status",
+        in_progress_states=("queued", "running"),
+        failure_message="Backend restarted; runner state lost",
+        finished_at_column="kernel_config_audit_finished_at",
+        error_column="kernel_config_audit_error",
     ),
     # ICS protocol catalog walker (Rule #52 instance #3 — Session 2,
     # 2026-05-22). DUAL REGISTRATION per Scout E + W2-α convergence

@@ -41,12 +41,14 @@ def _main_py_source() -> str:
 
 
 def test_state_machine_reaper_configs_size_lock():
-    """STATE_MACHINE_REAPER_CONFIGS pinned at EXACTLY 9 entries.
+    """STATE_MACHINE_REAPER_CONFIGS pinned at EXACTLY 10 entries.
 
-    9 entries today: cve_match_status, vuln_scan_status, sbom_status,
+    10 entries today: cve_match_status, vuln_scan_status, sbom_status,
     bare_metal_audit_status, authenticode_chain_status,
     dotnet_decompile_status, windows_update_diff_status, upload_stage,
-    ics_protocol_walk_status (ICS Session 2 — Rule #52 instance #3).
+    ics_protocol_walk_status, kernel_config_audit_status (Rule #45 KSPP
+    walker — Linux kernel hardening audit; 10th state-machine column
+    landed 2026-05-22 alongside the kernel_image parser).
 
     Drift forces a deliberate test edit + postmortem note (Rule #48
     Part 3 size-lock discipline; W2-β §SC5-NEW-SBOM-S2-SEAM-B
@@ -55,13 +57,13 @@ def test_state_machine_reaper_configs_size_lock():
     """
     from app.workers.walker_registry import STATE_MACHINE_REAPER_CONFIGS
 
-    assert len(STATE_MACHINE_REAPER_CONFIGS) == 9, (
+    assert len(STATE_MACHINE_REAPER_CONFIGS) == 10, (
         f"STATE_MACHINE_REAPER_CONFIGS has {len(STATE_MACHINE_REAPER_CONFIGS)} "
-        f"entries; expected exactly 9 (cve_match, vuln_scan, sbom, "
+        f"entries; expected exactly 10 (cve_match, vuln_scan, sbom, "
         f"bare_metal_audit, authenticode_chain, dotnet_decompile, "
-        f"windows_update_diff, upload_stage, ics_protocol_walk). If "
-        f"you're adding a new state-machine column, also extend this "
-        f"dict + the META-CANARY size expectation."
+        f"windows_update_diff, upload_stage, ics_protocol_walk, "
+        f"kernel_config_audit). If you're adding a new state-machine "
+        f"column, also extend this dict + the META-CANARY size expectation."
     )
 
 
