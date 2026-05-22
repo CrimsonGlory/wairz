@@ -7,6 +7,7 @@ case plus a shared malformed-input test to confirm graceful error handling.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,7 @@ from tests.fixtures.hardware_firmware._build_fixtures import (
     build_mbn_v3,
     build_minimal_dtb,
     build_minimal_dtbo,
+    build_minimal_kernel_image,
     build_minimal_ko,
     build_minimal_optee_ta,
     build_mtk_lk_partition,
@@ -53,6 +55,11 @@ _EXPECTED_FORMATS = {
     "mtk_modem",
     "mtk_wifi_hdr",
     "awinic_acf",
+    # Phase 4 — Linux kernel-Image family (IKCFG + banner extraction)
+    "zImage",
+    "uImage",
+    "vmlinuz",
+    "Image",
 }
 
 
@@ -556,6 +563,199 @@ def test_awinic_acf_parser_magic_mismatch_is_graceful(tmp_path: Path) -> None:
     assert parser is not None
     result = parser.parse(str(acf_path), _read_magic(acf_path), len(blob))
     assert "magic_mismatch" in result.metadata
+
+
+# -----------------------------------------------------------------------------
+# Linux kernel-Image parser (zImage / uImage / vmlinuz / Image).
+# -----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("fmt", ["zImage", "uImage", "vmlinuz", "Image"])
+def test_kernel_image_parser_extracts_ikconfig_and_banner(tmp_path: Path, fmt: str) -> None:
+    """All four kernel-image FORMAT subclasses share one parse() body; verify
+    each registers and dispatches correctly to the IKCFG + banner extraction.
+    """
+    blob = build_minimal_kernel_image(version="5.10.42")
+    kpath = tmp_path / f"kernel_{fmt}.bin"
+    write_fixture(kpath, blob)
+
+    parser = get_parser(fmt)
+    assert parser is not None, f"no parser registered for {fmt}"
+    result = parser.parse(str(kpath), _read_magic(kpath), len(blob))
+
+    assert isinstance(result, ParsedBlob)
+    assert result.version == "5.10.42", f"banner SemVer not extracted: {result.version}"
+    assert result.metadata.get("ikconfig_present") is True
+    cfg = result.metadata.get("kernel_config") or {}
+    # Default fixture exercises all three line shapes.
+    assert cfg.get("CONFIG_RANDOMIZE_BASE") == "y"
+    assert cfg.get("CONFIG_DEVMEM") == "y"
+    assert cfg.get("CONFIG_MODULE_SIG") == "n", \
+        f"`# CONFIG_FOO is not set` not parsed to 'n': {cfg.get('CONFIG_MODULE_SIG')!r}"
+    assert cfg.get("CONFIG_LOCALVERSION") == '"-tegra"'
+    assert result.metadata.get("kernel_semver") == "5.10.42"
+    assert "Linux version 5.10.42" in (result.metadata.get("kernel_banner") or "")
+
+
+def test_kernel_image_parser_no_ikconfig_returns_banner_only(tmp_path: Path) -> None:
+    """When CONFIG_IKCONFIG was stripped, banner is the only thing we recover.
+    Verifies ikconfig_present=False is the truthful "no config available"
+    signal — the parser MUST NOT fabricate an empty kernel_config dict.
+    """
+    blob = build_minimal_kernel_image(version="4.19.0", include_ikcfg=False)
+    kpath = tmp_path / "kernel_no_ikcfg.bin"
+    write_fixture(kpath, blob)
+
+    parser = get_parser("Image")
+    result = parser.parse(str(kpath), _read_magic(kpath), len(blob))
+
+    assert result.version == "4.19.0"
+    assert result.metadata.get("ikconfig_present") is False
+    assert "kernel_config" not in result.metadata, \
+        "ikconfig_present=False must NOT carry a kernel_config dict"
+    assert "Linux version 4.19.0" in (result.metadata.get("kernel_banner") or "")
+
+
+def test_kernel_image_parser_vendor_inference_tegra(tmp_path: Path) -> None:
+    """Filename-driven Rule #19 content-evidence vendor override — the
+    classifier emits vendor='nvidia' for Tegra Image filenames; the parser
+    confirms via banner ("tegra" substring in build host).
+    """
+    blob = build_minimal_kernel_image(
+        version="4.9.140",
+        banner_extra="-tegra (buildbrain@host) (gcc 7.3.1)",
+    )
+    kpath = tmp_path / "Image"  # NVIDIA Tegra L4T ships as raw `Image`
+    write_fixture(kpath, blob)
+
+    parser = get_parser("Image")
+    result = parser.parse(str(kpath), _read_magic(kpath), len(blob))
+    # Filename "Image" alone doesn't hit the regex; vendor inference falls
+    # through to banner substring ("tegra") → 'nvidia'.
+    assert result.vendor == "nvidia", f"banner-driven vendor not 'nvidia': {result.vendor!r}"
+
+
+def test_kernel_image_parser_gzip_bomb_mitigated(tmp_path: Path) -> None:
+    """Rule #46 META-CANARY for Wave-2 attack F.
+
+    A malicious kernel image with an IKCFG_ST marker followed by a 5 MB
+    decompressed-size gzip stream must NOT be returned (would OOM the
+    worker on real-world repeated invocations).  The mitigation lives in
+    the shared helper (_kernel_ikconfig.py) but the META-CANARY proves
+    the parser surface preserves it.
+
+    Without the cap, this test would either OOM or return a 5 MB
+    kernel_config string.  With the cap, it must return
+    ikconfig_present=False.
+    """
+    import gzip as _gzip
+
+    from app.services.hardware_firmware.parsers._kernel_ikconfig import (
+        IKCFG_ED,
+        IKCFG_ST,
+    )
+
+    # 5 MB of 'A' compresses to ~5 kB but expands beyond the 4 MB cap.
+    bomb_payload = b"A" * (5 * 1024 * 1024)
+    gz_bomb = _gzip.compress(bomb_payload)
+    bomb_blob = (
+        b"\x00" * 4096
+        + b"Linux version 9.9.9-bomb\x00"
+        + b"\x00" * 1024
+        + IKCFG_ST + gz_bomb + IKCFG_ED
+    )
+    kpath = tmp_path / "bomb.Image"
+    write_fixture(kpath, bomb_blob)
+
+    parser = get_parser("Image")
+    result = parser.parse(str(kpath), _read_magic(kpath), len(bomb_blob))
+
+    # Banner still extracts (banner scan is bounded separately).
+    assert result.metadata.get("kernel_semver") == "9.9.9"
+    # Gzip-bomb payload MUST be rejected by the helper's bounded read.
+    assert result.metadata.get("ikconfig_present") is False, \
+        "Wave-2 attack F: gzip bomb leaked through the helper's _MAX_CONFIG_BYTES cap"
+
+
+def test_kernel_image_parser_no_decrypt_gate(tmp_path: Path) -> None:
+    """Rule #45 + Rule #46 paired gate: confirm the parser source contains
+    no decrypt / exec / subprocess tokens.  Walker discipline applied at
+    the parse-only surface.
+
+    Companion canary: this gate's regex MUST be whitespace-tolerant
+    because `tokenize` joins tokens with single spaces (`obj.decrypt(`
+    becomes `obj . decrypt (`).  Per CLAUDE.md Rule #45 + #46.
+    """
+    import tokenize
+    from pathlib import Path as _P
+
+    parser_src_path = _P(__file__).parent.parent / "app/services/hardware_firmware/parsers/kernel_image.py"
+    assert parser_src_path.is_file(), f"parser source missing: {parser_src_path}"
+
+    with parser_src_path.open("rb") as f:
+        tokens = []
+        try:
+            for tok in tokenize.tokenize(f.readline):
+                if tok.type in (tokenize.COMMENT, tokenize.STRING):
+                    continue
+                tokens.append(tok.string)
+        except tokenize.TokenizeError:
+            pass
+
+    joined = " ".join(tokens)
+    # Whitespace-tolerant regex — per Rule #46 + the κ.D canary lesson
+    # (Cli regex `\.decrypt\(` would miss `obj . decrypt (` after tokenize).
+    forbidden = re.compile(
+        r"\.\s*(decrypt|encrypt)\s*\(|"
+        r"subprocess\s*\.\s*(run|Popen|call|check_output)\s*\(|"
+        r"os\s*\.\s*(system|execvp|execve)\s*\(|"
+        r"asyncio\s*\.\s*create_subprocess_(exec|shell)\s*\(",
+        re.IGNORECASE,
+    )
+    matches = forbidden.findall(joined)
+    assert not matches, (
+        f"Rule #36/#45 parse-only violation in kernel_image.py: forbidden tokens found: {matches}"
+    )
+
+
+def test_kernel_image_parser_no_decrypt_gate_actually_fires() -> None:
+    """Rule #46 META-CANARY companion: prove the gate above actually
+    rejects a synthesised violation.
+
+    Mirrors κ.D's whitespace-tolerant canary discipline.  Without this
+    canary the gate is a Rule #17 silent-pass risk: a passing
+    `test_kernel_image_parser_no_decrypt_gate` is only meaningful if
+    we ALSO know the gate's regex would catch a violation.
+    """
+    import tokenize
+    import io as _io
+
+    # Synthesize source that contains a forbidden pattern AFTER tokenize
+    # joins tokens with spaces.  Use NORMAL Python code paths (not
+    # f-strings — tokenize strips STRING tokens which would hide the
+    # violation in a string literal).
+    synthetic = b"def x(): subprocess.run(['echo', 'hi'])\n"
+    tokens = []
+    try:
+        for tok in tokenize.tokenize(_io.BytesIO(synthetic).readline):
+            if tok.type in (tokenize.COMMENT, tokenize.STRING):
+                continue
+            tokens.append(tok.string)
+    except tokenize.TokenizeError:
+        pass
+    joined = " ".join(tokens)
+
+    forbidden = re.compile(
+        r"\.\s*(decrypt|encrypt)\s*\(|"
+        r"subprocess\s*\.\s*(run|Popen|call|check_output)\s*\(|"
+        r"os\s*\.\s*(system|execvp|execve)\s*\(|"
+        r"asyncio\s*\.\s*create_subprocess_(exec|shell)\s*\(",
+        re.IGNORECASE,
+    )
+    assert forbidden.search(joined), (
+        f"Rule #46 META-CANARY: the no-decrypt gate's regex FAILED to catch a "
+        f"synthesised violation. Tokenized source was: {joined!r}"
+    )
 
 
 # -----------------------------------------------------------------------------

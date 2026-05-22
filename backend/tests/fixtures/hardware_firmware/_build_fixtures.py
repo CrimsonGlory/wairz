@@ -579,6 +579,68 @@ def build_awinic_acf(
 
 
 # -----------------------------------------------------------------------------
+# Linux kernel-Image fixtures (zImage / uImage / vmlinuz / Image).
+# -----------------------------------------------------------------------------
+
+
+def build_minimal_kernel_image(
+    *,
+    config_text: str | None = None,
+    version: str = "5.10.0",
+    banner_extra: str = "",
+    include_ikcfg: bool = True,
+    padding_before_banner: int = 4096,
+    padding_before_ikcfg: int = 1024,
+    pad_kind: bytes = b"\x00",
+) -> bytes:
+    """Synthesize a minimal Linux kernel image with embedded IKCFG + banner.
+
+    Layout::
+
+        <padding> <Linux version BANNER \0>
+        <padding> IKCFG_ST <gzip(config_text)> IKCFG_ED <trailing pad>
+
+    Returns the bytes of the synthetic kernel.  Mirrors the on-disk
+    shape of a real kernel binary closely enough that the parser's
+    byte-scan path resolves both markers correctly.
+    """
+    import gzip as _gzip
+
+    from app.services.hardware_firmware.parsers._kernel_ikconfig import (
+        IKCFG_ED,
+        IKCFG_ST,
+    )
+
+    if config_text is None:
+        # Sensible default — exercise all three line shapes the parser
+        # recognises: =y, ="value", `# CONFIG_FOO is not set`.
+        config_text = (
+            "# Linux/arm64 5.10.0 Kernel Configuration\n"
+            "CONFIG_RANDOMIZE_BASE=y\n"
+            "CONFIG_HARDENED_USERCOPY=y\n"
+            "CONFIG_DEVMEM=y\n"
+            "CONFIG_DEVKMEM=y\n"
+            "# CONFIG_MODULE_SIG is not set\n"
+            "# CONFIG_SECURITY_SELINUX is not set\n"
+            "CONFIG_LOCALVERSION=\"-tegra\"\n"
+        )
+
+    banner_str = f"Linux version {version}{banner_extra}\x00"
+    banner_bytes = banner_str.encode("ascii")
+
+    parts: list[bytes] = []
+    parts.append(pad_kind * padding_before_banner)
+    parts.append(banner_bytes)
+    if include_ikcfg:
+        parts.append(pad_kind * padding_before_ikcfg)
+        parts.append(IKCFG_ST)
+        parts.append(_gzip.compress(config_text.encode("utf-8")))
+        parts.append(IKCFG_ED)
+    parts.append(pad_kind * 256)
+    return b"".join(parts)
+
+
+# -----------------------------------------------------------------------------
 # Generic helpers.
 # -----------------------------------------------------------------------------
 
