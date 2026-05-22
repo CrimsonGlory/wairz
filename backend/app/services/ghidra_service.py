@@ -229,29 +229,44 @@ async def run_ghidra_subprocess(
             os.path.basename(binary_path),
         )
 
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-        except FileNotFoundError:
-            raise RuntimeError(
-                f"Ghidra not found at {cmd[0]}. "
-                "Install Ghidra or set GHIDRA_PATH in .env."
-            )
+        # Capture stdout/stderr to tempfiles rather than asyncio PIPEs.
+        # AnalyzeBinary.java for a multi-MB binary can emit hundreds of MB
+        # of println output (per-function decompiles, status logs); with
+        # PIPE + communicate(), the kernel 64 KB pipe buffer fills before
+        # asyncio drains it on this workload and Ghidra deadlocks blocked
+        # in a FileOutputStream.write syscall. Tempfiles let the kernel
+        # buffer arbitrary output with no possibility of deadlock; we
+        # read them once Ghidra has exited.
+        with tempfile.TemporaryFile(prefix="ghidra-stdout-") as stdout_f, \
+             tempfile.TemporaryFile(prefix="ghidra-stderr-") as stderr_f:
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=stdout_f,
+                    stderr=stderr_f,
+                )
+            except FileNotFoundError:
+                raise RuntimeError(
+                    f"Ghidra not found at {cmd[0]}. "
+                    "Install Ghidra or set GHIDRA_PATH in .env."
+                )
 
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=settings.ghidra_timeout,
-            )
-        except TimeoutError:
-            process.kill()
-            await process.wait()
-            raise TimeoutError(
-                f"Ghidra analysis timed out after {settings.ghidra_timeout}s"
-            )
+            try:
+                await asyncio.wait_for(
+                    process.wait(),
+                    timeout=settings.ghidra_timeout,
+                )
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+                raise TimeoutError(
+                    f"Ghidra analysis timed out after {settings.ghidra_timeout}s"
+                )
+
+            stdout_f.seek(0)
+            stderr_f.seek(0)
+            stdout = stdout_f.read()
+            stderr = stderr_f.read()
 
         stdout_text = stdout.decode("utf-8", errors="replace")
         stderr_text = stderr.decode("utf-8", errors="replace")
