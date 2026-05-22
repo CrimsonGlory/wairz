@@ -1756,3 +1756,95 @@ families:
       MEDIUM. Information-disclosure ONLY — no integrity or
       availability impact per NVD.
       Reference: https://nvd.nist.gov/vuln/detail/CVE-2021-1071
+
+  # ── Kernel-config-gated CVE batch 1 — added 2026-05-22 ──────────────
+  # First batch of CVEs gated via the new ``config_required`` narrowing
+  # field (Rule #49 hard-reject contract). Each pin REQUIRES the
+  # ``HardwareFirmwareBlob.metadata.kernel_config`` dict (populated by
+  # the kernel-image parser from IKCFG-bearing Image / zImage /
+  # vmlinuz / bzImage blobs) to carry the listed CONFIG=value entries.
+  # All three NVD-verified via per-CVE WebFetch on nvd.nist.gov/vuln/
+  # detail/<id> on 2026-05-22 (Rule #19 evidence-first); CVSS scores +
+  # version ranges sourced from NVD CPE Known-Affected configurations,
+  # NOT from scout extrapolation.
+  #
+  # Vendor field uses ``vendor_regex: ".+"`` because Linux kernel
+  # blobs in wairz are vendor-tagged by the parser's source (nvidia /
+  # yocto / openwrt / etc — see kernel_image.py:167 _infer_kernel_vendor),
+  # NOT vendor-tagged ``linux``. The Linux-kernel-of-any-vendor pattern
+  # narrows via vendor_regex + category=kernel exact match + version
+  # range + config_required dict — 4-dimension narrowing per
+  # F-FORENSIC-10 schema gate.
+  - name: Linux Filesystem Context heap overflow (CVE-2022-0185)
+    vendor_regex: ".+"
+    category: kernel
+    # Affected: 5.1 through 5.16.1; 5.16.2+ patched. Match 5.1-5.15.x
+    # (any patch — forward-prep accepts over-attribution within these
+    # major lines where some patches are fixed) PLUS 5.16, 5.16.0,
+    # 5.16.1 specifically (5.16.2+ DROPPED).
+    version_regex: "(?i)^(?:5\\.[1-9](?:\\.|$|-)|5\\.1[0-5](?:\\.|$|-)|5\\.16(?:\\.[01]|$|-))"
+    config_required: {CONFIG_USER_NS: "y"}
+    cves:
+      - CVE-2022-0185
+    severity: high
+    cvss_score: 8.4
+    notes: |
+      NVD-verified 2026-05-22. CVSS 8.4 HIGH
+      (AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H). Heap buffer overflow in
+      legacy_parse_param() (fs/fs_context.c). User-namespace path
+      allows unprivileged users to trigger out-of-bounds write via
+      kmalloc rounding; ``CONFIG_USER_NS=y`` exposes the attack
+      surface from unprivileged context. Affected 5.1 through 5.16.1;
+      patched in 5.16.2, 5.15.16, 5.10.93, 5.4.173.
+      Reference: https://nvd.nist.gov/vuln/detail/CVE-2022-0185
+
+  - name: Linux BPF JIT branch displacement (CVE-2021-29154)
+    vendor_regex: ".+"
+    category: kernel
+    # Affected: 3.0 through 5.11.12; very wide range. Forward-prep
+    # accepts over-attribution within the patched-out sub-versions
+    # (e.g. 4.9.266+ is patched but we still match 4.9.x); the
+    # CONFIG_BPF + CONFIG_BPF_JIT gate is the main practical narrowing.
+    version_regex: "(?i)^(?:3\\.[0-9]+|4\\.[0-9]+|5\\.(?:[0-9]|1[01]))(?:\\.|$|-)"
+    config_required: {CONFIG_BPF: "y", CONFIG_BPF_JIT: "y"}
+    cves:
+      - CVE-2021-29154
+    severity: high
+    cvss_score: 7.8
+    notes: |
+      NVD-verified 2026-05-22. CVSS 7.8 HIGH NVD-primary
+      (AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H — NOT 8.8 as initially
+      drafted; Reviewer-style NVD-primary discipline per Rule #50
+      FragAttacks precedent). Incorrect computation of branch
+      displacements in BPF JIT compilers — local user with
+      BPF-capable namespace executes arbitrary code via crafted
+      BPF program. JIT mode only: both ``CONFIG_BPF=y`` AND
+      ``CONFIG_BPF_JIT=y`` required (the bug is in JIT branch math;
+      interpreter mode is unaffected). NVD does NOT explicitly cite
+      these CONFIGs as gating but the bug is structurally JIT-only.
+      Affected 3.0 through 5.11.12 (very wide; the AND-config gate
+      narrows substantially in practice — interpreter-only kernels
+      pass cleanly).
+      Reference: https://nvd.nist.gov/vuln/detail/CVE-2021-29154
+
+  - name: io_uring buffer-ring use-after-free (CVE-2024-0582)
+    vendor_regex: ".+"
+    category: kernel
+    # Affected: 6.4 through 6.6.4; 6.6.5+ and 6.7+ patched. Match
+    # 6.4.x, 6.5.x, and 6.6.0-6.6.4 specifically (6.6.5+ DROPPED).
+    version_regex: "(?i)^(?:6\\.4(?:\\.|$|-)|6\\.5(?:\\.|$|-)|6\\.6(?:\\.[0-4]|$|-))"
+    config_required: {CONFIG_IO_URING: "y"}
+    cves:
+      - CVE-2024-0582
+    severity: high
+    cvss_score: 7.8
+    notes: |
+      NVD-verified 2026-05-22. CVSS 7.8 HIGH
+      (AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H). io_uring
+      IORING_OP_PROVIDE_BUFFERS UAF — local user crafts a buffer-ring
+      sequence that frees a buffer still in use, yielding arbitrary
+      write. ``CONFIG_IO_URING=y`` required (io_uring code compiled
+      out when disabled). NVD does NOT explicitly cite the CONFIG
+      requirement but io_uring is a build-config-gated subsystem.
+      Affected 6.4 through 6.6.4; patched in 6.6.5 / 6.7-rc4.
+      Reference: https://nvd.nist.gov/vuln/detail/CVE-2024-0582
