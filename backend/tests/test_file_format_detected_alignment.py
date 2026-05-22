@@ -76,10 +76,32 @@ def _parse_ts_union(name: str) -> set[str]:
 
 _PYDANTIC_VALUES: set[str] = set(get_args(PydanticDetectedFormat))
 _ENUM_VALUES: set[str] = {m.value for m in EnumDetectedFormat}
-_TS_VALUES: set[str] = _parse_ts_union("DetectedFormat")
 _EXT_PYDANTIC: set[str] = set(get_args(PydanticExtractionCapability))
 _EXT_ENUM: set[str] = {m.value for m in EnumExtractionCapability}
-_EXT_TS: set[str] = _parse_ts_union("ExtractionCapability")
+
+# Cross-stack contract test: requires both backend/ AND frontend/ source
+# trees.  The backend container at /app/ has only `backend/` mounted (no
+# `frontend/`), so the FRONTEND_TS path doesn't resolve when pytest runs
+# inside the container.  Skip the entire module in that environment —
+# host-side CI / dev runs still execute the alignment checks.  Mirrors
+# the `test_finding_source_alignment.py` skipif precedent.
+if _FRONTEND_TS.exists():
+    _TS_VALUES: set[str] = _parse_ts_union("DetectedFormat")
+    _EXT_TS: set[str] = _parse_ts_union("ExtractionCapability")
+else:
+    _TS_VALUES = set()
+    _EXT_TS = set()
+
+pytestmark = pytest.mark.skipif(
+    not _FRONTEND_TS.exists(),
+    reason=(
+        "frontend/ source tree not accessible at "
+        f"{_FRONTEND_TS} — this is a Rule #48 cross-stack alignment test "
+        "that requires both backend/ and frontend/ source trees.  Skipped "
+        "in container-only test runs; host-side CI / dev runs still "
+        "exercise the alignment."
+    ),
+)
 
 
 def test_detected_format_pydantic_matches_python_enum() -> None:
