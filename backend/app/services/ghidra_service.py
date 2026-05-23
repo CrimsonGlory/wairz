@@ -627,6 +627,70 @@ async def mark_run_failed(
     )
 
 
+async def get_function_run_status(
+    firmware_id: uuid.UUID,
+    binary_sha256: str,
+    function_name: str,
+    db: AsyncSession,
+) -> dict | None:
+    """Read the most recent per-function decompile run row."""
+    return await _get_cached(
+        firmware_id, binary_sha256,
+        f"function_decompile_run:{function_name}", db,
+    )
+
+
+async def mark_function_run_started(
+    firmware_id: uuid.UUID,
+    binary_path: str,
+    binary_sha256: str,
+    function_name: str,
+    pid: int,
+    db: AsyncSession,
+) -> None:
+    await _store_cached(
+        firmware_id, binary_path, binary_sha256,
+        f"function_decompile_run:{function_name}",
+        {"status": "running", "started_at": time.time(), "pid": pid},
+        db,
+    )
+
+
+async def mark_function_run_complete(
+    firmware_id: uuid.UUID,
+    binary_path: str,
+    binary_sha256: str,
+    function_name: str,
+    db: AsyncSession,
+) -> None:
+    await _store_cached(
+        firmware_id, binary_path, binary_sha256,
+        f"function_decompile_run:{function_name}",
+        {"status": "complete", "finished_at": time.time()},
+        db,
+    )
+
+
+async def mark_function_run_failed(
+    firmware_id: uuid.UUID,
+    binary_path: str,
+    binary_sha256: str,
+    function_name: str,
+    error: str,
+    db: AsyncSession,
+) -> None:
+    await _store_cached(
+        firmware_id, binary_path, binary_sha256,
+        f"function_decompile_run:{function_name}",
+        {
+            "status": "failed",
+            "finished_at": time.time(),
+            "error": error[:2000],
+        },
+        db,
+    )
+
+
 async def get_functions(
     binary_path: str,
     firmware_id: uuid.UUID,
@@ -851,12 +915,15 @@ async def decompile_function(
     # several minutes; bump well past the default 300s but stay under
     # the MCP transport timeout (~600s) so the agent gets a real
     # result instead of a transport-level "user doesn't want to
-    # proceed" rejection.
+    # proceed" rejection. If a function needs longer than this, the
+    # agent should fall back to start_function_decompile /
+    # check_function_decompile_status which runs in a detached
+    # worker with a 30-minute timeout.
     raw_output = await run_ghidra_subprocess(
         binary_path,
         "DecompileFunction.java",
         script_args=[function_name],
-        timeout=540,
+        timeout=580,
     )
 
     decompiled = _parse_decompile_output(raw_output)

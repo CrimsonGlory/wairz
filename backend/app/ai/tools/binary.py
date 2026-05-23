@@ -2176,6 +2176,120 @@ async def _handle_check_binary_analysis_status(
     return f"unknown status: {status}"
 
 
+async def _handle_start_function_decompile(
+    input: dict, context: ToolContext,
+) -> str:
+    """Kick off DecompileFunction.java for one function in a detached worker."""
+    path = context.resolve_path(input["binary_path"])
+    function_name = input["function_name"]
+    if not os.path.isfile(path):
+        return f"Error: binary not found: {input['binary_path']}"
+
+    sha256 = await ghidra_service._get_binary_sha256(path)
+    cache_op = f"decompile:{function_name}"
+
+    cached = await ghidra_service._get_cached(
+        context.firmware_id, sha256, cache_op, context.db,
+    )
+    if cached and cached.get("decompiled_code"):
+        return (
+            f"already_complete - decompiled code for "
+            f"'{function_name}' is already cached. Call decompile_function "
+            f"to retrieve it."
+        )
+
+    status_row = await ghidra_service.get_function_run_status(
+        context.firmware_id, sha256, function_name, context.db,
+    )
+    if status_row and status_row.get("status") == "running":
+        elapsed = int(time.time() - status_row.get("started_at", 0))
+        pid = status_row.get("pid")
+        return (
+            f"already_running - decompile is already in progress for "
+            f"'{function_name}' ({elapsed}s elapsed, pid={pid}). "
+            f"Poll check_function_decompile_status."
+        )
+
+    proc = subprocess.Popen(
+        [
+            sys.executable, "-m", "app.workers.run_function_decompile",
+            "--firmware-id", str(context.firmware_id),
+            "--binary-path", path,
+            "--sha256", sha256,
+            "--function-name", function_name,
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+        close_fds=True,
+    )
+
+    await ghidra_service.mark_function_run_started(
+        context.firmware_id, path, sha256, function_name, proc.pid, context.db,
+    )
+    await context.db.flush()  # Rule #3: outer MCP dispatch owns the transaction
+
+    return (
+        f"started - decompile kicked off for '{function_name}' in "
+        f"{os.path.basename(path)} (pid={proc.pid}). Poll "
+        f"check_function_decompile_status until complete. Large handler "
+        f"functions in firmware daemons typically take 1-15 min. The "
+        f"worker has a 30-minute budget; if it fails with a timeout, "
+        f"the function is genuinely intractable for Ghidra and you "
+        f"should fall back to disassemble_function plus xrefs."
+    )
+
+
+async def _handle_check_function_decompile_status(
+    input: dict, context: ToolContext,
+) -> str:
+    """Report the current state of a background per-function decompile."""
+    path = context.resolve_path(input["binary_path"])
+    function_name = input["function_name"]
+    if not os.path.isfile(path):
+        return f"Error: binary not found: {input['binary_path']}"
+
+    sha256 = await ghidra_service._get_binary_sha256(path)
+
+    cached = await ghidra_service._get_cached(
+        context.firmware_id, sha256,
+        f"decompile:{function_name}", context.db,
+    )
+    if cached and cached.get("decompiled_code"):
+        return (
+            f"complete - decompiled code for '{function_name}' is cached "
+            f"(sha256={sha256[:12]}). Call decompile_function."
+        )
+
+    status_row = await ghidra_service.get_function_run_status(
+        context.firmware_id, sha256, function_name, context.db,
+    )
+    if status_row is None:
+        return (
+            f"not_started - no background decompile has been kicked off "
+            f"for '{function_name}'. Call start_function_decompile first."
+        )
+
+    status = status_row.get("status", "unknown")
+    if status == "running":
+        elapsed = int(time.time() - status_row.get("started_at", 0))
+        pid = status_row.get("pid")
+        alive = pid is not None and _pid_is_alive(int(pid))
+        if not alive and elapsed > 30:
+            return (
+                f"orphaned - worker (pid={pid}) is no longer running but "
+                f"decompile never completed ({elapsed}s elapsed). Call "
+                f"start_function_decompile again to retry."
+            )
+        return f"running - {elapsed}s elapsed (pid={pid})"
+    if status == "failed":
+        return f"failed - {status_row.get('error', 'unknown error')}"
+    if status == "complete":
+        return "complete - (cache may have been pruned; call decompile_function)"
+    return f"unknown status: {status}"
+
+
 def _pid_is_alive(pid: int) -> bool:
     """Return True if the given pid exists. Best-effort, no privileges needed."""
     try:
@@ -2238,6 +2352,65 @@ def register_binary_tools(registry: ToolRegistry) -> None:
             "required": ["binary_path"],
         },
         handler=_handle_check_binary_analysis_status,
+    )
+
+    registry.register(
+        name="start_function_decompile",
+        description=(
+            "Kick off Ghidra decompilation of a single function in a "
+            "detached background worker. Use this when decompile_function "
+            "times out (large handler functions in real-world daemons "
+            "routinely take 5-15 min). The worker has a 30-minute "
+            "budget, well past anything the synchronous decompile_function "
+            "can sustain. Once status=complete, decompile_function will "
+            "return the cached result instantly. The worker runs "
+            "independently of this MCP session, so a /mcp reconnect "
+            "doesn't lose progress."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "binary_path": {
+                    "type": "string",
+                    "description": "Path to the ELF binary in the firmware filesystem",
+                },
+                "function_name": {
+                    "type": "string",
+                    "description": (
+                        "Exact function name as it appears in list_functions, "
+                        "e.g. 'agora_rtc_init' or 'FUN_0048cb58'."
+                    ),
+                },
+            },
+            "required": ["binary_path", "function_name"],
+        },
+        handler=_handle_start_function_decompile,
+    )
+
+    registry.register(
+        name="check_function_decompile_status",
+        description=(
+            "Poll a background per-function decompile started with "
+            "start_function_decompile. Returns one of: complete (call "
+            "decompile_function to get the code), running (elapsed time), "
+            "failed (with error), orphaned (worker died — retry), or "
+            "not_started."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "binary_path": {
+                    "type": "string",
+                    "description": "Path to the ELF binary",
+                },
+                "function_name": {
+                    "type": "string",
+                    "description": "Function name passed to start_function_decompile",
+                },
+            },
+            "required": ["binary_path", "function_name"],
+        },
+        handler=_handle_check_function_decompile_status,
     )
 
     registry.register(
