@@ -21,6 +21,7 @@ import logging
 import sys
 import uuid
 
+from app.config import get_settings
 from app.database import async_session_factory
 from app.services.ghidra_service import (
     _cross_process_analysis_lock,
@@ -28,13 +29,6 @@ from app.services.ghidra_service import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Background workers aren't bounded by the MCP transport timeout the way
-# synchronous tool calls are, so they get a much larger Ghidra-side
-# timeout. 1 hour is enough for any reasonable single-binary analysis
-# (7 MB MIPS daemons take 20-45 min in practice) while still being a
-# real safety net against a genuinely-stuck process.
-_BACKGROUND_GHIDRA_TIMEOUT_S = 3600
 
 
 async def _run(
@@ -59,7 +53,7 @@ async def _run(
             async with async_session_factory() as analysis_db:
                 await cache._run_full_analysis(
                     binary_path, firmware_id, binary_sha256, analysis_db,
-                    timeout=_BACKGROUND_GHIDRA_TIMEOUT_S,
+                    timeout=get_settings().ghidra_background_analysis_timeout,
                 )
                 await cache.mark_run_complete(
                     firmware_id, binary_path, binary_sha256, analysis_db,

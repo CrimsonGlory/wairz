@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     ghidra_path: str = "/opt/ghidra"
     ghidra_scripts_path: str = "/opt/ghidra_scripts"
     ghidra_timeout: int = 300
+    ghidra_background_analysis_timeout: int = 3600
+    ghidra_background_decompile_timeout: int = 1800
     jadx_path: str = "/opt/jadx/bin/jadx"
     jadx_timeout: int = 300
     jadx_max_memory: str = "4g"

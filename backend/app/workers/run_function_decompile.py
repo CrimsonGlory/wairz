@@ -25,6 +25,7 @@ import logging
 import sys
 import uuid
 
+from app.config import get_settings
 from app.database import async_session_factory
 from app.services import ghidra_service
 from app.services.ghidra_service import (
@@ -36,11 +37,6 @@ from app.services.ghidra_service import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Background per-function decompile timeout. Plenty of headroom for any
-# single function worth waiting on; truly pathological cases will fail
-# explicitly rather than hanging.
-_BACKGROUND_DECOMPILE_TIMEOUT_S = 1800
 
 
 def _lock_key(binary_sha256: str, function_name: str) -> str:
@@ -85,7 +81,7 @@ async def _run(
                 binary_path,
                 "DecompileFunction.java",
                 script_args=[function_name],
-                timeout=_BACKGROUND_DECOMPILE_TIMEOUT_S,
+                timeout=get_settings().ghidra_background_decompile_timeout,
             )
             decompiled = _parse_decompile_output(raw_output)
 
