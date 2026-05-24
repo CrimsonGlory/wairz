@@ -280,9 +280,13 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 # Create non-root user and add to docker group for emulation container management.
 # The docker socket GID from the host is passed via build arg (default 999).
 ARG DOCKER_GID=999
-RUN groupadd -g ${DOCKER_GID} docker || true \
-    && useradd -m -s /bin/bash wairz \
-    && usermod -aG docker wairz
+RUN useradd -m -s /bin/bash wairz \
+    && if getent group ${DOCKER_GID} >/dev/null; then \
+         existing_group=$(getent group ${DOCKER_GID} | cut -d: -f1); \
+         usermod -aG "${existing_group}" wairz; \
+       else \
+         groupadd -g ${DOCKER_GID} docker && usermod -aG docker wairz; \
+       fi
 
 # Set up working directory
 WORKDIR /app
