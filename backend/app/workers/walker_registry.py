@@ -66,6 +66,9 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
     from app.services.container_walker import auto_container_walk_firmware_safe
     from app.services.dpapi_walker import auto_dpapi_walk_firmware_safe
     from app.services.driver_extractor import auto_extract_drivers_safe
+    from app.services.ds1qrsetup_callgraph_walker import (
+        auto_callgraph_walk_firmware_safe as ds1qrsetup_callgraph_auto_walk,
+    )
     from app.services.efs_walker import auto_efs_walk_firmware_safe
     from app.services.esp_walker import auto_esp_walk_firmware_safe
     from app.services.etl_walker import auto_etl_walk_firmware_safe
@@ -88,6 +91,9 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
     from app.services.mft_walker import auto_mft_walk_firmware_safe
     from app.services.prefetch_walker import (
         auto_walk_firmware_safe as prefetch_auto_walk,
+    )
+    from app.services.python_ast_walker import (
+        auto_python_ast_walk_firmware_safe,
     )
     from app.services.registry_hive_walker import (
         auto_walk_firmware_safe as registry_auto_walk,
@@ -169,6 +175,25 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
         auto_windows_injection_walk_firmware_safe,
         auto_mft_walk_firmware_safe,
         prefetch_auto_walk,
+        # Q1 Python AST walker — static AST + import-graph reachability
+        # analysis (PARSE-ONLY per Rule #45 + Rule #36). DS1 ds1qrsetup
+        # Flask service is the reference case; cve-assessment-framework
+        # consumes the JSONB aggregate to narrow Python CVE applicability
+        # (Round-9.1 §12 EG-8A.3-5). Cross-firmware lookup tool per
+        # Rule #44 ships in ai/tools/python_ast.py.
+        auto_python_ast_walk_firmware_safe,
+        # Q2 ds1qrsetup binary call-graph walker — static binary call-
+        # graph analysis (Ghidra headless first, radare2 fallback) of
+        # the ds1qrsetup network-facing binary (Python interpreter +
+        # statically-linked C modules from the Yocto recipe).
+        # PARSE-ONLY per Rule #36 + Rule #45 — Ghidra/radare2 analyse
+        # the binary AS DATA; the binary is NEVER invoked via
+        # subprocess / exec / runpy. The cve-assessment-framework
+        # consumes the JSONB aggregate to narrow FFmpeg DNN-backend +
+        # Pillow decoder reachability for ~42 FFmpeg EXPL CVEs +
+        # Pillow long-tail. Cross-firmware lookup tool per Rule #44
+        # ships in ai/tools/ds1qrsetup_callgraph.py.
+        ds1qrsetup_callgraph_auto_walk,
         auto_scheduled_task_walk_firmware_safe,
         auto_sdb_walk_firmware_safe,
         srum_auto_walk,
@@ -391,7 +416,7 @@ def _walker_reaper(column: str, *, prefix: str | None = None) -> WalkerReaperCon
     )
 
 
-# 26 walker status columns; each Rule #33 .a 5-state with NO grace
+# 28 walker status columns; each Rule #33 .a 5-state with NO grace
 # (operator-triggered in-process work). Per Rule #46 the META-CANARY
 # in tests/test_main_lifespan_reapers.py SIZE-LOCKS this dict and
 # CROSS-CHECKS that EVERY *_walk_status column on the Firmware model
@@ -430,6 +455,17 @@ WALKER_REAPER_CONFIGS: dict[str, WalkerReaperConfig] = {
     # of whether the column ALSO carries Rule #33 .b result JSONB
     # semantics that route it through STATE_MACHINE.
     "ics_protocol_walk_status": _walker_reaper("ics_protocol_walk_status"),
+    # Q1 Python AST walker — Rule #33 .a 5-state, in-process
+    # asyncio.create_task dispatch (ast.parse is pure CPU, no Docker).
+    "python_ast_walk_status": _walker_reaper("python_ast_walk_status"),
+    # Q2 ds1qrsetup binary call-graph walker — Rule #33 .a 5-state,
+    # in-process asyncio.create_task dispatch. The walker delegates
+    # Ghidra subprocess management to ghidra_service.ensure_analysis
+    # (cached per binary SHA in analysis_cache); the walker layer
+    # itself is in-process JSONB aggregation.
+    "ds1qrsetup_callgraph_walk_status": _walker_reaper(
+        "ds1qrsetup_callgraph_walk_status",
+    ),
 }
 
 

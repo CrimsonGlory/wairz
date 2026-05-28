@@ -1811,6 +1811,126 @@ def _stamp_firmware_srum_walk_result(payload: dict) -> dict:
     return payload
 
 
+# ── firmware.python_ast_walk_result (Q1 Python AST walker) ──────────────────
+#
+# Per-firmware aggregate from a single Python AST walk. Designed for
+# downstream consumption by the cve-assessment-framework (Round-9.1 §12
+# EG-8A.3-5 — narrows Python CVE applicability via deployed-script grep
+# precedent).
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "firmware_id": "<uuid>",
+#     "walker": "python_ast_walker",
+#     "extracted_root_paths_scanned": list[str],   # detection-root-relative
+#     "python_version_detected": list[str],        # e.g. ["2.7", "3.7"]
+#     "entry_points": list[dict],                  # [{file, entry_function, type}]
+#     "modules_imported": dict[str, dict],         # module → {imported_from, reachable_from_entry}
+#     "callables_referenced": dict[str, dict],     # qualified-name → {called_from, reachable_from_entry}
+#     "unreachable_modules": list[str],
+#     "summary": {
+#         "files_scanned": int,
+#         "modules_imported_count": int,
+#         "callables_referenced_count": int,
+#         "entry_reachable_modules_count": int,
+#         "entry_reachable_callables_count": int,
+#         "run_seconds": float,
+#     },
+#     "errors": list[str],
+#     "axiom_self_audit": str,                     # PARSE-ONLY discipline trace
+#   }
+
+FIRMWARE_PYTHON_AST_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_python_ast_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.python_ast_walk_result``."""
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_python_ast_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.python_ast_walk_result``. Idempotent."""
+    payload["schema_version"] = FIRMWARE_PYTHON_AST_WALK_RESULT_SCHEMA_VERSION
+    return payload
+
+
+# ── firmware.ds1qrsetup_callgraph_walk_result (Q2 ds1qrsetup callgraph) ──────
+#
+# Per-firmware aggregate from a single ds1qrsetup binary call-graph walk
+# (CLAUDE.md Rule #33). Designed for downstream consumption by the
+# cve-assessment-framework — narrows FFmpeg DNN-backend + Pillow decoder
+# reachability for ~42 FFmpeg EXPL CVEs + Pillow long-tail.
+#
+# **PARSE-ONLY discipline** (Rule #36 + Rule #45): the walker analyses
+# the ds1qrsetup binary AS DATA via Ghidra headless / radare2 — both
+# tools extract static information; neither invokes the extracted binary.
+# The JSON aggregate carries reachability metadata + compile-flag
+# fingerprints, NEVER decrypted payload or runtime execution traces.
+#
+# Canonical shape:
+#
+#   {
+#     "schema_version": 1,
+#     "firmware_id": "<uuid>",
+#     "walker": "ds1qrsetup_callgraph_walker",
+#     "binary_analyzed": "/path/to/extracted/opt/ds1qrsetup/<binary>",
+#     "analyzer": "ghidra" | "radare2" | "unavailable",
+#     "compile_flags_detected": {
+#         "ffmpeg": list[str],                # enabled flags
+#         "ffmpeg_disabled": list[str],
+#         "pillow_decoders": list[str],       # detected decoders
+#         "pillow_decoders_absent": list[str],
+#     },
+#     "reachable_symbols": list[str],         # reachable from main()
+#     "unreachable_symbols": list[str],
+#     "summary": {
+#         "total_symbols_in_binary": int,
+#         "reachable_from_main": int,
+#         "unreachable_from_main": int,
+#         "run_seconds": float,
+#     },
+#     "errors": list[str],
+#     "axiom_self_audit": str,                # PARSE-ONLY discipline trace
+#   }
+#
+# Defensive return on missing binary / unavailable analyzer:
+# ``{schema_version: 1, analyzer: "unavailable", ...}`` with all
+# list-shaped fields empty and a populated ``errors`` list. The
+# cve-assessment-framework reads ``analyzer == "unavailable"`` as
+# INSUFFICIENT_EVIDENCE per Q2 contract.
+
+FIRMWARE_DS1QRSETUP_CALLGRAPH_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_ds1qrsetup_callgraph_walk_result(
+    value: Any,
+) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.ds1qrsetup_callgraph_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed run yet".
+    Wrong-typed values collapse to ``None``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_ds1qrsetup_callgraph_walk_result(payload: dict) -> dict:
+    """Stamp the schema_version onto a writer payload for
+    ``Firmware.ds1qrsetup_callgraph_walk_result``. Idempotent."""
+    payload["schema_version"] = (
+        FIRMWARE_DS1QRSETUP_CALLGRAPH_WALK_RESULT_SCHEMA_VERSION
+    )
+    return payload
+
+
 # ── windows_scheduled_tasks JSONB columns (Phase η.B.A) ──────────────────────
 #
 # Four JSONB columns on ``windows_scheduled_tasks``:

@@ -103,12 +103,20 @@ def test_walker_reaper_configs_size_lock_matches_firmware_model():
 
 
 def test_walker_reaper_config_count_matches_documented():
-    """Numeric size-lock — 26 walker columns today (documented in
+    """Numeric size-lock — 28 walker columns today (documented in
     walker_registry.py docstring). Drift forces deliberate test edit.
 
-    Last bump: 25 → 26 in ICS Session 2 2026-05-22, adding
+    Last bump: 26 → 28 in Q1 Python AST + Q2 ds1qrsetup_callgraph
+    walkers 2026-05-27. Q1 adds python_ast_walk_status (PARSE-ONLY
+    static-AST reachability walker per Rule #45 + Rule #36;
+    cve-assessment-framework consumer per Round-9.1 §12 EG-8A.3-5).
+    Q2 adds ds1qrsetup_callgraph_walk_status (binary call-graph
+    walker; complementary to Q1 — Python AST handles deployed scripts,
+    Q2 handles native binaries / .so libraries).
+
+    Prior bump: 25 → 26 in ICS Session 2 2026-05-22, adding
     ics_protocol_walk_status (Rule #52 instance #3). Per Scout E +
-    W2-α DUAL REGISTRATION, this column also lives in
+    W2-α DUAL REGISTRATION, that column also lives in
     STATE_MACHINE_REAPER_CONFIGS (size-lock 9 above) — the
     suffix-introspection check at
     test_walker_reaper_configs_size_lock_matches_firmware_model
@@ -117,10 +125,10 @@ def test_walker_reaper_config_count_matches_documented():
     """
     from app.workers.walker_registry import WALKER_REAPER_CONFIGS
 
-    assert len(WALKER_REAPER_CONFIGS) == 26, (
+    assert len(WALKER_REAPER_CONFIGS) == 28, (
         f"WALKER_REAPER_CONFIGS has {len(WALKER_REAPER_CONFIGS)} entries; "
-        f"expected exactly 26 (matches the documented walker count in "
-        f"walker_registry.py docstring as of ICS Session 2 2026-05-22). "
+        f"expected exactly 28 (matches the documented walker count in "
+        f"walker_registry.py docstring as of Q1+Q2 walkers 2026-05-27). "
         f"Drift means a walker was added/removed without sweeping the "
         f"size-lock — update the test + the docstring together."
     )

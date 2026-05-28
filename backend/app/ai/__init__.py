@@ -8,6 +8,9 @@ from app.ai.tools.binary import register_binary_tools
 from app.ai.tools.comparison import register_comparison_tools
 from app.ai.tools.cwe_checker import register_cwe_checker_tools
 from app.ai.tools.documents import register_document_tools
+from app.ai.tools.ds1qrsetup_callgraph import (
+    register_ds1qrsetup_callgraph_tools,
+)
 from app.ai.tools.emulation import register_emulation_tools
 from app.ai.tools.file_formats import register_file_format_tools
 from app.ai.tools.filesystem import register_filesystem_tools
@@ -22,6 +25,7 @@ from app.ai.tools.linux_kernel_hardening import (
 from app.ai.tools.linux_persistence import register_linux_persistence_tools
 from app.ai.tools.linux_systemd import register_linux_systemd_tools
 from app.ai.tools.network import register_network_tools
+from app.ai.tools.python_ast import register_python_ast_tools
 from app.ai.tools.reporting import register_reporting_tools
 from app.ai.tools.sbom import register_sbom_tools
 from app.ai.tools.security import register_security_tools
@@ -119,4 +123,17 @@ def create_tool_registry() -> ToolRegistry:
     # (Session 2 Phase 3, 2026-05-22). 4 tools: trigger / list /
     # lookup_across_firmwares (Rule #44 MANDATORY) / describe_anomalies.
     register_ics_protocol_tools(registry)
+    # Q1 Python AST walker MCP tools (2026-05-27). 4 tools:
+    # python_ast_walk_status / trigger_python_ast_walk /
+    # get_python_ast_summary / lookup_python_ast_across_firmwares
+    # (Rule #44 MANDATORY cross-firmware aggregation for
+    # cve-assessment-framework consumption per Round-9.1 §12 EG-8A.3-5).
+    register_python_ast_tools(registry)
+    # Q2 ds1qrsetup binary call-graph walker MCP tools (2026-05-27).
+    # 3 tools: ds1qrsetup_callgraph_walk_status /
+    # trigger_ds1qrsetup_callgraph_walk /
+    # lookup_ds1qrsetup_callgraph_across_firmwares (Rule #44 MANDATORY
+    # cross-firmware aggregation; powers FFmpeg DNN-backend + Pillow
+    # decoder reachability narrowing for the cve-assessment-framework).
+    register_ds1qrsetup_callgraph_tools(registry)
     return registry
