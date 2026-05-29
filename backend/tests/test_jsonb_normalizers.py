@@ -5499,3 +5499,120 @@ def test_stamp_firmware_module_reachability_walk_result_enforces_provenance_walk
         "_stamp_firmware_module_reachability_walk_result MUST stamp "
         "provenance='walker' — sister-key gate for downstream consumers."
     )
+
+
+# ---------------------------------------------------------------------------
+# firmware.network_exposure_walk_result (C3 network-exposure REACHABILITY-
+# EVIDENCE walker, 2026-05-29) — the listener → bind-scope → owning-daemon
+# exposure map the cve-assessment-framework L4 kill-chain classifier consumes.
+# ---------------------------------------------------------------------------
+
+
+from app.services.jsonb_normalizers import (  # noqa: E402
+    FIRMWARE_NETWORK_EXPOSURE_WALK_RESULT_SCHEMA_VERSION,
+    _normalize_firmware_network_exposure_walk_result,
+    _stamp_firmware_network_exposure_walk_result,
+)
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical pass-through — a populated config-derived exposure
+        # aggregate carrying BOTH host AND address keys + the bind_confidence
+        # axis (the converged R51.2 over-read guard).
+        (
+            {
+                "schema_version": 1,
+                "provenance": "walker",
+                "walked_at": "2026-05-29T09:00:00+00:00",
+                "capture_source": "config",
+                "listeners": [
+                    {
+                        "host": "0.0.0.0",
+                        "address": "0.0.0.0",
+                        "port": 22,
+                        "protocol": "tcp",
+                        "owning_process": "sshd",
+                        "bind_confidence": "config_high",
+                    },
+                    {
+                        "host": "127.0.0.1",
+                        "address": "127.0.0.1",
+                        "port": 953,
+                        "protocol": "tcp",
+                        "owning_process": "named",
+                        "bind_confidence": "config_high",
+                    },
+                ],
+                "listener_count": 2,
+                "remote_listener_count": 1,
+                "errors": [],
+            },
+            {
+                "schema_version": 1,
+                "provenance": "walker",
+                "walked_at": "2026-05-29T09:00:00+00:00",
+                "capture_source": "config",
+                "listeners": [
+                    {
+                        "host": "0.0.0.0",
+                        "address": "0.0.0.0",
+                        "port": 22,
+                        "protocol": "tcp",
+                        "owning_process": "sshd",
+                        "bind_confidence": "config_high",
+                    },
+                    {
+                        "host": "127.0.0.1",
+                        "address": "127.0.0.1",
+                        "port": 953,
+                        "protocol": "tcp",
+                        "owning_process": "named",
+                        "bind_confidence": "config_high",
+                    },
+                ],
+                "listener_count": 2,
+                "remote_listener_count": 1,
+                "errors": [],
+            },
+        ),
+        ({}, {}),
+        # Defensive coercion — None preserved; wrong-types collapse to None.
+        (None, None),
+        ([{"port": 22}], None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_network_exposure_walk_result(value, expected):
+    assert _normalize_firmware_network_exposure_walk_result(value) == expected
+
+
+def test_stamp_firmware_network_exposure_walk_result_adds_version():
+    out = _stamp_firmware_network_exposure_walk_result({"listener_count": 0})
+    assert (
+        out["schema_version"]
+        == FIRMWARE_NETWORK_EXPOSURE_WALK_RESULT_SCHEMA_VERSION
+    )
+
+
+def test_stamp_firmware_network_exposure_walk_result_idempotent():
+    once = _stamp_firmware_network_exposure_walk_result({"listener_count": 0})
+    twice = _stamp_firmware_network_exposure_walk_result(once)
+    assert once == twice
+
+
+def test_firmware_network_exposure_walk_result_schema_version_constant():
+    assert FIRMWARE_NETWORK_EXPOSURE_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+def test_stamp_firmware_network_exposure_walk_result_enforces_provenance_walker():
+    """Every walker-side stamp emits ``provenance: "walker"`` so the MCP
+    get_network_exposure + cve-assessment-framework export consumers can
+    gate attribution. Mirrors the C1 / C2 / ICS sister-provenance gate."""
+    out = _stamp_firmware_network_exposure_walk_result({"listener_count": 0})
+    assert out["provenance"] == "walker", (
+        "_stamp_firmware_network_exposure_walk_result MUST stamp "
+        "provenance='walker' — sister-key gate for downstream consumers."
+    )

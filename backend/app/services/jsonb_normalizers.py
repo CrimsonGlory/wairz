@@ -4747,3 +4747,107 @@ def _stamp_firmware_module_reachability_walk_result(payload: dict) -> dict:
     )
     payload["provenance"] = "walker"
     return payload
+
+
+# ── firmware.network_exposure_walk_result (C3 network EXPOSURE) ────────────
+#
+# Aggregate of a single ``network_exposure_walker`` run against a firmware's
+# detection roots. C3 synthesizes the listener → bind-scope → owning-daemon
+# exposure map the cve-assessment-framework L4 kill-chain classifier consumes
+# (``ListenerEntry`` discriminator #2 + ``network/listeners.json``). A daemon
+# bound to ``0.0.0.0`` makes the REMOTE surface OPEN + ``has_remote_bind`` →
+# an AV:N CVE owned by that daemon → ``initial_entry`` (the kill-chain HEAD);
+# a loopback-only daemon → no remote bind → the CVE stays ``chainable``
+# (R51.1 C3 GAP-CLOSED).
+#
+# THE OVER-READ GUARD (converged R51.2 BLOCKING-2/B2/B3) is baked into the
+# emitted shape so the framework consumer (already built) can act on it:
+#
+#   * Each listener carries BOTH ``host`` AND ``address`` keys (same value).
+#     The framework's Linux adapter reads ``host`` (linux.py); the Android
+#     adapter reads ``address`` (android.py). The single shared
+#     ``network/listeners.json`` cannot satisfy two adapter keys without
+#     emitting both — without ``address`` the Android adapter defaults every
+#     row to ``0.0.0.0`` (non-loopback) → false-remote over-claim on EVERY
+#     listener (the framework-consumer critique's BLOCKING #2).
+#   * Each listener carries a ``bind_confidence`` Literal:
+#       - ``runtime_confirmed`` — from a live ``ss``/``netstat`` capture.
+#       - ``config_high``       — an EXPLICIT bind address parsed from a
+#                                 config (``ListenAddress 0.0.0.0``,
+#                                 nginx ``listen 192.168.1.1:80``).
+#       - ``config_inferred``   — inferred / defaulted (no explicit address;
+#                                 the parser fell to the unknown→0.0.0.0
+#                                 default). The framework caps a
+#                                 ``config_inferred`` remote bind at
+#                                 ``chainable`` (NEVER mints a confirmed-remote
+#                                 ``initial_entry`` HEAD from an inferred
+#                                 bind) — the only mitigation guilty-safe in
+#                                 BOTH directions.
+#
+# Canonical shape (every key load-bearing):
+#
+#   {
+#     "schema_version": 1,
+#     "provenance": "walker",                  # SISTER-KEY; MCP get_* +
+#                                              # cross-firmware consumers gate
+#                                              # on provenance == "walker".
+#     "walked_at": "<ISO-8601 UTC>",
+#     "capture_source": "config" | "runtime",  # "runtime" iff any listener
+#                                              # is runtime_confirmed
+#     "listeners": [                           # one row per listener:
+#       {
+#         "host": "0.0.0.0",                   # bind address (Linux adapter)
+#         "address": "0.0.0.0",                # SAME value (Android adapter)
+#         "port": 22,
+#         "protocol": "tcp" | "udp",
+#         "owning_process": "sshd" | null,     # resolved owning daemon
+#         "bind_confidence": "runtime_confirmed|config_high|config_inferred",
+#       }
+#     ],
+#     "listener_count": int,
+#     "remote_listener_count": int,            # binds NOT in the loopback set
+#     "errors": list[str],
+#   }
+#
+# Rule #36 + Rule #45 PARSE-ONLY contract: the walker reads sshd_config /
+# nginx.conf / dnsmasq.conf / .socket units / inetd.conf AS DATA; it NEVER
+# starts a daemon / spawns / decrypts. Test gate
+# ``test_network_exposure_walker.py::test_walker_no_execute_no_decrypt``
+# enforces via tokenize-walk; Rule #46 paired META-CANARY confirms the gate
+# fires on synthetic violations.
+
+FIRMWARE_NETWORK_EXPOSURE_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_network_exposure_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.network_exposure_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed network-exposure walk
+    run yet". Wrong-typed values (list / str / int from hand-edited or legacy
+    rows) collapse to ``None``. The walker writes via the ``_stamp_*``
+    companion which enforces the ``schema_version`` + ``provenance: "walker"``
+    sister-key contract. Mirrors
+    ``_normalize_firmware_module_reachability_walk_result``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_network_exposure_walk_result(payload: dict) -> dict:
+    """Stamp ``schema_version`` + ``provenance: "walker"`` onto a writer
+    payload for ``Firmware.network_exposure_walk_result``. Idempotent.
+
+    The ``provenance`` SISTER-KEY mirrors the C1 / C2 / ICS pattern:
+    downstream consumers (the cve-assessment-framework export step, the MCP
+    ``get_network_exposure`` tool) gate on ``provenance == "walker"`` +
+    ``schema_version == 1`` before trusting the listener bind-scope evidence
+    for the L4 kill-chain discriminator. The walker writes the JSONB
+    EXCLUSIVELY through this stamp.
+    """
+    payload["schema_version"] = (
+        FIRMWARE_NETWORK_EXPOSURE_WALK_RESULT_SCHEMA_VERSION
+    )
+    payload["provenance"] = "walker"
+    return payload
