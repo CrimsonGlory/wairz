@@ -450,6 +450,25 @@ STATE_MACHINE_REAPER_CONFIGS: dict[str, WalkerReaperConfig] = {
         finished_at_column="network_exposure_walk_finished_at",
         error_column="network_exposure_walk_error",
     ),
+    # C4 Android DEPLOYMENT-POSTURE REACHABILITY-EVIDENCE walker (2026-05-29).
+    # DUAL REGISTRATION per Scout E + W2-α convergence (same shape as
+    # ``network_exposure_walk_status`` above): this column ALSO lives in
+    # WALKER_REAPER_CONFIGS below because the ``_walk_status`` suffix makes
+    # ``test_walker_reaper_configs_size_lock_matches_firmware_model``
+    # REQUIRE the WALKER entry; the result-JSONB Rule #33 .b semantics
+    # justify this STATE_MACHINE entry. The reaper sweep applies both
+    # passes; the second is a ~1 ms no-op on a row already reaped by the
+    # first. DISTINCT from kernel_config_walk_status + module_reachability_
+    # walk_status + network_exposure_walk_status above — C4 synthesizes the
+    # Android deployment-posture gates_open map (the L4 LockdownGate), emitting
+    # runtime_confirmed=false for image-inferred posture so the gate stays OPEN.
+    "android_posture_walk_status": WalkerReaperConfig(
+        column_name="android_posture_walk_status",
+        in_progress_states=("queued", "running"),
+        failure_message="Backend restarted; runner state lost",
+        finished_at_column="android_posture_walk_finished_at",
+        error_column="android_posture_walk_error",
+    ),
     # ICS protocol catalog walker (Rule #52 instance #3 — Session 2,
     # 2026-05-22). DUAL REGISTRATION per Scout E + W2-α convergence
     # synthesis: this column also lives in WALKER_REAPER_CONFIGS below
@@ -525,12 +544,12 @@ def _walker_reaper(column: str, *, prefix: str | None = None) -> WalkerReaperCon
     )
 
 
-# 31 walker status columns; each Rule #33 .a 5-state with NO grace
+# 32 walker status columns; each Rule #33 .a 5-state with NO grace
 # (operator-triggered in-process work). Per Rule #46 the META-CANARY
 # in tests/test_main_lifespan_reapers.py SIZE-LOCKS this dict and
 # CROSS-CHECKS that EVERY *_walk_status column on the Firmware model
-# is registered here. Last bump: 30 → 31 in C3 network-exposure
-# walker 2026-05-29 (network_exposure_walk_status).
+# is registered here. Last bump: 31 → 32 in C4 android-posture
+# walker 2026-05-29 (android_posture_walk_status).
 WALKER_REAPER_CONFIGS: dict[str, WalkerReaperConfig] = {
     "registry_hive_walk_status": _walker_reaper("registry_hive_walk_status"),
     "evtx_walk_status": _walker_reaper("evtx_walk_status"),
@@ -597,6 +616,18 @@ WALKER_REAPER_CONFIGS: dict[str, WalkerReaperConfig] = {
     # bind-scope exposure vs C2 module reachability).
     "network_exposure_walk_status": _walker_reaper(
         "network_exposure_walk_status",
+    ),
+    # C4 Android DEPLOYMENT-POSTURE REACHABILITY-EVIDENCE walker (2026-05-29).
+    # DUAL REGISTRATION — this column ALSO lives in STATE_MACHINE_REAPER_CONFIGS
+    # above (Rule #33 .b result JSONB). The suffix-introspection check at
+    # test_walker_reaper_configs_size_lock_matches_firmware_model requires
+    # every *_walk_status column here. `_walker_reaper` strips `_walk_status`
+    # → `android_posture`, correctly deriving
+    # android_posture_walk_finished_at / android_posture_walk_error.
+    # DISTINCT from the network_exposure_walk_status entry (C4 Android
+    # deployment-posture gates vs C3 listener bind-scope exposure).
+    "android_posture_walk_status": _walker_reaper(
+        "android_posture_walk_status",
     ),
     # Q1 Python AST walker — Rule #33 .a 5-state, in-process
     # asyncio.create_task dispatch (ast.parse is pure CPU, no Docker).

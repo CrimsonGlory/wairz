@@ -913,6 +913,46 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # C4 Android DEPLOYMENT-POSTURE REACHABILITY-EVIDENCE walker columns
+    # (CLAUDE.md Rule #33 .a 5-state contract). The C4
+    # ``android_posture_walker`` synthesizes the ``gates_open`` deployment
+    # posture the cve-assessment-framework L4 kill-chain ``LockdownGate``
+    # consumes (Topic 2). THE HONEST GATING: a static firmware image can
+    # SUPPORT a lockdown (a DPC / kiosk app present, a telephony stack
+    # present) but CANNOT confirm THIS unit is enrolled / active — that is
+    # provisioning + runtime, not an image property. So the walker emits
+    # ``runtime_confirmed=false`` for every image-inferred posture → the
+    # framework consumer HOLDS THE GATE OPEN (guilty, no reduction) and names
+    # the live-capture ``settling_command`` (dumpsys device_policy /
+    # dpm list-owners / getprop). Absence-in-an-extracted-partition is NOT
+    # proof of absence (C3 saw phones ship incomplete partitions) → an absent
+    # DPC yields kiosk inferred-FALSE at config_inferred confidence, NEVER
+    # runtime_confirmed. DISTINCT from kernel_config_walk_* (C1),
+    # module_reachability_walk_* (C2), network_exposure_walk_* (C3).
+    #
+    # PARSE-ONLY (Rule #45): the walker reads APK manifests / build.prop /
+    # settings / device_owner XML AS DATA; it NEVER executes dex / invokes an
+    # APK / spawns / decrypts. Rule #35c normaliser pair +
+    # ``FIRMWARE_ANDROID_POSTURE_WALK_RESULT_SCHEMA_VERSION`` land in the
+    # jsonb_normalizers commit. The CHECK constraint
+    # ``ck_firmware_android_posture_walk_status`` is enforced at the DB layer
+    # via the migration (not __table_args__).
+    android_posture_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    android_posture_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    android_posture_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    android_posture_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    android_posture_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     # Phase θ.B.C WMI persistence walker columns (CLAUDE.md Rule #33 contract).
     # Background runner ``run_wmi_walk_background`` opens each WMI
     # OBJECTS.DATA file (typically under ``Windows/System32/wbem/Repository/``

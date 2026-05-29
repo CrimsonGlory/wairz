@@ -41,9 +41,9 @@ def _main_py_source() -> str:
 
 
 def test_state_machine_reaper_configs_size_lock():
-    """STATE_MACHINE_REAPER_CONFIGS pinned at EXACTLY 13 entries.
+    """STATE_MACHINE_REAPER_CONFIGS pinned at EXACTLY 14 entries.
 
-    13 entries today: cve_match_status, vuln_scan_status, sbom_status,
+    14 entries today: cve_match_status, vuln_scan_status, sbom_status,
     bare_metal_audit_status, authenticode_chain_status,
     dotnet_decompile_status, windows_update_diff_status, upload_stage,
     ics_protocol_walk_status, kernel_config_audit_status (Rule #45 KSPP
@@ -56,11 +56,16 @@ def test_state_machine_reaper_configs_size_lock():
     module_reachability_walk_status (C2 module/driver REACHABILITY-EVIDENCE
     walker — 12th state-machine column landed 2026-05-29; DUAL-registered
     for the same reasons; produces the loaded/available/builtin module
-    evidence the cve-assessment-framework L4 classifier consumes), and
+    evidence the cve-assessment-framework L4 classifier consumes),
     network_exposure_walk_status (C3 network-exposure REACHABILITY-EVIDENCE
     walker — 13th state-machine column landed 2026-05-29; DUAL-registered
     for the same reasons; synthesizes the listener → bind-scope →
-    owning-daemon exposure map the L4 listener discriminator consumes).
+    owning-daemon exposure map the L4 listener discriminator consumes), and
+    android_posture_walk_status (C4 Android DEPLOYMENT-POSTURE
+    REACHABILITY-EVIDENCE walker — 14th state-machine column landed
+    2026-05-29; DUAL-registered for the same reasons; synthesizes the
+    gates_open deployment posture the L4 LockdownGate consumes, emitting
+    runtime_confirmed=false for image-inferred posture so the gate stays OPEN).
 
     Drift forces a deliberate test edit + postmortem note (Rule #48
     Part 3 size-lock discipline; W2-β §SC5-NEW-SBOM-S2-SEAM-B
@@ -69,13 +74,13 @@ def test_state_machine_reaper_configs_size_lock():
     """
     from app.workers.walker_registry import STATE_MACHINE_REAPER_CONFIGS
 
-    assert len(STATE_MACHINE_REAPER_CONFIGS) == 13, (
+    assert len(STATE_MACHINE_REAPER_CONFIGS) == 14, (
         f"STATE_MACHINE_REAPER_CONFIGS has {len(STATE_MACHINE_REAPER_CONFIGS)} "
-        f"entries; expected exactly 13 (cve_match, vuln_scan, sbom, "
+        f"entries; expected exactly 14 (cve_match, vuln_scan, sbom, "
         f"bare_metal_audit, authenticode_chain, dotnet_decompile, "
         f"windows_update_diff, upload_stage, ics_protocol_walk, "
         f"kernel_config_audit, kernel_config_walk, module_reachability_walk, "
-        f"network_exposure_walk). "
+        f"network_exposure_walk, android_posture_walk). "
         f"If you're adding a new state-machine column, also extend this dict "
         f"+ the META-CANARY size expectation."
     )
@@ -117,15 +122,24 @@ def test_walker_reaper_configs_size_lock_matches_firmware_model():
 
 
 def test_walker_reaper_config_count_matches_documented():
-    """Numeric size-lock — 31 walker columns today (documented in
+    """Numeric size-lock — 32 walker columns today (documented in
     walker_registry.py docstring). Drift forces deliberate test edit.
 
-    Last bump: 30 → 31 in C3 network-exposure REACHABILITY-EVIDENCE walker
+    Last bump: 31 → 32 in C4 Android DEPLOYMENT-POSTURE REACHABILITY-EVIDENCE
+    walker 2026-05-29. Adds android_posture_walk_status (the collector that
+    synthesizes the gates_open deployment posture the cve-assessment-framework
+    L4 kill-chain LockdownGate consumes via AndroidAdapter.get_security_posture
+    + get_entry_surfaces; emits runtime_confirmed=false for image-inferred
+    posture so the gate stays OPEN; DUAL-registered — also in
+    STATE_MACHINE_REAPER_CONFIGS, size-lock 14 above, because of the
+    Rule #33 .b result JSONB).
+
+    Prior bump: 30 → 31 in C3 network-exposure REACHABILITY-EVIDENCE walker
     2026-05-29. Adds network_exposure_walk_status (the collector that
     synthesizes the listener → bind-scope → owning-daemon exposure map the
     cve-assessment-framework L4 kill-chain classifier consumes via
     ListenerEntry + network/listeners.json; DUAL-registered — also in
-    STATE_MACHINE_REAPER_CONFIGS, size-lock 13 above, because of the
+    STATE_MACHINE_REAPER_CONFIGS, size-lock 14 above, because of the
     Rule #33 .b result JSONB).
 
     Prior bump: 29 → 30 in C2 module/driver REACHABILITY-EVIDENCE walker
@@ -162,10 +176,10 @@ def test_walker_reaper_config_count_matches_documented():
     """
     from app.workers.walker_registry import WALKER_REAPER_CONFIGS
 
-    assert len(WALKER_REAPER_CONFIGS) == 31, (
+    assert len(WALKER_REAPER_CONFIGS) == 32, (
         f"WALKER_REAPER_CONFIGS has {len(WALKER_REAPER_CONFIGS)} entries; "
-        f"expected exactly 31 (matches the documented walker count in "
-        f"walker_registry.py docstring as of C3 network-exposure "
+        f"expected exactly 32 (matches the documented walker count in "
+        f"walker_registry.py docstring as of C4 android-posture "
         f"walker 2026-05-29). Drift means a walker was added/removed "
         f"without sweeping the size-lock — update the test + the docstring "
         f"together."
