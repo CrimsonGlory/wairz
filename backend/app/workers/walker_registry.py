@@ -341,6 +341,23 @@ STATE_MACHINE_REAPER_CONFIGS: dict[str, WalkerReaperConfig] = {
         finished_at_column="kernel_config_audit_finished_at",
         error_column="kernel_config_audit_error",
     ),
+    # C1 generic kernel-config EXTRACTION walker (2026-05-29). DUAL
+    # REGISTRATION per Scout E + W2-α convergence (same shape as
+    # ``ics_protocol_walk_status`` above): this column ALSO lives in
+    # WALKER_REAPER_CONFIGS below because the ``_walk_status`` suffix makes
+    # ``test_walker_reaper_configs_size_lock_matches_firmware_model``
+    # REQUIRE the WALKER entry; the result-JSONB Rule #33 .b semantics
+    # justify this STATE_MACHINE entry. The reaper sweep applies both
+    # passes; the second is a ~1 ms no-op on a row already reaped by the
+    # first. DISTINCT from kernel_config_audit_status above — C1 is the
+    # upstream EXTRACTION layer, the audit is the downstream KSPP consumer.
+    "kernel_config_walk_status": WalkerReaperConfig(
+        column_name="kernel_config_walk_status",
+        in_progress_states=("queued", "running"),
+        failure_message="Backend restarted; runner state lost",
+        finished_at_column="kernel_config_walk_finished_at",
+        error_column="kernel_config_walk_error",
+    ),
     # ICS protocol catalog walker (Rule #52 instance #3 — Session 2,
     # 2026-05-22). DUAL REGISTRATION per Scout E + W2-α convergence
     # synthesis: this column also lives in WALKER_REAPER_CONFIGS below
@@ -416,7 +433,7 @@ def _walker_reaper(column: str, *, prefix: str | None = None) -> WalkerReaperCon
     )
 
 
-# 28 walker status columns; each Rule #33 .a 5-state with NO grace
+# 29 walker status columns; each Rule #33 .a 5-state with NO grace
 # (operator-triggered in-process work). Per Rule #46 the META-CANARY
 # in tests/test_main_lifespan_reapers.py SIZE-LOCKS this dict and
 # CROSS-CHECKS that EVERY *_walk_status column on the Firmware model
@@ -455,6 +472,15 @@ WALKER_REAPER_CONFIGS: dict[str, WalkerReaperConfig] = {
     # of whether the column ALSO carries Rule #33 .b result JSONB
     # semantics that route it through STATE_MACHINE.
     "ics_protocol_walk_status": _walker_reaper("ics_protocol_walk_status"),
+    # C1 generic kernel-config EXTRACTION walker (2026-05-29). DUAL
+    # REGISTRATION — this column ALSO lives in STATE_MACHINE_REAPER_CONFIGS
+    # above (Rule #33 .b result JSONB). The suffix-introspection check at
+    # test_walker_reaper_configs_size_lock_matches_firmware_model requires
+    # every *_walk_status column here. `_walker_reaper` strips `_walk_status`
+    # → `kernel_config`, correctly deriving kernel_config_walk_finished_at /
+    # kernel_config_walk_error. DISTINCT from the kernel_config_audit_status
+    # entry (upstream extraction vs downstream KSPP audit).
+    "kernel_config_walk_status": _walker_reaper("kernel_config_walk_status"),
     # Q1 Python AST walker — Rule #33 .a 5-state, in-process
     # asyncio.create_task dispatch (ast.parse is pure CPU, no Docker).
     "python_ast_walk_status": _walker_reaper("python_ast_walk_status"),

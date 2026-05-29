@@ -795,6 +795,51 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # kernel_config_walk EXTRACTION walker columns (CLAUDE.md Rule #33
+    # contract). C1 generic kernel-config extraction layer — DISTINCT from
+    # the ``kernel_config_audit_*`` family above.
+    #
+    # The ``kernel_config_audit_*`` columns (just above) are the
+    # DOWNSTREAM KSPP hardening AUDIT (linux_kernel_hardening_walker) that
+    # CONSUMES ``HardwareFirmwareBlob.metadata.kernel_config``. These
+    # ``kernel_config_walk_*`` columns are the UPSTREAM EXTRACTION walker
+    # (``kernel_config_walker.py``) that GUARANTEES that metadata.kernel_config
+    # is populated cross-packaging — Android boot.img v0-v4, A/B OTA
+    # payload.bin CrAU, 6-codec outer-envelope decompress, content-rescan
+    # of carved chunks, and original-upload-archive re-extraction (the
+    # auto-fire-fix: unblob consumes the boot.img kernel bytes without a
+    # carved file, so the walker re-opens the source ZIP read-only). The
+    # walker back-fills metadata.kernel_config (read-modify-write,
+    # preserving kernel_banner / kernel_semver / vendor keys) so the
+    # downstream audit walker fires UNCHANGED on the next pass.
+    #
+    # Ordering contract (Rule #47): the C1 auto-trigger runner is
+    # registered in walker_registry.WALKER_AUTO_TRIGGERS BEFORE
+    # ``auto_kernel_config_audit_firmware_safe`` so the back-fill precedes
+    # the audit read (sequential dispatch in ``_fire_walker_auto_triggers``).
+    #
+    # DS1 Tegra L4T (project d360f8f5-...) + Moto G32 phone (project
+    # 8413d661-..., firmware eed5db82-...) are the reference cases — phone
+    # had 0 kernel-Image blobs in DB (boot.img never classified), so the
+    # downstream audit silently audited nothing; C1's content-rescan +
+    # boot.img re-extract recovers the 4,594-entry .config and back-fills
+    # the blob so the audit fires.
+    kernel_config_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    kernel_config_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    kernel_config_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    kernel_config_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    kernel_config_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     # Phase θ.B.C WMI persistence walker columns (CLAUDE.md Rule #33 contract).
     # Background runner ``run_wmi_walk_background`` opens each WMI
     # OBJECTS.DATA file (typically under ``Windows/System32/wbem/Repository/``
