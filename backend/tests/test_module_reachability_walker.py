@@ -565,3 +565,84 @@ def test_c2_runner_fires_after_c1_kernel_config():
         f"builtin_y_from_config read. Move the C2 runner BELOW "
         f"auto_kernel_config_walk_firmware_safe in WALKER_AUTO_TRIGGERS."
     )
+
+
+# ───────────────────────────────────────────────────────────────────────
+# builtin_y from C1's FIRMWARE-LEVEL aggregate (the re-extracted phone case).
+# ───────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_builtin_y_from_firmware_level_c1_aggregate(tmp_path):
+    """The Moto-G32 phone case: C1 recovered the kernel via the Stage-A ZIP
+    re-extract (source=reextracted_upload, back_filled_blob_id=None), so the
+    4,594-entry config lives ONLY in firmware.kernel_config_walk_result —
+    NOT in any blob.metadata.kernel_config. C2 MUST read the firmware-level
+    aggregate too, else a re-extracted static phone kernel yields
+    builtin_y=[] and static_builtin can't be detected from config.
+
+    0 .ko on disk + =y config from the firmware-level aggregate →
+    static_builtin_posture=True."""
+    from app.models.firmware import Firmware
+    from app.services.jsonb_normalizers import (
+        _stamp_firmware_kernel_config_walk_result,
+        _stamp_firmware_module_reachability_walk_result,
+    )
+
+    root = tmp_path / "rootfs"
+    root.mkdir()  # no .ko, no modules.builtin, NO blob with kernel_config
+
+    async with make_live_db() as db:
+        firmware = Firmware(
+            project_id=uuid.uuid4(),
+            sha256="e" * 64,
+            original_filename="phone3.zip",
+            extracted_path=str(root),
+        )
+        # C1's firmware-level aggregate — kernel recovered via re-extract,
+        # no blob back-filled.
+        firmware.kernel_config_walk_result = (
+            _stamp_firmware_kernel_config_walk_result(
+                {
+                    "kernels": [
+                        {
+                            "source": "reextracted_upload",
+                            "back_filled_blob_id": None,
+                            "config_entries": 3,
+                            "kernel_config": {
+                                "CONFIG_BCMDHD": "y",
+                                "CONFIG_MAC80211": "n",
+                                "CONFIG_EXT4_FS": "y",
+                            },
+                        }
+                    ],
+                    "kernels_extracted_count": 1,
+                }
+            )
+        )
+        db.add(firmware)
+        await db.flush()
+
+        result = await module_reachability_walker._do_module_reachability_run(
+            db, firmware.id
+        )
+        firmware.module_reachability_walk_result = (
+            _stamp_firmware_module_reachability_walk_result(result)
+        )
+        await db.commit()
+
+        from sqlalchemy import select
+
+        reread = (
+            await db.execute(select(Firmware).where(Firmware.id == firmware.id))
+        ).scalar_one()
+        walk = reread.module_reachability_walk_result
+        assert "CONFIG_BCMDHD" in walk["builtin_y_from_config"], (
+            "C2 did NOT read C1's firmware-level kernel_config_walk_result — "
+            "the re-extracted phone kernel's =y config is invisible, so "
+            "static_builtin can't be detected (Rule #47 source-of-truth)."
+        )
+        assert "CONFIG_MAC80211" not in walk["builtin_y_from_config"]
+        assert walk["available_count"] == 0
+        assert walk["static_builtin_posture"] is True
+        assert walk["kernel_posture"] == "static_builtin"

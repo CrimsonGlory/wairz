@@ -88,6 +88,7 @@ from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.services.firmware_paths import get_detection_roots
 from app.services.hardware_firmware.parsers.kmod import KmodParser
 from app.services.jsonb_normalizers import (
+    _normalize_firmware_kernel_config_walk_result,
     _normalize_hardware_firmware_blobs_metadata,
     _stamp_firmware_module_reachability_walk_result,
 )
@@ -475,8 +476,19 @@ async def _do_module_reachability_run(
         ):
             configured_to_load.add(n)
 
-    # ── BUILTIN (=y) from C1's back-filled kernel_config. ──────────────────
+    # ── BUILTIN (=y) from C1's kernel_config. ──────────────────────────────
+    # Read C1's config from BOTH sources (Rule #47 — C1 fires before C2):
+    #   (1) blob.metadata.kernel_config — back-filled when the kernel was an
+    #       on-disk blob (the DS1 Tegra Image case).
+    #   (2) firmware.kernel_config_walk_result.kernels[].kernel_config — the
+    #       FIRMWARE-level aggregate C1 ALWAYS writes, including for kernels
+    #       recovered via the Stage-A ZIP re-extract where there is NO blob
+    #       to back-fill (the Moto-G32 phone case: source=reextracted_upload,
+    #       back_filled_blob_id=None). Without (2), a re-extracted static
+    #       phone kernel yields builtin_y=[] and the static-builtin posture
+    #       cannot be detected from config alone.
     builtin_y: list[str] = []
+    merged_config: dict[str, str] = {}
     blob_rows = (
         await db.execute(
             select(HardwareFirmwareBlob).where(
@@ -484,12 +496,21 @@ async def _do_module_reachability_run(
             )
         )
     ).scalars().all()
-    merged_config: dict[str, str] = {}
     for blob in blob_rows:
         meta = _normalize_hardware_firmware_blobs_metadata(blob.metadata_)
         cfg = meta.get("kernel_config")
         if isinstance(cfg, dict):
             merged_config.update(cfg)
+    # Firmware-level C1 aggregate (the always-populated source of truth).
+    c1_result = _normalize_firmware_kernel_config_walk_result(
+        firmware.kernel_config_walk_result
+    )
+    if c1_result is not None:
+        for kern in c1_result.get("kernels") or []:
+            if isinstance(kern, dict):
+                cfg = kern.get("kernel_config")
+                if isinstance(cfg, dict):
+                    merged_config.update(cfg)
     if merged_config:
         builtin_y = _builtin_y_from_config(merged_config)
 
