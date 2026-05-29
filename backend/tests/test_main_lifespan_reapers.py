@@ -41,18 +41,22 @@ def _main_py_source() -> str:
 
 
 def test_state_machine_reaper_configs_size_lock():
-    """STATE_MACHINE_REAPER_CONFIGS pinned at EXACTLY 11 entries.
+    """STATE_MACHINE_REAPER_CONFIGS pinned at EXACTLY 12 entries.
 
-    11 entries today: cve_match_status, vuln_scan_status, sbom_status,
+    12 entries today: cve_match_status, vuln_scan_status, sbom_status,
     bare_metal_audit_status, authenticode_chain_status,
     dotnet_decompile_status, windows_update_diff_status, upload_stage,
     ics_protocol_walk_status, kernel_config_audit_status (Rule #45 KSPP
     walker — Linux kernel hardening audit; 10th state-machine column
-    landed 2026-05-22 alongside the kernel_image parser), and
+    landed 2026-05-22 alongside the kernel_image parser),
     kernel_config_walk_status (C1 generic kernel-config EXTRACTION
     walker — 11th state-machine column landed 2026-05-29; DUAL-registered
     here because of the Rule #33 .b result JSONB AND below in
-    WALKER_REAPER_CONFIGS because of the ``_walk_status`` suffix).
+    WALKER_REAPER_CONFIGS because of the ``_walk_status`` suffix), and
+    module_reachability_walk_status (C2 module/driver REACHABILITY-EVIDENCE
+    walker — 12th state-machine column landed 2026-05-29; DUAL-registered
+    for the same reasons; produces the loaded/available/builtin module
+    evidence the cve-assessment-framework L4 classifier consumes).
 
     Drift forces a deliberate test edit + postmortem note (Rule #48
     Part 3 size-lock discipline; W2-β §SC5-NEW-SBOM-S2-SEAM-B
@@ -61,14 +65,14 @@ def test_state_machine_reaper_configs_size_lock():
     """
     from app.workers.walker_registry import STATE_MACHINE_REAPER_CONFIGS
 
-    assert len(STATE_MACHINE_REAPER_CONFIGS) == 11, (
+    assert len(STATE_MACHINE_REAPER_CONFIGS) == 12, (
         f"STATE_MACHINE_REAPER_CONFIGS has {len(STATE_MACHINE_REAPER_CONFIGS)} "
-        f"entries; expected exactly 11 (cve_match, vuln_scan, sbom, "
+        f"entries; expected exactly 12 (cve_match, vuln_scan, sbom, "
         f"bare_metal_audit, authenticode_chain, dotnet_decompile, "
         f"windows_update_diff, upload_stage, ics_protocol_walk, "
-        f"kernel_config_audit, kernel_config_walk). If you're adding a "
-        f"new state-machine column, also extend this dict + the "
-        f"META-CANARY size expectation."
+        f"kernel_config_audit, kernel_config_walk, module_reachability_walk). "
+        f"If you're adding a new state-machine column, also extend this dict "
+        f"+ the META-CANARY size expectation."
     )
 
 
@@ -108,14 +112,22 @@ def test_walker_reaper_configs_size_lock_matches_firmware_model():
 
 
 def test_walker_reaper_config_count_matches_documented():
-    """Numeric size-lock — 29 walker columns today (documented in
+    """Numeric size-lock — 30 walker columns today (documented in
     walker_registry.py docstring). Drift forces deliberate test edit.
 
-    Last bump: 28 → 29 in C1 generic kernel-config EXTRACTION walker
+    Last bump: 29 → 30 in C2 module/driver REACHABILITY-EVIDENCE walker
+    2026-05-29. Adds module_reachability_walk_status (the collector that
+    produces the loaded-vs-available-vs-BUILTIN module evidence the
+    cve-assessment-framework L4 kill-chain classifier consumes via
+    ModuleEntry.builtin + kernel/builtin_modules.json; DUAL-registered —
+    also in STATE_MACHINE_REAPER_CONFIGS, size-lock 12 above, because of
+    the Rule #33 .b result JSONB).
+
+    Prior bump: 28 → 29 in C1 generic kernel-config EXTRACTION walker
     2026-05-29. Adds kernel_config_walk_status (the UPSTREAM extraction
     layer that guarantees metadata.kernel_config cross-packaging so the
     DOWNSTREAM kernel_config_audit walker fires; DUAL-registered — also
-    in STATE_MACHINE_REAPER_CONFIGS, size-lock 11 above, because of the
+    in STATE_MACHINE_REAPER_CONFIGS, size-lock 12 above, because of the
     Rule #33 .b result JSONB).
 
     Prior bump: 26 → 28 in Q1 Python AST + Q2 ds1qrsetup_callgraph
@@ -137,10 +149,10 @@ def test_walker_reaper_config_count_matches_documented():
     """
     from app.workers.walker_registry import WALKER_REAPER_CONFIGS
 
-    assert len(WALKER_REAPER_CONFIGS) == 29, (
+    assert len(WALKER_REAPER_CONFIGS) == 30, (
         f"WALKER_REAPER_CONFIGS has {len(WALKER_REAPER_CONFIGS)} entries; "
-        f"expected exactly 29 (matches the documented walker count in "
-        f"walker_registry.py docstring as of C1 kernel-config extraction "
+        f"expected exactly 30 (matches the documented walker count in "
+        f"walker_registry.py docstring as of C2 module-reachability "
         f"walker 2026-05-29). Drift means a walker was added/removed "
         f"without sweeping the size-lock — update the test + the docstring "
         f"together."

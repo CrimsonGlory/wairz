@@ -840,6 +840,43 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # C2 module/driver REACHABILITY-EVIDENCE walker columns (CLAUDE.md
+    # Rule #33 .a 5-state contract; migration ``a6b7c8d9e0f1``, 2026-05-29).
+    #
+    # C2 produces the loaded-vs-available-vs-BUILTIN module evidence the
+    # cve-assessment-framework L4 kill-chain classifier consumes
+    # (``ModuleEntry.builtin`` + ``kernel/builtin_modules.json``). The
+    # walker enumerates the AVAILABLE ``.ko`` set on disk, the depmod
+    # ``modules.builtin`` set, the configured-to-load set, and reads C1's
+    # back-filled ``metadata.kernel_config`` for the ``builtin_y_from_config``
+    # axis. It detects the "static-builtin posture" (0 ``.ko`` on disk +
+    # drivers ``=y``) where the BUILTIN set IS the reachability axis (the
+    # Moto-G32 phone case — firmware eed5db82, 0 ``.ko`` + monolithic
+    # kernel). DISTINCT from kernel_config_walk_* (C1 — the upstream config
+    # extraction layer C2 consumes).
+    #
+    # PARSE-ONLY (Rule #45): the walker reads ``.ko`` modinfo + the depmod
+    # text files AS DATA; it NEVER ``insmod``/``modprobe``/spawns. Rule #35c
+    # normaliser pair + ``FIRMWARE_MODULE_REACHABILITY_WALK_RESULT_SCHEMA_VERSION``
+    # land in the jsonb_normalizers commit. The CHECK constraint
+    # ``ck_firmware_module_reachability_walk_status`` is enforced at the DB
+    # layer via the migration (not __table_args__).
+    module_reachability_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    module_reachability_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    module_reachability_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    module_reachability_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    module_reachability_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     # Phase θ.B.C WMI persistence walker columns (CLAUDE.md Rule #33 contract).
     # Background runner ``run_wmi_walk_background`` opens each WMI
     # OBJECTS.DATA file (typically under ``Windows/System32/wbem/Repository/``
