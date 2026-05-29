@@ -95,6 +95,9 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
     from app.services.module_reachability_walker import (
         auto_module_reachability_walk_firmware_safe,
     )
+    from app.services.network_exposure_walker import (
+        auto_network_exposure_walk_firmware_safe,
+    )
     from app.services.prefetch_walker import (
         auto_walk_firmware_safe as prefetch_auto_walk,
     )
@@ -245,6 +248,18 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
         auto_journald_walk_firmware_safe,
         auto_linux_persistence_walk_firmware_safe,
         auto_systemd_walk_firmware_safe,
+        # C3 network-exposure REACHABILITY-EVIDENCE walker (2026-05-29).
+        # ORDER-INDEPENDENT of C1/C2 — C3 reads no other walker's output; it
+        # synthesizes the listener → bind-scope → owning-daemon exposure map
+        # straight from the config tree. Placed near the systemd walker
+        # (which it complements — it re-reads .socket ListenStream parsing).
+        # Produces the listener bind-scope evidence the
+        # cve-assessment-framework L4 kill-chain classifier consumes
+        # (ListenerEntry + network/listeners.json) to tell a kill-chain HEAD
+        # (remote-bound daemon) from a post-foothold link (loopback-only).
+        # Status stays 'idle' per Rule #39 .safe so operator re-triggers via
+        # trigger_network_exposure_walk don't 409.
+        auto_network_exposure_walk_firmware_safe,
     ]
 
 
