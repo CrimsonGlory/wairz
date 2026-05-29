@@ -92,6 +92,9 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
         auto_memory_image_enumeration_safe,
     )
     from app.services.mft_walker import auto_mft_walk_firmware_safe
+    from app.services.module_reachability_walker import (
+        auto_module_reachability_walk_firmware_safe,
+    )
     from app.services.prefetch_walker import (
         auto_walk_firmware_safe as prefetch_auto_walk,
     )
@@ -172,6 +175,22 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
         # Reads metadata.kernel_config — which C1 (above) guarantees is
         # populated cross-packaging.
         auto_kernel_config_audit_firmware_safe,
+        # C2 module/driver REACHABILITY-EVIDENCE walker (2026-05-29). MUST
+        # fire AFTER auto_kernel_config_walk_firmware_safe above (Rule #47
+        # ordering) — C2 reads C1's back-filled metadata.kernel_config for
+        # the builtin_y_from_config axis (the =y driver symbols). Placed
+        # after the audit so BOTH the C1 extraction back-fill AND the audit
+        # have run. Sequential dispatch in `_fire_walker_auto_triggers` +
+        # `_run_hardware_firmware_detection_safe` guarantees this ordering
+        # (same precedent as memory_image_enumerator → windows_info).
+        # Asserted by test_module_reachability_walker_ordering.py::
+        # test_c2_runner_fires_after_c1_kernel_config. Produces the
+        # loaded/available/builtin 3-way diff the cve-assessment-framework
+        # L4 kill-chain classifier consumes (ModuleEntry.builtin +
+        # kernel/builtin_modules.json). Status stays 'idle' per Rule #39
+        # .safe so operator re-triggers via trigger_module_reachability_walk
+        # don't 409.
+        auto_module_reachability_walk_firmware_safe,
         auto_lnk_walk_firmware_safe,
         auto_mbr_vbr_walk_firmware_safe,
         # λ.α.B — memory-dump-image enumerator (metadata only; no Vol3

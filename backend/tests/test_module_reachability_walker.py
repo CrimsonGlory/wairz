@@ -518,3 +518,50 @@ def test_classify_posture_table(
     )
     assert posture == expected_posture
     assert static is expected_static
+
+
+# ───────────────────────────────────────────────────────────────────────
+# Rule #47 — registry registration + ordering (C2 fires AFTER C1).
+# ───────────────────────────────────────────────────────────────────────
+
+
+def test_c2_runner_registered_in_walker_auto_triggers():
+    """The C2 safe-runner MUST be registered in WALKER_AUTO_TRIGGERS — else
+    it never auto-fires post-detection and module_reachability_walk_status
+    stays 'idle' forever (Rule #47 orphan-state trap, the exact 847eae9
+    consumer-orphan failure mode)."""
+    from app.workers.walker_registry import get_walker_auto_triggers
+
+    runners = get_walker_auto_triggers()
+    assert (
+        module_reachability_walker.auto_module_reachability_walk_firmware_safe
+        in runners
+    ), (
+        "auto_module_reachability_walk_firmware_safe is NOT registered in "
+        "WALKER_AUTO_TRIGGERS — the C2 walker will never auto-fire "
+        "post-detection (Rule #47 orphan-state trap)."
+    )
+
+
+def test_c2_runner_fires_after_c1_kernel_config():
+    """Rule #47 consumer-hook ordering — C2 reads C1's back-filled
+    metadata.kernel_config for the builtin_y_from_config axis, so C2's index
+    MUST be > C1's auto_kernel_config_walk_firmware_safe index in the
+    sequentially-dispatched registry list."""
+    from app.services import kernel_config_walker
+    from app.workers.walker_registry import get_walker_auto_triggers
+
+    runners = get_walker_auto_triggers()
+    c1_idx = runners.index(
+        kernel_config_walker.auto_kernel_config_walk_firmware_safe
+    )
+    c2_idx = runners.index(
+        module_reachability_walker.auto_module_reachability_walk_firmware_safe
+    )
+    assert c2_idx > c1_idx, (
+        f"C2 module-reachability runner (index {c2_idx}) MUST fire AFTER the "
+        f"C1 kernel_config extraction runner (index {c1_idx}) so C1's "
+        f"metadata.kernel_config back-fill precedes C2's "
+        f"builtin_y_from_config read. Move the C2 runner BELOW "
+        f"auto_kernel_config_walk_firmware_safe in WALKER_AUTO_TRIGGERS."
+    )
