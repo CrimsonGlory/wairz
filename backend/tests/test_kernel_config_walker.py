@@ -225,9 +225,10 @@ def _build_gzipped_kernel(vmlinux: bytes) -> bytes:
 
 
 def _build_boot_image_v3(kernel_bytes: bytes) -> bytes:
+    # v3 layout: kernel_size@8 (verified against the real Moto G32 boot.img).
     hdr = bytearray(4096)
     hdr[0:8] = b"ANDROID!"
-    struct.pack_into("<I", hdr, 12, len(kernel_bytes))
+    struct.pack_into("<I", hdr, 8, len(kernel_bytes))
     struct.pack_into("<I", hdr, 40, 3)
     return bytes(hdr) + kernel_bytes
 
@@ -521,6 +522,54 @@ async def test_stage_f_banner_only_degrades_no_backfill(tmp_path):
         assert banner_kernel["ikconfig_present"] is False
         assert banner_kernel["back_filled_blob_id"] is None
         assert result["kernels_extracted_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_bare_image_deep_scan_recovers_ikconfig(tmp_path):
+    """A bare uncompressed kernel named ``Image`` with IKCFG markers
+    MB-deep (NO envelope magic at offset 0, NO IKCFG/banner in the first
+    64 KB head) is recovered via the FILENAME-GATED deep scan — the DS1
+    Tegra L4T case (bare arm64 Image, 5,293 entries). Without the
+    filename-gated full read, the 64 KB head-scan misses it."""
+    from app.models.firmware import Firmware
+
+    # Build a bare vmlinux with the IKCFG payload pushed PAST the 64 KB
+    # head window so only the deep scan can find it.
+    inner = io.BytesIO()
+    with gzip.GzipFile(fileobj=inner, mode="wb") as gz:
+        gz.write(_SAMPLE_CONFIG.encode())
+    deep_padding = b"\x00" * (128 * 1024)  # 128 KB > _HEAD_BYTES (64 KB)
+    bare_image = (
+        b"ARMd" + b"\x00" * 60  # arm64-Image-ish head (no envelope magic)
+        + deep_padding
+        + b"Linux version 4.9.140-tegra (buildbrain@host) #1 SMP\x00"
+        + _kernel_ikconfig.IKCFG_ST + inner.getvalue() + _kernel_ikconfig.IKCFG_ED
+        + b"\x00" * 32
+    )
+    root = tmp_path / "kernel"
+    root.mkdir()
+    (root / "Image").write_bytes(bare_image)  # filename triggers deep scan
+
+    async with make_live_db() as db:
+        firmware = Firmware(
+            project_id=uuid.uuid4(),
+            sha256="9" * 64,
+            original_filename="ds1.tar.gz",
+            extracted_path=str(root),
+        )
+        db.add(firmware)
+        await db.flush()
+        result = await kernel_config_walker._do_kernel_config_run(db, firmware.id)
+        recovered = next(
+            (k for k in result["kernels"] if k["extraction_status"] == "ok"), None
+        )
+        assert recovered is not None, (
+            f"filename-gated deep scan FAILED to recover the bare Image's "
+            f"deep IKCFG; got {result['kernels']!r}"
+        )
+        assert recovered["config_entries"] > 0
+        assert recovered["kernel_config"].get("CONFIG_DEVMEM") == "y"
+        assert recovered["compression"] == "none"
 
 
 # ───────────────────────────────────────────────────────────────────────

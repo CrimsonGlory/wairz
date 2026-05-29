@@ -69,13 +69,14 @@ def _build_ikconfig_vmlinux(config_text: str) -> bytes:
 def _build_boot_image_v3(kernel_bytes: bytes, os_version_packed: int = 0) -> bytes:
     """Build a synthetic Android boot.img v3 with an embedded kernel slice.
 
-    v3 layout: magic@0, kernel_size@12, os_version@20, header_version@40.
-    Kernel begins at fixed page offset 4096.
+    v3 layout: magic@0, kernel_size@8, ramdisk_size@12, os_version@16,
+    header_version@40. Kernel begins at fixed page offset 4096. (Offsets
+    verified against the real Moto G32 boot.img during real-data validation.)
     """
     hdr = bytearray(4096)
     hdr[0:8] = b"ANDROID!"
-    struct.pack_into("<I", hdr, 12, len(kernel_bytes))  # kernel_size
-    struct.pack_into("<I", hdr, 20, os_version_packed)  # os_version
+    struct.pack_into("<I", hdr, 8, len(kernel_bytes))  # kernel_size
+    struct.pack_into("<I", hdr, 16, os_version_packed)  # os_version
     struct.pack_into("<I", hdr, 40, 3)  # header_version
     return bytes(hdr) + kernel_bytes
 
@@ -165,18 +166,17 @@ def test_stage_b_boot_v3_parse_and_carve():
 
 def test_stage_b_boot_v3_phone_reference_geometry():
     """Moto G32 phone (A-phone-ikconfig-result.md §2): v3, kernel_size
-    14,873,776, kernel at offset 4096, os_version → 11.0.0 / 2023-02."""
-    # AOSP packed os_version for 11.0.0 + 2023-02:
-    #   version = (11<<14)|(0<<7)|0 = 180224 ; patch = (2023-2000)*12+(2-1)=277
-    #   packed = (version<<11)|patch
-    packed = ((11 << 14) << 11) | (((2023 - 2000) * 12 + (2 - 1)))
-    # Use a small placeholder kernel but assert the parsed size field.
+    14,873,776 (@8), os_version (@16, packed 369099122) → 11.0.0 / 2023-02.
+    The packed os_version value is taken VERBATIM from the real boot.img
+    (confirmed during real-data validation)."""
+    # Real packed os_version from the Moto G32 boot.img header @16.
+    packed = 369099122  # → 11.0.0 + 2023-02 (AOSP (year-2000)<<4|month)
     fake_kernel = b"\x1f\x8b" + b"\x00" * 100  # gzip-magic head
     hdr = bytearray(4096)
     hdr[0:8] = b"ANDROID!"
-    struct.pack_into("<I", hdr, 12, 14873776)  # the real phone kernel_size
-    struct.pack_into("<I", hdr, 20, packed)
-    struct.pack_into("<I", hdr, 40, 3)
+    struct.pack_into("<I", hdr, 8, 14873776)  # the real phone kernel_size @8
+    struct.pack_into("<I", hdr, 16, packed)  # os_version @16
+    struct.pack_into("<I", hdr, 40, 3)  # header_version
     img = bytes(hdr) + fake_kernel
     layout = parse_boot_image(img)
     assert layout is not None

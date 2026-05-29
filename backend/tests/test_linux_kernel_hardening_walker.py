@@ -162,16 +162,30 @@ def test_kspp_rule_sources_align_with_pydantic_literal() -> None:
     # dynamically (upstream kernel-hardening-checker catalogue).
     rule_sources.add(_KSPP_EXTENDED_FINDING.finding_source)
 
+    # The KernelConfigFindingSource Literal is SHARED across two walkers:
+    # the KSPP hardening AUDIT walker (this module — rule_sources above) AND
+    # the C1 generic kernel-config EXTRACTION walker
+    # (kernel_config_walker.py), which emits the ONE structural source
+    # ``kernel_config_extraction_blocked`` for the BLOCKED ff12d941 path.
+    # That source is NOT a KSPP rule, so exclude it from this KSPP-walker
+    # alignment check (it has its own emit + DB CHECK + frontend mirror
+    # via the f4a5b6c7d8e9 cross-stack-alignment commit).
+    c1_extraction_sources = {"kernel_config_extraction_blocked"}
+
     assert rule_sources <= literal_values, (
         f"walker emits sources NOT in KernelConfigFindingSource Literal: "
         f"{rule_sources - literal_values}"
     )
     # Conversely — confirm we don't have orphan Literal values that no
     # rule emits.  This catches stale finding_source declarations that
-    # got the DB CHECK extension but no walker rule was wired.
-    assert literal_values <= rule_sources, (
-        f"Literal values with NO walker rule emitting them: "
-        f"{literal_values - rule_sources}"
+    # got the DB CHECK extension but no walker rule was wired. The C1
+    # extraction sources are emitted by kernel_config_walker, not this
+    # KSPP audit walker, so they're expected on the Literal but absent
+    # from rule_sources.
+    orphans = literal_values - rule_sources - c1_extraction_sources
+    assert not orphans, (
+        f"Literal values with NO walker rule emitting them (and not a "
+        f"known C1 extraction source): {orphans}"
     )
 
 

@@ -11,7 +11,9 @@ artefact. It is consumed directly by ``kernel_config_walker`` (NOT
 registered as a classifier FORMAT parser — the walker finds boot images
 by content-rescan, not by filename classification).
 
-Header layout reference (AOSP ``system/tools/mkbootimg/include/bootimg/bootimg.h``):
+Header layout reference (AOSP ``system/tools/mkbootimg/include/bootimg/bootimg.h``).
+Offsets VERIFIED against the real Moto G32 boot.img during the C1
+real-data validation (2026-05-29) — see the note below.
 
 * **v0/v1/v2** (``boot_img_hdr_v0``): magic@0 (8 bytes), ``kernel_size``@8
   (u32 LE), ``kernel_addr``@12, ``ramdisk_size``@16, ..., ``page_size``@36
@@ -19,16 +21,23 @@ Header layout reference (AOSP ``system/tools/mkbootimg/include/bootimg/bootimg.h
   The kernel begins at the first page boundary AFTER the header
   (``page_size``), i.e. ``kernel_offset = page_size``.
 
-* **v3/v4** (``boot_img_hdr_v3``): magic@0 (8 bytes), ``kernel_size``@12
-  (u32 LE), ``ramdisk_size``@16, ``os_version``@20 (u32 LE),
-  ``header_size``@24, ``reserved``..., ``header_version``@40 (u32 LE).
+* **v3/v4** (``boot_img_hdr_v3``): magic@0 (8 bytes), ``kernel_size``@8
+  (u32 LE), ``ramdisk_size``@12, ``os_version``@16 (u32 LE),
+  ``header_size``@20, ``reserved``..., ``header_version``@40 (u32 LE).
   ``page_size`` is FIXED at 4096 in v3/v4 (the field was removed). The
   kernel begins at offset 4096 (one 4096-byte page for the header).
+  NB: ``kernel_size`` is at @8 in BOTH layouts — the v3 ``boot_img_hdr_v3``
+  reorders the LATER fields but keeps ``kernel_size`` first.
 
-Moto G32 phone reference (``A-phone-ikconfig-result.md`` §2 / §3): v3
-header, ``kernel_size=14,873,776``, kernel at offset 4096,
-``os_version`` decodes to Android ``11.0.0`` + security patch ``2023-02``.
-This parser MUST reproduce those exactly.
+``os_version`` packing (AOSP mkbootimg): top 25 bits = ``((a<<14)|(b<<7)|c)
+<< 11`` (the A.B.C release), low 11 bits = ``((year-2000)<<4) | month``
+(7-bit year offset, 4-bit month).
+
+Moto G32 phone reference (``A-phone-ikconfig-result.md`` §2 / §3, CONFIRMED
+against the real boot.img): v3 header, ``kernel_size=14,873,776`` (@8),
+``ramdisk_size=12,430,826`` (@12), kernel at offset 4096, ``os_version``
+(@16, packed ``369099122``) decodes to Android ``11.0.0`` + security patch
+``2023-02``. This parser reproduces those exactly.
 """
 from __future__ import annotations
 
@@ -84,9 +93,13 @@ def _decode_os_version(packed: int) -> tuple[str | None, str | None]:
         a = (version >> 14) & 0x7F
         b = (version >> 7) & 0x7F
         c = version & 0x7F
-        patch = packed & 0x7FF
-        year = 2000 + (patch // 12)
-        month = (patch % 12) + 1
+        # AOSP patch packing: low 11 bits = ((year-2000) << 4) | month
+        # (7-bit year offset, 4-bit month) — NOT (year-2000)*12 + month.
+        # Verified against the Moto G32 boot.img (packed 369099122 →
+        # patch_field 370 → 2023-02).
+        patch_field = packed & 0x7FF
+        year = 2000 + (patch_field >> 4)
+        month = patch_field & 0xF
         os_version = f"{a}.{b}.{c}"
         # Guard against obviously-bogus decodes (e.g. month 0 / huge year).
         if not (2000 <= year <= 2100) or not (1 <= month <= 12):
@@ -124,10 +137,10 @@ def parse_boot_image(data: bytes) -> BootImageLayout | None:
         return None
 
     if header_version >= 3:
-        # v3/v4 layout.
+        # v3/v4 layout: kernel_size@8, ramdisk_size@12, os_version@16.
         try:
-            (kernel_size,) = struct.unpack_from("<I", data, 12)
-            (os_version_packed,) = struct.unpack_from("<I", data, 20)
+            (kernel_size,) = struct.unpack_from("<I", data, 8)
+            (os_version_packed,) = struct.unpack_from("<I", data, 16)
         except struct.error:
             return None
         page_size = _DEFAULT_PAGE_SIZE

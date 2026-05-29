@@ -157,6 +157,24 @@ def _is_boot_img_entry(name: str) -> bool:
     return base == "boot.img" or (base.startswith("boot") and base.endswith(".img"))
 
 
+def _is_kernel_image_filename(path: str) -> bool:
+    """Filename heuristic for a BARE on-disk kernel image (Image / zImage /
+    uImage / vmlinux / vmlinuz). A bare uncompressed arm64 ``Image`` has NO
+    envelope magic at offset 0 and its IKCFG / banner markers are MB-deep —
+    the 64 KB head-scan misses them. For these filename-matched candidates
+    ONLY we do a bounded FULL read + deep IKCFG/banner scan (the same shape
+    the existing ``kernel_image`` parser uses). Filename-gated so we don't
+    full-read every large binary in the tree.
+
+    Mirrors the firmware_patterns.yaml classifier filenames the existing
+    parser dispatches on (zImage / uImage / vmlinuz / Image) + vmlinux.
+    """
+    base = os.path.basename(path).lower()
+    return base in ("image", "zimage", "uimage", "vmlinux") or base.startswith(
+        ("vmlinuz", "zimage", "uimage", "vmlinux")
+    )
+
+
 # ── Sync filesystem helpers (Rule #5 — wrapped in run_in_executor). ─────────
 
 
@@ -552,6 +570,30 @@ async def _dispatch_candidate(
             return None
         record = _build_kernel_record_from_vmlinux(
             data, cand_path, "named_image", "none",
+        )
+        if record["extraction_status"] in ("ok", "fallback_banner_only"):
+            return record
+        return None
+
+    # ── Filename-gated deep scan for a BARE on-disk kernel Image. ─────────
+    # A bare uncompressed arm64 ``Image`` (DS1 Tegra L4T case) has no head
+    # signature — its IKCFG / banner markers are MB-deep. Read the full
+    # image (bounded) + scan ONLY when the filename matches a kernel-image
+    # pattern, so we don't full-read every large binary in the tree.
+    if _is_kernel_image_filename(cand_path):
+        data = await loop.run_in_executor(
+            None, _read_full_sync, cand_path, _MAX_KERNEL_BYTES,
+        )
+        if data is None:
+            return None
+        # The bare Image may itself be an OUTER-compressed kernel (some
+        # vendors gzip the Image). decompress_kernel returns (data,"none")
+        # for a bare image, so this covers both.
+        vmlinux, codec = decompress_kernel(data)
+        if not vmlinux:
+            return None
+        record = _build_kernel_record_from_vmlinux(
+            vmlinux, cand_path, "named_image", codec,
         )
         if record["extraction_status"] in ("ok", "fallback_banner_only"):
             return record
