@@ -4585,3 +4585,82 @@ def _stamp_firmware_ics_protocol_walk_result(payload: dict) -> dict:
     payload["schema_version"] = FIRMWARE_ICS_PROTOCOL_WALK_RESULT_SCHEMA_VERSION
     payload["provenance"] = "walker"
     return payload
+
+
+# ── firmware.kernel_config_walk_result (C1 kernel-config EXTRACTION) ────────
+#
+# Aggregate of a single ``kernel_config_walker`` run against a firmware's
+# detection roots. C1 is the UPSTREAM generic kernel-config EXTRACTION
+# layer — distinct from ``kernel_config_audit_result`` (the DOWNSTREAM KSPP
+# hardening audit owned by ``linux_kernel_hardening_walker``). C1 guarantees
+# ``HardwareFirmwareBlob.metadata.kernel_config`` is populated cross-packaging
+# (Android boot.img v0-v4, A/B OTA payload.bin CrAU, 6-codec outer-envelope
+# decompress, content-rescan, original-archive re-extraction) and back-fills
+# the blob metadata so the downstream audit walker fires UNCHANGED.
+#
+# Canonical shape (every key is load-bearing — the cve-assessment-framework
+# reads kernel_config for Gate-1 config_disabled exactly as DS1's
+# profiles/ds1/kernel/config.json is consumed):
+#
+#   {
+#     "schema_version": 1,
+#     "provenance": "walker",                  # SISTER-KEY; MCP get_* +
+#                                              # cross-firmware consumers gate
+#                                              # on provenance == "walker".
+#     "walked_at": "<ISO-8601 UTC>",
+#     "kernels": list[dict],                   # per-kernel record:
+#                                              #   {blob_path, source, banner,
+#                                              #    kernel_semver, arch,
+#                                              #    compression, ikconfig_present,
+#                                              #    config_entries, config_stats,
+#                                              #    kernel_config, module_mode,
+#                                              #    extraction_status,
+#                                              #    blocked_reason, recommendation,
+#                                              #    back_filled_blob_id}
+#     "fallback_evidence": dict,               # {defconfig_files, live_device_recommended}
+#     "kernels_found_count": int,
+#     "kernels_extracted_count": int,
+#     "kernels_blocked_count": int,
+#     "findings_emitted_count": int,
+#     "errors": list[str],
+#   }
+#
+# Rule #36 + Rule #45 parse-only contract: the walker reads + decompresses
+# the kernel AS DATA; it NEVER passes any extracted kernel to a spawn
+# primitive. Test gate ``test_kernel_config_walker.py::test_walker_no_execute_no_decrypt``
+# enforces via tokenize-walk over the walker + parser/decompress sources;
+# Rule #46 paired META-CANARY confirms the gate fires on synthetic violations.
+
+FIRMWARE_KERNEL_CONFIG_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_kernel_config_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.kernel_config_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed extraction-walk
+    run yet". Wrong-typed values (list / str / int from hand-edited or
+    legacy rows) collapse to ``None``. The walker writes via the
+    ``_stamp_*`` companion which enforces the ``schema_version`` +
+    ``provenance: "walker"`` sister-key contract. Mirrors
+    ``_normalize_firmware_ics_protocol_walk_result``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_kernel_config_walk_result(payload: dict) -> dict:
+    """Stamp ``schema_version`` + ``provenance: "walker"`` onto a writer
+    payload for ``Firmware.kernel_config_walk_result``. Idempotent.
+
+    The ``provenance`` SISTER-KEY mirrors the ICS pattern: downstream
+    consumers (the cve-assessment-framework export step, the MCP
+    ``get_kernel_config_extraction`` tool) gate on ``provenance ==
+    "walker"`` + ``schema_version == 1`` before trusting the kernel_config
+    dict for Gate-1 attribution. The walker writes the JSONB EXCLUSIVELY
+    through this stamp.
+    """
+    payload["schema_version"] = FIRMWARE_KERNEL_CONFIG_WALK_RESULT_SCHEMA_VERSION
+    payload["provenance"] = "walker"
+    return payload

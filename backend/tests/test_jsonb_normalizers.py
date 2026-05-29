@@ -5291,3 +5291,117 @@ def test_stamp_firmware_ics_protocol_walk_result_overwrites_hostile_provenance()
         "§SC5-NEW-ICS-S2-1 mitigation. A descriptor route MUST NOT be able "
         "to claim walker provenance via JSONB pre-seed."
     )
+
+
+# ---------------------------------------------------------------------------
+# firmware.kernel_config_walk_result (C1 generic kernel-config EXTRACTION
+# walker, 2026-05-29) — UPSTREAM extraction layer distinct from
+# kernel_config_audit_result (downstream KSPP audit).
+# ---------------------------------------------------------------------------
+
+
+from app.services.jsonb_normalizers import (  # noqa: E402
+    FIRMWARE_KERNEL_CONFIG_WALK_RESULT_SCHEMA_VERSION,
+    _normalize_firmware_kernel_config_walk_result,
+    _stamp_firmware_kernel_config_walk_result,
+)
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical pass-through — a populated phone-shape aggregate.
+        (
+            {
+                "schema_version": 1,
+                "provenance": "walker",
+                "walked_at": "2026-05-29T09:00:00+00:00",
+                "kernels": [
+                    {
+                        "blob_path": "boot.img->kernel",
+                        "source": "android_boot_v3",
+                        "kernel_semver": "4.19.157",
+                        "arch": "arm64",
+                        "compression": "gzip",
+                        "ikconfig_present": True,
+                        "config_entries": 4594,
+                        "kernel_config": {"CONFIG_MAC80211": "n"},
+                        "extraction_status": "ok",
+                        "back_filled_blob_id": None,
+                    }
+                ],
+                "fallback_evidence": {
+                    "defconfig_files": [],
+                    "live_device_recommended": False,
+                },
+                "kernels_found_count": 1,
+                "kernels_extracted_count": 1,
+                "kernels_blocked_count": 0,
+                "findings_emitted_count": 0,
+                "errors": [],
+            },
+            {
+                "schema_version": 1,
+                "provenance": "walker",
+                "walked_at": "2026-05-29T09:00:00+00:00",
+                "kernels": [
+                    {
+                        "blob_path": "boot.img->kernel",
+                        "source": "android_boot_v3",
+                        "kernel_semver": "4.19.157",
+                        "arch": "arm64",
+                        "compression": "gzip",
+                        "ikconfig_present": True,
+                        "config_entries": 4594,
+                        "kernel_config": {"CONFIG_MAC80211": "n"},
+                        "extraction_status": "ok",
+                        "back_filled_blob_id": None,
+                    }
+                ],
+                "fallback_evidence": {
+                    "defconfig_files": [],
+                    "live_device_recommended": False,
+                },
+                "kernels_found_count": 1,
+                "kernels_extracted_count": 1,
+                "kernels_blocked_count": 0,
+                "findings_emitted_count": 0,
+                "errors": [],
+            },
+        ),
+        ({}, {}),
+        # Defensive coercion — None preserved; wrong-types collapse to None.
+        (None, None),
+        ([{"a": 1}], None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_kernel_config_walk_result(value, expected):
+    assert _normalize_firmware_kernel_config_walk_result(value) == expected
+
+
+def test_stamp_firmware_kernel_config_walk_result_adds_version():
+    out = _stamp_firmware_kernel_config_walk_result({"kernels_found_count": 0})
+    assert out["schema_version"] == FIRMWARE_KERNEL_CONFIG_WALK_RESULT_SCHEMA_VERSION
+
+
+def test_stamp_firmware_kernel_config_walk_result_idempotent():
+    once = _stamp_firmware_kernel_config_walk_result({"kernels_found_count": 0})
+    twice = _stamp_firmware_kernel_config_walk_result(once)
+    assert once == twice
+
+
+def test_firmware_kernel_config_walk_result_schema_version_constant():
+    assert FIRMWARE_KERNEL_CONFIG_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+def test_stamp_firmware_kernel_config_walk_result_enforces_provenance_walker():
+    """Every walker-side stamp emits ``provenance: "walker"`` so the MCP
+    get_kernel_config_extraction + cve-assessment-framework export consumers
+    can gate attribution. Mirrors the ICS sister-provenance gate."""
+    out = _stamp_firmware_kernel_config_walk_result({"kernels_found_count": 0})
+    assert out["provenance"] == "walker", (
+        "_stamp_firmware_kernel_config_walk_result MUST stamp "
+        "provenance='walker' — sister-key gate for downstream consumers."
+    )
