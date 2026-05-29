@@ -203,6 +203,7 @@ async def make_live_db() -> AsyncIterator[AsyncSession]:
         analysis_cache,
         finding,
         firmware,
+        hardware_firmware,
         memory_dump_image,
         project,
         sbom,
