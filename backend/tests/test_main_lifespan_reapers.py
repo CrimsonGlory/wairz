@@ -41,9 +41,9 @@ def _main_py_source() -> str:
 
 
 def test_state_machine_reaper_configs_size_lock():
-    """STATE_MACHINE_REAPER_CONFIGS pinned at EXACTLY 12 entries.
+    """STATE_MACHINE_REAPER_CONFIGS pinned at EXACTLY 13 entries.
 
-    12 entries today: cve_match_status, vuln_scan_status, sbom_status,
+    13 entries today: cve_match_status, vuln_scan_status, sbom_status,
     bare_metal_audit_status, authenticode_chain_status,
     dotnet_decompile_status, windows_update_diff_status, upload_stage,
     ics_protocol_walk_status, kernel_config_audit_status (Rule #45 KSPP
@@ -52,11 +52,15 @@ def test_state_machine_reaper_configs_size_lock():
     kernel_config_walk_status (C1 generic kernel-config EXTRACTION
     walker — 11th state-machine column landed 2026-05-29; DUAL-registered
     here because of the Rule #33 .b result JSONB AND below in
-    WALKER_REAPER_CONFIGS because of the ``_walk_status`` suffix), and
+    WALKER_REAPER_CONFIGS because of the ``_walk_status`` suffix),
     module_reachability_walk_status (C2 module/driver REACHABILITY-EVIDENCE
     walker — 12th state-machine column landed 2026-05-29; DUAL-registered
     for the same reasons; produces the loaded/available/builtin module
-    evidence the cve-assessment-framework L4 classifier consumes).
+    evidence the cve-assessment-framework L4 classifier consumes), and
+    network_exposure_walk_status (C3 network-exposure REACHABILITY-EVIDENCE
+    walker — 13th state-machine column landed 2026-05-29; DUAL-registered
+    for the same reasons; synthesizes the listener → bind-scope →
+    owning-daemon exposure map the L4 listener discriminator consumes).
 
     Drift forces a deliberate test edit + postmortem note (Rule #48
     Part 3 size-lock discipline; W2-β §SC5-NEW-SBOM-S2-SEAM-B
@@ -65,12 +69,13 @@ def test_state_machine_reaper_configs_size_lock():
     """
     from app.workers.walker_registry import STATE_MACHINE_REAPER_CONFIGS
 
-    assert len(STATE_MACHINE_REAPER_CONFIGS) == 12, (
+    assert len(STATE_MACHINE_REAPER_CONFIGS) == 13, (
         f"STATE_MACHINE_REAPER_CONFIGS has {len(STATE_MACHINE_REAPER_CONFIGS)} "
-        f"entries; expected exactly 12 (cve_match, vuln_scan, sbom, "
+        f"entries; expected exactly 13 (cve_match, vuln_scan, sbom, "
         f"bare_metal_audit, authenticode_chain, dotnet_decompile, "
         f"windows_update_diff, upload_stage, ics_protocol_walk, "
-        f"kernel_config_audit, kernel_config_walk, module_reachability_walk). "
+        f"kernel_config_audit, kernel_config_walk, module_reachability_walk, "
+        f"network_exposure_walk). "
         f"If you're adding a new state-machine column, also extend this dict "
         f"+ the META-CANARY size expectation."
     )
@@ -112,15 +117,23 @@ def test_walker_reaper_configs_size_lock_matches_firmware_model():
 
 
 def test_walker_reaper_config_count_matches_documented():
-    """Numeric size-lock — 30 walker columns today (documented in
+    """Numeric size-lock — 31 walker columns today (documented in
     walker_registry.py docstring). Drift forces deliberate test edit.
 
-    Last bump: 29 → 30 in C2 module/driver REACHABILITY-EVIDENCE walker
+    Last bump: 30 → 31 in C3 network-exposure REACHABILITY-EVIDENCE walker
+    2026-05-29. Adds network_exposure_walk_status (the collector that
+    synthesizes the listener → bind-scope → owning-daemon exposure map the
+    cve-assessment-framework L4 kill-chain classifier consumes via
+    ListenerEntry + network/listeners.json; DUAL-registered — also in
+    STATE_MACHINE_REAPER_CONFIGS, size-lock 13 above, because of the
+    Rule #33 .b result JSONB).
+
+    Prior bump: 29 → 30 in C2 module/driver REACHABILITY-EVIDENCE walker
     2026-05-29. Adds module_reachability_walk_status (the collector that
     produces the loaded-vs-available-vs-BUILTIN module evidence the
     cve-assessment-framework L4 kill-chain classifier consumes via
     ModuleEntry.builtin + kernel/builtin_modules.json; DUAL-registered —
-    also in STATE_MACHINE_REAPER_CONFIGS, size-lock 12 above, because of
+    also in STATE_MACHINE_REAPER_CONFIGS, size-lock 13 above, because of
     the Rule #33 .b result JSONB).
 
     Prior bump: 28 → 29 in C1 generic kernel-config EXTRACTION walker
@@ -149,10 +162,10 @@ def test_walker_reaper_config_count_matches_documented():
     """
     from app.workers.walker_registry import WALKER_REAPER_CONFIGS
 
-    assert len(WALKER_REAPER_CONFIGS) == 30, (
+    assert len(WALKER_REAPER_CONFIGS) == 31, (
         f"WALKER_REAPER_CONFIGS has {len(WALKER_REAPER_CONFIGS)} entries; "
-        f"expected exactly 30 (matches the documented walker count in "
-        f"walker_registry.py docstring as of C2 module-reachability "
+        f"expected exactly 31 (matches the documented walker count in "
+        f"walker_registry.py docstring as of C3 network-exposure "
         f"walker 2026-05-29). Drift means a walker was added/removed "
         f"without sweeping the size-lock — update the test + the docstring "
         f"together."

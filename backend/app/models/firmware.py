@@ -877,6 +877,42 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # C3 network-exposure REACHABILITY-EVIDENCE walker columns (CLAUDE.md
+    # Rule #33 .a 5-state contract). The C3 ``network_exposure_walker``
+    # synthesizes the listener → bind-scope → owning-daemon exposure map
+    # across systemd ``.socket`` units (ListenStream/ListenDatagram) +
+    # server-config bind directives (sshd Port/ListenAddress, nginx listen,
+    # dnsmasq, dropbear, inetd/xinetd) + any captured ss/netstat output. The
+    # 3-way bind-confidence axis (runtime_confirmed / config_high /
+    # config_inferred) is the converged R51.2 over-read guard: a
+    # config_inferred remote bind is capped at ``chainable`` by the framework
+    # consumer so an INFERRED ``0.0.0.0`` never mints a confirmed-remote
+    # ``initial_entry`` HEAD. DISTINCT from kernel_config_walk_* (C1) +
+    # module_reachability_walk_* (C2).
+    #
+    # PARSE-ONLY (Rule #45): the walker reads sshd_config / nginx.conf /
+    # dnsmasq.conf / .socket units / inetd.conf AS DATA; it NEVER starts a
+    # daemon / spawns / decrypts. Rule #35c normaliser pair +
+    # ``FIRMWARE_NETWORK_EXPOSURE_WALK_RESULT_SCHEMA_VERSION`` land in the
+    # jsonb_normalizers commit. The CHECK constraint
+    # ``ck_firmware_network_exposure_walk_status`` is enforced at the DB layer
+    # via the migration (not __table_args__).
+    network_exposure_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    network_exposure_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    network_exposure_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    network_exposure_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    network_exposure_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     # Phase θ.B.C WMI persistence walker columns (CLAUDE.md Rule #33 contract).
     # Background runner ``run_wmi_walk_background`` opens each WMI
     # OBJECTS.DATA file (typically under ``Windows/System32/wbem/Repository/``
