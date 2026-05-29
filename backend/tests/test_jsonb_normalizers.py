@@ -5616,3 +5616,123 @@ def test_stamp_firmware_network_exposure_walk_result_enforces_provenance_walker(
         "_stamp_firmware_network_exposure_walk_result MUST stamp "
         "provenance='walker' — sister-key gate for downstream consumers."
     )
+
+
+# ---------------------------------------------------------------------------
+# firmware.android_posture_walk_result (C4 Android DEPLOYMENT-POSTURE
+# REACHABILITY-EVIDENCE walker, 2026-05-29) — the gates_open deployment
+# posture the cve-assessment-framework L4 kill-chain LockdownGate consumes.
+# THE HONEST GATING: image-inferred posture → runtime_confirmed=false so the
+# framework consumer keeps the gate OPEN (guilty, no reduction).
+# ---------------------------------------------------------------------------
+
+
+from app.services.jsonb_normalizers import (  # noqa: E402
+    FIRMWARE_ANDROID_POSTURE_WALK_RESULT_SCHEMA_VERSION,
+    _normalize_firmware_android_posture_walk_result,
+    _stamp_firmware_android_posture_walk_result,
+)
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical pass-through — a populated image-inferred posture
+        # aggregate. THE HONEST SHAPE: gates_open carries cellular/sideload/
+        # kiosk, runtime_confirmed is FALSE, posture_confidence is
+        # config_inferred, and the settling_command names the live capture.
+        (
+            {
+                "schema_version": 1,
+                "provenance": "walker",
+                "walked_at": "2026-05-29T09:00:00+00:00",
+                "platform": "android",
+                "gates_open": {
+                    "cellular_active": True,
+                    "sideloading_allowed": True,
+                    "kiosk": False,
+                },
+                "runtime_confirmed": False,
+                "posture_confidence": "config_inferred",
+                "evidence": {
+                    "dpc_apps": [],
+                    "telephony_present": True,
+                    "telephony_evidence": ["lib/libril.so", "app/CarrierDefaultApp"],
+                    "sideload_default": "unknown",
+                    "build_type": "user",
+                    "build_tags": "release-keys",
+                    "device_owner_xml_present": False,
+                },
+                "settling_command": (
+                    "adb shell dumpsys device_policy; adb shell dpm list-owners; "
+                    "adb shell getprop | grep -E 'sim|radio'"
+                ),
+                "errors": [],
+            },
+            {
+                "schema_version": 1,
+                "provenance": "walker",
+                "walked_at": "2026-05-29T09:00:00+00:00",
+                "platform": "android",
+                "gates_open": {
+                    "cellular_active": True,
+                    "sideloading_allowed": True,
+                    "kiosk": False,
+                },
+                "runtime_confirmed": False,
+                "posture_confidence": "config_inferred",
+                "evidence": {
+                    "dpc_apps": [],
+                    "telephony_present": True,
+                    "telephony_evidence": ["lib/libril.so", "app/CarrierDefaultApp"],
+                    "sideload_default": "unknown",
+                    "build_type": "user",
+                    "build_tags": "release-keys",
+                    "device_owner_xml_present": False,
+                },
+                "settling_command": (
+                    "adb shell dumpsys device_policy; adb shell dpm list-owners; "
+                    "adb shell getprop | grep -E 'sim|radio'"
+                ),
+                "errors": [],
+            },
+        ),
+        ({}, {}),
+        # Defensive coercion — None preserved; wrong-types collapse to None.
+        (None, None),
+        ([{"kiosk": False}], None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_android_posture_walk_result(value, expected):
+    assert _normalize_firmware_android_posture_walk_result(value) == expected
+
+
+def test_stamp_firmware_android_posture_walk_result_adds_version():
+    out = _stamp_firmware_android_posture_walk_result({"runtime_confirmed": False})
+    assert (
+        out["schema_version"]
+        == FIRMWARE_ANDROID_POSTURE_WALK_RESULT_SCHEMA_VERSION
+    )
+
+
+def test_stamp_firmware_android_posture_walk_result_idempotent():
+    once = _stamp_firmware_android_posture_walk_result({"runtime_confirmed": False})
+    twice = _stamp_firmware_android_posture_walk_result(once)
+    assert once == twice
+
+
+def test_firmware_android_posture_walk_result_schema_version_constant():
+    assert FIRMWARE_ANDROID_POSTURE_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+def test_stamp_firmware_android_posture_walk_result_enforces_provenance_walker():
+    """Every walker-side stamp emits ``provenance: "walker"`` so the MCP
+    get_android_posture + cve-assessment-framework export consumers can
+    gate attribution. Mirrors the C1 / C2 / C3 / ICS sister-provenance gate."""
+    out = _stamp_firmware_android_posture_walk_result({"runtime_confirmed": False})
+    assert out["provenance"] == "walker", (
+        "_stamp_firmware_android_posture_walk_result MUST stamp "
+        "provenance='walker' — sister-key gate for downstream consumers."
+    )

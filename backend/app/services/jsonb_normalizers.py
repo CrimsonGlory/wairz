@@ -4851,3 +4851,112 @@ def _stamp_firmware_network_exposure_walk_result(payload: dict) -> dict:
     )
     payload["provenance"] = "walker"
     return payload
+
+
+# ── firmware.android_posture_walk_result (C4 Android DEPLOYMENT POSTURE) ────
+#
+# Aggregate of a single ``android_posture_walker`` run against a firmware's
+# detection roots. C4 synthesizes the ``gates_open`` deployment posture the
+# cve-assessment-framework L4 kill-chain ``LockdownGate`` consumes (Topic 2 +
+# ``AndroidAdapter.get_security_posture()`` / ``get_entry_surfaces()``).
+#
+# THE HONEST GATING (the C4-defining contract). The static firmware image can
+# SUPPORT a lockdown (a DPC / kiosk app present, a telephony stack present)
+# but CANNOT confirm THIS unit is enrolled / active — that is provisioning +
+# runtime, not an image property. So the walker emits
+# ``runtime_confirmed=false`` for every image-inferred posture → the framework
+# consumer HOLDS THE GATE OPEN (guilty per Axiom 1, no reduction) and surfaces
+# the ``settling_command`` (the live ``adb`` capture). Absence-in-an-extracted-
+# partition is NOT proof of absence (C3 saw phones ship incomplete partitions)
+# → an absent DPC yields ``kiosk`` inferred-FALSE at ``config_inferred``
+# confidence, NEVER ``runtime_confirmed`` — the framework keeps the gate OPEN.
+#
+# Canonical shape (every key load-bearing):
+#
+#   {
+#     "schema_version": 1,
+#     "provenance": "walker",                  # SISTER-KEY; MCP get_* +
+#                                              # cross-firmware consumers gate
+#                                              # on provenance == "walker".
+#     "walked_at": "<ISO-8601 UTC>",
+#     "platform": "android" | "not_applicable",  # not_applicable → non-Android
+#                                              # firmware (guilty-safe no-op)
+#     "gates_open": {                          # the L4 LockdownGate inputs:
+#       "cellular_active": bool,               #   telephony stack present →
+#                                              #   inferred-true (the modem
+#                                              #   ADJACENT surface stays OPEN)
+#       "sideloading_allowed": bool,           #   install-unknown-sources /
+#                                              #   ro.secure / adb default
+#       "kiosk": bool,                         #   a DPC / lockTask / custom-
+#                                              #   launcher app present →
+#                                              #   kiosk SUPPORTED (but absence
+#                                              #   is inferred-false, never
+#                                              #   confirmed)
+#     },
+#     "runtime_confirmed": bool,               # ALWAYS false for an image walk;
+#                                              # only a live capture sets true.
+#     "posture_confidence": "config_inferred"  # the image-walk confidence; the
+#       | "config_high" | "runtime_confirmed", #   framework caps a
+#                                              #   config_inferred posture
+#                                              #   (never mints a confirmed
+#                                              #   lockdown from an image).
+#     "evidence": {                            # the supporting evidence:
+#       "dpc_apps": list[str],                 #   DPC / launcher app names found
+#       "telephony_present": bool,             #   RIL / telephony HAL / carrier
+#                                              #   APK present
+#       "telephony_evidence": list[str],       #   which RIL libs / carrier APKs
+#       "sideload_default": str,               #   "install_non_market_apps=…"
+#                                              #   or "unknown"
+#       "build_type": str | null,              #   ro.build.type (user/userdebug)
+#       "build_tags": str | null,              #   ro.build.tags (release-keys)
+#       "device_owner_xml_present": bool,      #   /data/system/device_owner*.xml
+#     },
+#     "settling_command": str,                 # the live capture the operator
+#                                              # must run to set runtime_confirmed
+#                                              # (dumpsys device_policy / dpm
+#                                              # list-owners / getprop).
+#     "errors": list[str],
+#   }
+#
+# Rule #36 + Rule #45 PARSE-ONLY contract: the walker reads APK manifests /
+# build.prop / settings / device_owner XML AS DATA; it NEVER executes dex /
+# invokes an APK / spawns / decrypts. Test gate
+# ``test_android_posture_walker.py::test_walker_no_execute_no_decrypt``
+# enforces via tokenize-walk; Rule #46 paired META-CANARY confirms the gate
+# fires on synthetic violations.
+
+FIRMWARE_ANDROID_POSTURE_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_android_posture_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.android_posture_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed android-posture walk
+    run yet". Wrong-typed values (list / str / int from hand-edited or legacy
+    rows) collapse to ``None``. The walker writes via the ``_stamp_*``
+    companion which enforces the ``schema_version`` + ``provenance: "walker"``
+    sister-key contract. Mirrors
+    ``_normalize_firmware_network_exposure_walk_result``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_android_posture_walk_result(payload: dict) -> dict:
+    """Stamp ``schema_version`` + ``provenance: "walker"`` onto a writer
+    payload for ``Firmware.android_posture_walk_result``. Idempotent.
+
+    The ``provenance`` SISTER-KEY mirrors the C1 / C2 / C3 / ICS pattern:
+    downstream consumers (the cve-assessment-framework export step, the MCP
+    ``get_android_posture`` tool) gate on ``provenance == "walker"`` +
+    ``schema_version == 1`` before trusting the ``gates_open`` deployment
+    posture for the L4 LockdownGate. The walker writes the JSONB EXCLUSIVELY
+    through this stamp.
+    """
+    payload["schema_version"] = (
+        FIRMWARE_ANDROID_POSTURE_WALK_RESULT_SCHEMA_VERSION
+    )
+    payload["provenance"] = "walker"
+    return payload
