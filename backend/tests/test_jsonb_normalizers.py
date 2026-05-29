@@ -5405,3 +5405,97 @@ def test_stamp_firmware_kernel_config_walk_result_enforces_provenance_walker():
         "_stamp_firmware_kernel_config_walk_result MUST stamp "
         "provenance='walker' — sister-key gate for downstream consumers."
     )
+
+
+# ---------------------------------------------------------------------------
+# firmware.module_reachability_walk_result (C2 module/driver REACHABILITY-
+# EVIDENCE walker, 2026-05-29) — the loaded/available/builtin 3-way diff the
+# cve-assessment-framework L4 kill-chain classifier consumes.
+# ---------------------------------------------------------------------------
+
+
+from app.services.jsonb_normalizers import (  # noqa: E402
+    FIRMWARE_MODULE_REACHABILITY_WALK_RESULT_SCHEMA_VERSION,
+    _normalize_firmware_module_reachability_walk_result,
+    _stamp_firmware_module_reachability_walk_result,
+)
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        # Canonical pass-through — a populated static-builtin phone-shape
+        # aggregate (0 .ko on disk → loaded=null, static_builtin_posture).
+        (
+            {
+                "schema_version": 1,
+                "provenance": "walker",
+                "walked_at": "2026-05-29T09:00:00+00:00",
+                "kernel_posture": "static_builtin",
+                "static_builtin_posture": True,
+                "loaded": None,
+                "available": [],
+                "builtin": ["ext4", "bcmdhd"],
+                "available_count": 0,
+                "builtin_count": 2,
+                "builtin_y_from_config": ["CONFIG_BCMDHD"],
+                "configured_to_load": [],
+                "modules_kos_root_count": 0,
+                "errors": [],
+            },
+            {
+                "schema_version": 1,
+                "provenance": "walker",
+                "walked_at": "2026-05-29T09:00:00+00:00",
+                "kernel_posture": "static_builtin",
+                "static_builtin_posture": True,
+                "loaded": None,
+                "available": [],
+                "builtin": ["ext4", "bcmdhd"],
+                "available_count": 0,
+                "builtin_count": 2,
+                "builtin_y_from_config": ["CONFIG_BCMDHD"],
+                "configured_to_load": [],
+                "modules_kos_root_count": 0,
+                "errors": [],
+            },
+        ),
+        ({}, {}),
+        # Defensive coercion — None preserved; wrong-types collapse to None.
+        (None, None),
+        ([{"name": "ath9k"}], None),
+        ("not a dict", None),
+        (42, None),
+    ],
+)
+def test_normalize_firmware_module_reachability_walk_result(value, expected):
+    assert _normalize_firmware_module_reachability_walk_result(value) == expected
+
+
+def test_stamp_firmware_module_reachability_walk_result_adds_version():
+    out = _stamp_firmware_module_reachability_walk_result({"available_count": 0})
+    assert (
+        out["schema_version"]
+        == FIRMWARE_MODULE_REACHABILITY_WALK_RESULT_SCHEMA_VERSION
+    )
+
+
+def test_stamp_firmware_module_reachability_walk_result_idempotent():
+    once = _stamp_firmware_module_reachability_walk_result({"available_count": 0})
+    twice = _stamp_firmware_module_reachability_walk_result(once)
+    assert once == twice
+
+
+def test_firmware_module_reachability_walk_result_schema_version_constant():
+    assert FIRMWARE_MODULE_REACHABILITY_WALK_RESULT_SCHEMA_VERSION == 1
+
+
+def test_stamp_firmware_module_reachability_walk_result_enforces_provenance_walker():
+    """Every walker-side stamp emits ``provenance: "walker"`` so the MCP
+    get_module_reachability + cve-assessment-framework export consumers can
+    gate attribution. Mirrors the C1 / ICS sister-provenance gate."""
+    out = _stamp_firmware_module_reachability_walk_result({"available_count": 0})
+    assert out["provenance"] == "walker", (
+        "_stamp_firmware_module_reachability_walk_result MUST stamp "
+        "provenance='walker' — sister-key gate for downstream consumers."
+    )

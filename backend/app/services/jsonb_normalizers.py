@@ -4664,3 +4664,86 @@ def _stamp_firmware_kernel_config_walk_result(payload: dict) -> dict:
     payload["schema_version"] = FIRMWARE_KERNEL_CONFIG_WALK_RESULT_SCHEMA_VERSION
     payload["provenance"] = "walker"
     return payload
+
+
+# ── firmware.module_reachability_walk_result (C2 module REACHABILITY) ──────
+#
+# Aggregate of a single ``module_reachability_walker`` run against a
+# firmware's detection roots. C2 collects the loaded-vs-available-vs-BUILTIN
+# module evidence the cve-assessment-framework L4 kill-chain classifier
+# consumes (``ModuleEntry.builtin`` + ``kernel/builtin_modules.json``). The
+# 3-way diff lets the classifier tell an immutable static-builtin / ``=n``
+# driver (clearable) from a ``=m``-not-loaded driver (mutable → guilty),
+# closing the KRACK-style compound-immutable gap (R51.1 C2 GAP-CLOSED).
+#
+# Canonical shape (every key load-bearing; the framework reads
+# ``available_modules`` + ``builtin_modules`` + ``loaded_modules`` +
+# ``static_builtin_posture`` — the converged R51.2 evidence schema):
+#
+#   {
+#     "schema_version": 1,
+#     "provenance": "walker",                  # SISTER-KEY; MCP get_* +
+#                                              # cross-firmware consumers gate
+#                                              # on provenance == "walker".
+#     "walked_at": "<ISO-8601 UTC>",
+#     "kernel_posture": "static_builtin|modular|mixed|not_applicable",
+#     "static_builtin_posture": bool,          # 0 .ko on disk + drivers =y →
+#                                              # the BUILTIN set IS the
+#                                              # reachability axis (phone case)
+#     "loaded": list[str] | None,              # lsmod-equivalent; null for a
+#                                              # STATIC image (live-only)
+#     "available": list[dict],                 # /lib/modules *.ko set; each:
+#                                              #   {name, sha256, vermagic,
+#                                              #    signed, path}
+#     "builtin": list[str],                    # modules.builtin module names
+#     "available_count": int,
+#     "builtin_count": int,
+#     "builtin_y_from_config": list[str],      # CONFIG_*=y driver symbols read
+#                                              # from C1's metadata.kernel_config
+#     "configured_to_load": list[str],         # /etc/modules-load.d, init*.rc
+#     "modules_kos_root_count": int,           # detection roots holding *.ko
+#     "errors": list[str],
+#   }
+#
+# Rule #36 + Rule #45 PARSE-ONLY contract: the walker reads ``.ko`` modinfo +
+# the depmod ``modules.builtin`` text files AS DATA; it NEVER
+# ``insmod``/``modprobe``/spawns. Test gate
+# ``test_module_reachability_walker.py::test_walker_no_execute_no_decrypt``
+# enforces via tokenize-walk; Rule #46 paired META-CANARY confirms the gate
+# fires on synthetic violations.
+
+FIRMWARE_MODULE_REACHABILITY_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_module_reachability_walk_result(value: Any) -> dict | None:
+    """Return the canonical ``dict`` (or ``None``) shape for
+    ``Firmware.module_reachability_walk_result``.
+
+    ``None`` preserved — semantic load is "no completed module-reachability
+    walk run yet". Wrong-typed values (list / str / int from hand-edited or
+    legacy rows) collapse to ``None``. The walker writes via the ``_stamp_*``
+    companion which enforces the ``schema_version`` + ``provenance: "walker"``
+    sister-key contract. Mirrors
+    ``_normalize_firmware_kernel_config_walk_result``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_module_reachability_walk_result(payload: dict) -> dict:
+    """Stamp ``schema_version`` + ``provenance: "walker"`` onto a writer
+    payload for ``Firmware.module_reachability_walk_result``. Idempotent.
+
+    The ``provenance`` SISTER-KEY mirrors the C1 / ICS pattern: downstream
+    consumers (the cve-assessment-framework export step, the MCP
+    ``get_module_reachability`` tool) gate on ``provenance == "walker"`` +
+    ``schema_version == 1`` before trusting the module evidence for the L4
+    kill-chain discriminator. The walker writes the JSONB EXCLUSIVELY
+    through this stamp.
+    """
+    payload["schema_version"] = (
+        FIRMWARE_MODULE_REACHABILITY_WALK_RESULT_SCHEMA_VERSION
+    )
+    payload["provenance"] = "walker"
+    return payload
