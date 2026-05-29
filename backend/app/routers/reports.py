@@ -74,8 +74,14 @@ async def _get_project_or_404(project_id: uuid.UUID, db: AsyncSession) -> Projec
 
 
 async def _load_firmware(project_id: uuid.UUID, db: AsyncSession) -> Firmware | None:
+    # Projects can have multiple firmware versions; pick the earliest-created
+    # one to mirror the MCP _select_firmware default and stay deterministic
+    # across renders.
     result = await db.execute(
-        select(Firmware).where(Firmware.project_id == project_id)
+        select(Firmware)
+        .where(Firmware.project_id == project_id)
+        .order_by(Firmware.created_at)
+        .limit(1)
     )
     return result.scalar_one_or_none()
 

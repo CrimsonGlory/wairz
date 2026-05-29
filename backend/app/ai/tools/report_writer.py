@@ -215,9 +215,12 @@ async def _handle_report_render(
             select(Project).where(Project.id == context.project_id)
         )
     ).scalar_one()
+    # Scope to the session's active firmware. Projects can have multiple
+    # firmware versions (see list_firmware_versions / diff_firmware), so a
+    # bare project_id filter would raise MultipleResultsFound here.
     firmware = (
         await context.db.execute(
-            select(Firmware).where(Firmware.project_id == context.project_id)
+            select(Firmware).where(Firmware.id == context.firmware_id)
         )
     ).scalar_one_or_none()
 
