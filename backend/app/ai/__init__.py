@@ -24,6 +24,7 @@ from app.ai.tools.linux_kernel_hardening import (
 )
 from app.ai.tools.linux_persistence import register_linux_persistence_tools
 from app.ai.tools.linux_systemd import register_linux_systemd_tools
+from app.ai.tools.module_reachability import register_module_reachability_tools
 from app.ai.tools.network import register_network_tools
 from app.ai.tools.python_ast import register_python_ast_tools
 from app.ai.tools.reporting import register_reporting_tools
@@ -136,4 +137,14 @@ def create_tool_registry() -> ToolRegistry:
     # cross-firmware aggregation; powers FFmpeg DNN-backend + Pillow
     # decoder reachability narrowing for the cve-assessment-framework).
     register_ds1qrsetup_callgraph_tools(registry)
+    # C2 module/driver REACHABILITY-EVIDENCE walker MCP tools (2026-05-29).
+    # 3 tools: trigger_module_reachability_walk / get_module_reachability /
+    # lookup_module_across_firmwares (Rule #44 MANDATORY cross-firmware
+    # aggregation). Produces the loaded/available/builtin 3-way diff +
+    # static_builtin_posture the cve-assessment-framework L4 kill-chain
+    # classifier consumes (ModuleEntry.builtin + kernel/builtin_modules.json).
+    # NEW DISTINCT namespace (R51.2 SHOULD-FIX S1) — NOT in the crowded
+    # linux_kernel_hardening.py; the registry-uniqueness META-CANARY in
+    # test_kernel_config_mcp.py closes the silent-overwrite gap.
+    register_module_reachability_tools(registry)
     return registry

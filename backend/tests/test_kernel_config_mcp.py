@@ -100,6 +100,12 @@ def test_full_registry_has_no_duplicate_tool_names():
     assert "get_kernel_config_extraction" in name_set
     assert "audit_kernel_config_firmware" in name_set
 
+    # C2 module-reachability tools (R51.2 S1 — DISTINCT new-file namespace)
+    # coexist with the C1 tools above (no silent overwrite).
+    assert "trigger_module_reachability_walk" in name_set
+    assert "get_module_reachability" in name_set
+    assert "lookup_module_across_firmwares" in name_set
+
 
 def test_registry_uniqueness_canary_actually_fires():
     """Rule #46 paired META-CANARY — synthesize a duplicate registration
