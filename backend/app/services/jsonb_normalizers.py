@@ -4901,7 +4901,12 @@ def _stamp_firmware_network_exposure_walk_result(payload: dict) -> dict:
 #                                              #   (never mints a confirmed
 #                                              #   lockdown from an image).
 #     "evidence": {                            # the supporting evidence:
-#       "dpc_apps": list[str],                 #   DPC / launcher app names found
+#       "dpc_apps": list[str],                 #   HIGH-CONFIDENCE known EMM/MDM
+#                                              #   VENDOR packages (flips kiosk)
+#       "device_admin_components": list[str],  #   BROAD manifest BIND_DEVICE_ADMIN
+#                                              #   scan (incl. per-app Exchange
+#                                              #   EAS) — DATA only, does NOT
+#                                              #   alone flip kiosk
 #       "telephony_present": bool,             #   RIL / telephony HAL / carrier
 #                                              #   APK present
 #       "telephony_evidence": list[str],       #   which RIL libs / carrier APKs

@@ -60,6 +60,9 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
     # Phase γ — registry hives + driver INF/CAT + Windows event log.
     # Phase η/θ/ι/κ — Windows + Linux artefact walkers (each Rule #39 triplet).
     # ICS Session 2 — ICS protocol catalog walker (Rule #52 instance #3).
+    from app.services.android_posture_walker import (
+        auto_android_posture_walk_firmware_safe,
+    )
     from app.services.appcompat_walker import auto_appcompat_walk_firmware_safe
     from app.services.bare_metal_walker import auto_bare_metal_audit_firmware_safe
     from app.services.bcd_walker import auto_bcd_walk_firmware_safe
@@ -260,6 +263,18 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
         # Status stays 'idle' per Rule #39 .safe so operator re-triggers via
         # trigger_network_exposure_walk don't 409.
         auto_network_exposure_walk_firmware_safe,
+        # C4 Android DEPLOYMENT-POSTURE REACHABILITY-EVIDENCE walker
+        # (2026-05-29). ORDER-INDEPENDENT of C1/C2/C3 — C4 reads no other
+        # walker's output; it synthesizes the gates_open deployment posture
+        # straight from the APK / build.prop / device_owner XML tree. Produces
+        # the gates_open evidence the cve-assessment-framework L4 kill-chain
+        # LockdownGate consumes (AndroidAdapter.get_security_posture +
+        # get_entry_surfaces), emitting runtime_confirmed=false for
+        # image-inferred posture so the gate stays OPEN (guilty, no reduction)
+        # and naming the live-capture settling_command. Status stays 'idle' per
+        # Rule #39 .safe so operator re-triggers via trigger_android_posture_walk
+        # don't 409.
+        auto_android_posture_walk_firmware_safe,
     ]
 
 

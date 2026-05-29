@@ -5656,6 +5656,7 @@ from app.services.jsonb_normalizers import (  # noqa: E402
                 "posture_confidence": "config_inferred",
                 "evidence": {
                     "dpc_apps": [],
+                    "device_admin_components": ["com.google.android.gm"],
                     "telephony_present": True,
                     "telephony_evidence": ["lib/libril.so", "app/CarrierDefaultApp"],
                     "sideload_default": "unknown",
@@ -5683,6 +5684,7 @@ from app.services.jsonb_normalizers import (  # noqa: E402
                 "posture_confidence": "config_inferred",
                 "evidence": {
                     "dpc_apps": [],
+                    "device_admin_components": ["com.google.android.gm"],
                     "telephony_present": True,
                     "telephony_evidence": ["lib/libril.so", "app/CarrierDefaultApp"],
                     "sideload_default": "unknown",

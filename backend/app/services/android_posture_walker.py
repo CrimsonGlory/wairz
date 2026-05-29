@@ -556,6 +556,7 @@ def _empty_aggregate(walked_at: str, platform: str, errors: list[str]) -> dict:
         "posture_confidence": "config_inferred",
         "evidence": {
             "dpc_apps": [],
+            "device_admin_components": [],
             "telephony_present": False,
             "telephony_evidence": [],
             "sideload_default": "unknown",
@@ -650,12 +651,26 @@ async def _do_android_posture_run(
             errors.append(f"androguard manifest enrichment skipped: {exc!r}")
 
     # ── KIOSK gate ──────────────────────────────────────────────────────
-    # SUPPORTED (inferred-true) iff a DPC package / device_owner.xml /
-    # device-admin manifest component is PRESENT. ABSENT → inferred-FALSE at
-    # config_inferred (NEVER confirmed — absence-in-partition is not proof of
-    # absence; the framework keeps the gate OPEN on the config_inferred
-    # negative).
-    dpc_apps = sorted(set(dpc_app_dirs) | set(admin_manifest_apks))
+    # Two evidence tiers, deliberately separated for precision (real-data
+    # Moto-G32 lesson: Gmail declares an Exchange DeviceAdminReceiver — a
+    # BROAD device-admin component that is NOT a device-OWNER DPC; conflating
+    # the two inflates the kiosk signal misleadingly even though the honest
+    # gate stays OPEN regardless):
+    #
+    #   * HIGH-CONFIDENCE dpc_apps — a known EMM/MDM VENDOR package
+    #     (_DPC_PACKAGE_TOKENS) OR a /data/system/device_owner.xml. These are
+    #     strong "a device-OWNER DPC is provisioned" signals → they flip
+    #     kiosk SUPPORTED (inferred-true).
+    #   * device_admin_components — the broad manifest scan (any app
+    #     declaring BIND_DEVICE_ADMIN, incl. per-app Exchange EAS policy on an
+    #     email client). Surfaced as DATA so the operator sees what CAN
+    #     enforce device policy, but does NOT alone flip kiosk (too broad).
+    #
+    # ABSENT high-confidence DPC → kiosk inferred-FALSE at config_inferred
+    # (NEVER confirmed — absence-in-partition is not proof of absence; the
+    # framework keeps the gate OPEN on the config_inferred negative).
+    dpc_apps = sorted(set(dpc_app_dirs))
+    device_admin_components = sorted(set(admin_manifest_apks))
     device_owner_present = device_owner_xml is not None
     kiosk_supported = bool(dpc_apps) or device_owner_present
 
@@ -698,7 +713,13 @@ async def _do_android_posture_run(
         "runtime_confirmed": False,
         "posture_confidence": posture_confidence,
         "evidence": {
+            # HIGH-CONFIDENCE DPC signal (known EMM/MDM vendor packages) —
+            # flips kiosk SUPPORTED.
             "dpc_apps": dpc_apps,
+            # BROAD device-admin manifest scan (any BIND_DEVICE_ADMIN, incl.
+            # per-app Exchange EAS) — surfaced as DATA; does NOT alone flip
+            # kiosk (real-data Gmail-EAS precision lesson).
+            "device_admin_components": device_admin_components[:50],
             "telephony_present": telephony_present,
             "telephony_evidence": telephony_evidence[:50],
             "sideload_default": sideload_default,
