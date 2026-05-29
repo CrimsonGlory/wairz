@@ -521,3 +521,88 @@ async def test_stage_f_banner_only_degrades_no_backfill(tmp_path):
         assert banner_kernel["ikconfig_present"] is False
         assert banner_kernel["back_filled_blob_id"] is None
         assert result["kernels_extracted_count"] == 0
+
+
+# ───────────────────────────────────────────────────────────────────────
+# BLOCKED-path structural finding emit (kernel_config_extraction_blocked).
+# ───────────────────────────────────────────────────────────────────────
+
+
+def _build_crau_ff12d941_payload() -> bytes:
+    """A CrAU v2 payload.bin whose boot partition uses a non-standard op
+    (op type 13, simulating the ff12d941 proprietary block) → BLOCKED."""
+
+    def varint(v: int) -> bytes:
+        out = bytearray()
+        while True:
+            b = v & 0x7F
+            v >>= 7
+            if v:
+                out.append(b | 0x80)
+            else:
+                out.append(b)
+                return bytes(out)
+
+    def tag(fn: int, wt: int) -> bytes:
+        return varint((fn << 3) | wt)
+
+    def ld(fn: int, payload: bytes) -> bytes:
+        return tag(fn, 2) + varint(len(payload)) + payload
+
+    install_op = tag(1, 0) + varint(13)  # InstallOperation.type = 13
+    part = ld(1, b"boot") + ld(8, install_op)
+    manifest = ld(13, part)
+    header = b"CrAU" + struct.pack(">Q", 2) + struct.pack(">Q", len(manifest)) + struct.pack(">I", 0)
+    payload = header + manifest
+    # Pad above the _MIN_CANDIDATE_SIZE floor.
+    return payload + b"\x00" * (1024 - len(payload) if len(payload) < 1024 else 0)
+
+
+@pytest.mark.asyncio
+async def test_blocked_payload_emits_extraction_blocked_finding(tmp_path):
+    """A payload.bin with an ff12d941 boot op → extraction_status='blocked'
+    AND a kernel_config_extraction_blocked INFO Finding is emitted (the
+    honest BLOCKED verdict surfaces to the operator, not a silent no-op)."""
+    from app.models.finding import Finding
+    from app.models.firmware import Firmware
+    from sqlalchemy import select
+
+    root = tmp_path / "rootfs"
+    root.mkdir()
+    (root / "payload.bin").write_bytes(_build_crau_ff12d941_payload())
+
+    async with make_live_db() as db:
+        firmware = Firmware(
+            project_id=uuid.uuid4(),
+            sha256="f" * 64,
+            original_filename="tablet_ota.zip",
+            extracted_path=str(root),
+        )
+        db.add(firmware)
+        await db.flush()
+
+        result = await kernel_config_walker._do_kernel_config_run(db, firmware.id)
+        await db.commit()
+
+        assert result["kernels_blocked_count"] >= 1, (
+            f"expected a blocked kernel, got {result['kernels']!r}"
+        )
+        blocked = next(
+            (k for k in result["kernels"] if k["extraction_status"] == "blocked"), None
+        )
+        assert blocked is not None
+        assert blocked["blocked_reason"] == "ff12d941_proprietary_block"
+        assert result["findings_emitted_count"] >= 1
+
+        # The Finding row was persisted with the new source (proves the
+        # cross-stack alignment — the DB CHECK accepts the value).
+        findings = (
+            await db.execute(
+                select(Finding).where(Finding.firmware_id == firmware.id)
+            )
+        ).scalars().all()
+        sources = {f.source for f in findings}
+        assert "kernel_config_extraction_blocked" in sources, (
+            f"expected a kernel_config_extraction_blocked Finding, got "
+            f"sources={sources!r}"
+        )

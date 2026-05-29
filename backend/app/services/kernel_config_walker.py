@@ -76,6 +76,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import async_session_factory
 from app.models.firmware import Firmware
 from app.models.hardware_firmware import HardwareFirmwareBlob
+from app.schemas.finding import FindingCreate, Severity
+from app.services.finding_service import FindingService
 from app.services.firmware_paths import get_detection_roots
 from app.services.hardware_firmware.parsers._kernel_ikconfig import (
     extract_ikconfig,
@@ -98,6 +100,13 @@ from app.services.jsonb_normalizers import (
 from app.services.kernel_decompress import decompress_kernel
 
 logger = logging.getLogger(__name__)
+
+# The ONE structural finding source C1 emits (the honest BLOCKED path).
+# Closed allowlist gate (mirrors ICS) — if this constant ever drifts from
+# the KernelConfigFindingSource Literal + the DB CHECK, the walker SKIPS
+# emit rather than risking a FastAPI 422 on FindingService.create. The KSPP
+# kernel_config_* sources stay the downstream hardening walker's job.
+_EXTRACTION_BLOCKED_SOURCE = "kernel_config_extraction_blocked"
 
 # ── Bounds (Rule #5 + Wave-2 attack D). ────────────────────────────────────
 # Per-walk hard candidate cap — a pathological firmware with 10K+ files
@@ -435,6 +444,46 @@ async def _do_kernel_config_run(
         k["extraction_status"] == "live_device_recommended" for k in kernels
     )
 
+    # Emit ONE structural INFO finding per BLOCKED kernel (the honest
+    # ff12d941 / undeterminable verdict). The KSPP hardening findings stay
+    # the downstream linux_kernel_hardening_walker's job. Closed-allowlist
+    # gated (mirrors ICS §SC5-NEW-ICS-S2-η) — never risk a 422.
+    findings_emitted = 0
+    blocked_kernels = [k for k in kernels if k["extraction_status"] == "blocked"]
+    if blocked_kernels:
+        findings_service = FindingService(db)
+        for k in blocked_kernels:
+            try:
+                await findings_service.create(
+                    project_id=firmware.project_id,
+                    data=FindingCreate(
+                        title="Kernel config extraction blocked (proprietary format)",
+                        severity=Severity.info,
+                        firmware_id=firmware_id,
+                        source=_EXTRACTION_BLOCKED_SOURCE,
+                        description=(
+                            f"C1 kernel-config extraction could NOT recover the "
+                            f".config for {k['blob_path']} — "
+                            f"reason={k.get('blocked_reason')!r}. This is an HONEST "
+                            f"'undeterminable, not proven-absent' verdict (Axiom 1): "
+                            f"the kernel exists but its packaging "
+                            f"({k.get('blocked_reason')}) is not standard-decodable. "
+                            f"Recommendation: {k.get('recommendation')}. Kernel CVEs "
+                            f"for this firmware fall through to version_not_affected "
+                            f"/ unresolved rather than config_disabled. A future "
+                            f"vendor-tool plugin (Rule #52 escape hatch + Rule #36 "
+                            f"Exception-3 side-container) is the path if a licensed "
+                            f"extractor appears — wairz does NOT bundle one."
+                        ),
+                    ),
+                )
+                findings_emitted += 1
+            except Exception as exc:  # noqa: BLE001 — emit-boundary
+                errors.append(
+                    f"extraction-blocked finding emit failed for "
+                    f"{k['blob_path']}: {exc}"
+                )
+
     return {
         "walked_at": walked_at,
         "kernels": kernels,
@@ -445,7 +494,7 @@ async def _do_kernel_config_run(
         "kernels_found_count": len(kernels),
         "kernels_extracted_count": extracted_count,
         "kernels_blocked_count": blocked_count,
-        "findings_emitted_count": 0,
+        "findings_emitted_count": findings_emitted,
         "errors": errors,
     }
 

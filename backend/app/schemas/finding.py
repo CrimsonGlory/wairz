@@ -657,6 +657,18 @@ KernelConfigFindingSource = Literal[
     # ``KconfigCheck.decision`` (kspp→high, defconfig→medium, etc).
     # CWE inferred from upstream ``KconfigCheck.reason``.
     "kernel_config_kspp_extended",
+    # ── C1 EXTRACTION walker structural finding (2026-05-29) ────────────
+    # Emitted by ``backend/app/services/kernel_config_walker.py`` (the
+    # UPSTREAM generic kernel-config EXTRACTION layer) — distinct from the
+    # KSPP hardening sources above (those stay the downstream
+    # linux_kernel_hardening_walker's job). This is the ONE structural
+    # source C1 emits: an INFO-severity finding for the BLOCKED extraction
+    # path (the Elo tablet ff12d941 A/B OTA payload.bin case) so operators
+    # see the HONEST "undeterminable, not proven-absent" verdict rather
+    # than a silent no-op. CWE-1059 (insufficient technical documentation /
+    # vendor-opaque format envelope). The recommendation
+    # (live_adb_or_vendor_tool) is carried in the Finding evidence text.
+    "kernel_config_extraction_blocked",
 ]
 
 
