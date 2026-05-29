@@ -106,6 +106,13 @@ def test_full_registry_has_no_duplicate_tool_names():
     assert "get_module_reachability" in name_set
     assert "lookup_module_across_firmwares" in name_set
 
+    # C3 network-exposure tools (R51.2 S1 — DISTINCT new-file namespace,
+    # ai/tools/network_exposure.py; NOT the pcap-analysis network.py) coexist
+    # with the C1 + C2 tools above (no silent overwrite).
+    assert "trigger_network_exposure_walk" in name_set
+    assert "get_network_exposure" in name_set
+    assert "lookup_network_listener_across_firmwares" in name_set
+
 
 def test_registry_uniqueness_canary_actually_fires():
     """Rule #46 paired META-CANARY — synthesize a duplicate registration
