@@ -1,20 +1,42 @@
-"""MCP tools for the Linux kernel hardening (KSPP) walker.
+"""MCP tools for the Linux kernel hardening (KSPP) walker + the C1
+generic kernel-config EXTRACTION walker.
 
-Tool surface (Phase 6 of the kernel_image campaign):
+Tool surface:
 
-  - ``audit_kernel_config_firmware`` — operator-trigger walker run on
-    one firmware (idempotent — Rule #33 .a 409 on in-flight rerun).
+  Downstream KSPP hardening AUDIT (linux_kernel_hardening_walker):
+  - ``audit_kernel_config_firmware`` — operator-trigger the AUDIT walker
+    on one firmware (idempotent — Rule #33 .a 409 on in-flight rerun).
   - ``lookup_kernel_config_across_firmwares`` — **Rule #44 mandatory
-    cross-firmware aggregator** — answers "which firmware in the
-    corpus have CONFIG_DEVMEM=y?" / "which devices ship without
-    dm-verity?" / "which firmware share the same KSPP hardening
-    miss?" via grouped-by-firmware aggregation with
-    ``supply_chain_signal`` flag (true when ≥2 firmware share the
-    finding).
+    cross-firmware aggregator** (ALREADY satisfies Rule #44 for kernel
+    config) — answers "which firmware in the corpus have CONFIG_DEVMEM=y?"
+    / "which devices ship without dm-verity?" / "which firmware share the
+    same KSPP hardening miss?" via grouped-by-firmware aggregation with
+    ``supply_chain_signal`` flag (true when ≥2 firmware share the finding).
+    Reads firmware.kernel_config_audit_result.
 
-Per Rule #36/#45 the walker NEVER decrypts; these MCP tools only
-surface parse-only artefacts (Finding rows + audit-result JSONB
-aggregates from firmware.kernel_config_audit_result).
+  Upstream EXTRACTION walker (kernel_config_walker — C1, 2026-05-29):
+  - ``trigger_kernel_config_walk`` — operator-trigger the EXTRACTION
+    walker (Rule #33 .a; project-scope guarded; 409 on in-flight rerun).
+    Flips kernel_config_walk_status idle → queued + dispatches the
+    background runner.
+  - ``get_kernel_config_extraction`` — reads
+    firmware.kernel_config_walk_result (the per-kernel extraction
+    aggregate; the config.json shape the cve-assessment-framework
+    consumes for Gate-1). Provenance-gated (schema_version==1 +
+    provenance=="walker").
+
+  DISTINCT-NAME discipline (R50.2 B1): C1 does NOT re-register
+  ``lookup_kernel_config_across_firmwares`` — that name already exists
+  here (reads the AUDIT result) and ToolRegistry.register SILENTLY
+  OVERWRITES (no dup guard). Rule #44 is already satisfied for kernel
+  config; C1's obligation is "don't shadow the existing tool". The
+  registry-uniqueness META-CANARY in test_kernel_config_mcp.py closes
+  the Rule #10-class MCP-layer gap (assert len(names)==len(set(names))
+  over the assembled registry).
+
+Per Rule #36/#45 neither walker decrypts or executes; these MCP tools
+only surface parse-only artefacts (Finding rows + the audit-result /
+walk-result JSONB aggregates).
 """
 from __future__ import annotations
 
@@ -27,6 +49,9 @@ from sqlalchemy import select
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.models import Finding, Firmware
+from app.services.kernel_config_walker import (
+    run_kernel_config_walk_background,
+)
 from app.services.linux_kernel_hardening_walker import (
     _KSPP_RULES,
     _LSM_FINDING,
@@ -187,6 +212,151 @@ async def _handle_lookup_kernel_config_across_firmwares(
 
 
 # ---------------------------------------------------------------------------
+# C1 EXTRACTION walker tools (distinct names — R50.2 B1).
+# ---------------------------------------------------------------------------
+
+
+async def _handle_trigger_kernel_config_walk(input: dict, context: ToolContext) -> str:
+    """Operator-trigger the C1 kernel-config EXTRACTION walker (Rule #33 .a).
+
+    The UPSTREAM extraction walker — guarantees metadata.kernel_config is
+    populated cross-packaging (boot.img / payload.bin / 6-codec) so the
+    downstream audit walker fires. Project-scope guarded (W2-β
+    §SC5-NEW-ICS-S2-ε analog); 409 on in-flight rerun.
+    """
+    firmware_id_str = input.get("firmware_id") or context.firmware_id
+    if not firmware_id_str:
+        return json.dumps({"error": "firmware_id required"})
+    try:
+        firmware_id = (
+            uuid.UUID(firmware_id_str)
+            if isinstance(firmware_id_str, str)
+            else firmware_id_str
+        )
+    except ValueError:
+        return json.dumps({"error": f"invalid firmware_id: {firmware_id_str!r}"})
+
+    # Project-scope guard — operator-A in P1 cannot trigger against
+    # operator-B's firmware in P2 via switch_project.
+    if not context.project_id:
+        return json.dumps({
+            "error": (
+                "no active project — call switch_project before "
+                "trigger_kernel_config_walk"
+            ),
+        })
+    project_id = (
+        uuid.UUID(context.project_id)
+        if isinstance(context.project_id, str)
+        else context.project_id
+    )
+    firmware = (
+        await context.db.execute(
+            select(Firmware).where(
+                Firmware.id == firmware_id,
+                Firmware.project_id == project_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if firmware is None:
+        return json.dumps({
+            "error": (
+                f"firmware {firmware_id} not found in active project "
+                f"{project_id} (either wrong id OR belongs to a different "
+                f"project — tenancy scope guard)"
+            ),
+        })
+
+    if firmware.kernel_config_walk_status in ("queued", "running"):
+        return json.dumps({
+            "status": "conflict",
+            "kernel_config_walk_status": firmware.kernel_config_walk_status,
+            "message": (
+                f"kernel_config_walk is already {firmware.kernel_config_walk_status} "
+                f"— wait for completion before re-triggering."
+            ),
+        })
+
+    firmware.kernel_config_walk_status = "queued"
+    firmware.kernel_config_walk_started_at = None
+    firmware.kernel_config_walk_finished_at = None
+    firmware.kernel_config_walk_error = None
+    firmware.kernel_config_walk_result = None
+    await context.db.flush()  # Rule #3 — flush, not commit, in MCP handlers.
+    # Background runner opens its own session; commit BEFORE spawning so it
+    # sees `queued`.
+    await context.db.commit()
+    asyncio.create_task(run_kernel_config_walk_background(firmware_id))
+
+    return json.dumps({
+        "status": "queued",
+        "firmware_id": str(firmware_id),
+        "message": (
+            "Kernel-config EXTRACTION walker enqueued. Poll "
+            "firmware.kernel_config_walk_status through running → "
+            "completed | failed; harvest via get_kernel_config_extraction. "
+            "On completion, metadata.kernel_config is back-filled so the "
+            "downstream audit walker (audit_kernel_config_firmware) fires."
+        ),
+    })
+
+
+async def _handle_get_kernel_config_extraction(input: dict, context: ToolContext) -> str:
+    """Read the C1 extraction-walk aggregate for one firmware.
+
+    Returns firmware.kernel_config_walk_result (the per-kernel
+    extraction records — the config.json shape the cve-assessment-framework
+    consumes for Gate-1). Provenance-gated: schema_version==1 +
+    provenance=="walker" before trusting the kernel_config dict.
+    """
+    firmware_id_str = input.get("firmware_id") or context.firmware_id
+    if not firmware_id_str:
+        return json.dumps({"error": "firmware_id required"})
+    try:
+        firmware_id = (
+            uuid.UUID(firmware_id_str)
+            if isinstance(firmware_id_str, str)
+            else firmware_id_str
+        )
+    except ValueError:
+        return json.dumps({"error": f"invalid firmware_id: {firmware_id_str!r}"})
+
+    firmware = await context.db.get(Firmware, firmware_id)
+    if firmware is None:
+        return json.dumps({"error": f"firmware {firmware_id} not found"})
+
+    result = firmware.kernel_config_walk_result
+    out: dict = {
+        "firmware_id": str(firmware_id),
+        "kernel_config_walk_status": firmware.kernel_config_walk_status,
+    }
+    if not isinstance(result, dict):
+        out["result"] = None
+        out["hint"] = (
+            f"no extraction-walk result yet (status="
+            f"{firmware.kernel_config_walk_status}); trigger via "
+            f"trigger_kernel_config_walk and poll until completed."
+        )
+        return json.dumps(out, indent=2, default=str)
+
+    # Provenance gate — refuse to surface a non-walker / legacy result for
+    # Gate-1 consumption.
+    if result.get("schema_version") != 1 or result.get("provenance") != "walker":
+        out["result"] = result
+        out["consumer_warning"] = (
+            f"walker result REJECTED by provenance gate "
+            f"(schema_version={result.get('schema_version')!r}, "
+            f"provenance={result.get('provenance')!r}). Downstream Gate-1 "
+            f"consumers MUST NOT trust the kernel_config dict — re-trigger "
+            f"via trigger_kernel_config_walk."
+        )
+        return json.dumps(out, indent=2, default=str)
+
+    out["result"] = result
+    return json.dumps(out, indent=2, default=str)
+
+
+# ---------------------------------------------------------------------------
 # Registration.
 # ---------------------------------------------------------------------------
 
@@ -258,6 +428,66 @@ def register_linux_kernel_hardening_tools(registry: ToolRegistry) -> None:
             },
         },
         handler=_handle_lookup_kernel_config_across_firmwares,
+    )
+
+    # ── C1 EXTRACTION walker tools (distinct names — R50.2 B1) ─────────────
+    registry.register(
+        name="trigger_kernel_config_walk",
+        description=(
+            "Trigger the C1 generic kernel-config EXTRACTION walker on one "
+            "firmware. This is the UPSTREAM extraction layer — it guarantees "
+            "HardwareFirmwareBlob.metadata.kernel_config is populated "
+            "cross-packaging (Android boot.img v0-v4, A/B OTA payload.bin "
+            "CrAU, 6-codec outer-envelope decompress, content-rescan of "
+            "carved chunks, original-upload-archive re-extraction) so the "
+            "DOWNSTREAM audit_kernel_config_firmware walker fires even on "
+            "kernels the filename-bound parser missed (e.g. Android boot.img "
+            "kernels carved by unblob). Idempotent — 409-shaped conflict if "
+            "already running. Poll firmware.kernel_config_walk_status; "
+            "harvest via get_kernel_config_extraction. DISTINCT from "
+            "audit_kernel_config_firmware (the downstream KSPP audit)."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "firmware_id": {
+                    "type": "string",
+                    "description": (
+                        "UUID of the firmware to walk; defaults to "
+                        "context.firmware_id."
+                    ),
+                },
+            },
+        },
+        handler=_handle_trigger_kernel_config_walk,
+    )
+    registry.register(
+        name="get_kernel_config_extraction",
+        description=(
+            "Read the C1 kernel-config EXTRACTION walk aggregate for one "
+            "firmware (firmware.kernel_config_walk_result). Returns the "
+            "per-kernel records: banner, kernel_semver, arch, compression, "
+            "ikconfig_present, config_entries, config_stats, the kernel_config "
+            "dict (the config.json shape the cve-assessment-framework consumes "
+            "for Gate-1 config_disabled), module_mode, extraction_status "
+            "(ok / blocked / fallback_banner_only / live_device_recommended), "
+            "and blocked_reason for the ff12d941 case. Provenance-gated "
+            "(schema_version==1 + provenance=='walker'). DISTINCT from "
+            "the audit result — this is the raw extracted config, not the "
+            "KSPP findings."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "firmware_id": {
+                    "type": "string",
+                    "description": (
+                        "UUID of the firmware; defaults to context.firmware_id."
+                    ),
+                },
+            },
+        },
+        handler=_handle_get_kernel_config_extraction,
     )
 
 
