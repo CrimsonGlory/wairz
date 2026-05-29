@@ -1,6 +1,7 @@
 from app.ai.tool_registry import ToolRegistry
 from app.ai.tools.android import register_android_tools
 from app.ai.tools.android_bytecode import register_android_bytecode_tools
+from app.ai.tools.android_posture import register_android_posture_tools
 from app.ai.tools.android_sast import register_android_sast_tools
 from app.ai.tools.attack_surface import register_attack_surface_tools
 from app.ai.tools.bare_metal import register_bare_metal_tools
@@ -77,6 +78,7 @@ def create_tool_registry() -> ToolRegistry:
     register_sbom_tools(registry)
     register_android_tools(registry)
     register_android_bytecode_tools(registry)
+    register_android_posture_tools(registry)
     register_android_sast_tools(registry)
     register_hardware_firmware_tools(registry)
     register_bare_metal_tools(registry)

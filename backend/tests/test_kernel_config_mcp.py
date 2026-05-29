@@ -113,6 +113,15 @@ def test_full_registry_has_no_duplicate_tool_names():
     assert "get_network_exposure" in name_set
     assert "lookup_network_listener_across_firmwares" in name_set
 
+    # C4 android-posture tools (R51.2 S1 + S2 — DISTINCT new-file namespace,
+    # ai/tools/android_posture.py; NOT the per-APK android.py) coexist with
+    # the C1 + C2 + C3 tools above (no silent overwrite).
+    assert "trigger_android_posture_walk" in name_set
+    assert "get_android_posture" in name_set
+    assert "lookup_android_posture_across_firmwares" in name_set
+    # No shadow of the per-APK android.py tools.
+    assert "analyze_apk" in name_set
+
 
 def test_registry_uniqueness_canary_actually_fires():
     """Rule #46 paired META-CANARY — synthesize a duplicate registration
