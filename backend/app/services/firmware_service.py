@@ -831,8 +831,10 @@ async def _post_process_pipeline(
         # auto-trigger registry (see app.workers.walker_registry +
         # _run_hardware_firmware_detection_safe), so this single spawn
         # covers BOTH HW-blob discovery AND every walker registered
-        # in WALKER_AUTO_TRIGGERS (currently 27 safe-runners post
-        # Session 1 Fix #4).
+        # in WALKER_AUTO_TRIGGERS (currently 32 safe-runners post the C1
+        # kernel-config extraction walker 2026-05-29 — count is
+        # authoritative via len(get_walker_auto_triggers()); this docstring
+        # is informational only, Rule #21 docstring-sync).
         #
         # GC-hardened spawn per Rule #51 §SC5-NEW-SBOM-S2-SEAM-A (Session
         # 2a Fix #8-broader, 2026-05-21). Pre-fix this was bare

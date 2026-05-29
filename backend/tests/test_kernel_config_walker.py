@@ -606,3 +606,41 @@ async def test_blocked_payload_emits_extraction_blocked_finding(tmp_path):
             f"expected a kernel_config_extraction_blocked Finding, got "
             f"sources={sources!r}"
         )
+
+
+# ───────────────────────────────────────────────────────────────────────
+# Rule #47 ordering — C1 runner fires BEFORE the audit runner.
+# ───────────────────────────────────────────────────────────────────────
+
+
+def test_c1_runner_fires_before_audit_runner():
+    """The C1 back-fill MUST precede the downstream kernel_config_audit
+    read (sequential dispatch in _fire_walker_auto_triggers). Assert the
+    C1 runner's index < the audit runner's index in the registry list.
+
+    Rule #47 consumer-hook ordering — without this the audit walker reads
+    metadata.kernel_config BEFORE C1 back-fills it, and the phone-class
+    firmware (boot.img kernel never classified) audits nothing."""
+    from app.services.linux_kernel_hardening_walker import (
+        auto_kernel_config_audit_firmware_safe,
+    )
+    from app.workers.walker_registry import get_walker_auto_triggers
+
+    runners = get_walker_auto_triggers()
+    assert (
+        kernel_config_walker.auto_kernel_config_walk_firmware_safe in runners
+    ), (
+        "C1 auto_kernel_config_walk_firmware_safe is NOT registered in "
+        "WALKER_AUTO_TRIGGERS — the extraction walker will never auto-fire "
+        "post-detection (Rule #47 orphan-state trap)."
+    )
+    c1_idx = runners.index(
+        kernel_config_walker.auto_kernel_config_walk_firmware_safe
+    )
+    audit_idx = runners.index(auto_kernel_config_audit_firmware_safe)
+    assert c1_idx < audit_idx, (
+        f"C1 extraction runner (index {c1_idx}) MUST fire BEFORE the "
+        f"kernel_config_audit runner (index {audit_idx}) so the metadata "
+        f"back-fill precedes the audit read. Move the C1 runner ABOVE "
+        f"auto_kernel_config_audit_firmware_safe in WALKER_AUTO_TRIGGERS."
+    )

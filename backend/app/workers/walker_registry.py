@@ -77,6 +77,9 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
         auto_ics_protocol_walk_firmware_safe,
     )
     from app.services.journald_walker import auto_journald_walk_firmware_safe
+    from app.services.kernel_config_walker import (
+        auto_kernel_config_walk_firmware_safe,
+    )
     from app.services.linux_kernel_hardening_walker import (
         auto_kernel_config_audit_firmware_safe,
     )
@@ -144,11 +147,30 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
         # last-known-result without manual MCP trigger. Status stays
         # 'idle' per Rule #39 .safe so operator re-triggers don't 409.
         auto_ics_protocol_walk_firmware_safe,
+        # C1 generic kernel-config EXTRACTION walker (2026-05-29). MUST
+        # fire BEFORE auto_kernel_config_audit_firmware_safe below — C1 is
+        # the UPSTREAM extraction layer that back-fills
+        # metadata.kernel_config cross-packaging (Android boot.img v0-v4,
+        # payload.bin CrAU, 6-codec decompress, content-rescan,
+        # original-archive re-extract) so the DOWNSTREAM audit walker
+        # finds the config the filename-classifier-bound parser missed.
+        # Sequential dispatch in `_fire_walker_auto_triggers` +
+        # `_run_hardware_firmware_detection_safe` guarantees this ordering
+        # (Rule #47 — same precedent as memory_image_enumerator →
+        # windows_info). The ordering is asserted by
+        # test_kernel_config_walker.py::test_c1_runner_fires_before_audit_runner.
+        # Phone (Moto G32, project 8413d661) had 0 kernel blobs in DB
+        # (boot.img never classified) → the audit silently audited nothing;
+        # C1's content-rescan + boot.img re-extract recovers the
+        # 4,594-entry .config + back-fills the blob so the audit fires.
+        auto_kernel_config_walk_firmware_safe,
         # Linux kernel-image IKCFG hardening walker (KSPP audit). Fires
         # post-detection so any firmware with a kernel Image / zImage /
         # vmlinuz / uImage that the parser populated with kernel_config
         # gets a Findings emit. DS1 Tegra L4T R32.3.1 is the reference
         # case (DEVMEM=y, DEVKMEM=y, MODULE_SIG=n, no LSM → 7 Findings).
+        # Reads metadata.kernel_config — which C1 (above) guarantees is
+        # populated cross-packaging.
         auto_kernel_config_audit_firmware_safe,
         auto_lnk_walk_firmware_safe,
         auto_mbr_vbr_walk_firmware_safe,
