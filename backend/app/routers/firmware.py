@@ -269,6 +269,20 @@ async def delete_firmware(
     firmware = await service.get_by_id(firmware_id)
     if not firmware or firmware.project_id != project_id:
         raise HTTPException(404, "Firmware not found")
+
+    # If this firmware is mid-unpack (project is "unpacking" and the firmware
+    # hasn't been extracted yet), reset the project status so the frontend
+    # stops its 2s unpack poll. Otherwise the project is stuck in "unpacking"
+    # forever once the firmware row is gone. A background unpack task may still
+    # be running against the now-deleted files; it tolerates the missing
+    # firmware and won't re-stamp the status (see _run_unpack_background).
+    if not firmware.extracted_path:
+        proj_result = await db.execute(select(Project).where(Project.id == project_id))
+        project = proj_result.scalar_one_or_none()
+        if project and project.status == "unpacking":
+            project.status = "created"
+            await db.flush()
+
     await service.delete(firmware)
 
 
@@ -391,7 +405,19 @@ async def _run_unpack_background(
                 firmware = fw_result.scalar_one_or_none()
 
                 if not project or not firmware:
-                    logger.error("Background unpack: project or firmware not found")
+                    # The firmware was deleted while unpacking. Don't stamp a
+                    # status onto an orphaned project; if it's still
+                    # "unpacking", clear it so the frontend stops polling
+                    # (the delete handler normally does this, but cover the
+                    # race where delete commits after this task started).
+                    logger.info(
+                        "Background unpack: firmware %s gone (deleted mid-unpack), "
+                        "skipping status update",
+                        firmware_id,
+                    )
+                    if project and project.status == "unpacking":
+                        project.status = "created"
+                        await db.commit()
                     return
 
                 if result.success:
@@ -507,8 +533,16 @@ async def _run_unpack_background(
                 fw = fw_result.scalar_one_or_none()
 
                 changed = False
-                if project and project.status == "unpacking":
-                    project.status = "error"
+                # Only mark the project errored if the firmware still
+                # exists. If it was deleted mid-unpack, the failure is
+                # expected (files yanked out from under us) — just clear
+                # a lingering "unpacking" status so the UI settles.
+                if project and fw:
+                    if project.status == "unpacking":
+                        project.status = "error"
+                        changed = True
+                elif project and project.status == "unpacking":
+                    project.status = "created"
                     changed = True
                 if fw and (fw.unpack_stage is not None or fw.unpack_progress is not None):
                     if not fw.extracted_path:
