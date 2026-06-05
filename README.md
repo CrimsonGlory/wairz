@@ -81,13 +81,9 @@ WAIRZ supports **embedded Linux**, **RTOS/bare-metal** (FreeRTOS, VxWorks, Zephy
 git clone https://github.com/digitalandrew/wairz.git
 cd wairz
 cp .env.example .env
-# REQUIRED before the next step: edit .env and uncomment either
-#   WAIRZ_ALLOW_NO_AUTH=true   (recommended for local-only single-user)
-# or set
-#   API_KEY=<a-strong-random-key>   (production / multi-user)
-# If neither is set, the backend container will exit-loop with:
-#   "ERROR: api_key is required. Set API_KEY in .env or
-#    WAIRZ_ALLOW_NO_AUTH=true for local-only deployments."
+# Edit .env and set POSTGRES_PASSWORD and FIRMAE_DB_PASSWORD to strong random values:
+#   python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+# (Any value works for a fresh local install; the placeholder will not start the stack.)
 docker compose up --build
 ```
 
@@ -314,7 +310,7 @@ All settings are configured via environment variables or `.env` file:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `postgresql+asyncpg://wairz:wairz@postgres:5432/wairz` | PostgreSQL connection |
+| `DATABASE_URL` | *(set via `POSTGRES_PASSWORD` in `.env`)* | PostgreSQL connection |
 | `REDIS_URL` | `redis://redis:6379/0` | Redis connection |
 | `STORAGE_ROOT` | `/data/firmware` | Firmware storage directory |
 | `MAX_UPLOAD_SIZE_MB` | `2048` | Maximum firmware upload size |
