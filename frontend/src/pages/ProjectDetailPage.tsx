@@ -235,7 +235,7 @@ export default function ProjectDetailPage() {
     }
   }
 
-  const handleArchChange = async (firmwareId: string, architecture: string) => {
+  const handleArchChange = async (firmwareId: string, architecture: string | null) => {
     if (!projectId) return
     try {
       await updateFirmwareArchInfo(projectId, firmwareId, { architecture })
@@ -244,7 +244,7 @@ export default function ProjectDetailPage() {
     } catch { /* silent */ }
   }
 
-  const handleEndianChange = async (firmwareId: string, endianness: 'little' | 'big') => {
+  const handleEndianChange = async (firmwareId: string, endianness: 'little' | 'big' | null) => {
     if (!projectId) return
     try {
       await updateFirmwareArchInfo(projectId, firmwareId, { endianness })
@@ -473,6 +473,10 @@ export default function ProjectDetailPage() {
                                 Architecture
                               </DropdownMenuLabel>
                               <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => handleArchChange(fw.id, null)} className="text-muted-foreground">
+                                Unknown (clear)
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
                               <DropdownMenuItem onClick={() => handleArchChange(fw.id, 'mips32')}>mips32</DropdownMenuItem>
                               <DropdownMenuItem onClick={() => handleArchChange(fw.id, 'mips64')}>mips64</DropdownMenuItem>
                               <DropdownMenuSeparator />
@@ -496,6 +500,10 @@ export default function ProjectDetailPage() {
                               <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
                                 Endianness
                               </DropdownMenuLabel>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => handleEndianChange(fw.id, null)} className="text-muted-foreground">
+                                Unknown (clear)
+                              </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem onClick={() => handleEndianChange(fw.id, 'little')}>
                                 Little-endian (LE)
