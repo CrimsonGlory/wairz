@@ -58,7 +58,7 @@ export default defineConfig({
     },
   },
   server: {
-    allowedHosts: 'all', // host blocking is handled by hostGuardPlugin with a custom message
+    allowedHosts: true, // host blocking is handled by hostGuardPlugin with a custom message
     proxy: {
       '/api': {
         target: process.env.VITE_BACKEND_URL ?? 'http://localhost:8000',
