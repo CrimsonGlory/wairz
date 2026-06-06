@@ -11,9 +11,13 @@ export default defineConfig({
     },
   },
   server: {
+    allowedHosts: (process.env.EXTRA_ALLOWED_HOSTS ?? '')
+      .split(',')
+      .map((h) => h.trim())
+      .filter(Boolean),
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: process.env.VITE_BACKEND_URL ?? 'http://localhost:8000',
         changeOrigin: true,
         ws: true,
       },

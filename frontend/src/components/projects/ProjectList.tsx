@@ -9,7 +9,7 @@ interface ProjectListProps {
 }
 
 export default function ProjectList({ onCreateClick }: ProjectListProps) {
-  const { projects, loading, fetchProjects, removeProject } = useProjectStore()
+  const { projects, loading, error, fetchProjects, removeProject } = useProjectStore()
 
   useEffect(() => {
     fetchProjects()
@@ -19,6 +19,27 @@ export default function ProjectList({ onCreateClick }: ProjectListProps) {
     if (window.confirm('Delete this project and all its data?')) {
       removeProject(id)
     }
+  }
+
+  if (error === 'host not allowed' && projects.length === 0) {
+    return (
+      <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-5 text-sm space-y-2">
+        <p className="font-semibold text-destructive">Backend rejected this hostname</p>
+        <p className="text-muted-foreground">
+          The backend only accepts requests from hosts listed in its allowlist. To fix this:
+        </p>
+        <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+          <li>
+            Open <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">.env</code> and
+            add this hostname to{' '}
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">EXTRA_ALLOWED_HOSTS</code>
+            {' '}(comma-separated).
+          </li>
+          <li>Delete the backend container: <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">docker compose rm -sf backend</code></li>
+          <li>Re-create it: <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">docker compose up -d backend</code></li>
+        </ol>
+      </div>
+    )
   }
 
   if (loading && projects.length === 0) {

@@ -105,7 +105,15 @@ apiClient.interceptors.response.use(
           'Check your API key in Settings → API Key (or VITE_API_KEY) and reload.',
         )
       } else if (status === 403) {
-        toastOnce('forbidden', 'Forbidden', 'You do not have access to this resource.')
+        const data403 = error.response.data as { detail?: string } | undefined
+        const isHostNotAllowed = data403?.detail === 'host not allowed'
+        toastOnce(
+          'forbidden',
+          isHostNotAllowed ? 'Host not allowed' : 'Forbidden',
+          isHostNotAllowed
+            ? 'This hostname is not in the backend allowlist. Add it to EXTRA_ALLOWED_HOSTS in .env, then delete and re-create the backend container.'
+            : 'You do not have access to this resource.',
+        )
       } else if (status === 429) {
         // SlowAPI sets Retry-After as integer seconds. Fallback to 60s if
         // the header is missing or unparseable (defensive — the upstream

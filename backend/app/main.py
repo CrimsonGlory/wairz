@@ -401,6 +401,7 @@ app = FastAPI(
 ALLOWED_HOSTS = {
     "localhost", "localhost:3000", "localhost:8000",
     "127.0.0.1", "127.0.0.1:3000", "127.0.0.1:8000",
+    "backend:8000",  # for the dev environment.
     *(h.strip() for h in get_settings().extra_allowed_hosts.split(",") if h.strip()),
 }
 

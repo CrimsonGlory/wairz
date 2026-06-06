@@ -40,11 +40,10 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
+    environment:
+      EXTRA_ALLOWED_HOSTS: "${EXTRA_ALLOWED_HOSTS:-}"
+      VITE_BACKEND_URL: "http://backend:8000"
     volumes:
-      - ./frontend/src:/app/src:ro
-      - ./frontend/index.html:/app/index.html:ro
-      - ./frontend/vite.config.ts:/app/vite.config.ts:ro
-      - ./frontend/tsconfig.json:/app/tsconfig.json:ro
-      - ./frontend/tsconfig.app.json:/app/tsconfig.app.json:ro
-      - ./frontend/tailwind.config.js:/app/tailwind.config.js:ro
-      - ./frontend/postcss.config.js:/app/postcss.config.js:ro
+      - ./frontend:/app
+      - /app/node_modules
+      # The anonymous /app/node_modules volume acts as a "mask" — Docker populates it from the image layer at container creation time and the bind mount never touches it.
