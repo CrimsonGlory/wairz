@@ -316,19 +316,36 @@ async def _handle_get_firmware_metadata(input: dict, context: ToolContext) -> st
     from app.models.firmware import Firmware
     from app.services.firmware_metadata_service import FirmwareMetadataService
 
-    # Look up firmware to get storage_path
     stmt = select(Firmware).where(Firmware.id == context.firmware_id)
     result = await context.db.execute(stmt)
     firmware = result.scalar_one_or_none()
-    if not firmware or not firmware.storage_path:
+    if not firmware:
+        return "Error: firmware record not found."
+
+    has_user_config = bool(firmware.architecture or firmware.endianness)
+
+    if not firmware.storage_path and not has_user_config:
         return "Error: firmware storage path not available."
+
+    lines: list[str] = []
+
+    # User-supplied configuration (architecture, endianness) — always shown when set
+    if has_user_config:
+        lines.append("User Configuration:")
+        if firmware.architecture:
+            lines.append(f"  Architecture: {firmware.architecture}")
+        if firmware.endianness:
+            lines.append(f"  Endianness:   {firmware.endianness}")
+        lines.append("")
+
+    if not firmware.storage_path:
+        return "\n".join(lines)
 
     service = FirmwareMetadataService()
     metadata = await service.scan_firmware_image(
         firmware.storage_path, context.firmware_id, context.db,
     )
 
-    lines: list[str] = []
     lines.append(f"Firmware Image Size: {metadata.file_size:,} bytes ({metadata.file_size / 1024 / 1024:.2f} MB)")
     lines.append("")
 
@@ -393,7 +410,8 @@ async def _handle_get_firmware_metadata(input: dict, context: ToolContext) -> st
         lines.append("")
 
     if not metadata.sections and not metadata.uboot_header and not metadata.mtd_partitions:
-        lines.append("No structural metadata found in firmware image.")
+        if not has_user_config:
+            lines.append("No structural metadata found in firmware image.")
 
     return "\n".join(lines)
 
