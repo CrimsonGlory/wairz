@@ -11,6 +11,12 @@ import {
   Check,
   X,
   ChevronDown,
+  FileText,
+  Tag,
+  AlertCircle,
+  Cpu,
+  HardDrive,
+  Hash,
 } from 'lucide-react'
 import { useProjectStore } from '@/stores/projectStore'
 import { useFirmwareList } from '@/hooks/useFirmwareList'
