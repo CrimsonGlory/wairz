@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     device_bridge_host: str = "host.docker.internal"
     device_bridge_port: int = 9998
     cors_origins: str = ""
+    # Comma-separated extra hostnames (with optional port) to allow beyond the
+    # built-in localhost/127.0.0.1 set.  Example: "daas-dev.lab:1234,wairz.internal"
+    extra_allowed_hosts: str = ""
     syft_enabled: bool = True
     syft_timeout: int = 120
     vulnerability_backend: str = "grype"  # "grype" or "nvd"

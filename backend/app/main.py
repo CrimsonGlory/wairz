@@ -401,6 +401,7 @@ app = FastAPI(
 ALLOWED_HOSTS = {
     "localhost", "localhost:3000", "localhost:8000",
     "127.0.0.1", "127.0.0.1:3000", "127.0.0.1:8000",
+    *(h.strip() for h in get_settings().extra_allowed_hosts.split(",") if h.strip()),
 }
 
 # Attach rate limiter state, 429 handler, and SlowAPI middleware (B.1.b).
