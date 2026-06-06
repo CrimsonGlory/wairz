@@ -41,7 +41,7 @@ cd "$BACKEND_DIR"
 uv sync --quiet
 
 echo "Running migrations..."
-uv run alembic upgrade head
+uv run alembic upgrade heads
 
 # Install frontend deps if needed
 if [ ! -d "$FRONTEND_DIR/node_modules" ]; then

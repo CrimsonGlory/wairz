@@ -36,7 +36,7 @@ echo "PostgreSQL is ready."
 echo "Running database migrations..."
 cd "$PROJECT_ROOT/backend"
 if command -v uv &> /dev/null; then
-    uv run alembic upgrade head
+    uv run alembic upgrade heads
 else
     echo "uv not found. Install it with: curl -LsSf https://astral.sh/uv/install.sh | sh"
     exit 1

@@ -1,6 +1,6 @@
 """add report tables
 
-Revision ID: e6f7a8b9c0d1
+Revision ID: e9f0a1b2c3d4
 Revises: d5e6f7a8b9c0
 Create Date: 2026-05-03 00:00:00.000000
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision: str = "e6f7a8b9c0d1"
+revision: str = "e9f0a1b2c3d4"
 down_revision: Union[str, None] = "d5e6f7a8b9c0"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

@@ -25,7 +25,7 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-wairz}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required. Set it in .env (see .env.example)}@postgres:5432/${POSTGRES_DB:-wairz}
-    entrypoint: ["sh", "-c", ".venv/bin/python -m alembic upgrade head"]
+    entrypoint: ["sh", "-c", ".venv/bin/python -m alembic upgrade heads"]
     depends_on:
       postgres:
         condition: service_healthy
