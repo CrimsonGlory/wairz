@@ -410,11 +410,20 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, custom_rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
-_cors_origins = (
-    get_settings().cors_origins.split(",")
-    if get_settings().cors_origins
-    else ["http://localhost:3000", "http://127.0.0.1:3000"]
-)
+# Derive CORS allowed origins from ALLOWED_HOSTS so any host added via
+# EXTRA_ALLOWED_HOSTS is automatically an allowed Origin too.
+_cors_origins = list({
+    *(
+        get_settings().cors_origins.split(",")
+        if get_settings().cors_origins
+        else ["http://localhost:3000", "http://127.0.0.1:3000"]
+    ),
+    *(
+        f"{scheme}://{host}"
+        for host in ALLOWED_HOSTS
+        for scheme in ("http", "https")
+    ),
+})
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -438,7 +447,13 @@ async def origin_host_guard(request: Request, call_next):
         return JSONResponse(status_code=403, content={"detail": "host not allowed"})
     origin = request.headers.get("origin")
     if origin and origin not in _cors_origins:
-        return JSONResponse(status_code=403, content={"detail": "origin not allowed"})
+        # Also allow if the origin's netloc (host:port) or bare hostname is
+        # in ALLOWED_HOSTS — handles cases where only the bare hostname was
+        # added to EXTRA_ALLOWED_HOSTS without an explicit port entry.
+        from urllib.parse import urlparse
+        parsed = urlparse(origin)
+        if parsed.netloc not in ALLOWED_HOSTS and (parsed.hostname or "") not in ALLOWED_HOSTS:
+            return JSONResponse(status_code=403, content={"detail": "origin not allowed"})
     return await call_next(request)
 
 
