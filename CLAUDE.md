@@ -262,6 +262,8 @@ Do not claim a test, build, typecheck, browser check, or Docker smoke passed unl
 These rules were extracted from recurring bugs and failures across 30+ development sessions:
 
 1. **Use `docker compose up -d` not `restart` after code changes.** `restart` reuses the old container image. `up -d` recreates it with the new build. This mistake has caused false "it works locally" debugging in multiple sessions.
+
+1a. **Always pass `-f docker-compose.yml -f docker-compose.dev.yml` to every `docker compose` command.** `docker-compose.dev.yml` bind-mounts `./backend/app → /app/app` and `./frontend/src → /app/src` into the running containers. Omitting the dev file means any recreated container loses those mounts — code changes become invisible without a full image rebuild, and the bind-mount advantage is silently gone. Correct form: `docker compose -f docker-compose.yml -f docker-compose.dev.yml <subcommand>`. See `.claude/commands/docker-compose.md` for the full reference.
 2. **Add new Python dependencies to `pyproject.toml` immediately.** Code that imports a new package must update `pyproject.toml` in the same commit. Verify in Docker: `docker compose exec backend python -c "import <module>"`.
 3. **Use `flush()` not `commit()` in MCP tool handlers.** The outer MCP dispatch in `mcp_server.py` owns the transaction. Tool handlers should use `context.db.flush()` so writes are visible within the session but rollback works on exceptions.
 4. **Match Pydantic response schemas to ORM model fields exactly.** When adding a new backend service for an existing MCP endpoint, read the response schema first and construct the return dict to match. Schema/model mismatches cause silent 500 errors.
