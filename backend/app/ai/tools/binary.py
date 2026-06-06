@@ -15,6 +15,7 @@ from elftools.elf.elffile import ELFFile
 from elftools.elf.sections import SymbolTableSection
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
+from app.config import get_settings
 from app.services import ghidra_service
 from app.services.analysis_service import check_binary_protections
 from app.services.ghidra_service import decompile_function, run_ghidra_subprocess
@@ -2157,13 +2158,26 @@ async def _handle_check_binary_analysis_status(
         pid = status_row.get("pid")
         # Check whether the worker is still alive — a stale "running" row
         # from a worker that crashed without writing the cache is the
-        # main false-positive we want to flag.
+        # main false-positive we want to flag.  _pid_is_alive treats
+        # zombie (defunct) processes as dead so a <defunct> worker is
+        # correctly reported as orphaned rather than looping forever.
         alive = pid is not None and _pid_is_alive(int(pid))
         if not alive and elapsed > 30:
             return (
-                f"orphaned - worker (pid={pid}) is no longer running but "
-                f"analysis never completed ({elapsed}s elapsed). Call "
-                f"start_binary_analysis again to restart."
+                f"orphaned - worker (pid={pid}) is no longer running "
+                f"({elapsed}s elapsed; process is zombie or gone). "
+                f"Call start_binary_analysis again to restart."
+            )
+        # Hard timeout: if the worker has been running longer than the
+        # configured Ghidra timeout plus a 2-minute grace period, declare
+        # it orphaned even if the PID still appears alive (PID recycling,
+        # /proc temporarily unreadable, etc.).
+        hard_limit = get_settings().ghidra_timeout + 120
+        if elapsed > hard_limit:
+            return (
+                f"orphaned - analysis has been running {elapsed}s "
+                f"(exceeds hard limit of {hard_limit}s; pid={pid}). "
+                f"Call start_binary_analysis again to restart."
             )
         return f"running - {elapsed}s elapsed (pid={pid})"
     if status == "failed":
@@ -2291,15 +2305,18 @@ async def _handle_check_function_decompile_status(
 
 
 def _pid_is_alive(pid: int) -> bool:
-    """Return True if the given pid exists. Best-effort, no privileges needed."""
+    """Return True if the given pid is a live (non-zombie) process."""
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
+        with open(f"/proc/{pid}/status") as f:
+            for line in f:
+                if line.startswith("State:"):
+                    # Second token is the single-letter state code.
+                    # Z = zombie (defunct) — treat as dead so callers don't loop.
+                    return not line.split()[1].startswith("Z")
+        return True  # No State: line found — assume alive
+    except OSError:
+        # /proc/<pid>/status absent → process is gone
         return False
-    except PermissionError:
-        # Process exists but we can't signal it — counts as alive.
-        return True
-    return True
 
 
 def register_binary_tools(registry: ToolRegistry) -> None:
