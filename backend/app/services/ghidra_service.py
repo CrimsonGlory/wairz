@@ -90,6 +90,35 @@ def _is_known_format(magic: bytes) -> bool:
     )
 
 
+def _format_ghidra_diag(stdout_text: str, stderr_text: str, max_lines: int = 15) -> str:
+    """Extract the most useful diagnostic lines from Ghidra stdout/stderr.
+
+    Filters for lines containing error/exception/warning keywords.
+    Falls back to the last raw lines if nothing keyword-matches.
+    Capped at max_lines to keep MCP response size reasonable.
+    """
+    _DIAG_KEYWORDS = ("error", "exception", "failed", "warn", "cannot", "unable", "no such")
+    combined: list[str] = []
+    for text in (stderr_text, stdout_text):
+        for line in text.splitlines():
+            s = line.strip()
+            if s and any(kw in s.lower() for kw in _DIAG_KEYWORDS):
+                combined.append(s)
+
+    if not combined:
+        fallback = stderr_text.strip() or stdout_text.strip()
+        combined = [ln.strip() for ln in fallback.splitlines() if ln.strip()][-max_lines:]
+
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for ln in combined:
+        if ln not in seen:
+            seen.add(ln)
+            deduped.append(ln)
+
+    return "\n".join(f"  {ln}" for ln in deduped[-max_lines:])
+
+
 async def resolve_binary_import_params(
     binary_path: str,
     firmware_id: uuid.UUID,
@@ -376,13 +405,15 @@ async def run_ghidra_subprocess(
             )
             has_output = any(m in stdout_text for m in known_markers)
             if not has_output:
+                diag = _format_ghidra_diag(stdout_text, stderr_text)
                 logger.error(
-                    "Ghidra failed (rc=%d): %s",
+                    "Ghidra failed (rc=%d):\n%s",
                     process.returncode,
-                    stderr_text[-500:],
+                    diag,
                 )
                 raise RuntimeError(
-                    f"Ghidra analysis failed (exit code {process.returncode})"
+                    f"Ghidra analysis failed (exit code {process.returncode})\n\n"
+                    f"Ghidra output:\n{diag}"
                 )
 
         return stdout_text
