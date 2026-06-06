@@ -151,8 +151,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Ghidra
-ARG GHIDRA_VERSION=11.3.1
-ARG GHIDRA_DATE=20250219
+ARG GHIDRA_VERSION=12.1.2
+ARG GHIDRA_DATE=20260605
 RUN wget -q "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_${GHIDRA_VERSION}_build/ghidra_${GHIDRA_VERSION}_PUBLIC_${GHIDRA_DATE}.zip" \
         -O /tmp/ghidra.zip \
     && unzip -q /tmp/ghidra.zip -d /opt \
@@ -164,9 +164,11 @@ RUN wget -q "https://github.com/NationalSecurityAgency/ghidra/releases/download/
 # (-XX:ParallelGCThreads=2 -XX:CICompilerCount=2) that throttle Ghidra
 # on >2-core hosts. iCamera-class binaries (~7 MB MIPS daemons) stall
 # under the defaults; this unblocks them.
-RUN sed -i 's/^MAXMEM=2G/MAXMEM=16G/' /opt/ghidra/support/analyzeHeadless \
-    && sed -i 's/^VMARG_LIST="-XX:ParallelGCThreads=2 -XX:CICompilerCount=2 -Djava.awt.headless=true "/VMARG_LIST="-Djava.awt.headless=true "/' /opt/ghidra/support/analyzeHeadless \
-    && grep -E '^MAXMEM=|^VMARG_LIST=' /opt/ghidra/support/analyzeHeadless
+# Ghidra 12.x: heap is set via GHIDRA_HEADLESS_MAXMEM env var; VMARG_LIST
+# trailing-space format changed so we patch with the exact 12.x literal.
+ENV GHIDRA_HEADLESS_MAXMEM=16G
+RUN sed -i 's/^VMARG_LIST="-XX:ParallelGCThreads=2 -XX:CICompilerCount=2 -Djava.awt.headless=true"/VMARG_LIST="-Djava.awt.headless=true"/' /opt/ghidra/support/analyzeHeadless \
+    && grep -E '^MAXMEM_DEFAULT=|^VMARG_LIST=' /opt/ghidra/support/analyzeHeadless
 
 # Build Ghidra native components on ARM64 (decompiler, sleigh, demangler).
 # The pre-built Ghidra release only ships x86_64 Linux binaries. On ARM64

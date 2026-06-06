@@ -1,7 +1,7 @@
-FROM eclipse-temurin:17-jdk-jammy
+FROM eclipse-temurin:21-jdk-jammy
 
-ARG GHIDRA_VERSION=11.3.1
-ARG GHIDRA_DATE=20250219
+ARG GHIDRA_VERSION=12.1.2
+ARG GHIDRA_DATE=20260605
 
 # Install dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
