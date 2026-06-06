@@ -687,8 +687,12 @@ async def _handle_find_string_refs(input: dict, context: ToolContext) -> str:
     else:
         # Run Ghidra FindStringRefs script
         try:
+            import_params = await ghidra_service.resolve_binary_import_params(
+                path, context.firmware_id,
+            )
             raw_output = await run_ghidra_subprocess(
                 path, "FindStringRefs.java", script_args=[pattern],
+                ghidra_import_params=import_params,
             )
         except (RuntimeError, TimeoutError) as exc:
             return f"Error: {exc}"
@@ -1027,9 +1031,13 @@ async def _handle_trace_dataflow(input: dict, context: ToolContext) -> str:
     else:
         # Run Ghidra TaintAnalysis script
         try:
+            import_params = await ghidra_service.resolve_binary_import_params(
+                path, context.firmware_id,
+            )
             raw_output = await run_ghidra_subprocess(
                 path, "TaintAnalysis.java",
                 script_args=[sources_csv, sinks_csv],
+                ghidra_import_params=import_params,
             )
         except (RuntimeError, TimeoutError) as exc:
             return f"Error: {exc}"
@@ -1355,8 +1363,12 @@ async def _handle_get_stack_layout(input: dict, context: ToolContext) -> str:
     else:
         # Run Ghidra StackLayout script
         try:
+            import_params = await ghidra_service.resolve_binary_import_params(
+                path, context.firmware_id,
+            )
             raw_output = await run_ghidra_subprocess(
                 path, "StackLayout.java", script_args=[function_name],
+                ghidra_import_params=import_params,
             )
         except (RuntimeError, TimeoutError) as exc:
             return f"Error: {exc}"
@@ -1445,8 +1457,12 @@ async def _handle_get_global_layout(input: dict, context: ToolContext) -> str:
     else:
         # Run Ghidra GlobalLayout script
         try:
+            import_params = await ghidra_service.resolve_binary_import_params(
+                path, context.firmware_id,
+            )
             raw_output = await run_ghidra_subprocess(
                 path, "GlobalLayout.java", script_args=[symbol_name],
+                ghidra_import_params=import_params,
             )
         except (RuntimeError, TimeoutError) as exc:
             return f"Error: {exc}"

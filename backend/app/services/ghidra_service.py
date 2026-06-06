@@ -90,6 +90,43 @@ def _is_known_format(magic: bytes) -> bool:
     )
 
 
+async def resolve_binary_import_params(
+    binary_path: str,
+    firmware_id: uuid.UUID,
+) -> dict | None:
+    """Return Ghidra import params for a raw binary, or None for ELF/PE/Mach-O.
+
+    Reads the 4-byte magic; if the format is self-describing (ELF/PE/Mach-O)
+    returns None so Ghidra can auto-detect. For raw blobs, queries the
+    firmware row's rtos_flavor and returns the matching _FLAVOR_GHIDRA_PARAMS
+    entry (processor, loader, base_addr, optional setup_script).
+
+    Called by every Ghidra script launcher — not just the full-analysis path —
+    so auxiliary scripts (DecompileFunction.java, FindStringRefs.java, etc.)
+    also import raw binaries with the correct processor / loader.
+    """
+    loop = asyncio.get_running_loop()
+    magic = await loop.run_in_executor(None, _read_file_magic, binary_path)
+    if _is_known_format(magic):
+        return None
+
+    from app.models.firmware import Firmware as _FirmwareModel  # noqa: PLC0415
+    from sqlalchemy import select as _select
+    async with async_session_factory() as hint_db:
+        row = await hint_db.execute(
+            _select(_FirmwareModel.rtos_flavor).where(_FirmwareModel.id == firmware_id)
+        )
+        flavor = row.scalar_one_or_none()
+    if flavor and flavor in _FLAVOR_GHIDRA_PARAMS:
+        params = _FLAVOR_GHIDRA_PARAMS[flavor]
+        logger.info(
+            "Raw binary for firmware %s (flavor=%s) — Ghidra params: %s",
+            firmware_id, flavor, params,
+        )
+        return params
+    return None
+
+
 def _acquire_analysis_flock(lock_path: str) -> int:
     fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
     try:
@@ -577,26 +614,7 @@ async def ensure_analysis(
         await event.wait()
         return binary_sha256
 
-    # For raw bare-metal binaries (no ELF/PE/Mach-O magic), look up the
-    # firmware's rtos_flavor and resolve processor/loader hints so Ghidra
-    # knows which ISA to use. ELF/PE binaries skip this — Ghidra auto-detects.
-    loop = asyncio.get_running_loop()
-    magic = await loop.run_in_executor(None, _read_file_magic, binary_path)
-    ghidra_import_params: dict | None = None
-    if not _is_known_format(magic):
-        from app.models.firmware import Firmware as _FirmwareModel  # noqa: PLC0415 — lazy import avoids circular dep
-        from sqlalchemy import select as _select
-        async with async_session_factory() as hint_db:
-            row = await hint_db.execute(
-                _select(_FirmwareModel.rtos_flavor).where(_FirmwareModel.id == firmware_id)
-            )
-            flavor = row.scalar_one_or_none()
-        if flavor and flavor in _FLAVOR_GHIDRA_PARAMS:
-            ghidra_import_params = _FLAVOR_GHIDRA_PARAMS[flavor]
-            logger.info(
-                "Raw binary detected for firmware %s (flavor=%s) — using Ghidra params: %s",
-                firmware_id, flavor, ghidra_import_params,
-            )
+    ghidra_import_params = await resolve_binary_import_params(binary_path, firmware_id)
 
     # We're responsible for running the analysis. Wrap in an OS-level flock
     # to dedupe across multiple wairz-mcp processes (each MCP connection is
@@ -1017,11 +1035,13 @@ async def decompile_function(
     # agent should fall back to start_function_decompile /
     # check_function_decompile_status which runs in a detached
     # worker with a 30-minute timeout.
+    ghidra_import_params = await resolve_binary_import_params(binary_path, firmware_id)
     raw_output = await run_ghidra_subprocess(
         binary_path,
         "DecompileFunction.java",
         script_args=[function_name],
         timeout=580,
+        ghidra_import_params=ghidra_import_params,
     )
 
     decompiled = _parse_decompile_output(raw_output)

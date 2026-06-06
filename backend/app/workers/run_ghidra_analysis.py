@@ -26,7 +26,6 @@ import uuid
 from app.config import get_settings
 from app.database import async_session_factory
 from app.services.ghidra_service import (
-    _FLAVOR_GHIDRA_PARAMS,
     _cross_process_analysis_lock,
     _is_analysis_complete,
     _is_known_format,
@@ -34,6 +33,7 @@ from app.services.ghidra_service import (
     _run_full_analysis,
     mark_run_complete,
     mark_run_failed,
+    resolve_binary_import_params,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,25 +55,11 @@ async def _resolve_import_params(
     if _is_known_format(magic):
         return None
 
+    # Explicit CLI params override the rtos_flavor defaults
     if explicit_params:
         return explicit_params
 
-    # Fall back to firmware rtos_flavor → default params table
-    from sqlalchemy import select as _select  # noqa: PLC0415
-    from app.models.firmware import Firmware as _FirmwareModel  # noqa: PLC0415
-    async with async_session_factory() as hint_db:
-        row = await hint_db.execute(
-            _select(_FirmwareModel.rtos_flavor).where(_FirmwareModel.id == firmware_id)
-        )
-        flavor = row.scalar_one_or_none()
-    if flavor and flavor in _FLAVOR_GHIDRA_PARAMS:
-        params = _FLAVOR_GHIDRA_PARAMS[flavor]
-        logger.info(
-            "Raw binary for firmware %s (flavor=%s) — using default Ghidra params: %s",
-            firmware_id, flavor, params,
-        )
-        return params
-    return None
+    return await resolve_binary_import_params(binary_path, firmware_id)
 
 
 async def _run(

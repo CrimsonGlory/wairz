@@ -33,6 +33,7 @@ from app.services.ghidra_service import (
     _get_cached,
     _parse_decompile_output,
     _store_cached,
+    resolve_binary_import_params,
     run_ghidra_subprocess,
 )
 
@@ -77,11 +78,15 @@ async def _run(
                     await recheck_db.commit()
                     return 0
 
+            ghidra_import_params = await resolve_binary_import_params(
+                binary_path, firmware_id,
+            )
             raw_output = await run_ghidra_subprocess(
                 binary_path,
                 "DecompileFunction.java",
                 script_args=[function_name],
                 timeout=get_settings().ghidra_background_decompile_timeout,
+                ghidra_import_params=ghidra_import_params,
             )
             decompiled = _parse_decompile_output(raw_output)
 
