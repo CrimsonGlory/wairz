@@ -48,6 +48,8 @@ function flavorLabel(flavor: FirmwareDetail['rtos_flavor']): string {
       return 'Zephyr'
     case 'baremetal-cortexm':
       return 'Baremetal Cortex-M'
+    case 'baremetal-mips16e':
+      return 'Bare-metal MIPS16e'
     default:
       return 'RTOS'
   }

@@ -229,7 +229,7 @@ IcsProtocolWalkStatus = Literal[
 
 FirmwareKind = Literal["linux", "rtos", "unknown"]
 FirmwareKindSource = Literal["detected", "manual"]
-RtosFlavor = Literal["freertos", "zephyr", "baremetal-cortexm"]
+RtosFlavor = Literal["freertos", "zephyr", "baremetal-cortexm", "baremetal-mips16e"]
 
 
 class FirmwareUploadResponse(BaseModel):
@@ -278,8 +278,19 @@ class FirmwareUploadStatusResponse(BaseModel):
     original_filename: str | None = None
 
 
+FirmwareArchitecture = Literal[
+    "mips32", "mips64",
+    "arm", "arm64",
+    "x86", "x86_64",
+    "powerpc", "powerpc64",
+    "riscv32", "riscv64",
+]
+
+
 class FirmwareUpdate(BaseModel):
     version_label: str | None = None
+    architecture: FirmwareArchitecture | None = None
+    endianness: Literal["little", "big"] | None = None
 
 
 class FirmwareKindUpdate(BaseModel):

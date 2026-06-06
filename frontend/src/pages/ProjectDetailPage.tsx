@@ -23,6 +23,7 @@ import { useFirmwareList } from '@/hooks/useFirmwareList'
 import {
   deleteFirmware,
   updateFirmware,
+  updateFirmwareArchInfo,
   updateFirmwareKind,
   uploadRootfs,
 } from '@/api/firmware'
@@ -54,6 +55,7 @@ function formatKind(kind: FirmwareKind | undefined, flavor: RtosFlavor | null | 
     if (flavor === 'freertos') return 'RTOS · FreeRTOS'
     if (flavor === 'zephyr') return 'RTOS · Zephyr'
     if (flavor === 'baremetal-cortexm') return 'Bare-metal Cortex-M'
+    if (flavor === 'baremetal-mips16e') return 'Bare-metal MIPS16e'
     return 'RTOS'
   }
   if (kind === 'linux') return 'Linux'
@@ -232,6 +234,24 @@ export default function ProjectDetailPage() {
     }
   }
 
+  const handleArchChange = async (firmwareId: string, architecture: string) => {
+    if (!projectId) return
+    try {
+      await updateFirmwareArchInfo(projectId, firmwareId, { architecture })
+      fetchProject(projectId)
+      invalidateFirmwareList()
+    } catch { /* silent */ }
+  }
+
+  const handleEndianChange = async (firmwareId: string, endianness: 'little' | 'big') => {
+    if (!projectId) return
+    try {
+      await updateFirmwareArchInfo(projectId, firmwareId, { endianness })
+      fetchProject(projectId)
+      invalidateFirmwareList()
+    } catch { /* silent */ }
+  }
+
   const handleRootfsUpload = async (firmwareId: string, file: File) => {
     if (!projectId) return
     setUploadingRootfs(firmwareId)
@@ -398,6 +418,9 @@ export default function ProjectDetailPage() {
                           <DropdownMenuItem onClick={() => handleKindChange(fw.id, 'rtos', 'baremetal-cortexm')}>
                             Bare-metal Cortex-M
                           </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleKindChange(fw.id, 'rtos', 'baremetal-mips16e')}>
+                            Bare-metal MIPS16e
+                          </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem onClick={() => handleKindChange(fw.id, 'unknown', null)}>
                             Unknown
@@ -432,13 +455,55 @@ export default function ProjectDetailPage() {
                         {fw.file_size != null ? formatFileSize(fw.file_size) : 'N/A'}
                       </dd>
                     </div>
-                    {fw.architecture && (
-                      <div className="flex items-center gap-2">
-                        <Cpu className="h-4 w-4 text-muted-foreground" />
+                    {(fw.architecture || fw.firmware_kind === 'rtos') && (
+                      <div className="flex items-center gap-2 flex-wrap col-span-2">
+                        <Cpu className="h-4 w-4 text-muted-foreground shrink-0" />
                         <dt className="text-muted-foreground">Architecture:</dt>
-                        <dd className="font-medium">
-                          {fw.architecture}
-                          {fw.endianness ? ` (${fw.endianness})` : ''}
+                        <dd className="flex items-center gap-1.5">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Badge variant="outline" className="text-xs cursor-pointer hover:bg-secondary/50">
+                                {fw.architecture ?? '?'}
+                                <ChevronDown className="ml-1 h-2.5 w-2.5 opacity-60" />
+                              </Badge>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start">
+                              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                                Architecture
+                              </DropdownMenuLabel>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => handleArchChange(fw.id, 'mips32')}>mips32</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleArchChange(fw.id, 'mips64')}>mips64</DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => handleArchChange(fw.id, 'arm')}>arm</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleArchChange(fw.id, 'arm64')}>arm64</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleArchChange(fw.id, 'x86')}>x86</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleArchChange(fw.id, 'x86_64')}>x86_64</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleArchChange(fw.id, 'powerpc')}>powerpc</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleArchChange(fw.id, 'riscv32')}>riscv32</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleArchChange(fw.id, 'riscv64')}>riscv64</DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Badge variant="outline" className="text-xs cursor-pointer hover:bg-secondary/50">
+                                {fw.endianness === 'little' ? 'LE' : fw.endianness === 'big' ? 'BE' : '?'}
+                                <ChevronDown className="ml-1 h-2.5 w-2.5 opacity-60" />
+                              </Badge>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start">
+                              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                                Endianness
+                              </DropdownMenuLabel>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => handleEndianChange(fw.id, 'little')}>
+                                Little-endian (LE)
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleEndianChange(fw.id, 'big')}>
+                                Big-endian (BE)
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </dd>
                       </div>
                     )}

@@ -54,6 +54,40 @@ _ARCH_MAP = {
 
 _ANALYSIS_LOCK_DIR = pathlib.Path(tempfile.gettempdir()) / "wairz-analysis-locks"
 
+# Maps bare-metal rtos_flavor values to Ghidra import params for raw binaries.
+# Activated inside ensure_analysis when the binary has no recognised format magic.
+_FLAVOR_GHIDRA_PARAMS: dict[str, dict] = {
+    "baremetal-cortexm": {
+        "processor": "ARM:LE:32:Cortex",
+        "loader": "BinaryLoader",
+        "base_addr": 0x00000000,
+    },
+    "baremetal-mips16e": {
+        "processor": "MIPS:LE:32:default",
+        "loader": "BinaryLoader",
+        "base_addr": 0x00000000,
+    },
+}
+
+
+def _read_file_magic(path: str) -> bytes:
+    try:
+        with open(path, "rb") as f:
+            return f.read(4)
+    except OSError:
+        return b""
+
+
+def _is_known_format(magic: bytes) -> bool:
+    """Return True if the 4-byte magic indicates a self-describing binary format."""
+    return magic[:4] in (
+        b"\x7fELF",                          # ELF
+        b"MZ\x90\x00", b"MZ\x00\x00",       # PE (various stubs)
+        b"\xcf\xfa\xed\xfe",                 # Mach-O 64-bit LE
+        b"\xce\xfa\xed\xfe",                 # Mach-O 32-bit LE
+        b"\xfe\xed\xfa\xcf", b"\xfe\xed\xfa\xce",  # Mach-O BE
+    )
+
 
 def _acquire_analysis_flock(lock_path: str) -> int:
     fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
@@ -217,6 +251,7 @@ async def run_ghidra_subprocess(
     script_name: str,
     script_args: list[str] | None = None,
     timeout: int | None = None,
+    ghidra_import_params: dict | None = None,
 ) -> str:
     """Run a Ghidra headless script and return the raw stdout.
 
@@ -224,12 +259,19 @@ async def run_ghidra_subprocess(
     which is appropriate for synchronous tool calls bounded by the MCP
     transport. Background workers (start_binary_analysis) pass a much
     larger value since they're not on the MCP request path.
+
+    ghidra_import_params: optional processor/loader/base_addr hints for raw
+    bare-metal binaries that Ghidra cannot auto-detect. Passed through to
+    _build_analyze_command which translates them into analyzeHeadless flags.
     """
     settings = get_settings()
     effective_timeout = timeout if timeout is not None else settings.ghidra_timeout
 
     with tempfile.TemporaryDirectory(prefix="ghidra_") as project_dir:
-        cmd = _build_analyze_command(binary_path, script_name, project_dir, script_args)
+        cmd = _build_analyze_command(
+            binary_path, script_name, project_dir, script_args,
+            ghidra_import_params=ghidra_import_params,
+        )
 
         logger.info(
             "Running Ghidra %s on %s",
@@ -410,13 +452,18 @@ async def _run_full_analysis(
     binary_sha256: str,
     db: AsyncSession,
     timeout: int | None = None,
+    ghidra_import_params: dict | None = None,
 ) -> None:
     """Run AnalyzeBinary.java and store all results in DB.
 
     timeout: passed through to run_ghidra_subprocess. None means use
     the global ghidra_timeout. Background workers pass a larger value.
     """
-    raw_output = await run_ghidra_subprocess(binary_path, "AnalyzeBinary.java", timeout=timeout)
+    raw_output = await run_ghidra_subprocess(
+        binary_path, "AnalyzeBinary.java",
+        timeout=timeout,
+        ghidra_import_params=ghidra_import_params,
+    )
 
     data = _parse_analysis_output(raw_output)
     if data is None:
@@ -522,6 +569,27 @@ async def ensure_analysis(
         await event.wait()
         return binary_sha256
 
+    # For raw bare-metal binaries (no ELF/PE/Mach-O magic), look up the
+    # firmware's rtos_flavor and resolve processor/loader hints so Ghidra
+    # knows which ISA to use. ELF/PE binaries skip this — Ghidra auto-detects.
+    loop = asyncio.get_running_loop()
+    magic = await loop.run_in_executor(None, _read_file_magic, binary_path)
+    ghidra_import_params: dict | None = None
+    if not _is_known_format(magic):
+        from app.models.firmware import Firmware as _FirmwareModel  # noqa: PLC0415 — lazy import avoids circular dep
+        from sqlalchemy import select as _select
+        async with async_session_factory() as hint_db:
+            row = await hint_db.execute(
+                _select(_FirmwareModel.rtos_flavor).where(_FirmwareModel.id == firmware_id)
+            )
+            flavor = row.scalar_one_or_none()
+        if flavor and flavor in _FLAVOR_GHIDRA_PARAMS:
+            ghidra_import_params = _FLAVOR_GHIDRA_PARAMS[flavor]
+            logger.info(
+                "Raw binary detected for firmware %s (flavor=%s) — using Ghidra params: %s",
+                firmware_id, flavor, ghidra_import_params,
+            )
+
     # We're responsible for running the analysis. Wrap in an OS-level flock
     # to dedupe across multiple wairz-mcp processes (each MCP connection is
     # a separate process; asyncio.Event only guards within one process).
@@ -534,6 +602,7 @@ async def ensure_analysis(
                     async with async_session_factory() as analysis_db:
                         await _run_full_analysis(
                             binary_path, firmware_id, binary_sha256, analysis_db,
+                            ghidra_import_params=ghidra_import_params,
                         )
                         await analysis_db.commit()
     finally:

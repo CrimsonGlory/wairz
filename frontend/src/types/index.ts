@@ -15,7 +15,7 @@ export interface ProjectDetail extends Project {
 
 export type FirmwareKind = 'linux' | 'rtos' | 'unknown'
 export type FirmwareKindSource = 'detected' | 'manual'
-export type RtosFlavor = 'freertos' | 'zephyr' | 'baremetal-cortexm'
+export type RtosFlavor = 'freertos' | 'zephyr' | 'baremetal-cortexm' | 'baremetal-mips16e'
 
 export interface FirmwareSummary {
   id: string

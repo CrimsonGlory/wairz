@@ -28,7 +28,7 @@ class FirmwareResponse(BaseModel):
     version_label: str | None = None
     firmware_kind: Literal["linux", "rtos", "unknown"] = "unknown"
     firmware_kind_source: Literal["detected", "manual"] | None = None
-    rtos_flavor: Literal["freertos", "zephyr", "baremetal-cortexm"] | None = None
+    rtos_flavor: Literal["freertos", "zephyr", "baremetal-cortexm", "baremetal-mips16e"] | None = None
     created_at: datetime
 
 
@@ -45,7 +45,7 @@ class ProjectResponse(BaseModel):
     # Mirrors ProjectListResponse so that the frontend Project type stays
     # consistent across list / detail / create / update flows.
     firmware_kind: Literal["linux", "rtos", "unknown"] | None = None
-    rtos_flavor: Literal["freertos", "zephyr", "baremetal-cortexm"] | None = None
+    rtos_flavor: Literal["freertos", "zephyr", "baremetal-cortexm", "baremetal-mips16e"] | None = None
 
     @model_validator(mode="after")
     def _populate_kind_from_firmware(self) -> "ProjectResponse":
@@ -71,4 +71,4 @@ class ProjectListResponse(BaseModel):
     # tabs without fetching each project's full detail. Null when no
     # firmware has been uploaded for the project yet.
     firmware_kind: Literal["linux", "rtos", "unknown"] | None = None
-    rtos_flavor: Literal["freertos", "zephyr", "baremetal-cortexm"] | None = None
+    rtos_flavor: Literal["freertos", "zephyr", "baremetal-cortexm", "baremetal-mips16e"] | None = None

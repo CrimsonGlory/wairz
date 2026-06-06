@@ -412,7 +412,7 @@ def register_rtos_tools(registry: ToolRegistry) -> None:
         description=(
             "Re-run RTOS detection against the firmware blob and return the "
             "resulting kind (linux/rtos/unknown), flavor "
-            "(freertos/zephyr/baremetal-cortexm), the matching evidence, and "
+            "(freertos/zephyr/baremetal-cortexm/baremetal-mips16e), the matching evidence, and "
             "ELF metadata when available. Useful for verifying the "
             "auto-detected classification."
         ),

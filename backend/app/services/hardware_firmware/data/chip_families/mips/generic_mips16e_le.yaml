@@ -1,0 +1,34 @@
+schema_version: 1
+vendor: mips
+family: generic_mips16e_le
+display_name: "Generic MIPS16e 32-bit Little-Endian (raw binary)"
+
+domains:
+  - name: mips16e_core
+    arch: mipsel
+    endianness: little
+    instruction_word_bits: 32
+    data_word_bits: 32
+    address_bus_bits: 32
+    packing: one_byte_per_address
+
+    # Generic code region — covers the full blob with no security policies.
+    # Override via an operator descriptor with chip-specific ROM/RAM/security
+    # regions for accurate bare-metal security audit.
+    address_regions:
+      - name: flash
+        start: 0x00000000
+        size: 0x01000000   # 16 MB upper bound; actual firmware is smaller
+        access: read-execute
+        semantic: [flash_code]
+
+    # Tells Ghidra to import as a raw binary with MIPS 32-bit LE processor.
+    # Per https://github.com/NationalSecurityAgency/ghidra/issues/8386:
+    #   Language = MIPS, default, 32, little, default
+    #   Format   = Raw Binary (BinaryLoader)
+    # base_addr 0x00000000 is a safe default; override via operator descriptor
+    # for chips whose firmware loads at the MIPS reset vector (0xBFC00000).
+    ghidra_import_params:
+      processor: "MIPS:LE:32:default"
+      loader: BinaryLoader
+      base_addr: 0x00000000

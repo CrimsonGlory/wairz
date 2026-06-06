@@ -107,6 +107,18 @@ export async function updateFirmwareKind(
   return data
 }
 
+export async function updateFirmwareArchInfo(
+  projectId: string,
+  firmwareId: string,
+  patch: { architecture?: string; endianness?: 'little' | 'big' },
+): Promise<FirmwareDetail> {
+  const { data } = await apiClient.patch<FirmwareDetail>(
+    `/projects/${projectId}/firmware/${firmwareId}`,
+    patch,
+  )
+  return data
+}
+
 export async function unpackFirmware(
   projectId: string,
   firmwareId: string,
