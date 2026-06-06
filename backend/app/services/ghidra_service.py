@@ -66,6 +66,7 @@ _FLAVOR_GHIDRA_PARAMS: dict[str, dict] = {
         "processor": "MIPS:LE:32:default",
         "loader": "BinaryLoader",
         "base_addr": 0x80000000,  # MIPS kseg0 start; override via start_binary_analysis base_addr param
+        "setup_script": "Mips16eSetup.java",  # sets ISA_MODE=1 before AnalyzeBinary.java runs
     },
 }
 
@@ -202,6 +203,9 @@ def _build_analyze_command(
       - ``base_addr``: integer load address
       - ``load_offset_in_file`` / ``load_length``: optional sub-region load
       - ``cspec``: optional calling-convention selector
+      - ``setup_script``: name of a .java script to run as a FIRST -postScript
+        before ``script_name``.  Used to fix ISA context for instruction sets
+        Ghidra cannot auto-detect (e.g. ``Mips16eSetup.java``).
 
     Unknown keys are silently ignored so future schema additions don't
     break the build path.
@@ -221,9 +225,13 @@ def _build_analyze_command(
         binary_path,
         "-scriptPath",
         scripts_path,
-        "-postScript",
-        script_name,
     ]
+
+    # Optional setup script (e.g. ISA context fixup) runs before the main script
+    if ghidra_import_params and (setup := ghidra_import_params.get("setup_script")):
+        cmd.extend(["-postScript", str(setup)])
+
+    cmd.extend(["-postScript", script_name])
 
     if ghidra_import_params:
         if (proc := ghidra_import_params.get("processor")):
