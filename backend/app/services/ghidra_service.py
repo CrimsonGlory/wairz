@@ -65,7 +65,7 @@ _FLAVOR_GHIDRA_PARAMS: dict[str, dict] = {
     "baremetal-mips16e": {
         "processor": "MIPS:LE:32:default",
         "loader": "BinaryLoader",
-        "base_addr": 0x00000000,
+        "base_addr": 0x80000000,  # MIPS kseg0 start; override via start_binary_analysis base_addr param
     },
 }
 
@@ -616,6 +616,27 @@ async def ensure_analysis(
 # ---------------------------------------------------------------------------
 # Public per-binary query API (all cache-backed)
 # ---------------------------------------------------------------------------
+
+
+async def clear_binary_analysis(
+    firmware_id: uuid.UUID,
+    binary_sha256: str,
+    db: AsyncSession,
+) -> None:
+    """Delete all cached analysis data for a binary (all operations for that sha256).
+
+    Call before force-reanalyzing with different Ghidra import params.
+    The caller owns commit().
+    """
+    from sqlalchemy import delete as _delete  # noqa: PLC0415
+    from app.models.analysis_cache import AnalysisCache as _AC  # noqa: PLC0415
+    await db.execute(
+        _delete(_AC).where(
+            _AC.firmware_id == firmware_id,
+            _AC.binary_sha256 == binary_sha256,
+        )
+    )
+    await db.flush()
 
 
 async def get_functions_if_cached(

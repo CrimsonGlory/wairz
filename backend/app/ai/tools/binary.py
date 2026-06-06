@@ -2074,19 +2074,39 @@ async def _handle_start_binary_analysis(
     if not os.path.isfile(path):
         return f"Error: binary not found: {input['binary_path']}"
 
+    force_reanalyze = bool(input.get("force_reanalyze", False))
+
+    # Build explicit Ghidra import params from optional inputs
+    explicit_params: dict | None = None
+    if any(k in input for k in ("processor", "loader", "base_addr")):
+        explicit_params = {}
+        if "processor" in input:
+            explicit_params["processor"] = str(input["processor"])
+        if "loader" in input:
+            explicit_params["loader"] = str(input["loader"])
+        if "base_addr" in input:
+            addr = input["base_addr"]
+            if isinstance(addr, str):
+                addr = int(addr, 0)  # handles "0x80100000" or decimal strings
+            explicit_params["base_addr"] = int(addr)
+
     sha256 = await ghidra_service._get_binary_sha256(path)
 
-    if await ghidra_service._is_analysis_complete(context.firmware_id, sha256, context.db):
+    if force_reanalyze:
+        await ghidra_service.clear_binary_analysis(context.firmware_id, sha256, context.db)
+        await context.db.flush()
+    elif await ghidra_service._is_analysis_complete(context.firmware_id, sha256, context.db):
         return (
             f"already_complete - {os.path.basename(path)} is already analyzed "
             f"(sha256={sha256[:12]}). Call list_functions/decompile_function/etc. "
-            f"directly."
+            f"directly. Use force_reanalyze=true to clear and re-run (e.g. to fix "
+            f"wrong base_addr or processor for a raw binary)."
         )
 
     status_row = await ghidra_service.get_run_status(
         context.firmware_id, sha256, context.db,
     )
-    if status_row and status_row.get("status") == "running":
+    if not force_reanalyze and status_row and status_row.get("status") == "running":
         elapsed = int(time.time() - status_row.get("started_at", 0))
         pid = status_row.get("pid")
         return (
@@ -2095,16 +2115,21 @@ async def _handle_start_binary_analysis(
             f"Poll check_binary_analysis_status."
         )
 
-    # Spawn the detached worker. start_new_session=True makes it survive
-    # the wairz-mcp process dying (e.g. if the MCP client reconnects mid-
-    # analysis). stdio is detached so the parent doesn't keep pipes open.
+    # Build subprocess command. Pass explicit import params as JSON if provided
+    # so the worker uses them instead of the rtos_flavor-derived defaults.
+    cmd = [
+        sys.executable, "-m", "app.workers.run_ghidra_analysis",
+        "--firmware-id", str(context.firmware_id),
+        "--binary-path", path,
+        "--sha256", sha256,
+    ]
+    if explicit_params:
+        cmd.extend(["--import-params", json.dumps(explicit_params)])
+
+    # start_new_session=True makes the worker survive if the wairz-mcp process
+    # dies (e.g. MCP client reconnects mid-analysis). stdio is detached.
     proc = subprocess.Popen(
-        [
-            sys.executable, "-m", "app.workers.run_ghidra_analysis",
-            "--firmware-id", str(context.firmware_id),
-            "--binary-path", path,
-            "--sha256", sha256,
-        ],
+        cmd,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -2117,9 +2142,10 @@ async def _handle_start_binary_analysis(
     )
     await context.db.flush()
 
+    params_note = f", import params: {explicit_params}" if explicit_params else ""
     return (
         f"started - Ghidra analysis kicked off for {os.path.basename(path)} "
-        f"(pid={proc.pid}, sha256={sha256[:12]}). Poll "
+        f"(pid={proc.pid}, sha256={sha256[:12]}{params_note}). Poll "
         f"check_binary_analysis_status until status=complete; multi-MB "
         f"binaries typically take 5-30 minutes on cold cache. The worker "
         f"runs independently of this MCP session, so the analysis "
@@ -2333,14 +2359,49 @@ def register_binary_tools(registry: ToolRegistry) -> None:
             "check_binary_analysis_status until status=complete, then call "
             "the regular analysis tools which will hit the now-warm cache. "
             "The worker runs independently of this MCP session, so the "
-            "analysis continues even if you reconnect."
+            "analysis continues even if you reconnect. "
+            "For raw binaries (no ELF/PE header) supply processor, loader, "
+            "and base_addr so Ghidra knows which ISA and load address to use. "
+            "If a previous analysis used wrong parameters, pass "
+            "force_reanalyze=true to clear it and start fresh."
         ),
         input_schema={
             "type": "object",
             "properties": {
                 "binary_path": {
                     "type": "string",
-                    "description": "Path to the ELF binary in the firmware filesystem",
+                    "description": "Path to the binary in the firmware filesystem",
+                },
+                "processor": {
+                    "type": "string",
+                    "description": (
+                        "Ghidra processor string for raw binaries Ghidra cannot "
+                        "auto-detect, e.g. 'MIPS:LE:32:default', 'ARM:LE:32:Cortex'. "
+                        "Omit for ELF/PE/Mach-O binaries."
+                    ),
+                },
+                "loader": {
+                    "type": "string",
+                    "description": (
+                        "Ghidra loader override. Use 'BinaryLoader' for raw blobs "
+                        "without a recognized format header."
+                    ),
+                },
+                "base_addr": {
+                    "type": "string",
+                    "description": (
+                        "Load base address for raw binaries as a hex string "
+                        "(e.g. '0x80100000') or decimal integer. Ignored for "
+                        "ELF/PE binaries which carry their own load address."
+                    ),
+                },
+                "force_reanalyze": {
+                    "type": "boolean",
+                    "description": (
+                        "Clear any existing cached analysis and re-run Ghidra. "
+                        "Use when a previous analysis used wrong import parameters "
+                        "and produced empty or incorrect results."
+                    ),
                 },
             },
             "required": ["binary_path"],
