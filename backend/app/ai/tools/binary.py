@@ -693,6 +693,8 @@ async def _handle_find_string_refs(input: dict, context: ToolContext) -> str:
             raw_output = await run_ghidra_subprocess(
                 path, "FindStringRefs.java", script_args=[pattern],
                 ghidra_import_params=import_params,
+                firmware_id=context.firmware_id,
+                binary_sha256=binary_sha256,
             )
         except (RuntimeError, TimeoutError) as exc:
             return f"Error: {exc}"
@@ -1038,6 +1040,8 @@ async def _handle_trace_dataflow(input: dict, context: ToolContext) -> str:
                 path, "TaintAnalysis.java",
                 script_args=[sources_csv, sinks_csv],
                 ghidra_import_params=import_params,
+                firmware_id=context.firmware_id,
+                binary_sha256=binary_sha256,
             )
         except (RuntimeError, TimeoutError) as exc:
             return f"Error: {exc}"
@@ -1369,6 +1373,8 @@ async def _handle_get_stack_layout(input: dict, context: ToolContext) -> str:
             raw_output = await run_ghidra_subprocess(
                 path, "StackLayout.java", script_args=[function_name],
                 ghidra_import_params=import_params,
+                firmware_id=context.firmware_id,
+                binary_sha256=binary_sha256,
             )
         except (RuntimeError, TimeoutError) as exc:
             return f"Error: {exc}"
@@ -1463,6 +1469,8 @@ async def _handle_get_global_layout(input: dict, context: ToolContext) -> str:
             raw_output = await run_ghidra_subprocess(
                 path, "GlobalLayout.java", script_args=[symbol_name],
                 ghidra_import_params=import_params,
+                firmware_id=context.firmware_id,
+                binary_sha256=binary_sha256,
             )
         except (RuntimeError, TimeoutError) as exc:
             return f"Error: {exc}"
@@ -2361,6 +2369,29 @@ def _pid_is_alive(pid: int) -> bool:
         return False
 
 
+async def _handle_get_ghidra_analysis_logs(input: dict, context: ToolContext) -> str:
+    """Return the full Ghidra stdout+stderr from the most recent run of a script."""
+    path = context.resolve_path(input["binary_path"])
+    script_name = input.get("script_name", "AnalyzeBinary.java")
+
+    binary_sha256 = await ghidra_service.get_binary_sha256(path)
+    cached = await ghidra_service.get_cached(
+        context.firmware_id, binary_sha256, f"ghidra_log:{script_name}", context.db,
+    )
+    if not cached:
+        return (
+            f"No Ghidra logs found for {script_name} on {os.path.basename(path)}. "
+            "Run the analysis tool that invokes this script first "
+            "(start_binary_analysis for AnalyzeBinary.java, "
+            "decompile_function/start_function_decompile for DecompileFunction.java, "
+            "find_string_refs for FindStringRefs.java, etc.)."
+        )
+
+    log = cached.get("log", "")
+    rc = cached.get("rc", "?")
+    return f"Ghidra {script_name} log (exit code {rc}):\n\n{log}"
+
+
 def register_binary_tools(registry: ToolRegistry) -> None:
     """Register all binary analysis tools with the given registry."""
 
@@ -3164,4 +3195,45 @@ def register_binary_tools(registry: ToolRegistry) -> None:
             },
         },
         handler=_handle_detect_rtos,
+    )
+
+    registry.register(
+        name="get_ghidra_analysis_logs",
+        description=(
+            "Return the complete Ghidra stdout+stderr from the most recent run of a "
+            "Ghidra headless script on a binary. Use this to diagnose Ghidra analysis "
+            "failures — e.g. to see why list_functions returns 0 results, why a "
+            "decompile failed, or what a setup script (Mips16eSetup.java) printed. "
+            "Logs are stored after each Ghidra run and are available immediately "
+            "after start_binary_analysis completes."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "binary_path": {
+                    "type": "string",
+                    "description": "Path to the binary that was analyzed.",
+                },
+                "script_name": {
+                    "type": "string",
+                    "description": (
+                        "Name of the Ghidra script whose log to retrieve. "
+                        "Defaults to AnalyzeBinary.java (the full-analysis script, "
+                        "which also contains output from any setup_script like "
+                        "Mips16eSetup.java that ran before it)."
+                    ),
+                    "enum": [
+                        "AnalyzeBinary.java",
+                        "DecompileFunction.java",
+                        "FindStringRefs.java",
+                        "TaintAnalysis.java",
+                        "StackLayout.java",
+                        "GlobalLayout.java",
+                    ],
+                    "default": "AnalyzeBinary.java",
+                },
+            },
+            "required": ["binary_path"],
+        },
+        handler=_handle_get_ghidra_analysis_logs,
     )

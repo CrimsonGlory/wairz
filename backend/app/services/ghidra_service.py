@@ -326,6 +326,8 @@ async def run_ghidra_subprocess(
     script_args: list[str] | None = None,
     timeout: int | None = None,
     ghidra_import_params: dict | None = None,
+    firmware_id: uuid.UUID | None = None,
+    binary_sha256: str | None = None,
 ) -> str:
     """Run a Ghidra headless script and return the raw stdout.
 
@@ -415,6 +417,20 @@ async def run_ghidra_subprocess(
                     f"Ghidra analysis failed (exit code {process.returncode})\n\n"
                     f"Ghidra output:\n{diag}"
                 )
+
+        if firmware_id is not None and binary_sha256 is not None:
+            combined = f"=== STDOUT ===\n{stdout_text}\n\n=== STDERR ===\n{stderr_text}"
+            try:
+                async with async_session_factory() as log_db:
+                    await _store_cached(
+                        firmware_id, binary_path, binary_sha256,
+                        f"ghidra_log:{script_name}",
+                        {"log": combined[:100_000], "rc": process.returncode},
+                        log_db,
+                    )
+                    await log_db.commit()
+            except Exception:
+                logger.warning("Failed to persist Ghidra log for %s:%s", script_name, binary_path)
 
         return stdout_text
 
@@ -539,6 +555,8 @@ async def _run_full_analysis(
         binary_path, "AnalyzeBinary.java",
         timeout=timeout,
         ghidra_import_params=ghidra_import_params,
+        firmware_id=firmware_id,
+        binary_sha256=binary_sha256,
     )
 
     data = _parse_analysis_output(raw_output)
@@ -1073,6 +1091,8 @@ async def decompile_function(
         script_args=[function_name],
         timeout=580,
         ghidra_import_params=ghidra_import_params,
+        firmware_id=firmware_id,
+        binary_sha256=binary_sha256,
     )
 
     decompiled = _parse_decompile_output(raw_output)

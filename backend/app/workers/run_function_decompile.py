@@ -87,6 +87,8 @@ async def _run(
                 script_args=[function_name],
                 timeout=get_settings().ghidra_background_decompile_timeout,
                 ghidra_import_params=ghidra_import_params,
+                firmware_id=firmware_id,
+                binary_sha256=binary_sha256,
             )
             decompiled = _parse_decompile_output(raw_output)
 
