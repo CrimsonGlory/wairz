@@ -310,6 +310,19 @@ def _build_analyze_command(
 
     cmd.extend(["-postScript", script_name])
 
+    # Run the setup script a second time as a -postScript so it can correct
+    # anything Ghidra's auto-analysis clobbered.  Some MIPS analyzers
+    # ("MIPS UnAlligned Instruction Fix", "Disassemble Entry Points") run
+    # after the pre-script and re-disassemble the code region in MIPS32 mode,
+    # producing garbage instructions.  The post pass clears those code units,
+    # re-sets ISAModeSwitch=1, re-seeds from base+code_offset, and calls
+    # analyzeChanges() so the corrected MIPS16E code propagates through all
+    # remaining analyzers.
+    if ghidra_import_params and (setup := ghidra_import_params.get("setup_script")):
+        cmd.extend(["-postScript", str(setup)])
+        if offset := ghidra_import_params.get("code_offset", 0):
+            cmd.append(hex(int(offset)))
+
     if ghidra_import_params:
         if (proc := ghidra_import_params.get("processor")):
             cmd.extend(["-processor", str(proc)])

@@ -1,10 +1,23 @@
-// Ghidra headless PRE-SCRIPT for raw MIPS16E binaries.
+// Ghidra headless PRE+POST SCRIPT for raw MIPS16E binaries.
 //
-// Run as -preScript so ISA_MODE is set BEFORE Ghidra's auto-analysis pass:
+// Invoked TWICE by wairz — first as -preScript, then as -postScript:
 //   analyzeHeadless ... \
-//     -preScript Mips16eSetup.java [<code_offset_hex>] \
+//     -preScript  Mips16eSetup.java [<code_offset_hex>] \
 //     -postScript AnalyzeBinary.java \
+//     -postScript Mips16eSetup.java [<code_offset_hex>] \
 //     -processor MIPS:LE:32:default -loader BinaryLoader -loader-baseAddr 0x80100000
+//
+// Why both pre AND post?
+//   Pre-script: Sets ISAModeSwitch=1 and seeds MIPS16E disassembly BEFORE
+//     Ghidra's auto-analysis pass.  Without this, Ghidra treats every
+//     MIPS16E opcode as a malformed MIPS32 word and creates 0 functions.
+//   Post-script: Some MIPS analyzers ("MIPS UnAlligned Instruction Fix",
+//     "Disassemble Entry Points") run during auto-analysis and re-disassemble
+//     the code region in MIPS32 mode, overwriting the correct MIPS16E code.
+//     The post pass clears those garbage code units, re-sets ISAModeSwitch=1,
+//     re-seeds from base+code_offset, and calls analyzeChanges() so the
+//     corrected MIPS16E disassembly propagates through all remaining
+//     analyzers (cross-refs, stack frames, call targets).
 //
 // Optional argument:
 //   code_offset_hex  Hex (or decimal) byte offset from the load base to the
@@ -14,20 +27,14 @@
 //                    Example: "0x30" for RTL8761BU (48-byte Realtechk header).
 //                    Default: 0 (seed from the load base directly).
 //
-// Why -preScript and not -postScript:
-//   Ghidra's auto-analysis runs in MIPS32 mode if ISAModeSwitch is not set
-//   first.  MIPS16E opcodes look like invalid MIPS32 words; Ghidra fails to
-//   form instructions and creates 0 function entries.  Setting the context
-//   register here means Ghidra's own analyzers run in MIPS16E mode.
-//
-// What this script does:
-//   1. Sets ISAModeSwitch (or ISA_MODE as fallback) = 1 across all loaded memory.
-//   2. If code_offset > 0, marks [base, base+code_offset) as raw byte-array data.
-//   3. Clears any MIPS32 code units the importer created in the code region.
-//   4. Seeds a DisassembleCommand from base+code_offset.
-//   5. Creates a function at base+code_offset as a fallback if disassembly
-//      produces no functions.
-//   Ghidra's auto-analysis then runs with MIPS16E mode already established.
+// What this script does (each invocation):
+//   1. Parses optional code_offset from getScriptArgs()[0].
+//   2. Sets ISAModeSwitch (or ISA_MODE as fallback) = 1 across the code region.
+//   3. If code_offset > 0, marks [base, base+code_offset) as raw byte-array data.
+//   4. Clears any code units in the code region (removes MIPS32 garbage).
+//   5. Seeds a DisassembleCommand from base+code_offset.
+//   6. Creates a function at base+code_offset as a fallback if none found.
+//   7. Calls analyzeChanges() to propagate results through remaining analyzers.
 //
 // @category Wairz
 // @author Wairz AI
@@ -142,7 +149,15 @@ public class Mips16eSetup extends GhidraScript {
             println("Mips16eSetup: " + funcCount + " function(s) found after seed disassembly");
         }
 
-        println("Mips16eSetup: pre-script complete — Ghidra auto-analysis will now "
-            + "run in MIPS16E mode");
+        // Run pending analysis tasks now.  When this script is invoked as a
+        // -postScript (after Ghidra's auto-analysis) this propagates the
+        // corrected MIPS16E disassembly through all remaining analyzers so
+        // cross-references, stack frames, and call targets are resolved.
+        // When invoked as a -preScript it seeds analysis ahead of the main
+        // auto-analysis pass (the main pass runs next and may need fixing by
+        // the post invocation).
+        analyzeChanges(currentProgram);
+
+        println("Mips16eSetup: script complete");
     }
 }
