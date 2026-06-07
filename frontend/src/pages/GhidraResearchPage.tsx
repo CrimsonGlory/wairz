@@ -101,7 +101,7 @@ function DescriptionEditor({
 
   if (editing) {
     return (
-      <span className="mt-0.5 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+      <div className="mt-1 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
         <Input
           ref={inputRef}
           value={draft}
@@ -109,40 +109,38 @@ function DescriptionEditor({
           onKeyDown={onKeyDown}
           onBlur={() => save()}
           placeholder="Add a description…"
-          className="h-6 w-48 px-1.5 text-xs"
+          className="h-6 w-full px-1.5 text-xs"
           disabled={saving}
         />
         <button
           type="button"
           onClick={save}
-          className="text-green-600 hover:text-green-700 disabled:opacity-50"
+          className="shrink-0 text-green-600 hover:text-green-700 disabled:opacity-50"
           disabled={saving}
         >
           {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
         </button>
-        <button type="button" onClick={cancel} className="text-muted-foreground hover:text-foreground">
+        <button type="button" onClick={cancel} className="shrink-0 text-muted-foreground hover:text-foreground">
           <X className="h-3.5 w-3.5" />
         </button>
-      </span>
+      </div>
     )
   }
 
   return (
-    <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-      {value ? (
-        <span className="truncate">{value}</span>
-      ) : (
-        <span className="italic opacity-60">No description</span>
-      )}
+    <div className="mt-1 flex items-start gap-1 text-xs text-muted-foreground">
+      <span className="min-w-0 break-words">
+        {value ?? <span className="italic opacity-60">No description</span>}
+      </span>
       <button
         type="button"
         onClick={startEdit}
-        className="shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-foreground"
+        className="mt-0.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-foreground"
         title="Edit description"
       >
         <Pencil className="h-3 w-3" />
       </button>
-    </span>
+    </div>
   )
 }
 
@@ -345,15 +343,12 @@ export default function GhidraResearchPage() {
                       </span>
                       <ImportStatusBadge status={f.import_status} />
                     </div>
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <span>{formatBytes(f.file_size)}</span>
-                      <span>·</span>
-                      <DescriptionEditor
-                        fileId={f.id}
-                        value={f.description}
-                        onSave={handleSaveDescription}
-                      />
-                    </div>
+                    <p className="text-xs text-muted-foreground">{formatBytes(f.file_size)}</p>
+                    <DescriptionEditor
+                      fileId={f.id}
+                      value={f.description}
+                      onSave={handleSaveDescription}
+                    />
                     {f.import_status === 'failed' && f.import_error && (
                       <p className="mt-1 truncate text-xs text-destructive">{f.import_error}</p>
                     )}
@@ -419,15 +414,12 @@ export default function GhidraResearchPage() {
                   >
                     <div className="min-w-0">
                       <p className="truncate font-mono text-sm">{f.original_filename}</p>
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <span>{formatBytes(f.file_size)}</span>
-                        <span>·</span>
-                        <DescriptionEditor
-                          fileId={f.id}
-                          value={f.description}
-                          onSave={handleSaveDescription}
-                        />
-                      </div>
+                      <p className="text-xs text-muted-foreground">{formatBytes(f.file_size)}</p>
+                      <DescriptionEditor
+                        fileId={f.id}
+                        value={f.description}
+                        onSave={handleSaveDescription}
+                      />
                     </div>
                     <div className="ml-2 flex shrink-0 items-center gap-1">
                       <a
