@@ -274,6 +274,10 @@ def _build_analyze_command(
         register here ensures Ghidra's own analyzers see MIPS16E mode from
         the start rather than first mangling the binary as MIPS32.
         Example: ``Mips16eSetup.java``.
+      - ``code_offset``: optional integer byte offset from the load base to
+        the first real instruction.  Passed as the first script argument to
+        ``setup_script`` so the script can skip a firmware header.
+        Example: ``0x30`` for RTL8761BU (48-byte Realtechk header).
 
     Unknown keys are silently ignored so future schema additions don't
     break the build path.
@@ -297,8 +301,12 @@ def _build_analyze_command(
 
     # Optional setup script runs as -preScript so ISA context is set BEFORE
     # Ghidra's auto-analysis pass (not after, when MIPS32 damage is done).
+    # code_offset (if non-zero) is appended as the first script argument so
+    # the setup script can skip a firmware header before seeding disassembly.
     if ghidra_import_params and (setup := ghidra_import_params.get("setup_script")):
         cmd.extend(["-preScript", str(setup)])
+        if offset := ghidra_import_params.get("code_offset", 0):
+            cmd.append(hex(int(offset)))
 
     cmd.extend(["-postScript", script_name])
 

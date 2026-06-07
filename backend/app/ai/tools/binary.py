@@ -2102,7 +2102,7 @@ async def _handle_start_binary_analysis(
 
     # Build explicit Ghidra import params from optional inputs
     explicit_params: dict | None = None
-    if any(k in input for k in ("processor", "loader", "base_addr")):
+    if any(k in input for k in ("processor", "loader", "base_addr", "code_offset")):
         explicit_params = {}
         if "processor" in input:
             explicit_params["processor"] = str(input["processor"])
@@ -2113,6 +2113,11 @@ async def _handle_start_binary_analysis(
             if isinstance(addr, str):
                 addr = int(addr, 0)  # handles "0x80100000" or decimal strings
             explicit_params["base_addr"] = int(addr)
+        if "code_offset" in input:
+            off = input["code_offset"]
+            if isinstance(off, str):
+                off = int(off, 0)  # handles "0x30" or decimal strings
+            explicit_params["code_offset"] = int(off)
 
     sha256 = await ghidra_service._get_binary_sha256(path)
 
@@ -2440,6 +2445,18 @@ def register_binary_tools(registry: ToolRegistry) -> None:
                         "Load base address for raw binaries as a hex string "
                         "(e.g. '0x80100000') or decimal integer. Ignored for "
                         "ELF/PE binaries which carry their own load address."
+                    ),
+                },
+                "code_offset": {
+                    "type": "string",
+                    "description": (
+                        "Byte offset from the load base to the first real instruction, "
+                        "as a hex string (e.g. '0x30') or decimal. When set, the setup "
+                        "script marks bytes before this offset as raw data (not code) "
+                        "and seeds Ghidra disassembly at base+code_offset. Use when "
+                        "the firmware has a header that is not code — e.g. '0x30' for "
+                        "RTL8761BU (48-byte Realtechk header). Only meaningful for raw "
+                        "binaries using BinaryLoader with Mips16eSetup.java."
                     ),
                 },
                 "force_reanalyze": {
