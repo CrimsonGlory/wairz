@@ -44,9 +44,12 @@ import ghidra.program.model.lang.Register;
 import ghidra.program.model.lang.RegisterValue;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;
+import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.mem.MemoryBlock;
 
 import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.List;
 
 public class Mips16eSetup extends GhidraScript {
 
@@ -157,45 +160,90 @@ public class Mips16eSetup extends GhidraScript {
                 + e.getMessage());
         }
 
-        // 3. Disassemble with an explicit seed context.
-        //    Disassembler.disassemble(addr, set, RegisterValue, bool) requires a
-        //    RegisterValue for the BASE context register (contextreg), not a sub-
-        //    register.  Build it by stamping ISA_MODE=1 into the base context value.
+        // 3. Build the seed context for the Disassembler API.
+        //    Disassembler.disassemble() requires a RegisterValue for the BASE
+        //    context register (contextreg), not a sub-register.
         RegisterValue disasmCtx;
         if (baseCtxReg != null && isaModeReg.getBaseRegister().equals(baseCtxReg)) {
             disasmCtx = new RegisterValue(baseCtxReg).assign(isaModeReg, BigInteger.ONE);
             println("Mips16eSetup: disassembly seed context: "
                 + baseCtxReg.getName() + " with ISA_MODE=1");
         } else {
-            // ISA_MODE already IS the base-level context register
             disasmCtx = isaModeOn;
             println("Mips16eSetup: ISA_MODE is base-level; using directly as seed context");
         }
 
+        // --- Phase 1: entry-point disassembly via Disassembler API ----------
         Disassembler dis = Disassembler.getDisassembler(currentProgram, monitor, null);
         AddressSet codeRange = new AddressSet(seedAddr, maxAddr);
         AddressSet disResult = dis.disassemble(seedAddr, codeRange, disasmCtx, true);
-        println("Mips16eSetup: disassembled " + disResult.getNumAddressRanges()
+        println("Mips16eSetup: phase1 disassembled " + disResult.getNumAddressRanges()
             + " range(s), " + disResult.getNumAddresses() + " byte(s)");
 
-        // --- Fallback: create a function at the entry if none found ---------
+        // --- Phase 2: ADJSP prologue scan -----------------------------------
+        // MIPS16e function prologues: ADJSP with negative immediate decrements SP.
+        // Encoding (LE 16-bit): lo=[0x80..0xFF], hi=0x63
+        // Many functions are unreachable from the entry point via static call-following
+        // (indirect branches, jump tables) — scan raw bytes to find them all.
+        long codeLen = maxAddr.subtract(seedAddr) + 1;
+        byte[] raw = new byte[(int) codeLen];
+        currentProgram.getMemory().getBytes(seedAddr, raw);
+
+        List<Address> prologues = new ArrayList<>();
+        for (int i = 0; i + 1 < raw.length; i += 2) {
+            int lo = raw[i]   & 0xFF;
+            int hi = raw[i+1] & 0xFF;
+            if (hi == 0x63 && lo >= 0x80) {
+                prologues.add(seedAddr.add(i));
+            }
+        }
+        println("Mips16eSetup: phase2 found " + prologues.size() + " ADJSP prologues");
+
+        FunctionManager fm = currentProgram.getFunctionManager();
+        int newDisas = 0;
+        int newFuncs = 0;
+        for (Address addr : prologues) {
+            // Skip if already disassembled as part of a known function
+            if (currentProgram.getListing().getInstructionAt(addr) != null) {
+                continue;
+            }
+            // Pin ISA_MODE=1 at this address and disassemble forward
+            try {
+                currentProgram.getProgramContext().setRegisterValue(addr, addr, isaModeOn);
+            } catch (Exception e) {
+                // non-fatal: context already set from phase 1 range
+            }
+            AddressSet site = new AddressSet(addr, maxAddr);
+            AddressSet r = dis.disassemble(addr, site, disasmCtx, true);
+            if (r != null && r.getNumAddresses() > 0) {
+                newDisas++;
+            }
+            if (fm.getFunctionAt(addr) == null) {
+                Function f = createFunction(addr, null);
+                if (f != null) {
+                    newFuncs++;
+                }
+            }
+        }
+        println("Mips16eSetup: phase2 disassembled " + newDisas
+            + " new site(s), created " + newFuncs + " new function(s)");
+
+        // --- Fallback: ensure at least the entry point has a function -------
         int funcCount = 0;
-        FunctionIterator fi = currentProgram.getFunctionManager().getFunctions(true);
+        FunctionIterator fi = fm.getFunctions(true);
         while (fi.hasNext()) { fi.next(); funcCount++; }
 
         if (funcCount == 0) {
-            println("Mips16eSetup: no functions after disassembly — creating entry function");
+            println("Mips16eSetup: no functions found — creating entry function");
             Function f = createFunction(seedAddr, null);
             if (f != null) {
-                println("Mips16eSetup: created function '"
-                    + f.getName() + "' at " + seedAddr);
+                println("Mips16eSetup: created entry function at " + seedAddr);
             }
         } else {
             println("Mips16eSetup: " + funcCount + " function(s) found");
         }
 
-        // Run pending analysis so cross-refs, stack frames, and call targets
-        // resolve on the MIPS16E code — especially useful as post-script.
+        // --- Finalize: resolve cross-refs, stack frames, call targets -------
         analyzeChanges(currentProgram);
 
         println("Mips16eSetup: script complete");
