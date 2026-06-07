@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   Archive,
+  Check,
   Code2,
   Download,
   Loader2,
+  Pencil,
   Play,
   RefreshCw,
   Trash2,
@@ -12,16 +14,19 @@ import {
   AlertCircle,
   CheckCircle2,
   Clock,
+  X,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import {
   deleteGhidraResearchFile,
   getGhidraArchiveImportStatus,
   getGhidraResearchDownloadUrl,
   listGhidraResearchFiles,
   triggerGhidraArchiveImport,
+  updateGhidraResearchFile,
   uploadGhidraResearchFile,
   readGhidraScriptContent,
 } from '@/api/ghidra_research'
@@ -49,6 +54,96 @@ function ImportStatusBadge({ status }: { status: GhidraImportStatus }) {
     default:
       return null
   }
+}
+
+// Inline description editor — pencil icon opens an input; Enter/blur saves, Escape cancels.
+function DescriptionEditor({
+  fileId,
+  value,
+  onSave,
+}: {
+  fileId: string
+  value: string | null
+  onSave: (fileId: string, description: string | null) => Promise<void>
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value ?? '')
+  const [saving, setSaving] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const startEdit = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setDraft(value ?? '')
+    setEditing(true)
+    setTimeout(() => inputRef.current?.focus(), 0)
+  }
+
+  const cancel = (e?: React.MouseEvent | React.KeyboardEvent) => {
+    e?.stopPropagation()
+    setEditing(false)
+  }
+
+  const save = async (e?: React.MouseEvent | React.KeyboardEvent) => {
+    e?.stopPropagation()
+    setSaving(true)
+    try {
+      await onSave(fileId, draft.trim() || null)
+      setEditing(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') { e.preventDefault(); save(e) }
+    if (e.key === 'Escape') cancel(e)
+  }
+
+  if (editing) {
+    return (
+      <span className="mt-0.5 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+        <Input
+          ref={inputRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={onKeyDown}
+          onBlur={() => save()}
+          placeholder="Add a description…"
+          className="h-6 w-48 px-1.5 text-xs"
+          disabled={saving}
+        />
+        <button
+          type="button"
+          onClick={save}
+          className="text-green-600 hover:text-green-700 disabled:opacity-50"
+          disabled={saving}
+        >
+          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+        </button>
+        <button type="button" onClick={cancel} className="text-muted-foreground hover:text-foreground">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </span>
+    )
+  }
+
+  return (
+    <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+      {value ? (
+        <span className="truncate">{value}</span>
+      ) : (
+        <span className="italic opacity-60">No description</span>
+      )}
+      <button
+        type="button"
+        onClick={startEdit}
+        className="shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-foreground"
+        title="Edit description"
+      >
+        <Pencil className="h-3 w-3" />
+      </button>
+    </span>
+  )
 }
 
 export default function GhidraResearchPage() {
@@ -155,6 +250,12 @@ export default function GhidraResearchPage() {
     }
   }
 
+  const handleSaveDescription = async (fileId: string, description: string | null) => {
+    if (!projectId) return
+    const updated = await updateGhidraResearchFile(projectId, fileId, { description })
+    setFiles((prev) => prev.map((f) => (f.id === fileId ? updated : f)))
+  }
+
   const handleViewScript = async (file: GhidraResearchFile) => {
     if (!projectId) return
     setScriptLoading(true)
@@ -235,7 +336,7 @@ export default function GhidraResearchPage() {
               {archives.map((f) => (
                 <div
                   key={f.id}
-                  className="flex items-center justify-between rounded-md border p-3"
+                  className="group flex items-center justify-between rounded-md border p-3"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
@@ -244,10 +345,15 @@ export default function GhidraResearchPage() {
                       </span>
                       <ImportStatusBadge status={f.import_status} />
                     </div>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {formatBytes(f.file_size)}
-                      {f.description && ` — ${f.description}`}
-                    </p>
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <span>{formatBytes(f.file_size)}</span>
+                      <span>·</span>
+                      <DescriptionEditor
+                        fileId={f.id}
+                        value={f.description}
+                        onSave={handleSaveDescription}
+                      />
+                    </div>
                     {f.import_status === 'failed' && f.import_error && (
                       <p className="mt-1 truncate text-xs text-destructive">{f.import_error}</p>
                     )}
@@ -306,17 +412,22 @@ export default function GhidraResearchPage() {
                 {scripts.map((f) => (
                   <div
                     key={f.id}
-                    className={`flex cursor-pointer items-center justify-between rounded-md border p-2.5 transition-colors hover:bg-accent/50 ${
+                    className={`group flex cursor-pointer items-center justify-between rounded-md border p-2.5 transition-colors hover:bg-accent/50 ${
                       selectedScript?.id === f.id ? 'border-primary bg-accent/30' : ''
                     }`}
                     onClick={() => handleViewScript(f)}
                   >
                     <div className="min-w-0">
                       <p className="truncate font-mono text-sm">{f.original_filename}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatBytes(f.file_size)}
-                        {f.description && ` — ${f.description}`}
-                      </p>
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <span>{formatBytes(f.file_size)}</span>
+                        <span>·</span>
+                        <DescriptionEditor
+                          fileId={f.id}
+                          value={f.description}
+                          onSave={handleSaveDescription}
+                        />
+                      </div>
                     </div>
                     <div className="ml-2 flex shrink-0 items-center gap-1">
                       <a
