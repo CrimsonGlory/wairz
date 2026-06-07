@@ -442,6 +442,33 @@ export interface DocumentContent {
   size: number
 }
 
+// ── Ghidra Research types ──
+
+export type GhidraFileCategory = 'ghidra_archive' | 'python_script' | 'java_script'
+export type GhidraImportStatus = 'idle' | 'queued' | 'running' | 'completed' | 'failed'
+
+export interface GhidraResearchFile {
+  id: string
+  project_id: string
+  original_filename: string
+  file_category: GhidraFileCategory
+  description: string | null
+  content_type: string
+  file_size: number
+  sha256: string
+  created_at: string
+  import_status: GhidraImportStatus
+  import_result: Record<string, unknown> | null
+  import_error: string | null
+}
+
+export interface GhidraScriptContent {
+  content: string
+  content_type: string
+  filename: string
+  size: number
+}
+
 // ── Emulation types ──
 
 export type EmulationMode = 'user' | 'system' | 'qiling'

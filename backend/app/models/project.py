@@ -41,6 +41,10 @@ class Project(Base):
         back_populates="project",
         cascade="all, delete-orphan",
     )
+    ghidra_research_files: Mapped[list["GhidraResearchFile"]] = relationship(  # noqa: F821
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
     reviews: Mapped[list["SecurityReview"]] = relationship(  # noqa: F821
         back_populates="project",
         cascade="all, delete-orphan",

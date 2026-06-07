@@ -66,6 +66,7 @@ from app.ai.tools.windows_srum import register_windows_srum_tools
 from app.ai.tools.windows_storage import register_windows_storage_tools
 from app.ai.tools.windows_update import register_windows_update_tools
 from app.ai.tools.windows_usnjrnl import register_windows_usnjrnl_tools
+from app.ai.tools.ghidra_research import register_ghidra_research_tools
 from app.ai.tools.windows_wmi import register_windows_wmi_tools
 
 
@@ -164,4 +165,5 @@ def create_tool_registry() -> ToolRegistry:
     register_network_exposure_tools(registry)
     register_carving_tools(registry)
     register_rtos_tools(registry)
+    register_ghidra_research_tools(registry)
     return registry

@@ -5,6 +5,7 @@ from app.models.conversation import Conversation
 from app.models.cra_compliance import CraAssessment, CraRequirementResult
 from app.models.device_dump import DeviceDumpSession
 from app.models.document import Document
+from app.models.ghidra_research import GhidraResearchFile
 from app.models.emulation_preset import EmulationPreset
 from app.models.emulation_session import EmulationSession
 from app.models.finding import Finding
@@ -40,7 +41,7 @@ from app.models.windows_wmi_event import WindowsWmiEvent
 
 __all__ = [
     "Project", "Firmware", "Conversation", "AnalysisCache",
-    "Finding", "Document", "SecurityReview", "ReviewAgent",
+    "Finding", "Document", "GhidraResearchFile", "SecurityReview", "ReviewAgent",
     "SbomComponent", "SbomVulnerability", "EmulationSession",
     "EmulationPreset", "FuzzingCampaign", "FuzzingCrash",
     "AttackSurfaceEntry", "BareMetalDescriptor", "UARTSession",

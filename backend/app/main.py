@@ -39,6 +39,7 @@ from app.routers import (
     findings,
     firmware,
     fuzzing,
+    ghidra_research,
     hardware_firmware,
     health,
     kernels,
@@ -467,6 +468,7 @@ app.include_router(hardware_firmware.router)
 app.include_router(findings.router)
 app.include_router(reports.router)
 app.include_router(documents.router)
+app.include_router(ghidra_research.router)
 app.include_router(sbom.router)
 app.include_router(terminal.router)
 app.include_router(emulation.router)

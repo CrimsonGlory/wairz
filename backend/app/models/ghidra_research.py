@@ -1,0 +1,40 @@
+import uuid
+from datetime import datetime
+
+from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.database import Base
+
+
+class GhidraResearchFile(Base):
+    __tablename__ = "ghidra_research_files"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid(),
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_category: Mapped[str] = mapped_column(String(50), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    content_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    file_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    storage_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    import_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    import_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    import_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    project: Mapped["Project"] = relationship(back_populates="ghidra_research_files")  # noqa: F821

@@ -18,6 +18,7 @@ import {
   Wrench,
   Cpu,
   FileText,
+  FlaskConical,
 } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 import wairzLogo from '@/assets/wairz_full_logo.png'
@@ -53,6 +54,7 @@ const projectSubPages: ReadonlyArray<SubPage> = [
     kinds: ALL_KINDS,
   },
   { suffix: '/rtos', label: 'RTOS Analysis', icon: Cpu, kinds: ['rtos'] },
+  { suffix: '/ghidra-research', label: 'Ghidra Research', icon: FlaskConical, kinds: ALL_KINDS },
   { suffix: '/security', label: 'Security Scan', icon: Shield, kinds: ['linux'] },
   { suffix: '/findings', label: 'Findings', icon: ShieldAlert, kinds: ALL_KINDS },
   { suffix: '/report', label: 'Report', icon: FileText, kinds: ALL_KINDS },
