@@ -269,9 +269,11 @@ def _build_analyze_command(
       - ``base_addr``: integer load address
       - ``load_offset_in_file`` / ``load_length``: optional sub-region load
       - ``cspec``: optional calling-convention selector
-      - ``setup_script``: name of a .java script to run as a FIRST -postScript
-        before ``script_name``.  Used to fix ISA context for instruction sets
-        Ghidra cannot auto-detect (e.g. ``Mips16eSetup.java``).
+      - ``setup_script``: name of a .java script to run as a -preScript,
+        i.e. BEFORE Ghidra's auto-analysis pass.  Setting the ISA context
+        register here ensures Ghidra's own analyzers see MIPS16E mode from
+        the start rather than first mangling the binary as MIPS32.
+        Example: ``Mips16eSetup.java``.
 
     Unknown keys are silently ignored so future schema additions don't
     break the build path.
@@ -293,9 +295,10 @@ def _build_analyze_command(
         scripts_path,
     ]
 
-    # Optional setup script (e.g. ISA context fixup) runs before the main script
+    # Optional setup script runs as -preScript so ISA context is set BEFORE
+    # Ghidra's auto-analysis pass (not after, when MIPS32 damage is done).
     if ghidra_import_params and (setup := ghidra_import_params.get("setup_script")):
-        cmd.extend(["-postScript", str(setup)])
+        cmd.extend(["-preScript", str(setup)])
 
     cmd.extend(["-postScript", script_name])
 

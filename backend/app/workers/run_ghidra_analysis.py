@@ -55,11 +55,18 @@ async def _resolve_import_params(
     if _is_known_format(magic):
         return None
 
-    # Explicit CLI params override the rtos_flavor defaults
-    if explicit_params:
-        return explicit_params
+    # Resolve flavor defaults first — they carry setup_script and other
+    # keys the user typically doesn't pass explicitly.
+    flavor_params = await resolve_binary_import_params(binary_path, firmware_id)
 
-    return await resolve_binary_import_params(binary_path, firmware_id)
+    if explicit_params:
+        # Merge: explicit params override processor/loader/base_addr, but the
+        # flavor provides setup_script (and any future ISA-setup keys) as a
+        # fallback.  Without this merge, passing explicit params causes the
+        # setup_script to be silently dropped and Mips16eSetup.java never runs.
+        return {**(flavor_params or {}), **explicit_params}
+
+    return flavor_params
 
 
 async def _run(
