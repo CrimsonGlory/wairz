@@ -46,6 +46,7 @@ import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.data.ArrayDataType;
 import ghidra.program.model.data.ByteDataType;
 import ghidra.program.model.lang.Register;
+import ghidra.program.model.lang.RegisterValue;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.mem.MemoryBlock;
@@ -116,13 +117,16 @@ public class Mips16eSetup extends GhidraScript {
             }
         }
 
-        // --- Set ISAModeSwitch = 1 across all loaded memory -----------------
-        // clearContext=false in the next step preserves this value.
-        AddressSet codeRegion = new AddressSet(seedAddr, allBlocks.getMaxAddress());
-        currentProgram.getProgramContext().setValue(
-            isaModeReg, seedAddr, allBlocks.getMaxAddress(), BigInteger.ONE
+        // --- Set ISAModeSwitch = 1 as the DEFAULT context value --------------
+        // DisassembleCommand reads the DEFAULT context (setDefaultValue), not
+        // per-address overrides (setValue).  Using setValue here means the
+        // disassembler falls back to the MIPS32 default and produces 4-byte
+        // instructions regardless of what setValue recorded.
+        RegisterValue isaModeOn = new RegisterValue(isaModeReg, BigInteger.ONE);
+        currentProgram.getProgramContext().setDefaultValue(
+            isaModeOn, seedAddr, allBlocks.getMaxAddress()
         );
-        println("Mips16eSetup: " + isaModeReg.getName() + "=1 set [" + seedAddr
+        println("Mips16eSetup: " + isaModeReg.getName() + "=1 (default) set [" + seedAddr
             + ", " + allBlocks.getMaxAddress() + "]");
 
         // --- Clear any MIPS32 code units in the code region -----------------
