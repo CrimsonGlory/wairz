@@ -5,38 +5,31 @@
 //     -preScript  Mips16eSetup.java [<code_offset_hex>] \
 //     -postScript Mips16eSetup.java [<code_offset_hex>] \
 //     -postScript AnalyzeBinary.java \
-//     -processor MIPS:LE:32:default -loader BinaryLoader -loader-baseAddr 0x80100000
+//     -processor MIPS:LE:32:default -loader BinaryLoader -loader-baseAddr 0x80000000
 //
 // Why both pre AND post?
-//   Pre-script: Seeds MIPS16E mode BEFORE Ghidra's auto-analysis so the
-//     auto-analyzers see MIPS16E from the start and don't create MIPS32 garbage.
-//   Post-script: Some MIPS analyzers ("MIPS UnAlligned Instruction Fix",
-//     "Disassemble Entry Points") run during auto-analysis and re-disassemble
-//     the code region in MIPS32 mode, overwriting the correct MIPS16E code.
-//     The post pass clears that garbage, re-establishes MIPS16E context, and
+//   Pre-script: Seeds ISA_MODE=1 and disassembles BEFORE Ghidra's auto-analysis
+//     so the auto-analyzers see MIPS16E from the start.
+//   Post-script: "MIPS UnAlligned Instruction Fix" and "Disassemble Entry Points"
+//     run during auto-analysis and re-disassemble the code region in MIPS32 mode.
+//     The post pass clears the garbage, re-establishes ISA_MODE=1, and
 //     re-disassembles.  AnalyzeBinary.java then runs last and captures the
-//     corrected state.
+//     corrected MIPS16E state.
 //
 // Optional argument:
-//   code_offset_hex  Hex (or decimal) byte offset from the load base to the
-//                    first MIPS16E instruction.  Bytes before this offset are
-//                    marked as raw data (not code) so Ghidra doesn't try to
-//                    disassemble the firmware header.
-//                    Example: "0x30" for RTL8761BU (48-byte Realtechk header).
-//                    Default: 0 (seed from the load base directly).
+//   code_offset_hex  Byte offset from the load base to the first MIPS16E
+//                    instruction (hex or decimal).
+//                    Example: "0x30" skips the 48-byte RTL8761BU Realtechk header.
+//                    Default: 0 (start from load base).
 //
-// Three-pronged ISA mode strategy (Ghidra 12.1.2):
-//   1. setRegisterValue(start, end, RegisterValue(ISAModeSwitch, 1))
-//      Persists ISAModeSwitch=1 in the program database so future sessions
-//      and subsequent analyses see MIPS16E throughout the code region.
-//      MUST be called AFTER clearCodeUnits or it throws ContextChangeException.
-//   2. setDefaultDisassemblyContext(RegisterValue(ISAModeSwitch, 1))
-//      Sets the program-wide default context so newly discovered code paths
-//      (e.g. via branch targets) inherit MIPS16E mode.
-//   3. Disassembler.disassemble(seedAddr, codeRange, RegisterValue(ISAModeSwitch, 1), true)
-//      Passes ISAModeSwitch=1 directly to the disassembler at the seed address,
-//      bypassing ProgramContext reads entirely.  This is the only approach that
-//      is guaranteed to affect what the disassembler actually uses.
+// MIPS context register map (from mips.sinc):
+//   define context contextreg
+//     ISA_MODE = (1,1)   ← bit 1; =1 means decode as alternate ISA (MIPS16E here)
+//
+//   ISAModeSwitch is a REGULAR register (offset 0x3F00) used for RUNTIME mode
+//   switching via setISAMode().  It is NOT a context register and must not be
+//   used for disassembly context operations.  Using it caused:
+//     "Register ISAModeSwitch does not share common base register contextreg"
 //
 // @category Wairz
 // @author Wairz AI
@@ -65,7 +58,6 @@ public class Mips16eSetup extends GhidraScript {
         String[] args = getScriptArgs();
         if (args.length > 0 && args[0] != null && !args[0].isEmpty()) {
             try {
-                // Long.decode handles "0x30", "48", "0X30" etc.
                 codeOffset = Long.decode(args[0]);
                 println("Mips16eSetup: code_offset=" + args[0] + " (" + codeOffset + " bytes)");
             } catch (NumberFormatException e) {
@@ -74,20 +66,36 @@ public class Mips16eSetup extends GhidraScript {
             }
         }
 
-        // --- Find the ISA context register ----------------------------------
-        // Ghidra's MIPS SLEIGH spec names it "ISAModeSwitch" in most variants;
-        // older or alternate specs may use "ISA_MODE".
-        Register isaModeReg = currentProgram.getLanguage().getRegister("ISAModeSwitch");
+        // --- Find ISA_MODE — the disassembly context register ---------------
+        // ISA_MODE is bit 1 of contextreg (defined in mips.sinc as ISA_MODE=(1,1)).
+        // When ISA_MODE=1, Ghidra decodes instructions as the alternate ISA (MIPS16E).
+        // ISAModeSwitch is a regular register for runtime mode switching — NOT this.
+        Register isaModeReg = currentProgram.getLanguage().getRegister("ISA_MODE");
         if (isaModeReg == null) {
-            isaModeReg = currentProgram.getLanguage().getRegister("ISA_MODE");
+            // Fallback: try ProgramContext (covers language variants that expose it there)
+            isaModeReg = currentProgram.getProgramContext().getRegister("ISA_MODE");
         }
         if (isaModeReg == null) {
-            println("Mips16eSetup: WARNING — neither ISAModeSwitch nor ISA_MODE found "
-                + "for language " + currentProgram.getLanguage().getLanguageID()
-                + "; MIPS16E mode cannot be set.");
+            println("Mips16eSetup: FATAL — ISA_MODE context register not found for language "
+                + currentProgram.getLanguage().getLanguageID());
+            println("Mips16eSetup: NOTE: ISAModeSwitch exists but is a regular register "
+                + "(runtime only); use ISA_MODE for disassembly context.");
             return;
         }
-        println("Mips16eSetup: using register '" + isaModeReg.getName() + "' for ISA mode");
+        println("Mips16eSetup: ISA_MODE register = " + isaModeReg.getName()
+            + " (base: " + isaModeReg.getBaseRegister().getName() + ")");
+
+        // Verify ISA_MODE shares the base context register (contextreg)
+        Register baseCtxReg = currentProgram.getProgramContext().getBaseContextRegister();
+        if (baseCtxReg == null) {
+            println("Mips16eSetup: WARNING — no base context register found");
+        } else if (!isaModeReg.getBaseRegister().equals(baseCtxReg)) {
+            println("Mips16eSetup: WARNING — ISA_MODE base (" + isaModeReg.getBaseRegister()
+                + ") != programContext base (" + baseCtxReg + ")");
+        } else {
+            println("Mips16eSetup: ISA_MODE confirmed in base context register "
+                + baseCtxReg.getName());
+        }
 
         // --- Collect all initialized memory blocks --------------------------
         AddressSet allBlocks = new AddressSet();
@@ -121,43 +129,53 @@ public class Mips16eSetup extends GhidraScript {
             }
         }
 
-        // --- Clear any existing code units in the code region ---------------
-        // MUST happen before setRegisterValue; if code units exist in the range,
-        // setRegisterValue throws ContextChangeException and the write is lost.
+        // --- Clear existing code units BEFORE setting context ---------------
+        // setRegisterValue throws ContextChangeException if code units exist in the range.
         currentProgram.getListing().clearCodeUnits(seedAddr, maxAddr, false);
         println("Mips16eSetup: cleared code units [" + seedAddr + ", " + maxAddr + "]");
 
-        // --- Establish MIPS16E context — three independent mechanisms -------
+        // --- Set ISA_MODE=1 via all available mechanisms --------------------
         RegisterValue isaModeOn = new RegisterValue(isaModeReg, BigInteger.ONE);
 
-        // 1. Persist across the full code range so subsequent analyses (and
-        //    future headless runs on the same project) see MIPS16E.
+        // 1. Persist ISA_MODE=1 across the full code range in the program DB.
         try {
             currentProgram.getProgramContext().setRegisterValue(
                 seedAddr, maxAddr, isaModeOn);
-            println("Mips16eSetup: setRegisterValue ISAModeSwitch=1 ["
-                + seedAddr + ", " + maxAddr + "]");
+            println("Mips16eSetup: setRegisterValue ISA_MODE=1 [" + seedAddr
+                + ", " + maxAddr + "]");
         } catch (Exception e) {
             println("Mips16eSetup: WARNING — setRegisterValue: " + e.getMessage());
         }
 
-        // 2. Set program-wide default disassembly context so any code newly
-        //    discovered via branch targets also gets MIPS16E mode.
+        // 2. Set program-wide default so newly-discovered code paths inherit
+        //    MIPS16E mode without explicit per-address context.
         try {
             currentProgram.getProgramContext().setDefaultDisassemblyContext(isaModeOn);
-            println("Mips16eSetup: setDefaultDisassemblyContext ISAModeSwitch=1");
+            println("Mips16eSetup: setDefaultDisassemblyContext ISA_MODE=1");
         } catch (Exception e) {
             println("Mips16eSetup: WARNING — setDefaultDisassemblyContext: "
                 + e.getMessage());
         }
 
-        // 3. Disassemble with explicit seed context — this bypasses ProgramContext
-        //    reads entirely and passes ISAModeSwitch=1 directly to the disassembler
-        //    at the seed address.  followFlow=true propagates context through branches.
+        // 3. Disassemble with an explicit seed context.
+        //    Disassembler.disassemble(addr, set, RegisterValue, bool) requires a
+        //    RegisterValue for the BASE context register (contextreg), not a sub-
+        //    register.  Build it by stamping ISA_MODE=1 into the base context value.
+        RegisterValue disasmCtx;
+        if (baseCtxReg != null && isaModeReg.getBaseRegister().equals(baseCtxReg)) {
+            disasmCtx = new RegisterValue(baseCtxReg).assign(isaModeReg, BigInteger.ONE);
+            println("Mips16eSetup: disassembly seed context: "
+                + baseCtxReg.getName() + " with ISA_MODE=1");
+        } else {
+            // ISA_MODE already IS the base-level context register
+            disasmCtx = isaModeOn;
+            println("Mips16eSetup: ISA_MODE is base-level; using directly as seed context");
+        }
+
         Disassembler dis = Disassembler.getDisassembler(currentProgram, monitor, null);
         AddressSet codeRange = new AddressSet(seedAddr, maxAddr);
-        AddressSet disResult = dis.disassemble(seedAddr, codeRange, isaModeOn, true);
-        println("Mips16eSetup: Disassembler covered " + disResult.getNumAddressRanges()
+        AddressSet disResult = dis.disassemble(seedAddr, codeRange, disasmCtx, true);
+        println("Mips16eSetup: disassembled " + disResult.getNumAddressRanges()
             + " range(s), " + disResult.getNumAddresses() + " byte(s)");
 
         // --- Fallback: create a function at the entry if none found ---------
@@ -169,16 +187,15 @@ public class Mips16eSetup extends GhidraScript {
             println("Mips16eSetup: no functions after disassembly — creating entry function");
             Function f = createFunction(seedAddr, null);
             if (f != null) {
-                println("Mips16eSetup: created function '" + f.getName()
-                    + "' at " + seedAddr);
+                println("Mips16eSetup: created function '"
+                    + f.getName() + "' at " + seedAddr);
             }
         } else {
             println("Mips16eSetup: " + funcCount + " function(s) found");
         }
 
-        // Run pending analysis tasks so cross-references, stack frames, and
-        // call targets resolve on the MIPS16E code (especially useful when
-        // running as post-script after Ghidra's own auto-analysis pass).
+        // Run pending analysis so cross-refs, stack frames, and call targets
+        // resolve on the MIPS16E code — especially useful as post-script.
         analyzeChanges(currentProgram);
 
         println("Mips16eSetup: script complete");
