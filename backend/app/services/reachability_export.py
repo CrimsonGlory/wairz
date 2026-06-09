@@ -1,0 +1,152 @@
+"""Reachability evidence export — binary-axis MVP (bridge to the CVE assessment framework).
+
+Produces the per-binary SYMBOL-PRESENCE facts the framework consumes as Gate-1
+``FUNCTION_NOT_LINKED`` evidence (the one reachability axis that is artifact-immutable under
+Axiom 1: a *defined* function symbol either is or is not in the ELF symbol table). The
+framework intersects its own per-CVE sink set against ``defined_symbols`` at ingest — wairz
+has no CVE knowledge and never emits a CVE->sink map.
+
+SOUNDNESS (the iron law — a wairz MISS may NEVER clear):
+- Symbol PRESENCE is a mechanical fact. Symbol ABSENCE is only trustworthy on a NON-STRIPPED
+  binary — so ``stripped`` is computed and carried; the framework ABSTAINS (never clears) when
+  it is true (absence-of-evidence != code-absence).
+- ``link_b_reachable`` / ``link_c_dataflow_path`` / ``indirect_calls`` are explicitly NULL:
+  wairz has no reliable indirect-call enumerator today (function pointers / vtables / dlsym /
+  PLT are unresolvable at -O2/-O3), so the ``call_graph_unreachable`` path is DEFERRED — the
+  MVP emits NOTHING whose clear depends on absence-of-evidence.
+
+PARSE-ONLY (Rule #45/#36): reads the ELF symbol table via pyelftools; never executes the
+binary. Every function degrades to None/[] on any failure — export must never break.
+See .planning/research/ast-kg-bridge-binary-axis-spec-2026-06-08.md.
+"""
+from __future__ import annotations
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+REACHABILITY_EXPORT_SCHEMA_VERSION = 1
+_ANALYZER = "pyelftools"
+
+# pyelftools renders these as strings.
+_FUNC_TYPES = ("STT_FUNC", "STT_GNU_IFUNC")
+_IMPORT_TYPES = ("STT_FUNC", "STT_GNU_IFUNC", "STT_NOTYPE")
+_UNDEF = "SHN_UNDEF"
+
+
+def _analyzer_version() -> str:
+    try:
+        import elftools  # noqa: PLC0415
+        return getattr(elftools, "__version__", "unknown")
+    except Exception:  # noqa: BLE001
+        return "unknown"
+
+
+def extract_elf_symbols(path: str) -> dict | None:
+    """Parse-only ELF symbol-table extraction. Returns the symbol facts, or None on non-ELF /
+    read failure (so the caller skips the binary rather than fabricating absence).
+
+    Returns:
+        {
+          "defined_symbols": [str],   # st_shndx != SHN_UNDEF, STT_FUNC/STT_GNU_IFUNC
+          "imported_symbols": [str],  # SHN_UNDEF (what this binary calls out to)
+          "stripped": bool,           # no .symtab AND no .dynsym symbols -> absence is UNRELIABLE
+          "has_symtab": bool, "has_dynsym": bool,
+          "arch": str, "format": "elf",
+        }
+    """
+    try:
+        from elftools.elf.elffile import ELFFile  # noqa: PLC0415 (Rule #30 lazy; heavy dep)
+        from elftools.elf.sections import SymbolTableSection  # noqa: PLC0415
+    except ImportError:
+        return None
+    try:
+        with open(path, "rb") as f:
+            head = f.read(4)
+            if head != b"\x7fELF":
+                return None
+            f.seek(0)
+            elf = ELFFile(f)
+            arch = elf.get_machine_arch()
+            defined: set[str] = set()
+            imported: set[str] = set()
+            has_symtab = False
+            has_dynsym = False
+            for sec_name in (".symtab", ".dynsym"):
+                sec = elf.get_section_by_name(sec_name)
+                if not isinstance(sec, SymbolTableSection) or sec.num_symbols() == 0:
+                    continue
+                if sec_name == ".symtab":
+                    has_symtab = True
+                else:
+                    has_dynsym = True
+                for sym in sec.iter_symbols():
+                    name = sym.name
+                    if not name:
+                        continue
+                    shndx = sym.entry["st_shndx"]
+                    stype = sym.entry["st_info"]["type"]
+                    if shndx == _UNDEF:
+                        if stype in _IMPORT_TYPES:
+                            imported.add(name)
+                    elif stype in _FUNC_TYPES:
+                        defined.add(name)
+            # Stripped = no symbol-bearing table at all -> symbol ABSENCE is unreliable.
+            stripped = not (has_symtab or has_dynsym)
+            return {
+                "defined_symbols": sorted(defined),
+                "imported_symbols": sorted(imported),
+                "stripped": stripped,
+                "has_symtab": has_symtab,
+                "has_dynsym": has_dynsym,
+                "arch": arch or "unknown",
+                "format": "elf",
+            }
+    except Exception:  # noqa: BLE001 — non-ELF / malformed / read error -> skip, never fabricate
+        logger.debug("ELF symbol extraction failed for %s", path, exc_info=True)
+        return None
+
+
+def build_reachability_record(
+    firmware_id, binary_path_rel: str, binary_sha256: str,
+    symbols: dict, fingerprints: dict | None = None, link_a: dict | None = None,
+) -> dict:
+    """Build one ``wairz_reachability.jsonl`` record (per (binary_path, firmware_id)).
+
+    The wire format the framework gate accepts. Deferred axes are explicitly NULL so a consumer
+    cannot misread them as a negative. ``defined_symbols`` is the full defined-function set; the
+    framework intersects its per-CVE sink set against it (wairz emits no CVE->sink map).
+    """
+    fp = fingerprints or {}
+    return {
+        "schema_version": REACHABILITY_EXPORT_SCHEMA_VERSION,
+        "firmware_id": str(firmware_id),
+        "binary_path": binary_path_rel,
+        "binary_sha256": binary_sha256,
+        "binary_tlsh": fp.get("tlsh"),
+        "imphash": fp.get("imphash"),
+        "link_a": link_a,  # advisory; never clears. None when no listener binds this binary.
+        "defined_symbols": symbols.get("defined_symbols", []),
+        "imported_symbols": symbols.get("imported_symbols", []),
+        # DEFERRED to the source axis — explicitly NULL (not a negative):
+        "link_b_reachable": None,
+        "link_c_dataflow_path": None,
+        "completeness_proof": {
+            "stripped": bool(symbols.get("stripped", True)),
+            "has_symtab": bool(symbols.get("has_symtab", False)),
+            "has_dynsym": bool(symbols.get("has_dynsym", False)),
+            "demangled": False,  # raw names in the MVP; demangle is a follow-up (framework matches raw)
+            "arch": symbols.get("arch", "unknown"),
+            "format": symbols.get("format", "unknown"),
+            "analyzer": _ANALYZER,
+            "analyzer_version": _analyzer_version(),
+            "indirect_calls": None,            # DEFERRED — never 0 in the MVP (gate-honest)
+            "decompiler_success_ratio": None,  # DEFERRED
+        },
+        "confidence_score": None,  # DEFERRED — no graph-completeness measured
+        "derivation": "symbol_table",
+        "_wairz_disclaimer": (
+            "severity/cvss NOT an input; Axiom 3. Symbol absence valid ONLY on a non-stripped, "
+            "sha256-matched binary."
+        ),
+    }
