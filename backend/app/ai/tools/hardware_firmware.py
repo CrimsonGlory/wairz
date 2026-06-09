@@ -11,12 +11,19 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import uuid
 
 from sqlalchemy import select
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
+from app.models.firmware import Firmware
 from app.models.hardware_firmware import HardwareFirmwareBlob
+from app.models.project import Project
 from app.services.hardware_firmware.cve_matcher import CveMatch
+from app.services.hardware_firmware.fingerprints import (
+    normalize_blob_fingerprints,
+    tlsh_distance,
+)
 from app.services.jsonb_normalizers import _normalize_hardware_firmware_blobs_metadata
 
 
@@ -660,8 +667,174 @@ async def _handle_check_firmware_cves(input: dict, context: ToolContext) -> str:
     return "\n".join(lines)
 
 
+# ── Rule #44: cross-firmware blob-similarity (R2 supply-chain wedge) ──────────
+# TLSH diff bands (malware-corpus convention; calibrate per firmware corpus before treating
+# the cutoffs as load-bearing). LOWER = more similar.
+_TLSH_NEAR_IDENTICAL = 30
+_TLSH_RELATED = 70
+
+
+def _rank_similar_blobs(
+    ref_tlsh: str | None, ref_imphash: str | None,
+    candidates: list[dict], max_distance: int,
+) -> list[dict]:
+    """Pure matcher (no DB): rank candidate blobs by similarity to the reference.
+
+    A candidate matches on EXACT imphash (strong import-table reuse) OR TLSH distance
+    <= max_distance. Sorted: imphash-exact first, then ascending TLSH distance. This is
+    a RAISE-to-re-examine signal (supply-chain code reuse), never a disposition flip.
+    """
+    matches: list[dict] = []
+    for c in candidates:
+        imphash_match = bool(ref_imphash) and bool(c.get("imphash")) and c["imphash"] == ref_imphash
+        dist = tlsh_distance(ref_tlsh, c.get("tlsh"))
+        tlsh_match = dist is not None and dist <= max_distance
+        if not (imphash_match or tlsh_match):
+            continue
+        band = None
+        if dist is not None:
+            band = ("near_identical" if dist <= _TLSH_NEAR_IDENTICAL
+                    else "related" if dist <= _TLSH_RELATED else "distant")
+        m = {k: c.get(k) for k in (
+            "firmware_id", "project_id", "project_name", "original_filename",
+            "blob_path", "blob_sha256", "vendor", "category")}
+        m["tlsh_distance"] = dist
+        m["tlsh_band"] = band
+        m["imphash_match"] = bool(imphash_match)
+        matches.append(m)
+    matches.sort(key=lambda m: (
+        0 if m["imphash_match"] else 1,
+        m["tlsh_distance"] if m["tlsh_distance"] is not None else 1_000_000,
+    ))
+    return matches
+
+
+async def _handle_lookup_similar_blobs_across_firmwares(
+    input: dict, context: ToolContext
+) -> str:
+    """Rule #44 mandatory cross-firmware aggregator for hardware-firmware blobs.
+
+    Find blobs across firmwares that are SIMILAR to a reference — by exact PE imphash
+    (import-table reuse) or TLSH fuzzy-hash distance (near-identical / related bytes). The
+    supply-chain wedge: "which firmwares ship the same / a near-identical vendor blob?"
+
+    Reference: pass ``blob_sha256`` (its fingerprints are looked up) OR a raw ``tlsh`` /
+    ``imphash`` directly. Returns matches grouped per firmware with ``tlsh_distance`` +
+    ``tlsh_band`` + ``imphash_match``, plus a top-level ``supply_chain_signal`` (True when the
+    reference matches blobs in >=2 distinct firmwares). RAISE-to-re-examine only — never a clear.
+    """
+    blob_sha256 = input.get("blob_sha256")
+    ref_tlsh = input.get("tlsh")
+    ref_imphash = input.get("imphash")
+    if not any([blob_sha256, ref_tlsh, ref_imphash]):
+        return json.dumps({"error": "Provide blob_sha256, tlsh, or imphash as the reference."})
+    if isinstance(blob_sha256, str):
+        blob_sha256 = blob_sha256.strip().lower()
+    max_distance = int(input.get("max_distance", _TLSH_RELATED))
+    max_distance = max(0, min(max_distance, 300))
+    scope = input.get("scope", "project")
+    if scope not in ("project", "global"):
+        return json.dumps({"error": f"scope must be 'project' or 'global', got {scope!r}"})
+    limit = max(1, min(int(input.get("limit", 100)), 500))
+
+    stmt = (
+        select(HardwareFirmwareBlob, Firmware, Project)
+        .join(Firmware, HardwareFirmwareBlob.firmware_id == Firmware.id)
+        .join(Project, Firmware.project_id == Project.id)
+        .where(HardwareFirmwareBlob.metadata_["fingerprints"].isnot(None))
+        .order_by(Firmware.created_at)
+    )
+    if scope == "project":
+        if not context.project_id:
+            return json.dumps({"error": (
+                "scope='project' requires an active project — call switch_project first "
+                "or use scope='global'.")})
+        project_id = (uuid.UUID(context.project_id)
+                      if isinstance(context.project_id, str) else context.project_id)
+        stmt = stmt.where(Firmware.project_id == project_id)
+
+    rows = (await context.db.execute(stmt)).all()
+
+    candidates: list[dict] = []
+    ref_from_sha: dict | None = None
+    for blob, firmware, project in rows:
+        meta = _normalize_hardware_firmware_blobs_metadata(blob.metadata_)
+        fp = normalize_blob_fingerprints(meta.get("fingerprints"))
+        cand = {
+            "firmware_id": str(firmware.id),
+            "project_id": str(project.id),
+            "project_name": project.name,
+            "original_filename": firmware.original_filename,
+            "blob_path": blob.blob_path,
+            "blob_sha256": blob.blob_sha256,
+            "vendor": blob.vendor,
+            "category": blob.category,
+            "tlsh": fp.get("tlsh"),
+            "imphash": fp.get("imphash"),
+        }
+        candidates.append(cand)
+        # If the reference is a blob SHA, capture its fingerprints (and exclude self below).
+        if blob_sha256 and blob.blob_sha256 == blob_sha256 and ref_from_sha is None:
+            ref_from_sha = cand
+
+    if blob_sha256:
+        if ref_from_sha is None:
+            return json.dumps({"error": (
+                f"No fingerprinted blob with sha256={blob_sha256} in scope "
+                f"(it may be too small/low-entropy for TLSH, or not yet re-detected).")})
+        ref_tlsh = ref_tlsh or ref_from_sha.get("tlsh")
+        ref_imphash = ref_imphash or ref_from_sha.get("imphash")
+
+    if not ref_tlsh and not ref_imphash:
+        return json.dumps({"error": (
+            "Reference has no usable fingerprint (no TLSH and no imphash) — cannot compare.")})
+
+    # Exclude the exact reference blob row (same firmware + sha) from its own match set.
+    pool = [c for c in candidates
+            if not (ref_from_sha is not None
+                    and c["blob_sha256"] == ref_from_sha["blob_sha256"]
+                    and c["firmware_id"] == ref_from_sha["firmware_id"])]
+    matches = _rank_similar_blobs(ref_tlsh, ref_imphash, pool, max_distance)
+    distinct_fw = {m["firmware_id"] for m in matches}
+
+    return json.dumps({
+        "reference": {"blob_sha256": blob_sha256, "tlsh": ref_tlsh, "imphash": ref_imphash},
+        "scope": scope,
+        "max_distance": max_distance,
+        "match_count": len(matches),
+        "distinct_firmware_count": len(distinct_fw),
+        "supply_chain_signal": len(distinct_fw) >= 2,
+        "matches": matches[:limit],
+        "note": ("Similarity is RAISE-to-re-examine evidence of vendor code reuse — never a "
+                 "clear. imphash/TLSH are LOW standalone confidence; confirm with a "
+                 "function-level diff before any verdict inheritance."),
+    }, default=str)
+
+
 def register_hardware_firmware_tools(registry: ToolRegistry) -> None:
     """Register hardware firmware MCP tools with the given registry."""
+    registry.register(
+        name="lookup_similar_blobs_across_firmwares",
+        description=(
+            "Rule #44 cross-firmware supply-chain query: find blobs SIMILAR to a reference "
+            "across firmwares — by exact PE imphash or TLSH fuzzy-hash distance. Pass a "
+            "reference blob_sha256 (its fingerprints are resolved) or a raw tlsh/imphash. "
+            "Returns per-firmware matches with distance + band + a supply_chain_signal flag "
+            "(true when >=2 firmwares share a similar blob). RAISE-to-re-examine only."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "blob_sha256": {"type": "string", "description": "Reference blob SHA-256 (its fingerprints are looked up)."},
+                "tlsh": {"type": "string", "description": "Reference TLSH hash (alternative to blob_sha256)."},
+                "imphash": {"type": "string", "description": "Reference PE imphash (alternative/additional)."},
+                "max_distance": {"type": "integer", "description": "Max TLSH distance to match (default 70; <=30 near-identical)."},
+                "scope": {"type": "string", "enum": ["project", "global"], "description": "Search the active project or the whole corpus."},
+                "limit": {"type": "integer", "description": "Max matches to return (default 100, max 500)."},
+            },
+        },
+        handler=_handle_lookup_similar_blobs_across_firmwares,
+    )
     registry.register(
         name="list_hardware_firmware",
         description=(
