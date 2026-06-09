@@ -65,3 +65,32 @@ def test_build_record_propagates_stripped_and_empty_symbols():
     assert rec["completeness_proof"]["has_symtab"] is False
     assert rec["completeness_proof"]["has_dynsym"] is False
     assert rec["link_a"] is None  # no listener supplied
+
+
+def test_export_records_skips_non_elf_blobs(tmp_path, monkeypatch):
+    """export_reachability_records skips blobs whose bytes aren't ELF (extract returns None)."""
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+    import app.services.reachability_export as rx
+
+    blobs = [
+        SimpleNamespace(blob_path="/x/extracted/a/elf.so", blob_sha256="s1", metadata_={"fingerprints": {"tlsh": "T1AA"}}),
+        SimpleNamespace(blob_path="/x/extracted/a/data.bin", blob_sha256="s2", metadata_={}),
+    ]
+    db = MagicMock()
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = blobs
+    db.execute = AsyncMock(return_value=result)
+
+    def fake_extract(path):
+        if path.endswith("elf.so"):
+            return {"defined_symbols": ["f"], "imported_symbols": [], "stripped": False,
+                    "has_symtab": True, "has_dynsym": False, "arch": "arm64", "format": "elf"}
+        return None  # non-ELF -> skipped
+    monkeypatch.setattr(rx, "extract_elf_symbols", fake_extract)
+
+    recs = asyncio.run(rx.export_reachability_records("fw-1", db))
+    assert len(recs) == 1  # the .bin was skipped
+    assert recs[0]["binary_path"] == "a/elf.so"  # detection-root-relative
+    assert recs[0]["binary_tlsh"] == "T1AA"      # fingerprints folded from metadata_
