@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     ghidra_path: str = "/opt/ghidra"
     ghidra_scripts_path: str = "/opt/ghidra_scripts"
     ghidra_timeout: int = 300
+    # Persistent Ghidra project store for GZF process-mode (run_ghidra_headless
+    # use_saved_project=True).  Projects are keyed by GZF content SHA256 so the
+    # same archive always maps to the same directory.  Defaults to /var/wairz
+    # inside the container; override to a host bind-mount for persistence across
+    # container restarts.
+    ghidra_projects_dir: str = "/var/wairz/ghidra_projects"
     ghidra_background_analysis_timeout: int = 3600
     ghidra_background_decompile_timeout: int = 1800
     jadx_path: str = "/opt/jadx/bin/jadx"
