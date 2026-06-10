@@ -50,6 +50,7 @@ from app.database import async_session_factory
 from app.models.firmware import Firmware
 from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.models.reachability_export import ReachabilityExportRecord
+from app.services.firmware_paths import get_detection_roots
 from app.services.jsonb_normalizers import (
     _coerce_symbol_list,
     _stamp_firmware_reachability_export_walk_result,
@@ -102,6 +103,9 @@ async def _do_reachability_export_run(
         )
     )
 
+    # Detection roots for path relativisation (Rule #16 — handles scatter-zip / container roots).
+    detection_roots = await get_detection_roots(firmware, db=db)
+
     blobs = (
         await db.execute(
             select(HardwareFirmwareBlob).where(
@@ -143,7 +147,7 @@ async def _do_reachability_export_run(
             ReachabilityExportRecord(
                 firmware_id=firmware_id,
                 blob_id=blob.id,
-                blob_path=_rel_path(blob.blob_path),
+                blob_path=_rel_path(blob.blob_path, detection_roots),
                 blob_sha256=blob.blob_sha256,
                 defined_symbols=defined,
                 imported_symbols=imported,

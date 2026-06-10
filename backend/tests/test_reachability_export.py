@@ -11,9 +11,28 @@ import sys
 
 from app.services.reachability_export import (
     REACHABILITY_EXPORT_SCHEMA_VERSION,
+    _rel_path,
     build_reachability_record,
     extract_elf_symbols,
 )
+
+
+def test_rel_path_detection_root_relative():
+    # Prefers os.path.relpath against a detection root (handles scatter-zip / container roots whose
+    # paths don't contain '/extracted/').
+    roots = ["/data/fw/scatter_out", "/data/fw/scatter_out/sub"]
+    assert _rel_path("/data/fw/scatter_out/system/lib/libc.so", roots) == "system/lib/libc.so"
+    # longest/first matching root wins in order; a deeper root still relativises correctly
+    assert _rel_path("/data/fw/scatter_out/sub/x.so", roots) == "sub/x.so"
+
+
+def test_rel_path_fallbacks_never_raise():
+    # No roots -> /extracted/ split; no marker -> bare path. Never raises (producer must not break).
+    assert _rel_path("/x/extracted/a/elf.so", []) == "a/elf.so"
+    assert _rel_path("/x/extracted/a/elf.so", None) == "a/elf.so"
+    assert _rel_path("/weird/scatter/blob.bin", []) == "/weird/scatter/blob.bin"
+    # a root that isn't a prefix is ignored (falls through to /extracted/ then bare)
+    assert _rel_path("/other/extracted/z.so", ["/data/root"]) == "z.so"
 
 
 def test_extract_real_elf_has_symbols_and_not_stripped():
@@ -79,6 +98,9 @@ def test_export_records_skips_non_elf_blobs(tmp_path, monkeypatch):
         SimpleNamespace(blob_path="/x/extracted/a/data.bin", blob_sha256="s2", metadata_={}),
     ]
     db = MagicMock()
+    # db.get(Firmware, id) is awaited for detection-root resolution; None -> roots=[] -> _rel_path
+    # falls back to the /extracted/ split (preserves the relative-path assertion below).
+    db.get = AsyncMock(return_value=None)
     result = MagicMock()
     result.scalars.return_value.all.return_value = blobs
     db.execute = AsyncMock(return_value=result)

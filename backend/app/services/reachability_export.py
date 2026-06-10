@@ -152,9 +152,29 @@ def build_reachability_record(
     }
 
 
-def _rel_path(blob_path: str) -> str:
-    """Detection-root-relative path for the wire format (matches existing wairz_evidence keying)."""
-    return blob_path.split("/extracted/", 1)[-1] if "/extracted/" in blob_path else blob_path
+def _rel_path(blob_path: str, detection_roots: list[str] | None = None) -> str:
+    """Detection-root-relative path for the wire format.
+
+    Prefers ``os.path.relpath`` against the firmware's detection roots (Rule #16) — this handles
+    scatter-zip / container-root layouts whose absolute paths do NOT contain ``/extracted/``.
+    Falls back to the legacy ``/extracted/`` split, then the bare path. NEVER raises: the producer
+    must never break on a path it cannot relativise (the red-team flagged a bare ``assert relative``
+    as a crash risk on the common scatter-zip case).
+    """
+    import os  # noqa: PLC0415
+
+    for root in detection_roots or []:
+        if not root:
+            continue
+        norm = root.rstrip("/")
+        if blob_path == norm or blob_path.startswith(norm + "/"):
+            try:
+                return os.path.relpath(blob_path, norm)
+            except (ValueError, TypeError):
+                continue
+    if "/extracted/" in blob_path:
+        return blob_path.split("/extracted/", 1)[-1]
+    return blob_path
 
 
 async def export_reachability_records(firmware_id, db) -> list[dict]:
@@ -164,14 +184,21 @@ async def export_reachability_records(firmware_id, db) -> list[dict]:
     so there is no second tree walk. ``extract_elf_symbols`` self-gates on the ELF magic, so
     non-ELF blobs (mbn/dtb/raw_bin/...) are silently skipped. Parse-only (Rule #45); symbol reads
     run in an executor (Rule #5). ``link_a`` is left None in the MVP (advisory only — it does not
-    affect the FUNCTION_NOT_LINKED clear; the network_exposure join is a follow-up).
+    affect the FUNCTION_NOT_LINKED clear; the network_exposure join is a follow-up). Paths are
+    relativised against the firmware's detection roots (Rule #16) for the wire format.
     """
     import asyncio  # noqa: PLC0415
 
     from sqlalchemy import select  # noqa: PLC0415
 
+    from app.models.firmware import Firmware  # noqa: PLC0415
     from app.models.hardware_firmware import HardwareFirmwareBlob  # noqa: PLC0415
+    from app.services.firmware_paths import get_detection_roots  # noqa: PLC0415
 
+    firmware = await db.get(Firmware, firmware_id)
+    detection_roots = (
+        await get_detection_roots(firmware, db=db) if firmware is not None else []
+    )
     blobs = (
         await db.execute(select(HardwareFirmwareBlob).where(
             HardwareFirmwareBlob.firmware_id == firmware_id))
@@ -184,7 +211,8 @@ async def export_reachability_records(firmware_id, db) -> list[dict]:
             continue  # non-ELF -> skip (never fabricate a record)
         fp = (blob.metadata_ or {}).get("fingerprints")
         records.append(build_reachability_record(
-            firmware_id, _rel_path(blob.blob_path), blob.blob_sha256, syms, fp, link_a=None))
+            firmware_id, _rel_path(blob.blob_path, detection_roots),
+            blob.blob_sha256, syms, fp, link_a=None))
     return records
 
 
