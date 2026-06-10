@@ -47,6 +47,7 @@ __all__ = [
     "AttackSurfaceEntry", "BareMetalDescriptor", "UARTSession",
     "CraAssessment", "CraRequirementResult", "HardwareFirmwareBlob",
     "DeviceDumpSession", "LinuxContainerArtifact", "LinuxJournaldEntry", "LinuxSystemdUnit",
+    "ReachabilityExportRecord",
     "WindowsPESignature", "WindowsRegistryExtract",
     "WindowsDriver", "WindowsUpdatePackage", "WindowsUpdateDllDiff",
     "WindowsBcdEntry", "WindowsEfsEncryptedFile", "WindowsEspEntry", "WindowsEtlEvent", "WindowsEventRecord", "WindowsLnkRecord", "WindowsMbrVbrSector", "WindowsMftRecord",
