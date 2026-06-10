@@ -14,11 +14,15 @@ import pytest
 from sqlalchemy import select
 
 from app.models.firmware import Firmware
+from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.models.project import Project
 from app.models.reachability_export import ReachabilityExportRecord
 from app.services.jsonb_normalizers import (
+    FIRMWARE_REACHABILITY_EXPORT_WALK_RESULT_SCHEMA_VERSION,
+    _normalize_firmware_reachability_export_walk_result,
     _normalize_reachability_export_records_defined_symbols,
     _normalize_reachability_export_records_imported_symbols,
+    _stamp_firmware_reachability_export_walk_result,
 )
 from tests._live_db import make_live_db
 
@@ -99,6 +103,133 @@ async def test_reachability_export_record_round_trips_through_orm():
         assert row.arch == "x64"
         assert isinstance(row.id, uuid.UUID)
         assert row.created_at is not None
+
+
+# ── firmware aggregate normalizer/stamp (Phase 2, Rule #35c) ────────────────
+
+def test_aggregate_normalizer_passthrough_and_coercion():
+    agg = {"blob_count": 3, "elf_count": 2, "schema_version": 1}
+    assert _normalize_firmware_reachability_export_walk_result(agg) == agg
+    # None preserved ("no walk yet"); wrong-typed rows collapse to None.
+    assert _normalize_firmware_reachability_export_walk_result(None) is None
+    assert _normalize_firmware_reachability_export_walk_result(["x"]) is None
+    assert _normalize_firmware_reachability_export_walk_result("nope") is None
+
+
+def test_aggregate_stamp_idempotent():
+    payload = {"blob_count": 1}
+    once = _stamp_firmware_reachability_export_walk_result(payload)
+    assert once["schema_version"] == FIRMWARE_REACHABILITY_EXPORT_WALK_RESULT_SCHEMA_VERSION
+    assert once["provenance"] == "walker"
+    twice = _stamp_firmware_reachability_export_walk_result(dict(once))
+    assert twice == once  # idempotent
+
+
+# ── Rule #39 tier-1: INNER walker runner (make_live_db; extract_elf_symbols patched) ──
+
+@pytest.mark.asyncio
+async def test_walker_inner_persists_per_blob_rows_and_aggregate(monkeypatch):
+    # Patch the SOURCE binding the walker imported (Rule #30) so the test exercises the walker's
+    # LOGIC (iterate blobs → persist rows → aggregate), not ELF parsing (tested separately).
+    from app.services import reachability_export_walker as w
+
+    fixtures = {
+        "/extracted/usr/sbin/dnsmasq": {
+            "defined_symbols": ["main", "rfc1035_reply"], "imported_symbols": ["malloc"],
+            "stripped": False, "has_symtab": True, "has_dynsym": True, "arch": "x64",
+        },
+        "/extracted/lib/libfoo.so": {
+            "defined_symbols": ["foo"], "imported_symbols": [],
+            "stripped": True, "has_symtab": False, "has_dynsym": False, "arch": "arm",
+        },
+        "/extracted/data/firmware.bin": None,  # non-ELF -> skipped (never fabricated)
+    }
+    monkeypatch.setattr(w, "extract_elf_symbols", lambda path: fixtures.get(path))
+
+    async with make_live_db() as db:
+        project = Project(name="MOVE2 P2 walker canary")
+        db.add(project)
+        await db.flush()
+        firmware = Firmware(
+            project_id=project.id, original_filename="fw.bin",
+            storage_path="/tmp/fw.bin", sha256=("d" * 64)[:64], file_size=1024,
+        )
+        db.add(firmware)
+        await db.flush()
+        for i, path in enumerate(fixtures):
+            db.add(HardwareFirmwareBlob(
+                firmware_id=firmware.id, blob_path=path,
+                blob_sha256=(str(i) * 64)[:64], file_size=1000,
+                category="binary", format="elf", detection_source="test",
+            ))
+        await db.commit()
+
+        result = await w._do_reachability_export_run(db, firmware.id)
+        await db.commit()
+
+        # Aggregate: 3 blobs, 2 ELF (the .bin skipped), 1 stripped, 2+1 defined symbols.
+        assert result["blob_count"] == 3
+        assert result["elf_count"] == 2
+        assert result["stripped_count"] == 1
+        assert result["total_defined_symbols"] == 3
+
+        rows = (
+            await db.execute(
+                select(ReachabilityExportRecord).where(
+                    ReachabilityExportRecord.firmware_id == firmware.id
+                )
+            )
+        ).scalars().all()
+        assert len(rows) == 2  # only the 2 ELF blobs persisted
+        by_path = {r.blob_path: r for r in rows}
+        # _rel_path strips the /extracted/ prefix (the wire-format key).
+        assert by_path["usr/sbin/dnsmasq"].defined_symbols == ["main", "rfc1035_reply"]
+        assert by_path["usr/sbin/dnsmasq"].stripped is False
+        assert by_path["usr/sbin/dnsmasq"].has_symtab is True
+        assert by_path["lib/libfoo.so"].stripped is True
+        assert by_path["lib/libfoo.so"].defined_symbols == ["foo"]
+
+
+@pytest.mark.asyncio
+async def test_walker_inner_clears_stale_rows_on_rerun(monkeypatch):
+    # Re-running the inner walker REPLACES the firmware's per-blob rows (clear-at-entry), so a blob
+    # that no longer extracts symbols leaves no stale row.
+    from app.services import reachability_export_walker as w
+
+    state = {"path": "/extracted/a.so", "syms": {
+        "defined_symbols": ["a"], "imported_symbols": [], "stripped": False,
+        "has_symtab": True, "has_dynsym": False, "arch": "x64",
+    }}
+    monkeypatch.setattr(
+        w, "extract_elf_symbols",
+        lambda path: state["syms"] if path == state["path"] else None,
+    )
+    async with make_live_db() as db:
+        project = Project(name="MOVE2 P2 rerun canary")
+        db.add(project)
+        await db.flush()
+        firmware = Firmware(
+            project_id=project.id, original_filename="fw.bin",
+            storage_path="/tmp/fw.bin", sha256=("e" * 64)[:64], file_size=1024,
+        )
+        db.add(firmware)
+        await db.flush()
+        db.add(HardwareFirmwareBlob(
+            firmware_id=firmware.id, blob_path="/extracted/a.so",
+            blob_sha256=("f" * 64)[:64], file_size=1000,
+            category="binary", format="elf", detection_source="test",
+        ))
+        await db.commit()
+
+        await w._do_reachability_export_run(db, firmware.id)
+        await db.commit()
+        assert len((await db.execute(select(ReachabilityExportRecord))).scalars().all()) == 1
+
+        # Second run: the blob no longer extracts (simulate it became non-ELF) -> stale row cleared.
+        state["path"] = "/extracted/gone"
+        await w._do_reachability_export_run(db, firmware.id)
+        await db.commit()
+        assert len((await db.execute(select(ReachabilityExportRecord))).scalars().all()) == 0
 
 
 @pytest.mark.asyncio

@@ -4997,3 +4997,39 @@ def _normalize_reachability_export_records_defined_symbols(value: Any) -> list[s
 def _normalize_reachability_export_records_imported_symbols(value: Any) -> list[str]:
     """Canonical ``list[str]`` for ``ReachabilityExportRecord.imported_symbols``."""
     return _coerce_symbol_list(value)
+
+
+# ── firmware.reachability_export_walk_result (MOVE 2 aggregate) ─────────────
+#
+# Per-run AGGREGATE for the reachability_export walker — counts ONLY (blob_count / elf_count /
+# stripped_count / total_defined_symbols / errors), DISTINCT from the per-binary WIRE record
+# (reachability_export.REACHABILITY_EXPORT_SCHEMA_VERSION) and from the per-blob symbol lists
+# (the reachability_export_records table). The full symbol sets live in that table (GIN-queryable);
+# this firmware-level JSONB stays small so a downstream consumer / the MCP get tool reads counts
+# without loading hundreds of thousands of symbol strings. Downstream consumers gate on
+# ``provenance == "walker"`` + ``schema_version == 1`` before trusting the aggregate.
+
+FIRMWARE_REACHABILITY_EXPORT_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_reachability_export_walk_result(value: Any) -> dict | None:
+    """Canonical ``dict`` (or ``None``) for ``Firmware.reachability_export_walk_result``.
+
+    ``None`` preserved — "no completed reachability-export walk yet". Wrong-typed values
+    (list / str / int from a hand-edited or legacy row) collapse to ``None``. Mirrors
+    ``_normalize_firmware_module_reachability_walk_result``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_reachability_export_walk_result(payload: dict) -> dict:
+    """Stamp ``schema_version`` + ``provenance: "walker"`` onto a writer payload for
+    ``Firmware.reachability_export_walk_result``. Idempotent. The walker writes the JSONB
+    EXCLUSIVELY through this stamp."""
+    payload["schema_version"] = (
+        FIRMWARE_REACHABILITY_EXPORT_WALK_RESULT_SCHEMA_VERSION
+    )
+    payload["provenance"] = "walker"
+    return payload

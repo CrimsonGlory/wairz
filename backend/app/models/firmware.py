@@ -1293,6 +1293,37 @@ class Firmware(Base):
         JSONB, nullable=True
     )
 
+    # MOVE 2 reachability-export walker columns (CLAUDE.md Rule #33 .a 5-state
+    # contract). The ``reachability_export_walker`` extracts per-ELF-blob
+    # symbol-presence facts (DEFINED / IMPORTED sets) for the wairz↔framework
+    # reachability bridge (binary axis), persists them PER-BLOB into the
+    # ``reachability_export_records`` table (GIN-queryable for the Rule #44
+    # ``lookup_reachable_symbol_across_firmwares`` MCP tool), and stamps only an
+    # AGGREGATE (blob/elf/stripped counts + total_defined_symbols) onto
+    # ``reachability_export_walk_result``. PARSE-ONLY (Rule #36/#45): symbols are
+    # read from the ELF symbol table AS DATA via pyelftools; no binary is ever
+    # executed. The Iron Law (symbol absence valid ONLY on a non-stripped,
+    # sha256-matched binary) is enforced at the bridge producer/consumer; the
+    # per-blob completeness flags travel with each row. Rule #35c normaliser pair
+    # + ``FIRMWARE_REACHABILITY_EXPORT_WALK_RESULT_SCHEMA_VERSION`` land in the
+    # jsonb_normalizers commit. The CHECK ``ck_firmware_reachability_export_walk_status``
+    # is enforced at the DB layer via the migration (not __table_args__).
+    reachability_export_walk_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )
+    reachability_export_walk_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    reachability_export_walk_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    reachability_export_walk_error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    reachability_export_walk_result: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
