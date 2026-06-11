@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.utils.truncation import truncate_output
+from app.utils.untrusted import UNTRUSTED_OUTPUT_TOOLS, fence_untrusted
 
 
 @dataclass
@@ -170,5 +171,12 @@ class ToolRegistry:
         except Exception as exc:
             return f"Error executing {name}: {exc}"
         if truncate:
-            return truncate_output(result)
+            result = truncate_output(result)
+        # Prompt-injection mitigation: fence adversary-authored firmware text so
+        # the client model treats it as data (system_prompt instruction). Fenced
+        # AFTER truncation so the random-id closing delimiter is never truncated
+        # off (an unclosed fence would let embedded text escape). Error strings
+        # above are wairz-authored and intentionally not fenced.
+        if name in UNTRUSTED_OUTPUT_TOOLS:
+            result = fence_untrusted(result)
         return result
