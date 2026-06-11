@@ -69,6 +69,62 @@ UNTRUSTED_OUTPUT_TOOLS: frozenset[str] = frozenset(
         "list_binary_capabilities",
         "analyze_raw_binary",
         "detect_rtos",
+        # --- Slice 2: remaining firmware/adversary-derived-text categories ---
+        # android — the APK IS the firmware artifact
+        "analyze_apk",
+        "list_apk_permissions",
+        "check_apk_signatures",
+        "scan_apk_manifest",
+        "scan_apk_bytecode",
+        "scan_apk_sast",
+        # network — pcap contents are attacker-authored traffic
+        "analyze_network_traffic",
+        "get_protocol_breakdown",
+        "identify_insecure_protocols",
+        "get_dns_queries",
+        "get_network_conversations",
+        # uefi — firmware volumes / modules / NVRAM
+        "list_firmware_volumes",
+        "list_uefi_modules",
+        "extract_nvram_variables",
+        "identify_uefi_module",
+        "read_uefi_module",
+        # hardware firmware — blobs / drivers / DTB / HBOM
+        "lookup_similar_blobs_across_firmwares",
+        "list_hardware_firmware",
+        "analyze_hardware_firmware",
+        "list_firmware_drivers",
+        "find_unsigned_firmware",
+        "export_hardware_firmware_hbom",
+        "extract_dtb",
+        # comparison — firmware/binary/decompilation diffs
+        "list_firmware_versions",
+        "diff_firmware",
+        "diff_binary",
+        "diff_decompilation",
+        # uart — device serial OUTPUT (adversarial for a compromised device)
+        "uart_read",
+        "uart_get_transcript",
+        "uart_send_command",
+        "uart_send_raw",
+        # security — tools that echo extracted firmware text (certs, scripts,
+        # config, policy, yara matches). Pure wairz verdicts / NVD / external
+        # threat-intel / CRA-authoring tools are deliberately NOT fenced.
+        "analyze_config_security",
+        "check_setuid_binaries",
+        "analyze_init_scripts",
+        "check_filesystem_permissions",
+        "analyze_certificate",
+        "scan_with_yara",
+        "extract_kernel_config",
+        "analyze_selinux_policy",
+        "scan_scripts",
+        "shellcheck_scan",
+        "bandit_scan",
+        # sbom — component inventory (names/versions parsed from firmware)
+        "generate_sbom",
+        "get_sbom_components",
+        "export_sbom",
     }
 )
 
