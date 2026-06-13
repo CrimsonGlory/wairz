@@ -693,3 +693,75 @@ def test_c1_runner_fires_before_audit_runner():
         f"back-fill precedes the audit read. Move the C1 runner ABOVE "
         f"auto_kernel_config_audit_firmware_safe in WALKER_AUTO_TRIGGERS."
     )
+
+
+# ── Booted-kernel disambiguation (multi-kernel firmware) — regression for the
+# stock-BSP-vs-booted-FIT kernel config-source error. ──────────────────────
+from app.services.kernel_config_walker import (  # noqa: E402
+    _identify_booted_kernels,
+    _uts_release_from_banner,
+)
+
+
+def test_uts_release_from_banner():
+    assert _uts_release_from_banner(
+        "Linux version 4.9.140-l4t-r32.3.1+gdeadbeef0123 (oe-user@oe-host) (gcc ...)"
+    ) == "4.9.140-l4t-r32.3.1+gdeadbeef0123"
+    assert _uts_release_from_banner(
+        "Linux version 4.9.140-tegra (buildbrain@mobile-u64) (gcc ...)"
+    ) == "4.9.140-tegra"
+    assert _uts_release_from_banner(None) is None
+    assert _uts_release_from_banner("not a banner") is None
+
+
+def test_identify_booted_kernel_picks_modules_match_over_stock():
+    """Multi-kernel scenario: a stock BSP kernel (CONFIG_BT=y) + the booted FIT
+    kernel (CONFIG_BT=n). The booted one is whichever UTS_RELEASE matches the
+    rootfs /lib/modules dir; divergence on CONFIG_BT is flagged."""
+    stock = {
+        "blob_path": "/x/L4T_BSP/kernel/Image",
+        "banner": "Linux version 4.9.140-tegra (buildbrain@host) (gcc ...)",
+        "extraction_status": "ok",
+        "kernel_config": {"CONFIG_BT": "y", "CONFIG_DM_VERITY": "n"},
+    }
+    booted = {
+        "blob_path": "/x/boot.img/fit-image",
+        "banner": "Linux version 4.9.140-l4t-r32.3.1+gdeadbeef0123 (oe@host) (gcc ...)",
+        "extraction_status": "ok",
+        "kernel_config": {"CONFIG_BT": "n", "CONFIG_DM_VERITY": "y"},
+    }
+    kernels = [stock, booted]
+    vermagics = {"4.9.140-l4t-r32.3.1+gdeadbeef0123"}  # the rootfs /lib/modules dir
+    booted_count, divergent = _identify_booted_kernels(kernels, vermagics)
+    assert booted_count == 1
+    assert divergent is True  # CONFIG_BT y vs n is security-decisive
+    assert stock["is_booted"] is False
+    assert booted["is_booted"] is True  # the modules-matching kernel wins
+    assert booted["uts_release"] == "4.9.140-l4t-r32.3.1+gdeadbeef0123"
+
+
+def test_identify_booted_kernel_single_kernel_no_divergence():
+    one = {
+        "blob_path": "/x/boot.img",
+        "banner": "Linux version 5.10.0-android (b@h) (gcc ...)",
+        "extraction_status": "ok",
+        "kernel_config": {"CONFIG_BT": "y"},
+    }
+    booted_count, divergent = _identify_booted_kernels([one], {"5.10.0-android"})
+    assert booted_count == 1
+    assert divergent is False  # only one extracted config -> nothing to diverge
+    assert one["is_booted"] is True
+
+
+def test_identify_booted_kernel_no_modules_match_marks_none_booted():
+    """No /lib/modules vermagic match (e.g. modules dir absent) -> no record is
+    is_booted; the consumer falls back to other signals, never silently picks."""
+    k = {
+        "blob_path": "/x/Image",
+        "banner": "Linux version 4.9.140-tegra (b@h) (gcc ...)",
+        "extraction_status": "ok",
+        "kernel_config": {"CONFIG_BT": "y"},
+    }
+    booted_count, divergent = _identify_booted_kernels([k], set())
+    assert booted_count == 0
+    assert k["is_booted"] is False
