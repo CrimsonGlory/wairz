@@ -760,12 +760,12 @@ patterns:
     format: signed_archive
     source: nvidia-tegra-l4t
 
-  # DS1 / Jetson custom system image (vendor-specific naming pattern;
-  # MEDIUM confidence because the prefix is operator-supplied — content
-  # parsing via Android boot.img magic refines downstream).
-  - pattern: "^ds[0-9]*-(image|boot|system)(?:-jetson-[a-z0-9-]+)?(?:\\.[a-z]+)?\\.(img|dataimg)$"
+  # Jetson custom system image with an operator-supplied prefix (vendor-
+  # customised naming; MEDIUM confidence because the prefix is arbitrary —
+  # content parsing via Android boot.img magic refines downstream).
+  - pattern: "^[a-z][a-z0-9_]*-(image|boot|system)(?:-jetson-[a-z0-9-]+)?(?:\\.[a-z]+)?\\.(img|dataimg)$"
     vendor: nvidia
-    product: "Jetson/DS1 custom system image"
+    product: "Jetson custom system image"
     category: other
     confidence: medium
     source: jetson-customisation
