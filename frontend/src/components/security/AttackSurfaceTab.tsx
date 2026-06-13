@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
-  getAttackSurface,
+  getAllAttackSurface,
   triggerAttackSurfaceScan,
   type AttackSurfaceEntry,
   type AttackSurfaceSummary,
@@ -44,7 +44,7 @@ export default function AttackSurfaceTab({ projectId, selectedFirmwareId }: Atta
     try {
       const params: Record<string, string> = {}
       if (selectedFirmwareId) params.firmware_id = selectedFirmwareId
-      const data = await getAttackSurface(projectId, params)
+      const data = await getAllAttackSurface(projectId, params)
       setEntries(data)
       // Compute summary from data
       if (data.length > 0) {
@@ -176,7 +176,7 @@ export default function AttackSurfaceTab({ projectId, selectedFirmwareId }: Atta
               </tr>
             </thead>
             <tbody>
-              {sorted.slice(0, 200).map((e) => {
+              {sorted.map((e) => {
                 const badge = scoreBadge(e.attack_surface_score)
                 return (
                   <tr key={e.id} className="border-b border-border/30 hover:bg-muted/50">

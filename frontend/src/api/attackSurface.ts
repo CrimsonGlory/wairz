@@ -72,6 +72,30 @@ export async function getAttackSurfacePage(
   return data
 }
 
+// Fetch ALL attack-surface entries by walking the Page envelope. The backend
+// caps a single request at limit<=1000; without this the tab showed only the
+// first 200 (server default) of up to ~1,600 entries per firmware.
+const ATTACK_SURFACE_PAGE_LIMIT = 1000
+
+export async function getAllAttackSurface(
+  projectId: string,
+  params?: { min_score?: number; firmware_id?: string },
+): Promise<AttackSurfaceEntry[]> {
+  const all: AttackSurfaceEntry[] = []
+  let offset = 0
+  for (let i = 0; i < 50; i++) {
+    const page = await getAttackSurfacePage(projectId, {
+      ...params,
+      limit: ATTACK_SURFACE_PAGE_LIMIT,
+      offset,
+    })
+    all.push(...page.items)
+    if (all.length >= page.total || page.items.length < ATTACK_SURFACE_PAGE_LIMIT) break
+    offset += ATTACK_SURFACE_PAGE_LIMIT
+  }
+  return all
+}
+
 export async function triggerAttackSurfaceScan(
   projectId: string,
   forceRescan = false,

@@ -24,7 +24,7 @@ import { formatDate } from '@/utils/format'
 import { extractErrorMessage } from '@/utils/error'
 import {
   generateSbom,
-  getSbomComponents,
+  getAllSbomComponents,
   getSbomGenerateStatus,
   exportSbom,
   runVulnerabilityScan,
@@ -96,7 +96,7 @@ export default function SbomPage() {
     try {
       const fwId = selectedFirmwareId || undefined
       const [comps, s] = await Promise.all([
-        getSbomComponents(projectId, { firmware_id: fwId }).catch(() => []),
+        getAllSbomComponents(projectId, { firmware_id: fwId }).catch(() => []),
         getVulnerabilitySummary(projectId, fwId).catch(() => null),
       ])
       setComponents(comps)
@@ -141,7 +141,7 @@ export default function SbomPage() {
   const reloadAfterGenerateCompleted = useCallback(async () => {
     if (!projectId) return
     const fwId = selectedFirmwareId || undefined
-    const comps = await getSbomComponents(projectId, { firmware_id: fwId })
+    const comps = await getAllSbomComponents(projectId, { firmware_id: fwId })
     setComponents(comps)
     const s = await getVulnerabilitySummary(projectId, fwId).catch(() => null)
     setSummary(s)
@@ -284,7 +284,7 @@ export default function SbomPage() {
     if (!projectId) return
     const fwId = selectedFirmwareId || undefined
     const [comps, s] = await Promise.all([
-      getSbomComponents(projectId, { firmware_id: fwId }),
+      getAllSbomComponents(projectId, { firmware_id: fwId }),
       getVulnerabilitySummary(projectId, fwId),
     ])
     setComponents(comps)

@@ -84,6 +84,32 @@ export async function getSbomComponentsPage(
   return data
 }
 
+// Fetch ALL components by walking the Page envelope. The backend caps a single
+// request at limit<=1000; without this the SBOM page silently showed only the
+// first 100 of a firmware's components (e.g. ~2,400 on a large firmware build). The page
+// renders the full set behind type/name filters, so we materialise everything.
+const COMPONENT_PAGE_LIMIT = 1000
+const COMPONENT_FETCH_PAGE_CAP = 50 // safety: <=50k components per firmware
+
+export async function getAllSbomComponents(
+  projectId: string,
+  filters?: { type?: string; name?: string; firmware_id?: string },
+): Promise<SbomComponent[]> {
+  const all: SbomComponent[] = []
+  let offset = 0
+  for (let i = 0; i < COMPONENT_FETCH_PAGE_CAP; i++) {
+    const page = await getSbomComponentsPage(projectId, {
+      ...filters,
+      limit: COMPONENT_PAGE_LIMIT,
+      offset,
+    })
+    all.push(...page.items)
+    if (all.length >= page.total || page.items.length < COMPONENT_PAGE_LIMIT) break
+    offset += COMPONENT_PAGE_LIMIT
+  }
+  return all
+}
+
 export async function exportSbom(
   projectId: string,
   format = 'cyclonedx-json',
