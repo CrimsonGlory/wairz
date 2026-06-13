@@ -8,7 +8,7 @@
 
 ## Symptom
 
-Loading `http://taboul-dustineastman2-ng.ent.core.medtronic.com:3000/projects` after auth showed the generic ErrorBoundary fallback:
+Loading `http://localhost:3000/projects` after auth showed the generic ErrorBoundary fallback:
 
 > Something went wrong
 > An unexpected error occurred. You can try again or return home.
