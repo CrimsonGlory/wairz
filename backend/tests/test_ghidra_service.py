@@ -179,6 +179,55 @@ class TestBuildAnalyzeCommand:
         assert "main" in cmd[post_idx + 2:del_idx]
         assert cmd[-1] == "-deleteProject"
 
+    def test_extra_script_path_uses_single_combined_scriptpath_flag(self):
+        """Regression for the 2026-06-22 stale-script bug, corrected same day.
+
+        Verified empirically against the bundled Ghidra 12.1.2_PUBLIC: passing
+        -scriptPath as two SEPARATE CLI arguments does not accumulate —
+        analyzeHeadless keeps only the LAST occurrence and silently drops the
+        first. A research script's temp directory and the bundled scripts
+        dir must be joined into ONE -scriptPath flag using Ghidra's own
+        ';'-delimited list syntax, or the temp dir is never searched at all.
+        """
+        cmd = _build_analyze_command(
+            binary_path="/bin/foo",
+            script_name="MyResearch.py",
+            project_dir="/tmp/p",
+            extra_script_path="/tmp/ghidra_script_abc123",
+        )
+        script_path_indices = [i for i, v in enumerate(cmd) if v == "-scriptPath"]
+        assert len(script_path_indices) == 1
+        (idx,) = script_path_indices
+        parts = cmd[idx + 1].split(";")
+        assert "/tmp/ghidra_script_abc123" in parts
+        assert len(parts) == 2  # extra dir + bundled scripts_path, nothing else
+
+    def test_extra_script_path_makes_postscript_an_absolute_path(self):
+        """Bare-name collision resolution across -scriptPath directories is
+        alphabetical-last-wins (verified empirically), NOT first-match —
+        relying on it is fragile in either direction. -postScript must be
+        the absolute path to the saved script so the exact file runs
+        regardless of what else shares its basename.
+        """
+        cmd = _build_analyze_command(
+            binary_path="/bin/foo",
+            script_name="MyResearch.py",
+            project_dir="/tmp/p",
+            extra_script_path="/tmp/ghidra_script_abc123",
+        )
+        idx = cmd.index("-postScript")
+        assert cmd[idx + 1] == "/tmp/ghidra_script_abc123/MyResearch.py"
+
+    def test_no_extra_script_path_omits_combined_scriptpath_and_uses_bare_name(self):
+        cmd = _build_analyze_command(
+            binary_path="/bin/foo",
+            script_name="AnalyzeBinary.java",
+            project_dir="/tmp/p",
+        )
+        assert cmd.count("-scriptPath") == 1
+        idx = cmd.index("-postScript")
+        assert cmd[idx + 1] == "AnalyzeBinary.java"
+
 
 # ---------------------------------------------------------------------------
 # run_ghidra_subprocess — timeout + missing-binary handling

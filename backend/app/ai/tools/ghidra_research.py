@@ -690,11 +690,20 @@ async def _run_gzf_process_mode(
         proj_name,
         "-process", "*",
         "-noanalysis",
-        "-scriptPath", scripts_path,
     ]
     if extra_script_path:
-        process_cmd.extend(["-scriptPath", extra_script_path])
-    process_cmd.extend(["-postScript", script_name])
+        # Single combined -scriptPath flag, and an ABSOLUTE -postScript
+        # path — see _build_analyze_command's extra_script_path docstring
+        # in ghidra_service.py for the empirically-verified reasons: two
+        # separate -scriptPath flags drop the first one entirely, and
+        # bare-name collision resolution across directories is
+        # alphabetical-last-wins, not first-match.
+        process_cmd.extend(["-scriptPath", f"{extra_script_path};{scripts_path}"])
+        postscript_target = os.path.join(extra_script_path, script_name)
+    else:
+        process_cmd.extend(["-scriptPath", scripts_path])
+        postscript_target = script_name
+    process_cmd.extend(["-postScript", postscript_target])
     if script_args:
         process_cmd.extend(script_args)
 
@@ -927,10 +936,8 @@ async def _handle_run_ghidra_headless(input: dict, context: ToolContext) -> str:
                 project_dir,
                 script_args if script_args else None,
                 ghidra_import_params=ghidra_import_params,
+                extra_script_path=_tmp_script_dir,
             )
-            if _tmp_script_dir:
-                # Inject extra -scriptPath so analyzeHeadless finds the temp script
-                cmd.extend(["-scriptPath", _tmp_script_dir])
 
             logger.info("run_ghidra_headless: %s", shlex.join(cmd))
 

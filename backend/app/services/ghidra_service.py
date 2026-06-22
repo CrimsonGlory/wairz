@@ -254,6 +254,7 @@ def _build_analyze_command(
     script_args: list[str] | None = None,
     *,
     ghidra_import_params: dict | None = None,
+    extra_script_path: str | None = None,
 ) -> list[str]:
     """Build a Ghidra analyzeHeadless command.
 
@@ -281,6 +282,47 @@ def _build_analyze_command(
 
     Unknown keys are silently ignored so future schema additions don't
     break the build path.
+
+    ``extra_script_path`` (bugfix 2026-06-22, corrected same day after a
+    verification pass found the first fix didn't work): when a caller
+    resolves ``script_name`` from a research file written to a temp
+    directory (save_ghidra_script / run_ghidra_headless script_file_id
+    flow), that temp directory must (a) actually be registered with
+    analyzeHeadless and (b) be the file that runs, with NO dependence on
+    name-collision resolution order. Two real Ghidra behaviours (verified
+    empirically against the bundled Ghidra 12.1.2_PUBLIC by running
+    analyzeHeadless directly — see backend/tests/test_ghidra_service.py
+    for the same scenarios as mocked regression tests) make the naive
+    approach wrong:
+
+      1. Passing ``-scriptPath`` as two SEPARATE CLI arguments does not
+         accumulate — analyzeHeadless keeps only the LAST occurrence.
+         The first fix (passing extra_script_path and scripts_path as two
+         ``-scriptPath`` flags) meant the bundled scripts_path silently
+         became the ONLY registered script directory; extra_script_path
+         was dropped entirely, so a brand-new research script could not
+         be found under either script_name or script_file_id. Multiple
+         search directories must be joined into ONE ``-scriptPath`` flag
+         using Ghidra's own ``;``-delimited list syntax (per
+         ``analyzeHeadless -help``: ``-scriptPath "<path1>[;<path2>...]"``).
+
+      2. Even with both directories correctly registered, resolving
+         ``-postScript <bare-name>`` against a name that exists in more
+         than one registered directory is NOT first-match-by-search-order.
+         It is alphabetical-last-wins across the full directory list
+         (confirmed by reversing CLI order and renaming probe directories
+         — the alphabetically last path always won, independent of flag
+         order). Relying on that is fragile and accidental in either
+         direction. The robust fix is to never let resolution depend on a
+         bare-name collision at all: when extra_script_path is set, pass
+         ``-postScript`` the ABSOLUTE path to the saved script file
+         (``os.path.join(extra_script_path, script_name)``) rather than
+         the bare basename. analyzeHeadless still requires the
+         containing directory to be present in ``-scriptPath`` (an
+         absolute -postScript path with no matching -scriptPath entry
+         fails with "Failed to find script in any script directory"),
+         but once it is, the absolute path deterministically selects that
+         exact file regardless of what else shares its basename.
     """
     settings = get_settings()
     ghidra_path = settings.ghidra_path
@@ -295,9 +337,13 @@ def _build_analyze_command(
         project_name,
         "-import",
         binary_path,
-        "-scriptPath",
-        scripts_path,
     ]
+    if extra_script_path:
+        # Single combined flag — see extra_script_path docstring above for
+        # why two separate -scriptPath flags silently drop the first one.
+        cmd.extend(["-scriptPath", f"{extra_script_path};{scripts_path}"])
+    else:
+        cmd.extend(["-scriptPath", scripts_path])
 
     # Optional setup script runs as -preScript so ISA context is set BEFORE
     # Ghidra's auto-analysis pass (not after, when MIPS32 damage is done).
@@ -318,7 +364,12 @@ def _build_analyze_command(
         if offset := ghidra_import_params.get("code_offset", 0):
             cmd.append(hex(int(offset)))
 
-    cmd.extend(["-postScript", script_name])
+    # Absolute path when the script lives in extra_script_path — see
+    # extra_script_path docstring above for why a bare name is not safe.
+    postscript_target = (
+        os.path.join(extra_script_path, script_name) if extra_script_path else script_name
+    )
+    cmd.extend(["-postScript", postscript_target])
 
     if ghidra_import_params:
         if (proc := ghidra_import_params.get("processor")):
