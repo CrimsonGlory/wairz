@@ -11,8 +11,6 @@ MAX_GZF_SIZE_MB = 500
 # Scripts are text files
 MAX_SCRIPT_SIZE_MB = 50
 
-MAX_FILES_PER_PROJECT = 50
-
 BINARY_EXTENSIONS = {".gzf"}
 TEXT_EXTENSIONS = {".py", ".java", ".jy"}
 

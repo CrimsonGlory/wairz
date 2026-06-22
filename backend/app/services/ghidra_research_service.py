@@ -9,7 +9,7 @@ from datetime import datetime, UTC
 
 import aiofiles
 from fastapi import UploadFile
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -19,7 +19,6 @@ from app.schemas.ghidra_research import (
     ALLOWED_EXTENSIONS,
     BINARY_EXTENSIONS,
     FILE_CATEGORY_MAP,
-    MAX_FILES_PER_PROJECT,
     MAX_GZF_SIZE_MB,
     MAX_SCRIPT_SIZE_MB,
     TEXT_EXTENSIONS,
@@ -38,17 +37,6 @@ class GhidraResearchService:
         file: UploadFile,
         description: str | None = None,
     ) -> GhidraResearchFile:
-        count_result = await self.db.execute(
-            select(func.count()).select_from(GhidraResearchFile).where(
-                GhidraResearchFile.project_id == project_id,
-            )
-        )
-        current_count = count_result.scalar_one()
-        if current_count >= MAX_FILES_PER_PROJECT:
-            raise ValueError(
-                f"Maximum of {MAX_FILES_PER_PROJECT} Ghidra research files per project reached"
-            )
-
         original_filename = file.filename or "file"
         ext = os.path.splitext(original_filename)[1].lower()
         max_mb = MAX_GZF_SIZE_MB if ext in BINARY_EXTENSIONS else MAX_SCRIPT_SIZE_MB
