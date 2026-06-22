@@ -1,8 +1,10 @@
 import asyncio
 import logging
 import os
+import re
 import tempfile
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 
@@ -14,9 +16,46 @@ from app.services.ghidra_research_service import (
     run_ghidra_import_background,
 )
 from app.services.ghidra_service import run_ghidra_subprocess
+from app.utils.sandbox import PathTraversalError, validate_path
 from app.utils.truncation import truncate_output
 
 logger = logging.getLogger(__name__)
+
+# Ghidra runs can produce verbose analysis output; give them a higher
+# truncation ceiling than the 30KB MCP default so operators can see enough
+# of a failing run to diagnose it without needing host/container filesystem
+# access (see read_ghidra_log / list_ghidra_logs below for the sanctioned
+# path to the untruncated content).
+GHIDRA_OUTPUT_MAX_KB = 100
+
+
+def _ghidra_logs_dir(project_id: uuid.UUID) -> str:
+    settings = get_settings()
+    logs_dir = os.path.join(settings.storage_root, "projects", str(project_id), "ghidra_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    return logs_dir
+
+
+def _persist_ghidra_log(project_id: uuid.UUID, label: str, content: str) -> str:
+    """Write full Ghidra stdout/stderr to a durable per-project log file.
+
+    Returns the log's filename (empty string on write failure) so callers
+    can point the operator at read_ghidra_log instead of leaving the only
+    untruncated copy of the output unreachable once the MCP response is
+    truncated.
+    """
+    logs_dir = _ghidra_logs_dir(project_id)
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+    safe_label = re.sub(r"[^A-Za-z0-9_.-]", "_", label)[:80]
+    filename = f"{timestamp}_{uuid.uuid4().hex[:8]}_{safe_label}.log"
+    full_path = os.path.join(logs_dir, filename)
+    try:
+        with open(full_path, "w", encoding="utf-8") as fh:
+            fh.write(content)
+    except OSError:
+        logger.exception("Failed to persist Ghidra log for project %s", project_id)
+        return ""
+    return filename
 
 
 def register_ghidra_research_tools(registry: ToolRegistry) -> None:
@@ -274,6 +313,128 @@ def register_ghidra_research_tools(registry: ToolRegistry) -> None:
             },
         },
         handler=_handle_run_ghidra_headless,
+    )
+
+    registry.register(
+        name="list_ghidra_logs",
+        description=(
+            "List Ghidra run logs persisted for the current project. Every "
+            "run_ghidra_headless call writes its full (untruncated) stdout/stderr "
+            "to a durable log file — use this to find one, then read_ghidra_log "
+            "to retrieve its content. This is the sanctioned way to see output "
+            "beyond the truncated run_ghidra_headless response; do not attempt "
+            "to read Ghidra logs via host or container filesystem access."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max logs to list, most recent first. Defaults to 50.",
+                },
+            },
+        },
+        handler=_handle_list_ghidra_logs,
+    )
+
+    registry.register(
+        name="read_ghidra_log",
+        description=(
+            "Read the content of a persisted Ghidra run log by filename "
+            "(from list_ghidra_logs). Content is truncated to "
+            f"{GHIDRA_OUTPUT_MAX_KB}KB by default; pass tail=true to see the "
+            "end of the log instead of the start, which is usually more useful "
+            "for diagnosing a failed or timed-out run."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "description": "Log filename as returned by list_ghidra_logs.",
+                },
+                "tail": {
+                    "type": "boolean",
+                    "description": "Return the last ~100KB instead of the first ~100KB.",
+                },
+            },
+            "required": ["filename"],
+        },
+        handler=_handle_read_ghidra_log,
+    )
+
+
+async def _handle_list_ghidra_logs(input: dict, context: ToolContext) -> str:
+    logs_dir = _ghidra_logs_dir(context.project_id)
+    try:
+        entries = [e for e in os.listdir(logs_dir) if e.endswith(".log")]
+    except OSError:
+        entries = []
+
+    if not entries:
+        return (
+            "No Ghidra logs persisted yet for this project. "
+            "Logs are written automatically after each run_ghidra_headless call."
+        )
+
+    rows: list[tuple[float, str, int]] = []
+    for name in entries:
+        full = os.path.join(logs_dir, name)
+        try:
+            st = os.stat(full)
+        except OSError:
+            continue
+        rows.append((st.st_mtime, name, st.st_size))
+    rows.sort(reverse=True)
+
+    limit = input.get("limit")
+    limit = limit if isinstance(limit, int) and limit > 0 else 50
+    shown = rows[:limit]
+
+    lines = [f"Found {len(rows)} Ghidra log(s) (showing {len(shown)}):\n"]
+    for mtime, name, size in shown:
+        ts = datetime.fromtimestamp(mtime, UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+        lines.append(f"- {name}  ({size / 1024:.1f} KB, {ts})")
+    lines.append("\nUse read_ghidra_log with a filename to retrieve full content.")
+    return "\n".join(lines)
+
+
+async def _handle_read_ghidra_log(input: dict, context: ToolContext) -> str:
+    filename = (input.get("filename") or "").strip()
+    if not filename:
+        return "Error: filename is required. Use list_ghidra_logs to find available log filenames."
+
+    logs_dir = _ghidra_logs_dir(context.project_id)
+    try:
+        full_path = validate_path(logs_dir, filename)
+    except PathTraversalError:
+        return f"Error: Invalid filename '{filename}'."
+
+    if not os.path.isfile(full_path):
+        return f"Error: Log file '{filename}' not found in this project's Ghidra logs."
+
+    try:
+        with open(full_path, encoding="utf-8", errors="replace") as fh:
+            content = fh.read()
+    except OSError as exc:
+        return f"Error reading log file: {exc}"
+
+    if not input.get("tail"):
+        return truncate_output(content, max_kb=GHIDRA_OUTPUT_MAX_KB)
+
+    max_bytes = GHIDRA_OUTPUT_MAX_KB * 1024
+    encoded = content.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return content
+
+    tail_bytes = encoded[-max_bytes:]
+    first_newline = tail_bytes.find(b"\n")
+    if first_newline > 0:
+        tail_bytes = tail_bytes[first_newline + 1:]
+    return (
+        f"... [truncated: showing last ~{len(tail_bytes) / 1024:.0f}KB of "
+        f"{len(encoded) / 1024:.0f}KB] ...\n\n"
+        + tail_bytes.decode("utf-8", errors="replace")
     )
 
 
@@ -594,6 +755,7 @@ async def _run_gzf_process_mode(
     script_args: list[str],
     extra_script_path: str | None,
     timeout: int,
+    project_id: uuid.UUID,
 ) -> str:
     """Restore a GZF into a persistent Ghidra project (first run only) then run
     script_name in -process mode against all programs in that project.
@@ -736,7 +898,7 @@ async def _run_gzf_process_mode(
         stdout_text = out_f.read().decode("utf-8", errors="replace")
         stderr_text = err_f.read().decode("utf-8", errors="replace")
 
-    return truncate_output(
+    combined = (
         f"Script: {script_name}\n"
         f"GZF: {os.path.basename(gzf_path)}\n"
         f"Project: {proj_base}\n"
@@ -744,6 +906,13 @@ async def _run_gzf_process_mode(
         f"\n=== STDOUT ===\n{stdout_text}"
         f"\n=== STDERR ===\n{stderr_text}"
     )
+    log_filename = _persist_ghidra_log(project_id, f"gzf_{script_name}", combined)
+    if log_filename:
+        combined += (
+            f"\n\nFull log persisted as '{log_filename}' — use read_ghidra_log "
+            "to retrieve it if this output was truncated."
+        )
+    return truncate_output(combined, max_kb=GHIDRA_OUTPUT_MAX_KB)
 
 
 # ---------------------------------------------------------------------------
@@ -922,6 +1091,7 @@ async def _handle_run_ghidra_headless(input: dict, context: ToolContext) -> str:
                 script_args if script_args else [],
                 _tmp_script_dir,
                 effective_timeout,
+                context.project_id,
             )
 
         import importlib  # noqa: PLC0415
@@ -976,7 +1146,15 @@ async def _handle_run_ghidra_headless(input: dict, context: ToolContext) -> str:
             f"\n=== STDOUT ===\n{stdout_text}"
             f"\n=== STDERR ===\n{stderr_text}"
         )
-        return truncate_output(combined)
+        log_filename = _persist_ghidra_log(
+            context.project_id, f"run_{effective_script_name}", combined
+        )
+        if log_filename:
+            combined += (
+                f"\n\nFull log persisted as '{log_filename}' — use read_ghidra_log "
+                "to retrieve it if this output was truncated."
+            )
+        return truncate_output(combined, max_kb=GHIDRA_OUTPUT_MAX_KB)
 
     finally:
         if _tmp_script_dir and os.path.isdir(_tmp_script_dir):
