@@ -34,6 +34,7 @@ from app.services.ghidra_service import (
     mark_run_complete,
     mark_run_failed,
     resolve_binary_import_params,
+    resolve_gzf_process_target,
 )
 
 logger = logging.getLogger(__name__)
@@ -88,13 +89,29 @@ async def _run(
                         await mark_db.commit()
                     return 0
 
-            resolved_params = await _resolve_import_params(binary_path, firmware_id, import_params)
+            # Route GZF archives with a persistent renamed project through
+            # -process mode so a force_reanalyze run analyzes the renamed
+            # project instead of re-importing the pristine archive (which would
+            # clobber the cache with the original SourceType.ANALYSIS names and
+            # make renames permanently invisible). In process mode the
+            # persistent project carries its own loader/processor, so import
+            # params MUST be None.
+            analysis_target, is_gzf_process_mode = await resolve_gzf_process_target(
+                binary_path, binary_sha256,
+            )
+            if is_gzf_process_mode:
+                resolved_params = None
+            else:
+                resolved_params = await _resolve_import_params(
+                    binary_path, firmware_id, import_params,
+                )
 
             async with async_session_factory() as analysis_db:
                 await _run_full_analysis(
-                    binary_path, firmware_id, binary_sha256, analysis_db,
+                    analysis_target, firmware_id, binary_sha256, analysis_db,
                     timeout=get_settings().ghidra_background_analysis_timeout,
                     ghidra_import_params=resolved_params,
+                    is_gzf_process_mode=is_gzf_process_mode,
                 )
                 await mark_run_complete(
                     firmware_id, binary_path, binary_sha256, analysis_db,

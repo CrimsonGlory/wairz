@@ -493,14 +493,17 @@ RUN if [ "$INCLUDE_VOL3" = "1" ]; then \
         echo "INCLUDE_VOL3=0 — skipping Volatility3 install (default)" ; \
     fi
 
-# Create data and Ghidra project directories
 # Create data and Ghidra project directories.
-# /data/ghidra_projects must exist (and be wairz-owned) in the image so that
-# when the empty named volume is first mounted there, Docker seeds the volume
-# with wairz ownership instead of defaulting the mountpoint to root:root —
-# otherwise the backend (uid 1000) can't create the versioned project subdir.
-RUN mkdir -p /data/firmware /data/ghidra_projects /tmp/ghidra_projects \
-    && chown -R wairz:wairz /data /app /tmp/ghidra_projects /opt/ghidra /opt/jadx /opt/kernels /opt/wairz \
+# Both /data/ghidra_projects AND /var/wairz/ghidra_projects must exist (and be
+# wairz-owned) in the image so that when the empty named volume is first mounted
+# there, Docker seeds the volume with wairz ownership instead of defaulting the
+# mountpoint to root:root — otherwise the backend (uid 1000) can't create the
+# versioned project subdir. /var/wairz/ghidra_projects is the path actually used
+# by config.py:30 ghidra_projects_dir for GZF rename-persistence projects; it is
+# backed by the ghidra_projects_data named volume (docker-compose.yml) shared
+# between backend and worker so renames survive container recreation.
+RUN mkdir -p /data/firmware /data/ghidra_projects /tmp/ghidra_projects /var/wairz/ghidra_projects \
+    && chown -R wairz:wairz /data /app /tmp/ghidra_projects /var/wairz /opt/ghidra /opt/jadx /opt/kernels /opt/wairz \
     && ([ -d /opt/qiling-rootfs ] && chown -R wairz:wairz /opt/qiling-rootfs || true) \
     && ([ -d /opt/cpu_rec ] && chown -R wairz:wairz /opt/cpu_rec || true)
 

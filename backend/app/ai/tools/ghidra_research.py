@@ -761,20 +761,27 @@ async def _run_gzf_process_mode(
     project_id: uuid.UUID,
     context: ToolContext,
 ) -> str:
-    """Restore a GZF into a persistent Ghidra project, run script_name in
-    -process mode, then export the updated project back to the GZF.
+    """Restore a GZF into a persistent Ghidra project and run script_name in
+    -process mode against it, KEEPING the project on disk.
 
     The project directory is keyed by the first 16 hex chars of the GZF
     content SHA256, so the same archive always maps to the same directory.
     An OS-level flock on that key ensures only one process runs the -import
     step even when multiple wairz-mcp connections hit the same GZF simultaneously.
 
-    After the script completes (success or failure), exports the updated project
-    back to the GZF file, overwriting it with any renames/retypes the script
-    applied. This makes the GZF the golden copy — subsequent list_functions /
-    decompile_function / find_callers calls will re-import this updated GZF
-    and see all the script-applied changes baked in. The persistent project
-    folder is then deleted to avoid stale state.
+    After a successful script run, the persistent project is the golden copy of
+    the renamed/retyped state — it is NOT exported back to the .gzf file and is
+    NOT deleted. Two things make subsequent reads observe the changes:
+
+      1. The persistent project's monotonic rev counter is bumped
+         (bump_gzf_project_rev_sync). ensure_analysis compares this rev against
+         the rev stamped in the cached ghidra_full_analysis sentinel and
+         rebuilds the cache whenever they diverge, so list_functions /
+         find_callers / get_xrefs see the renames durably (not just once).
+      2. The analysis cache for this GZF is cleared eagerly here so the very
+         next read (even in another process) re-analyzes against the renamed
+         project rather than serving stale pre-rename names — including
+         orphaned single-function decompile:<old_name> entries.
 
     Returns the combined output string (same shape as import-mode).
     """
@@ -782,9 +789,11 @@ async def _run_gzf_process_mode(
     analyze_headless = os.path.join(settings.ghidra_path, "support", "analyzeHeadless")
 
     from app.utils.hashing import compute_file_sha256  # noqa: PLC0415
+    from app.database import async_session_factory  # noqa: PLC0415
     from app.services.ghidra_service import (  # noqa: PLC0415
         _cross_process_analysis_lock,
         _format_ghidra_diag,
+        bump_gzf_project_rev_sync,
         clear_binary_analysis,
         gzf_project_paths,
     )
@@ -909,17 +918,38 @@ async def _run_gzf_process_mode(
         stderr_text = err_f.read().decode("utf-8", errors="replace")
 
     # Keep the persistent project on disk with all renames/retypes baked in.
-    # Write a dirty flag so ensure_analysis and decompile_function know the
-    # analysis cache is stale and must be re-built from this persistent project.
-    dirty_flag = os.path.join(proj_base, "_wairz_renamed")
-    try:
-        await loop.run_in_executor(None, lambda: open(dirty_flag, "w").close())  # noqa: ASYNC230
-        logger.info(
-            "GZF process-mode: persistent project retained at %s; dirty flag written",
-            rep_dir,
+    # On a successful run, durably invalidate the analysis cache so every read
+    # tool observes the new project state:
+    #   (1) bump the monotonic rev — ensure_analysis rebuilds on rev mismatch,
+    #       so the invalidation survives any number of future renames AND any
+    #       force_reanalyze that might otherwise rebuild from a stale source
+    #       (the consume-once "_wairz_renamed" dirty flag this replaces could
+    #       only fire ONCE, leaving later renames permanently invisible);
+    #   (2) clear the cache eagerly on a fresh committed session so the next
+    #       read — even from a different process — re-analyzes immediately and
+    #       orphaned decompile:<old_name> entries are dropped.
+    if proc.returncode == 0:
+        try:
+            new_rev = await loop.run_in_executor(
+                None, bump_gzf_project_rev_sync, proj_base,
+            )
+            async with async_session_factory() as clear_db:
+                await clear_binary_analysis(context.firmware_id, gzf_sha, clear_db)
+                await clear_db.commit()
+            logger.info(
+                "GZF process-mode: persistent project retained at %s; rev bumped "
+                "to %d and analysis cache cleared for %s",
+                rep_dir, new_rev, gzf_sha[:12],
+            )
+        except Exception as exc:
+            logger.warning(
+                "GZF process-mode: failed to bump rev / clear cache: %s", exc,
+            )
+    else:
+        logger.warning(
+            "GZF process-mode: script exited %s — leaving analysis cache intact "
+            "(no rev bump)", proc.returncode,
         )
-    except Exception as exc:
-        logger.warning("GZF process-mode: failed to write dirty flag: %s", exc)
 
     combined = (
         f"Script: {script_name}\n"
@@ -1174,5 +1204,8 @@ async def _handle_run_ghidra_headless(input: dict, context: ToolContext) -> str:
 
     finally:
         if _tmp_script_dir and os.path.isdir(_tmp_script_dir):
-            import shutil  # noqa: PLC0415
+            # shutil is imported module-level (line 5). A function-local
+            # `import shutil` here would rebind it as a local for this whole
+            # function body and raise UnboundLocalError on any earlier
+            # reference (Rule #40).
             shutil.rmtree(_tmp_script_dir, ignore_errors=True)

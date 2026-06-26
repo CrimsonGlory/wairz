@@ -217,6 +217,14 @@ services:
     volumes:
       - firmware_data:/data/firmware
       - kernel_vulns_data:/data/kernel-vulns
+      # Persistent GZF Ghidra projects (rename-persistence root). MUST be a
+      # named volume shared with the worker — without it /var/wairz/ghidra_projects
+      # lives in the container's ephemeral writable layer and every Rule #8
+      # rebuild/recreate wipes every persistent project, defeating
+      # gzf_process_project_exists() so renames applied via run_ghidra_headless
+      # (use_saved_project=True) become permanently invisible to list_functions /
+      # decompile_function (they fall back to the pristine -import FUN_* cache).
+      - ghidra_projects_data:/var/wairz/ghidra_projects
       - ./ghidra/scripts:/opt/ghidra_scripts:ro
       - ./emulation/kernels:/opt/kernels:rw
       - /tmp/wairz-dumps:/tmp/wairz-dumps
@@ -287,6 +295,11 @@ services:
     volumes:
       - firmware_data:/data/firmware
       - kernel_vulns_data:/data/kernel-vulns
+      # Shared with backend — see backend service block for the rationale.
+      # The worker's force-reanalyze path (run_ghidra_analysis.py, -process
+      # mode) and the MCP's run_ghidra_headless renames operate on the SAME
+      # persistent project, so they must mount the SAME named volume.
+      - ghidra_projects_data:/var/wairz/ghidra_projects
       - ./ghidra/scripts:/opt/ghidra_scripts:ro
       - ./emulation/kernels:/opt/kernels:rw
       - /tmp/wairz-dumps:/tmp/wairz-dumps
@@ -504,6 +517,10 @@ volumes:
   firmware_data:
   kernel_vulns_data:
   clamav-db:
+  # Persistent GZF Ghidra projects — survives container recreation so
+  # run_ghidra_headless(use_saved_project=True) renames remain visible to
+  # list_functions / decompile_function across Rule #8 rebuilds.
+  ghidra_projects_data:
 
 networks:
   emulation_net:

@@ -27,6 +27,7 @@ critical paths to lock in:
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -331,18 +332,24 @@ class TestRunGhidraSubprocess:
         binary.write_bytes(b"\x7fELF" + b"\x00" * 12)
 
         # Build a fake Process object that hangs forever and tracks kill().
+        # run_ghidra_subprocess captures stdout/stderr to tempfiles and waits
+        # via asyncio.wait_for(process.wait(), ...) — NOT communicate() — so
+        # wait() is what must hang until the timeout fires. After kill(), the
+        # follow-up `await process.wait()` must return promptly.
         class _FakeProc:
             def __init__(self):
                 self._killed = False
-
-            async def communicate(self):
-                # Hang until cancelled by wait_for's timeout
-                await asyncio.sleep(3600)
+                self.returncode = None
 
             def kill(self):
                 self._killed = True
+                self.returncode = -9
 
             async def wait(self):
+                if self._killed:
+                    return self.returncode
+                # Hang until cancelled by wait_for's timeout.
+                await asyncio.sleep(3600)
                 return 0
 
         fake_proc = _FakeProc()
@@ -551,7 +558,7 @@ class TestGhidraServiceCacheLiveCanary:
 
 
 # ---------------------------------------------------------------------------
-# GZF process-mode read-path routing — TODO 2026-06-25 fix
+# GZF process-mode read-path routing — 2026-06-26 fix
 #
 # ensure_analysis/decompile_function/batch_decompile_functions used to
 # always -import a FRESH, pristine copy of a .gzf for AnalyzeBinary.java /
@@ -559,7 +566,281 @@ class TestGhidraServiceCacheLiveCanary:
 # project (run_ghidra_headless use_saved_project=True) that may already
 # carry script-applied renames for the SAME archive. These tests pin the
 # routing contract: when gzf_project_paths' rep_dir exists for a .gzf's own
-# sha256, the read path must request -process mode (gzf_process_sha256 set)
+# sha256, the read path must request -process mode (is_gzf_process_mode set)
 # instead of a fresh -import (ghidra_import_params forced to None, since a
 # restored project already carries its own processor/loader state).
+#
+# The cache-invalidation mechanism is a MONOTONIC rev counter, not a
+# consume-once dirty flag: every rename bumps the rev; ensure_analysis
+# rebuilds whenever the on-disk rev diverges from the rev stamped in the
+# cached sentinel, so renames stay visible to list_functions / find_callers
+# across any number of renames and any stale cache rebuild.
 # ---------------------------------------------------------------------------
+
+import json as _json
+
+from app.services.ghidra_service import (
+    _proj_base_from_process_target,
+    _read_gzf_rev_sync,
+    batch_decompile_functions,
+    bump_gzf_project_rev_sync,
+    get_functions,
+    gzf_project_rev,
+    resolve_gzf_process_target,
+)
+
+
+def _settings_with_projects_dir(projects_dir: str) -> MagicMock:
+    s = MagicMock()
+    s.ghidra_projects_dir = projects_dir
+    s.ghidra_path = "/opt/ghidra"
+    s.ghidra_scripts_path = "/scripts"
+    s.ghidra_timeout = 300
+    return s
+
+
+async def _make_persistent_gzf(tmp_path: Path, projects_dir: Path) -> tuple[str, str, str]:
+    """Create a .gzf file + its persistent process-mode project on disk.
+
+    Returns (gzf_path, gzf_sha256, proj_base). get_settings must be patched to
+    point ghidra_projects_dir at `projects_dir` for the helpers to find it.
+    """
+    gzf = tmp_path / "rom.gzf"
+    gzf.write_bytes(b"PK\x03\x04" + b"\x00" * 200)  # zip magic; content is arbitrary
+    sha = await ghidra_service.get_binary_sha256(str(gzf))
+    proj_base = projects_dir / sha[:16]
+    rep_dir = proj_base / "gzf_project.rep"
+    rep_dir.mkdir(parents=True)  # simulate a restored persistent project
+    return str(gzf), sha, str(proj_base)
+
+
+def _analyze_output(func_names: list[str]) -> str:
+    payload = {
+        "functions": [
+            {"name": n, "address": "0x80050000", "size": 256} for n in func_names
+        ],
+        "imports": [],
+        "exports": [],
+        "binary_info": {},
+        "xrefs": {},
+        "disassembly": {},
+        "decompilation": {},
+    }
+    return (
+        "INFO  AnalyzeBinary.java> ===ANALYSIS_START===\n"
+        + _json.dumps(payload)
+        + "\n===ANALYSIS_END===\n"
+    )
+
+
+class TestGzfRevCounter:
+    """Monotonic, atomic rev counter — the durable invalidation signal."""
+
+    def test_rev_starts_at_zero_when_absent(self, tmp_path: Path):
+        assert _read_gzf_rev_sync(str(tmp_path)) == 0
+
+    def test_bump_is_monotonic_and_atomic(self, tmp_path: Path):
+        base = str(tmp_path / "proj")  # does not exist yet — bump must mkdir
+        assert bump_gzf_project_rev_sync(base) == 1
+        assert bump_gzf_project_rev_sync(base) == 2
+        assert bump_gzf_project_rev_sync(base) == 3
+        assert _read_gzf_rev_sync(base) == 3
+        # No leftover temp files from the atomic tmp+replace write.
+        leftovers = [p for p in os.listdir(base) if p.startswith(".rev-")]
+        assert leftovers == []
+
+    def test_garbage_rev_file_reads_as_zero(self, tmp_path: Path):
+        (tmp_path / "_wairz_rev").write_text("not-an-int")
+        assert _read_gzf_rev_sync(str(tmp_path)) == 0
+
+    @pytest.mark.asyncio
+    async def test_async_wrapper_matches_sync(self, tmp_path: Path):
+        base = str(tmp_path)
+        bump_gzf_project_rev_sync(base)
+        assert await gzf_project_rev(base) == 1
+
+
+class TestProjBaseFromProcessTarget:
+    def test_round_trips_with_resolve(self):
+        target = "PROJECT_PROCESS_MODE:/data/ghidra/abcdef0123456789:gzf_project"
+        assert _proj_base_from_process_target(target) == "/data/ghidra/abcdef0123456789"
+
+    def test_returns_none_for_plain_path(self):
+        assert _proj_base_from_process_target("/firmware/rom.gzf") is None
+
+
+class TestResolveGzfProcessTarget:
+    """The single routing helper that both bugs traced back to."""
+
+    @pytest.mark.asyncio
+    async def test_non_gzf_passes_through(self, tmp_path: Path):
+        target, is_proc = await resolve_gzf_process_target("/firmware/init", "a" * 64)
+        assert target == "/firmware/init"
+        assert is_proc is False
+
+    @pytest.mark.asyncio
+    async def test_gzf_without_project_passes_through(self, tmp_path: Path):
+        projects = tmp_path / "projects"
+        projects.mkdir()
+        with patch.object(
+            ghidra_service, "get_settings",
+            lambda: _settings_with_projects_dir(str(projects)),
+        ):
+            target, is_proc = await resolve_gzf_process_target(
+                "/firmware/rom.gzf", "b" * 64,
+            )
+        assert target == "/firmware/rom.gzf"
+        assert is_proc is False
+
+    @pytest.mark.asyncio
+    async def test_gzf_with_project_routes_process_mode(self, tmp_path: Path):
+        projects = tmp_path / "projects"
+        projects.mkdir()
+        with patch.object(
+            ghidra_service, "get_settings",
+            lambda: _settings_with_projects_dir(str(projects)),
+        ):
+            gzf_path, sha, proj_base = await _make_persistent_gzf(tmp_path, projects)
+            target, is_proc = await resolve_gzf_process_target(gzf_path, sha)
+        assert is_proc is True
+        assert target == f"PROJECT_PROCESS_MODE:{proj_base}:gzf_project"
+        # Routing helper output must parse back to the same proj_base.
+        assert _proj_base_from_process_target(target) == proj_base
+
+
+class TestGzfRevInvalidationLiveCanary:
+    """Rule #35b: a rename (rev bump) durably invalidates the analysis cache
+    so get_functions re-analyzes the persistent project and returns the NEW
+    name — the exact contract the consume-once dirty flag failed to hold."""
+
+    @pytest.mark.asyncio
+    async def test_rev_mismatch_rebuilds_with_renamed_function(self, tmp_path: Path):
+        from app.services.ghidra_service import store_cached as _store
+
+        projects = tmp_path / "projects"
+        projects.mkdir()
+
+        async with make_live_db() as db:
+            @asynccontextmanager
+            async def _reuse_db():
+                # All of ensure_analysis's internal async_session_factory()
+                # blocks must hit the SAME in-memory DB as the test session.
+                yield db
+
+            pid = uuid.uuid4()
+            db.add(Project(id=pid, name="gzf-rev", status="ready"))
+            await db.flush()
+            fw = Firmware(id=uuid.uuid4(), project_id=pid, sha256="k" * 64)
+            db.add(fw)
+            await db.flush()
+            await db.commit()
+
+            with patch.object(
+                ghidra_service, "get_settings",
+                lambda: _settings_with_projects_dir(str(projects)),
+            ):
+                gzf_path, sha, proj_base = await _make_persistent_gzf(tmp_path, projects)
+
+                # A rename already happened: disk rev is 1, but the cache was
+                # built at rev 0 with the OLD function name.
+                bump_gzf_project_rev_sync(proj_base)
+                await _store(
+                    fw.id, gzf_path, sha, "functions",
+                    {"functions": [{"name": "FUN_80050000", "address": "0x80050000", "size": 256}]},
+                    db,
+                )
+                await _store(
+                    fw.id, gzf_path, sha, "ghidra_full_analysis",
+                    {"status": "complete", "function_count": 1,
+                     "decompiled_count": 0, "gzf_rev": 0},
+                    db,
+                )
+                await db.commit()
+
+                captured: dict = {}
+
+                async def fake_subprocess(binary_path, script_name, **kwargs):
+                    captured["target"] = binary_path
+                    captured["is_gzf_process_mode"] = kwargs.get("is_gzf_process_mode")
+                    return _analyze_output(["release_connection_record"])
+
+                with patch.object(
+                    ghidra_service, "run_ghidra_subprocess", new=fake_subprocess,
+                ), patch.object(
+                    ghidra_service, "async_session_factory", _reuse_db,
+                ):
+                    funcs = await get_functions(gzf_path, fw.id, db)
+                    await db.commit()
+
+            names = {f["name"] for f in funcs}
+            assert "release_connection_record" in names, (
+                "rev mismatch must clear the stale cache and re-analyze the "
+                f"persistent project; got {names}"
+            )
+            assert "FUN_80050000" not in names, "stale pre-rename name still served"
+            assert captured["is_gzf_process_mode"] is True
+            assert captured["target"].startswith("PROJECT_PROCESS_MODE:")
+
+            # The rebuilt sentinel must carry the on-disk rev so the NEXT read
+            # is a fast-path cache hit (rev now matches).
+            sentinel = await get_cached(fw.id, sha, "ghidra_full_analysis", db)
+            assert sentinel is not None
+            assert sentinel.get("gzf_rev") == 1
+
+
+class TestBatchDecompileProcessModeRouting:
+    """Bug 2: batch_decompile_functions must route a GZF-with-project through
+    -process mode (target + is_gzf_process_mode + params None), identical to
+    decompile_function — previously it ran the pristine archive and reported
+    'not found' for names decompile_function resolved fine."""
+
+    @pytest.mark.asyncio
+    async def test_batch_routes_process_mode(self, tmp_path: Path):
+        projects = tmp_path / "projects"
+        projects.mkdir()
+
+        async with make_live_db() as db:
+            pid = uuid.uuid4()
+            db.add(Project(id=pid, name="gzf-batch", status="ready"))
+            await db.flush()
+            fw = Firmware(id=uuid.uuid4(), project_id=pid, sha256="m" * 64)
+            db.add(fw)
+            await db.flush()
+            await db.commit()
+
+            with patch.object(
+                ghidra_service, "get_settings",
+                lambda: _settings_with_projects_dir(str(projects)),
+            ):
+                gzf_path, sha, proj_base = await _make_persistent_gzf(tmp_path, projects)
+
+                captured: dict = {}
+
+                async def fake_subprocess(binary_path, script_name, **kwargs):
+                    captured["target"] = binary_path
+                    captured["is_gzf_process_mode"] = kwargs.get("is_gzf_process_mode")
+                    captured["import_params"] = kwargs.get("ghidra_import_params")
+                    return (
+                        "===DECOMPILE_START===\n"
+                        "// Function: release_connection_record\n"
+                        "// Address: 0x80050000\n"
+                        "\n"
+                        "void release_connection_record(void) { return; }\n"
+                        "===DECOMPILE_END===\n"
+                        "===BATCH_SUMMARY===\n"
+                        "// Requested: 1\n// Success: 1\n// Failed: 0\n"
+                        "===BATCH_SUMMARY_END===\n"
+                    )
+
+                with patch.object(
+                    ghidra_service, "run_ghidra_subprocess", new=fake_subprocess,
+                ):
+                    results = await batch_decompile_functions(
+                        gzf_path, ["release_connection_record"], fw.id, db,
+                    )
+
+            assert results.get("release_connection_record")
+            assert "release_connection_record" in results["release_connection_record"]
+            assert captured["is_gzf_process_mode"] is True
+            assert captured["target"].startswith("PROJECT_PROCESS_MODE:")
+            assert captured["import_params"] is None

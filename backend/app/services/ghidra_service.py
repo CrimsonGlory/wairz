@@ -241,6 +241,106 @@ async def gzf_process_project_exists(gzf_sha256: str) -> bool:
     return await loop.run_in_executor(None, os.path.isdir, rep_dir)
 
 
+# ---------------------------------------------------------------------------
+# GZF persistent-project revision counter — durable cache-invalidation signal.
+#
+# The OLD mechanism was a consume-once "_wairz_renamed" dirty flag written by
+# the write path and DELETED by the first ensure_analysis read. That was
+# fragile: after the flag was consumed once, any later cache rebuild (e.g. a
+# force_reanalyze worker re-importing the pristine archive, or a second rename)
+# had no flag left to trigger re-invalidation, so renames went permanently
+# invisible to list_functions/find_callers/decompile_function.
+#
+# The rev counter is MONOTONIC and NEVER consumed. Every rename run bumps it;
+# the read path stamps the rev it analyzed into the ghidra_full_analysis
+# sentinel. ensure_analysis compares the on-disk rev against the cached rev and
+# rebuilds whenever they diverge — so any number of renames, and any stale
+# cache rebuild, self-heals on the next read.
+# ---------------------------------------------------------------------------
+
+_GZF_REV_FILENAME = "_wairz_rev"
+
+
+def _read_gzf_rev_sync(proj_base: str) -> int:
+    """Read the persistent project's monotonic rev (0 if never bumped)."""
+    rev_path = os.path.join(proj_base, _GZF_REV_FILENAME)
+    try:
+        with open(rev_path, encoding="utf-8") as f:
+            return int(f.read().strip() or "0")
+    except (OSError, ValueError):
+        return 0
+
+
+def bump_gzf_project_rev_sync(proj_base: str) -> int:
+    """Atomically increment and return the persistent project's rev counter.
+
+    Written via tmp-file + os.replace so a crash mid-write can never leave a
+    partially-written rev that parses as a smaller/garbage value. Sync (called
+    from the write path's run_in_executor). Returns the new rev.
+    """
+    new_rev = _read_gzf_rev_sync(proj_base) + 1
+    os.makedirs(proj_base, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=proj_base, prefix=".rev-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(str(new_rev))
+        os.replace(tmp_path, os.path.join(proj_base, _GZF_REV_FILENAME))
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.remove(tmp_path)
+        raise
+    return new_rev
+
+
+async def gzf_project_rev(proj_base: str) -> int:
+    """Async wrapper around _read_gzf_rev_sync."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _read_gzf_rev_sync, proj_base)
+
+
+async def resolve_gzf_process_target(
+    binary_path: str, binary_sha256: str,
+) -> tuple[str, bool]:
+    """Single source of truth for GZF -process-mode routing.
+
+    Returns (ghidra_target, is_gzf_process_mode). For a .gzf whose persistent
+    project exists, returns the PROJECT_PROCESS_MODE reference so the Ghidra
+    run observes script-applied renames; otherwise returns binary_path
+    unchanged. Used by ensure_analysis, decompile_function,
+    batch_decompile_functions, and the detached analysis worker so EVERY
+    Ghidra invocation against a renamed GZF routes through the persistent
+    project identically (the divergence between these paths was the root cause
+    of renames being visible to decompile_function but not list_functions /
+    batch_decompile_functions).
+    """
+    if binary_path.lower().endswith(".gzf") and await gzf_process_project_exists(
+        binary_sha256
+    ):
+        proj_base, proj_name, _ = gzf_project_paths(binary_sha256)
+        return f"PROJECT_PROCESS_MODE:{proj_base}:{proj_name}", True
+    return binary_path, False
+
+
+def _proj_base_from_process_target(analysis_target: str) -> str | None:
+    """Extract proj_base from a 'PROJECT_PROCESS_MODE:<proj_base>:<proj_name>'
+    target, or None if the target is not a process-mode reference.
+
+    proj_base is an absolute path that itself contains ':' on no sane setup,
+    but to be safe we split off the known leading prefix and trailing
+    proj_name component rather than a naive split.
+    """
+    prefix = "PROJECT_PROCESS_MODE:"
+    if not analysis_target.startswith(prefix):
+        return None
+    rest = analysis_target[len(prefix):]
+    # The trailing component is the proj_name (no ':'); everything before the
+    # last ':' is proj_base.
+    sep = rest.rfind(":")
+    if sep == -1:
+        return None
+    return rest[:sep]
+
+
 def _build_process_command(
     proj_base: str,
     proj_name: str,
@@ -789,17 +889,24 @@ async def _run_full_analysis(
             db,
         )
 
-    # Store sentinel marking analysis as complete
+    # Store sentinel marking analysis as complete. For GZF process-mode runs,
+    # stamp the persistent project's current rev so ensure_analysis can detect
+    # a later rename (which bumps the rev) and invalidate this cache durably.
     function_count = len(data.get("functions", []))
     decompile_count = len(decompilation)
+    sentinel: dict = {
+        "status": "complete",
+        "function_count": function_count,
+        "decompiled_count": decompile_count,
+    }
+    if is_gzf_process_mode:
+        proj_base = _proj_base_from_process_target(binary_path)
+        if proj_base is not None:
+            sentinel["gzf_rev"] = await gzf_project_rev(proj_base)
     await _store_cached(
         firmware_id, binary_path, binary_sha256,
         "ghidra_full_analysis",
-        {
-            "status": "complete",
-            "function_count": function_count,
-            "decompiled_count": decompile_count,
-        },
+        sentinel,
         db,
     )
 
@@ -831,31 +938,33 @@ async def ensure_analysis(
     binary_sha256 = await _get_binary_sha256(binary_path)
 
     # Check if this GZF has a persistent renamed project from a prior
-    # run_ghidra_headless use_saved_project=True.  This MUST happen before the
-    # fast-path cache check: if the rename script wrote a dirty flag the
-    # existing cache contains pre-rename names and must be cleared first.
-    analysis_target = binary_path
-    is_gzf_with_persistent_project = False
-    if binary_path.lower().endswith(".gzf"):
-        if await gzf_process_project_exists(binary_sha256):
-            proj_base, proj_name, _ = gzf_project_paths(binary_sha256)
-            dirty_flag = os.path.join(proj_base, "_wairz_renamed")
-            if await loop.run_in_executor(None, os.path.exists, dirty_flag):
-                # Invalidate stale pre-rename cache so analysis re-runs below.
-                await clear_binary_analysis(firmware_id, binary_sha256, db)
-                await db.commit()
-                try:
-                    await loop.run_in_executor(None, os.remove, dirty_flag)
-                except OSError:
-                    pass
-                logger.info(
-                    "GZF dirty flag consumed for %s — analysis cache cleared",
-                    os.path.basename(binary_path),
-                )
-            analysis_target = f"PROJECT_PROCESS_MODE:{proj_base}:{proj_name}"
-            is_gzf_with_persistent_project = True
+    # run_ghidra_headless use_saved_project=True. This MUST happen before the
+    # fast-path cache check: if a rename has bumped the project rev past the
+    # rev stamped in the cached sentinel, the cache contains pre-rename names
+    # and must be cleared so analysis re-runs against the renamed project.
+    analysis_target, is_gzf_with_persistent_project = await resolve_gzf_process_target(
+        binary_path, binary_sha256,
+    )
+    if is_gzf_with_persistent_project:
+        proj_base = _proj_base_from_process_target(analysis_target)
+        current_rev = await gzf_project_rev(proj_base) if proj_base else 0
+        sentinel = await _get_cached(
+            firmware_id, binary_sha256, "ghidra_full_analysis", db,
+        )
+        if sentinel is not None and sentinel.get("gzf_rev") != current_rev:
+            # Stale: the persistent project was renamed (rev bumped) after this
+            # cache was built. Clear so the re-analysis below sees live names.
+            await clear_binary_analysis(firmware_id, binary_sha256, db)
+            await db.commit()
+            logger.info(
+                "GZF rev mismatch for %s (cached=%s on-disk=%s) — analysis "
+                "cache cleared",
+                os.path.basename(binary_path),
+                sentinel.get("gzf_rev"),
+                current_rev,
+            )
 
-    # Fast path: already analyzed (and cache is not dirty)
+    # Fast path: already analyzed (and cache is not stale)
     if await _is_analysis_complete(firmware_id, binary_sha256, db):
         return binary_sha256
 
@@ -1285,14 +1394,10 @@ async def decompile_function(
     # Determine whether this GZF has a persistent renamed project.
     # When it does, DecompileFunction.java must run in -process mode against
     # that project so it sees renamed functions instead of the pristine archive.
-    is_gzf_process_mode = False
-    ghidra_subprocess_target = binary_path
     ghidra_import_params = None
-    if binary_path.lower().endswith(".gzf"):
-        if await gzf_process_project_exists(binary_sha256):
-            proj_base, proj_name, _ = gzf_project_paths(binary_sha256)
-            ghidra_subprocess_target = f"PROJECT_PROCESS_MODE:{proj_base}:{proj_name}"
-            is_gzf_process_mode = True
+    ghidra_subprocess_target, is_gzf_process_mode = await resolve_gzf_process_target(
+        binary_path, binary_sha256,
+    )
 
     # Check cache (works for both full-analysis and single-function cache entries).
     # Cache entries written after a -process mode run already reflect renames.
@@ -1391,16 +1496,31 @@ async def batch_decompile_functions(
     if not uncached_funcs:
         return results
 
-    # Run batch decompilation for uncached functions.
-    ghidra_import_params = await resolve_binary_import_params(binary_path, firmware_id)
+    # Run batch decompilation for uncached functions. Route GZF archives with
+    # a persistent renamed project through -process mode — identical to
+    # decompile_function — so batch lookups resolve renamed functions instead
+    # of failing "not found" against the pristine archive (the Bug 2 root
+    # cause: batch_decompile_functions never did this detection, so every name
+    # decompile_function could resolve individually came back "not found" in a
+    # batch). In process mode the persistent project already carries the
+    # correct loader/processor, so import params MUST be None.
+    ghidra_subprocess_target, is_gzf_process_mode = await resolve_gzf_process_target(
+        binary_path, binary_sha256,
+    )
+    ghidra_import_params = (
+        None
+        if is_gzf_process_mode
+        else await resolve_binary_import_params(binary_path, firmware_id)
+    )
     raw_output = await run_ghidra_subprocess(
-        binary_path,
+        ghidra_subprocess_target,
         "DecompileFunction.java",
         script_args=uncached_funcs,
         timeout=min(580, 60 * len(uncached_funcs)),  # 60s per function, max 580s
         ghidra_import_params=ghidra_import_params,
         firmware_id=firmware_id,
         binary_sha256=binary_sha256,
+        is_gzf_process_mode=is_gzf_process_mode,
     )
 
     # Parse batch output: collect all decompilations between markers
