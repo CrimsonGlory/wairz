@@ -78,9 +78,7 @@ async def _run(
                     await recheck_db.commit()
                     return 0
 
-            ghidra_import_params = await resolve_binary_import_params(
-                binary_path, firmware_id,
-            )
+            ghidra_import_params = await resolve_binary_import_params(binary_path, firmware_id)
             raw_output = await run_ghidra_subprocess(
                 binary_path,
                 "DecompileFunction.java",

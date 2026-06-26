@@ -1,12 +1,14 @@
-// Ghidra headless script: Decompile a function and print pseudo-C to stdout.
+// Ghidra headless script: Decompile function(s) and print pseudo-C to stdout.
 //
 // Usage with analyzeHeadless:
 //   analyzeHeadless <project_dir> <project_name> \
 //     -import <binary_path> \
-//     -postScript DecompileFunction.java <function_name> \
+//     -postScript DecompileFunction.java <function_name> [<function_name2> ...] \
 //     -deleteProject
 //
+// Accepts one or more function names (or addresses like 0x08048000).
 // If function_name is "__all__", decompiles all functions (limited output).
+// Batch mode: pass multiple function names as separate arguments.
 // Output is printed to stdout between markers for easy parsing.
 //
 // @category Wairz
@@ -34,13 +36,11 @@ public class DecompileFunction extends GhidraScript {
         String[] args = getScriptArgs();
         if (args.length < 1) {
             println("ERROR: Function name argument required");
-            println("Usage: -postScript DecompileFunction.java <function_name>");
+            println("Usage: -postScript DecompileFunction.java <function_name> [<function_name2> ...]");
             return;
         }
 
-        String targetFunction = args[0];
-
-        // Set up the decompiler
+        // Set up the decompiler (once for batch)
         DecompInterface decompiler = new DecompInterface();
         DecompileOptions options = new DecompileOptions();
         decompiler.setOptions(options);
@@ -53,12 +53,13 @@ public class DecompileFunction extends GhidraScript {
         try {
             FunctionManager funcManager = currentProgram.getFunctionManager();
 
-            if (targetFunction.equals("__all__")) {
+            // Check if "__all__" is the only argument
+            if (args.length == 1 && args[0].equals("__all__")) {
                 // Decompile all functions (used for full analysis caching)
                 decompileAllFunctions(decompiler, funcManager);
             } else {
-                // Decompile a specific function
-                decompileNamedFunction(decompiler, funcManager, targetFunction);
+                // Batch mode: decompile multiple named functions
+                decompileBatch(decompiler, funcManager, args);
             }
         } finally {
             decompiler.dispose();
@@ -103,6 +104,60 @@ public class DecompileFunction extends GhidraScript {
         }
 
         println("===DECOMPILE_END===");
+    }
+
+    private void decompileBatch(DecompInterface decompiler,
+                                 FunctionManager funcManager,
+                                 String[] targetFunctions) {
+        int successCount = 0;
+        int failureCount = 0;
+        java.util.List<String> notFound = new java.util.ArrayList<>();
+
+        for (String targetFunction : targetFunctions) {
+            Function func = findFunction(funcManager, targetFunction);
+
+            if (func == null) {
+                failureCount++;
+                notFound.add(targetFunction);
+                continue;
+            }
+
+            DecompileResults results = decompiler.decompileFunction(func, DECOMPILE_TIMEOUT, monitor);
+
+            println("===DECOMPILE_START===");
+            println("// Function: " + func.getName());
+            println("// Address:  " + func.getEntryPoint());
+            println("// Size:     " + func.getBody().getNumAddresses() + " bytes");
+            println("");
+
+            if (results.getDecompiledFunction() != null) {
+                String decompiledCode = results.getDecompiledFunction().getC();
+                println(decompiledCode);
+                successCount++;
+            } else {
+                println("// Decompilation failed");
+                if (results.getErrorMessage() != null && !results.getErrorMessage().isEmpty()) {
+                    println("// Error: " + results.getErrorMessage());
+                }
+                failureCount++;
+            }
+
+            println("===DECOMPILE_END===");
+
+            if (monitor.isCancelled()) {
+                break;
+            }
+        }
+
+        // Summary
+        println("===BATCH_SUMMARY===");
+        println("// Requested: " + targetFunctions.length);
+        println("// Success: " + successCount);
+        println("// Failed: " + failureCount);
+        if (!notFound.isEmpty()) {
+            println("// Not found: " + java.util.Arrays.toString(notFound.toArray()));
+        }
+        println("===BATCH_SUMMARY_END===");
     }
 
     private void decompileAllFunctions(DecompInterface decompiler,

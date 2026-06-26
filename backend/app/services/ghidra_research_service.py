@@ -156,6 +156,43 @@ class GhidraResearchService:
         await self.db.flush()
         return record
 
+    async def resolve_gzf_path(self, project_id: uuid.UUID, name_or_path: str) -> str:
+        """Resolve a .gzf filename/path to its real on-disk storage path.
+
+        GhidraResearchFile archives live under storage_root/.../ghidra_research/,
+        outside the firmware sandbox tree that FileService/context.resolve_path()
+        validates against — so binary.py tools and run_ghidra_headless's GZF
+        process mode both need this lookup instead of the normal sandboxed
+        resolution. Matches by original_filename, basename, or stored
+        storage_path, mirroring the matching shape already used in
+        ghidra_research.py's resolve_firmware_path handler.
+
+        Raises FileNotFoundError (never returns None) so callers can let it
+        propagate to ToolRegistry.execute()'s generic exception handler,
+        which turns it into a clean error string for the MCP client.
+        """
+        basename = os.path.basename(name_or_path)
+        records = await self.list_by_project(project_id)
+        for record in records:
+            if os.path.splitext(record.original_filename)[1].lower() != ".gzf":
+                continue
+            if (
+                record.original_filename == basename
+                or record.original_filename == name_or_path
+                or record.storage_path == name_or_path
+                or os.path.basename(record.storage_path) == basename
+            ):
+                if not os.path.exists(record.storage_path):  # noqa: ASYNC240 — pre-flight stat, no walk
+                    raise FileNotFoundError(
+                        f"GZF archive '{record.original_filename}' is registered but "
+                        f"missing on disk: {record.storage_path}"
+                    )
+                return record.storage_path
+        raise FileNotFoundError(
+            f"No .gzf archive named '{name_or_path}' found in this project's Ghidra "
+            "research files. Use list_ghidra_research_files to see available archives."
+        )
+
     @staticmethod
     def read_text_content(record: GhidraResearchFile) -> str:
         path = record.storage_path

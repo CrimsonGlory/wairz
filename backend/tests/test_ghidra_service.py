@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -45,6 +46,7 @@ from app.services.ghidra_service import (
     _parse_decompile_output,
     decompile_function,
     get_cached,
+    resolve_binary_import_params,
     run_ghidra_subprocess,
     store_cached,
 )
@@ -141,6 +143,74 @@ class TestMapArchitecture:
     def test_unknown_architecture_returns_lowercased(self):
         assert _map_architecture("RISCV") == "riscv"
         assert _map_architecture("Z80") == "z80"
+
+
+# ---------------------------------------------------------------------------
+# resolve_binary_import_params — .gzf short-circuit
+#
+# A saved Ghidra project archive already carries its own baked-in
+# processor/loader/base-address state from when it was first imported.
+# Without the extension check, a bare-metal firmware's rtos_flavor would
+# force BinaryLoader override params onto a .gzf import and corrupt that
+# state. The check must fire BEFORE the magic-byte read (a .gzf is a ZIP
+# container, not a known ELF/PE/Mach-O format, so without the short-circuit
+# it would fall through to the rtos_flavor DB lookup below).
+# ---------------------------------------------------------------------------
+
+class TestResolveBinaryImportParamsGzfShortCircuit:
+    @pytest.mark.asyncio
+    async def test_gzf_extension_returns_none_without_db_lookup(self):
+        # No async_session_factory patch needed — the .gzf check returns
+        # before any DB access, so a real (unmocked) firmware_id is safe.
+        result = await resolve_binary_import_params(
+            "/data/research/saved_project.gzf", uuid.uuid4(),
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_gzf_extension_match_is_case_insensitive(self):
+        result = await resolve_binary_import_params(
+            "/data/research/SAVED_PROJECT.GZF", uuid.uuid4(),
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_raw_binary_with_baremetal_flavor_still_gets_params(self, tmp_path: Path):
+        """Contrast case: a non-.gzf raw blob for the SAME flavor that would
+        produce params if it weren't a .gzf — proves the short-circuit is
+        extension-specific, not a blanket bypass of the flavor lookup."""
+        raw_path = tmp_path / "firmware.bin"
+        raw_path.write_bytes(b"\x00" * 64)  # unknown-format magic
+
+        async with make_live_db() as db:
+            pid = uuid.uuid4()
+            project = Project(id=pid, name="gzf-shortcircuit", status="ready")
+            db.add(project)
+            await db.flush()
+
+            firmware = Firmware(
+                id=uuid.uuid4(), project_id=pid, sha256="c" * 64,
+                rtos_flavor="baremetal-cortexm",
+            )
+            db.add(firmware)
+            await db.flush()
+            await db.commit()
+
+            @asynccontextmanager
+            async def _fake_factory():
+                yield db
+
+            with patch(
+                "app.services.ghidra_service.async_session_factory",
+                _fake_factory,
+            ):
+                result = await resolve_binary_import_params(str(raw_path), firmware.id)
+
+        assert result == {
+            "processor": "ARM:LE:32:Cortex",
+            "loader": "BinaryLoader",
+            "base_addr": 0,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +491,7 @@ class TestGhidraServiceCacheLiveCanary:
 
             call_count = 0
 
-            async def fake_subprocess(binary_path, script_name, script_args=None):
+            async def fake_subprocess(binary_path, script_name, script_args=None, **kwargs):
                 nonlocal call_count
                 call_count += 1
                 return decompile_payload
@@ -478,3 +548,18 @@ class TestGhidraServiceCacheLiveCanary:
             assert row.binary_sha256 is not None
             assert len(row.binary_sha256) == 64
             assert row.binary_path == str(binary)
+
+
+# ---------------------------------------------------------------------------
+# GZF process-mode read-path routing — TODO 2026-06-25 fix
+#
+# ensure_analysis/decompile_function/batch_decompile_functions used to
+# always -import a FRESH, pristine copy of a .gzf for AnalyzeBinary.java /
+# DecompileFunction.java, completely blind to a persistent GZF process-mode
+# project (run_ghidra_headless use_saved_project=True) that may already
+# carry script-applied renames for the SAME archive. These tests pin the
+# routing contract: when gzf_project_paths' rep_dir exists for a .gzf's own
+# sha256, the read path must request -process mode (gzf_process_sha256 set)
+# instead of a fresh -import (ghidra_import_params forced to None, since a
+# restored project already carries its own processor/loader state).
+# ---------------------------------------------------------------------------

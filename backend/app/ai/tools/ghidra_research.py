@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import re
+import shutil
 import tempfile
 import uuid
 from datetime import UTC, datetime
@@ -715,14 +716,16 @@ async def _handle_resolve_firmware_path(input: dict, context: ToolContext) -> st
                         gzf_path = rf.storage_path
                         break
 
-    # Derive stable project dir for this GZF (mirrors _run_gzf_process_mode).
+    # Derive stable project dir for this GZF (single source of truth:
+    # ghidra_service.gzf_project_paths, shared with _run_gzf_process_mode
+    # and the read-path .gzf process-mode routing in ensure_analysis).
     ghidra_project_dir: str | None = None
     if gzf_path and os.path.isfile(gzf_path):  # noqa: ASYNC240 — pre-flight stat, no walk
         from app.utils.hashing import compute_file_sha256  # noqa: PLC0415
+        from app.services.ghidra_service import gzf_project_paths  # noqa: PLC0415
         loop = asyncio.get_running_loop()
         gzf_sha = await loop.run_in_executor(None, compute_file_sha256, gzf_path)
-        candidate = os.path.join(settings.ghidra_projects_dir, gzf_sha[:16])
-        rep_candidate = os.path.join(candidate, "gzf_project.rep")
+        candidate, _, rep_candidate = gzf_project_paths(gzf_sha)
         if os.path.isdir(rep_candidate):  # noqa: ASYNC240 — pre-flight stat, no walk
             ghidra_project_dir = candidate
 
@@ -756,15 +759,22 @@ async def _run_gzf_process_mode(
     extra_script_path: str | None,
     timeout: int,
     project_id: uuid.UUID,
+    context: ToolContext,
 ) -> str:
-    """Restore a GZF into a persistent Ghidra project (first run only) then run
-    script_name in -process mode against all programs in that project.
+    """Restore a GZF into a persistent Ghidra project, run script_name in
+    -process mode, then export the updated project back to the GZF.
 
     The project directory is keyed by the first 16 hex chars of the GZF
     content SHA256, so the same archive always maps to the same directory.
     An OS-level flock on that key ensures only one process runs the -import
-    step even when multiple wairz-mcp connections hit the same GZF
-    simultaneously.
+    step even when multiple wairz-mcp connections hit the same GZF simultaneously.
+
+    After the script completes (success or failure), exports the updated project
+    back to the GZF file, overwriting it with any renames/retypes the script
+    applied. This makes the GZF the golden copy — subsequent list_functions /
+    decompile_function / find_callers calls will re-import this updated GZF
+    and see all the script-applied changes baked in. The persistent project
+    folder is then deleted to avoid stale state.
 
     Returns the combined output string (same shape as import-mode).
     """
@@ -775,14 +785,14 @@ async def _run_gzf_process_mode(
     from app.services.ghidra_service import (  # noqa: PLC0415
         _cross_process_analysis_lock,
         _format_ghidra_diag,
+        clear_binary_analysis,
+        gzf_project_paths,
     )
 
     loop = asyncio.get_running_loop()
     gzf_sha = await loop.run_in_executor(None, compute_file_sha256, gzf_path)
 
-    proj_base = os.path.join(settings.ghidra_projects_dir, gzf_sha[:16])
-    proj_name = "gzf_project"
-    rep_dir = os.path.join(proj_base, f"{proj_name}.rep")
+    proj_base, proj_name, rep_dir = gzf_project_paths(gzf_sha)
 
     # Serialise the import step across all processes for this GZF.
     # The flock is released before the process step so concurrent script
@@ -898,6 +908,19 @@ async def _run_gzf_process_mode(
         stdout_text = out_f.read().decode("utf-8", errors="replace")
         stderr_text = err_f.read().decode("utf-8", errors="replace")
 
+    # Keep the persistent project on disk with all renames/retypes baked in.
+    # Write a dirty flag so ensure_analysis and decompile_function know the
+    # analysis cache is stale and must be re-built from this persistent project.
+    dirty_flag = os.path.join(proj_base, "_wairz_renamed")
+    try:
+        await loop.run_in_executor(None, lambda: open(dirty_flag, "w").close())  # noqa: ASYNC230
+        logger.info(
+            "GZF process-mode: persistent project retained at %s; dirty flag written",
+            rep_dir,
+        )
+    except Exception as exc:
+        logger.warning("GZF process-mode: failed to write dirty flag: %s", exc)
+
     combined = (
         f"Script: {script_name}\n"
         f"GZF: {os.path.basename(gzf_path)}\n"
@@ -975,34 +998,26 @@ async def _handle_run_ghidra_headless(input: dict, context: ToolContext) -> str:
     if use_saved_project:
         if os.path.splitext(binary_path_rel)[1].lower() != ".gzf":
             return "Error: use_saved_project=True requires binary_path to be a .gzf filename."
-        basename_gzf = os.path.basename(binary_path_rel)
         svc_gzf = GhidraResearchService(context.db)
-        research_files_gzf = await svc_gzf.list_by_project(context.project_id)
-        for _rf in research_files_gzf:
-            if (
-                _rf.original_filename == basename_gzf
-                or _rf.original_filename == binary_path_rel
-                or _rf.storage_path == binary_path_rel
-                or os.path.basename(_rf.storage_path) == basename_gzf
-            ):
-                if os.path.splitext(_rf.original_filename)[1].lower() == ".gzf":
-                    gzf_storage_path = _rf.storage_path
-                    break
-        if gzf_storage_path is None:
-            return (
-                f"Error: GZF '{binary_path_rel}' not found in this project's research files. "
-                "Use list_ghidra_research_files to see available archives."
-            )
-        if not os.path.exists(gzf_storage_path):  # noqa: ASYNC240 — pre-flight stat, no walk
-            return f"Error: GZF file not on disk: {gzf_storage_path}"
+        try:
+            gzf_storage_path = await svc_gzf.resolve_gzf_path(context.project_id, binary_path_rel)
+        except FileNotFoundError as exc:
+            return f"Error: {exc}"
 
-    resolved_binary = context.resolve_path(binary_path_rel)
-    # For RTOS blob-only projects resolve_path returns the parent directory for bare
-    # basenames. Fall back to context.storage_path when the resolved path isn't a file.
-    if not os.path.isfile(resolved_binary) and context.storage_path and os.path.isfile(context.storage_path):
-        resolved_binary = context.storage_path
-    if not os.path.isfile(resolved_binary):
-        return f"Error: Binary not found at path '{binary_path_rel}'."
+    # GZF process mode never touches the firmware sandbox tree — binary_path_rel
+    # is a research-archive filename, not a sandboxed firmware path, so the
+    # normal resolve_path/isfile gate below must be skipped entirely (it would
+    # otherwise return a "Binary not found" error before _run_gzf_process_mode
+    # is ever reached, since gzf archives live outside extracted_path).
+    resolved_binary = ""
+    if gzf_storage_path is None:
+        resolved_binary = context.resolve_path(binary_path_rel)
+        # For RTOS blob-only projects resolve_path returns the parent directory for bare
+        # basenames. Fall back to context.storage_path when the resolved path isn't a file.
+        if not os.path.isfile(resolved_binary) and context.storage_path and os.path.isfile(context.storage_path):
+            resolved_binary = context.storage_path
+        if not os.path.isfile(resolved_binary):
+            return f"Error: Binary not found at path '{binary_path_rel}'."
 
     # Build ghidra_import_params from explicit inputs; auto-detect from rtos_flavor if absent.
     _processor = input.get("processor", "").strip()
@@ -1092,6 +1107,7 @@ async def _handle_run_ghidra_headless(input: dict, context: ToolContext) -> str:
                 _tmp_script_dir,
                 effective_timeout,
                 context.project_id,
+                context,
             )
 
         import importlib  # noqa: PLC0415

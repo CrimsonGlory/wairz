@@ -8,8 +8,11 @@ from uuid import uuid4
 import pytest
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
-from app.ai.tools.binary import register_binary_tools
+from app.ai.tools.binary import _resolve_binary_path, register_binary_tools
+from app.models.ghidra_research import GhidraResearchFile
+from app.models.project import Project
 from app.services.analysis_service import check_binary_protections
+from tests._live_db import make_live_db
 
 # ---------------------------------------------------------------------------
 # Helpers: Build a minimal valid ELF binary in memory
@@ -366,6 +369,192 @@ class TestPathTraversal:
 
 
 # ---------------------------------------------------------------------------
+# _resolve_binary_path — .gzf query support (GhidraResearchService routing)
+#
+# GhidraResearchFile archives live under storage_root/.../ghidra_research/,
+# outside the firmware sandbox tree that context.resolve_path() validates
+# against — so every binary.py handler routes binary_path arguments through
+# _resolve_binary_path first, which detects the .gzf extension and queries
+# GhidraResearchService instead of the sandbox. Non-.gzf inputs are
+# unaffected (the existing sandbox path is preserved exactly).
+# ---------------------------------------------------------------------------
+
+
+class TestResolveBinaryPathGzfRouting:
+    @pytest.mark.asyncio
+    async def test_non_gzf_path_uses_normal_sandbox_resolution(self, tool_context, firmware_root):
+        path = await _resolve_binary_path("/usr/bin/httpd", tool_context)
+        assert path == str(firmware_root / "usr" / "bin" / "httpd")
+
+    @pytest.mark.asyncio
+    async def test_gzf_path_resolves_via_ghidra_research_service(self, tmp_path: Path):
+        async with make_live_db() as db:
+            pid = uuid4()
+            project = Project(id=pid, name="gzf-routing", status="ready")
+            db.add(project)
+            await db.flush()
+
+            gzf_path = tmp_path / "saved.gzf"
+            gzf_path.write_bytes(b"PK\x03\x04")  # ZIP magic
+
+            record = GhidraResearchFile(
+                id=uuid4(),
+                project_id=pid,
+                original_filename="saved.gzf",
+                file_category="ghidra_archive",
+                content_type="application/octet-stream",
+                file_size=4,
+                sha256="d" * 64,
+                storage_path=str(gzf_path),
+            )
+            db.add(record)
+            await db.flush()
+            await db.commit()
+
+            context = ToolContext(
+                project_id=pid, firmware_id=uuid4(),
+                extracted_path=str(tmp_path), db=db,
+            )
+
+            # Real SELECT-backed round trip, not a mock — proves the lookup
+            # actually matches the persisted row by basename.
+            resolved = await _resolve_binary_path("saved.gzf", context)
+            assert resolved == str(gzf_path)
+
+    @pytest.mark.asyncio
+    async def test_gzf_path_case_insensitive_extension_match(self, tmp_path: Path):
+        async with make_live_db() as db:
+            pid = uuid4()
+            project = Project(id=pid, name="gzf-routing-case", status="ready")
+            db.add(project)
+            await db.flush()
+
+            gzf_path = tmp_path / "SAVED.GZF"
+            gzf_path.write_bytes(b"PK\x03\x04")
+
+            record = GhidraResearchFile(
+                id=uuid4(),
+                project_id=pid,
+                original_filename="SAVED.GZF",
+                file_category="ghidra_archive",
+                content_type="application/octet-stream",
+                file_size=4,
+                sha256="f" * 64,
+                storage_path=str(gzf_path),
+            )
+            db.add(record)
+            await db.flush()
+            await db.commit()
+
+            context = ToolContext(
+                project_id=pid, firmware_id=uuid4(),
+                extracted_path=str(tmp_path), db=db,
+            )
+
+            resolved = await _resolve_binary_path("SAVED.GZF", context)
+            assert resolved == str(gzf_path)
+
+    @pytest.mark.asyncio
+    async def test_gzf_path_no_match_raises_file_not_found(self, tmp_path: Path):
+        async with make_live_db() as db:
+            pid = uuid4()
+            project = Project(id=pid, name="gzf-routing-missing", status="ready")
+            db.add(project)
+            await db.flush()
+            await db.commit()
+
+            context = ToolContext(
+                project_id=pid, firmware_id=uuid4(),
+                extracted_path=str(tmp_path), db=db,
+            )
+
+            with pytest.raises(FileNotFoundError, match="No .gzf archive"):
+                await _resolve_binary_path("missing.gzf", context)
+
+    @pytest.mark.asyncio
+    async def test_list_functions_tool_routes_gzf_through_registry(self, tmp_path: Path):
+        """End-to-end value-flow check (Rule #35b): registry.execute() ->
+        _handle_list_functions -> _resolve_binary_path -> resolve_gzf_path,
+        with ghidra_service.get_functions mocked to capture exactly which
+        path the handler passed downstream — proving the RESOLVED storage
+        path reaches Ghidra, not the raw .gzf basename."""
+        async with make_live_db() as db:
+            pid = uuid4()
+            project = Project(id=pid, name="gzf-e2e", status="ready")
+            db.add(project)
+            await db.flush()
+
+            gzf_path = tmp_path / "saved2.gzf"
+            gzf_path.write_bytes(b"PK\x03\x04")
+
+            record = GhidraResearchFile(
+                id=uuid4(),
+                project_id=pid,
+                original_filename="saved2.gzf",
+                file_category="ghidra_archive",
+                content_type="application/octet-stream",
+                file_size=4,
+                sha256="e" * 64,
+                storage_path=str(gzf_path),
+            )
+            db.add(record)
+            await db.flush()
+            await db.commit()
+
+            context = ToolContext(
+                project_id=pid, firmware_id=uuid4(),
+                extracted_path=str(tmp_path), db=db,
+            )
+
+            reg = ToolRegistry()
+            register_binary_tools(reg)
+
+            captured: dict = {}
+
+            async def fake_get_functions(path, firmware_id, db_arg):
+                captured["path"] = path
+                return []
+
+            with patch(
+                "app.services.ghidra_service.get_functions",
+                new=fake_get_functions,
+            ):
+                result = await reg.execute(
+                    "list_functions", {"binary_path": "saved2.gzf"}, context,
+                )
+
+            assert captured["path"] == str(gzf_path)
+            assert "Error" not in result
+
+    @pytest.mark.asyncio
+    async def test_list_functions_tool_gzf_not_found_is_clean_error(self, tmp_path: Path):
+        """The original bug report: a .gzf binary_path with no matching
+        GhidraResearchFile row must surface a clean error string (via
+        ToolRegistry.execute()'s generic exception handler), not a raw
+        traceback or a misleading 'Binary not found' sandbox message."""
+        async with make_live_db() as db:
+            pid = uuid4()
+            project = Project(id=pid, name="gzf-not-found", status="ready")
+            db.add(project)
+            await db.flush()
+            await db.commit()
+
+            context = ToolContext(
+                project_id=pid, firmware_id=uuid4(),
+                extracted_path=str(tmp_path), db=db,
+            )
+
+            reg = ToolRegistry()
+            register_binary_tools(reg)
+
+            result = await reg.execute(
+                "list_functions", {"binary_path": "nonexistent.gzf"}, context,
+            )
+            assert "Error" in result
+            assert "nonexistent.gzf" in result
+
+
+# ---------------------------------------------------------------------------
 # Handler formatting tests (mock GhidraAnalysisCache)
 # ---------------------------------------------------------------------------
 
@@ -550,6 +739,161 @@ class TestFullRegistration:
         assert "list_functions" in names
         assert "check_binary_protections" in names
         assert "disassemble_function" in names
+
+
+class TestBatchDecompileFunctions:
+    """Tests for batch_decompile_functions service and tool."""
+
+    def test_parse_batch_decompile_output_single_function(self):
+        """Parse batch output with a single function."""
+        from app.services.ghidra_service import _parse_batch_decompile_output
+
+        raw_output = (
+            "===DECOMPILE_START===\n"
+            "// Function: my_func\n"
+            "// Address:  0x08048000\n"
+            "// Size:     256 bytes\n"
+            "\n"
+            "void my_func(void) {\n"
+            "  printf(\"hello\");\n"
+            "}\n"
+            "===DECOMPILE_END===\n"
+        )
+
+        results = _parse_batch_decompile_output(raw_output)
+        assert "my_func" in results
+        assert "void my_func(void)" in results["my_func"]
+        assert "printf" in results["my_func"]
+
+    def test_parse_batch_decompile_output_multiple_functions(self):
+        """Parse batch output with multiple functions."""
+        from app.services.ghidra_service import _parse_batch_decompile_output
+
+        raw_output = (
+            "===DECOMPILE_START===\n"
+            "// Function: func_a\n"
+            "// Address:  0x08048000\n"
+            "// Size:     100 bytes\n"
+            "\n"
+            "void func_a(void) { return; }\n"
+            "===DECOMPILE_END===\n"
+            "===DECOMPILE_START===\n"
+            "// Function: func_b\n"
+            "// Address:  0x08048100\n"
+            "// Size:     200 bytes\n"
+            "\n"
+            "int func_b(int x) { return x * 2; }\n"
+            "===DECOMPILE_END===\n"
+        )
+
+        results = _parse_batch_decompile_output(raw_output)
+        assert len(results) == 2
+        assert "func_a" in results
+        assert "func_b" in results
+        assert "func_a" in results["func_a"]
+        assert "func_b" in results["func_b"]
+
+    def test_parse_batch_decompile_output_failed_decompilation(self):
+        """Parse output when a function fails to decompile."""
+        from app.services.ghidra_service import _parse_batch_decompile_output
+
+        raw_output = (
+            "===DECOMPILE_START===\n"
+            "// Function: good_func\n"
+            "// Address:  0x08048000\n"
+            "\n"
+            "void good_func(void) { return; }\n"
+            "===DECOMPILE_END===\n"
+            "===DECOMPILE_START===\n"
+            "// Function: bad_func\n"
+            "// Address:  0x08048100\n"
+            "\n"
+            "// Decompilation failed\n"
+            "===DECOMPILE_END===\n"
+        )
+
+        results = _parse_batch_decompile_output(raw_output)
+        assert "good_func" in results
+        assert results["good_func"] is not None
+        # bad_func has no code after the metadata, so it should be None or empty
+        assert "bad_func" in results
+        assert not results["bad_func"] or "Decompilation failed" not in results.get("bad_func", "")
+
+    @pytest.mark.asyncio
+    async def test_batch_decompile_functions_with_handler(self, registry, tool_context):
+        """Test the batch_decompile_functions MCP tool handler."""
+        from app.ai.tools.binary import _handle_batch_decompile_functions
+
+        # Mock input
+        input_data = {
+            "binary_path": "/bin/busybox",
+            "function_names": ["main", "usage"],
+        }
+
+        # Mock the batch_decompile_functions service
+        with patch("app.ai.tools.binary.batch_decompile_functions") as mock_batch:
+            mock_batch.return_value = {
+                "main": "int main(void) { return 0; }",
+                "usage": "void usage(void) { printf(\"usage\"); }",
+            }
+
+            result = await _handle_batch_decompile_functions(input_data, tool_context)
+
+            # Check the handler formats the output correctly
+            assert "Batch decompilation results for 2 function(s)" in result
+            assert "Function: main" in result
+            assert "Function: usage" in result
+            assert "2/2 functions decompiled successfully" in result
+
+    @pytest.mark.asyncio
+    async def test_batch_decompile_functions_empty_list_error(self, registry, tool_context):
+        """Test that empty function_names list returns an error."""
+        from app.ai.tools.binary import _handle_batch_decompile_functions
+
+        input_data = {
+            "binary_path": "/bin/busybox",
+            "function_names": [],
+        }
+
+        result = await _handle_batch_decompile_functions(input_data, tool_context)
+        assert "function_names list is empty" in result
+
+    @pytest.mark.asyncio
+    async def test_batch_decompile_functions_limit_check(self, registry, tool_context):
+        """Test that batch size is limited to 10 functions."""
+        from app.ai.tools.binary import _handle_batch_decompile_functions
+
+        input_data = {
+            "binary_path": "/bin/busybox",
+            "function_names": [f"func_{i}" for i in range(15)],
+        }
+
+        result = await _handle_batch_decompile_functions(input_data, tool_context)
+        assert "Batch size limited to 10" in result
+        assert "Requested 15" in result
+
+    @pytest.mark.asyncio
+    async def test_batch_decompile_functions_partial_success(self, registry, tool_context):
+        """Test handling of partial success (some functions found, some not)."""
+        from app.ai.tools.binary import _handle_batch_decompile_functions
+
+        input_data = {
+            "binary_path": "/bin/busybox",
+            "function_names": ["found_func", "missing_func"],
+        }
+
+        with patch("app.ai.tools.binary.batch_decompile_functions") as mock_batch:
+            mock_batch.return_value = {
+                "found_func": "void found_func(void) { return; }",
+                "missing_func": None,
+            }
+
+            result = await _handle_batch_decompile_functions(input_data, tool_context)
+
+            assert "2 function(s)" in result
+            assert "Function: found_func" in result
+            assert "missing_func: (not found or decompilation failed)" in result
+            assert "1/2 functions decompiled successfully" in result
 
 
 class TestGhidraErrorExtractionBenignWarnings:

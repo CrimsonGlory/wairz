@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import pathlib
+import shutil
 import tempfile
 import time
 import uuid
@@ -133,7 +134,16 @@ async def resolve_binary_import_params(
     Called by every Ghidra script launcher — not just the full-analysis path —
     so auxiliary scripts (DecompileFunction.java, FindStringRefs.java, etc.)
     also import raw binaries with the correct processor / loader.
+
+    .gzf archives are checked by extension before the magic-byte read and
+    always return None: a saved Ghidra project archive already carries its
+    own processor/loader/base-address state from when it was first imported,
+    so forcing rtos_flavor BinaryLoader params onto it here would corrupt
+    that baked-in state rather than help Ghidra import it.
     """
+    if os.path.splitext(binary_path)[1].lower() == ".gzf":
+        return None
+
     loop = asyncio.get_running_loop()
     magic = await loop.run_in_executor(None, _read_file_magic, binary_path)
     if _is_known_format(magic):
@@ -192,6 +202,81 @@ async def _cross_process_analysis_lock(binary_sha256: str):
         yield
     finally:
         await asyncio.to_thread(_release_analysis_flock, fd)
+
+
+# ---------------------------------------------------------------------------
+# GZF process-mode project location — single source of truth shared by the
+# write path (run_ghidra_headless use_saved_project=True, in
+# ai/tools/ghidra_research.py) and the read path (ensure_analysis /
+# decompile_function below). Both MUST agree on where a GZF's persistent
+# Ghidra project lives, or script-applied renames silently diverge from what
+# list_functions/decompile_function read (see CLAUDE.md TODO 2026-06-25 —
+# GZF process-mode renames invisible to the analysis cache).
+# ---------------------------------------------------------------------------
+
+
+def gzf_project_paths(gzf_sha256: str) -> tuple[str, str, str]:
+    """Return (proj_base, proj_name, rep_dir) for a GZF's persistent project.
+
+    Keyed by the first 16 hex chars of the GZF's own content SHA256 (the
+    same value used as binary_sha256 when the GZF is the analysis target),
+    so the same archive always maps to the same on-disk project directory.
+    """
+    settings = get_settings()
+    proj_base = os.path.join(settings.ghidra_projects_dir, gzf_sha256[:16])
+    proj_name = "gzf_project"
+    rep_dir = os.path.join(proj_base, f"{proj_name}.rep")
+    return proj_base, proj_name, rep_dir
+
+
+async def gzf_process_project_exists(gzf_sha256: str) -> bool:
+    """True if a GZF process-mode project has already been restored for this hash.
+
+    When True, ensure_analysis/decompile_function route Ghidra script runs
+    through that persistent project (-process mode) instead of re-importing
+    the pristine archive, so they observe any script-applied renames/retypes.
+    """
+    _, _, rep_dir = gzf_project_paths(gzf_sha256)
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, os.path.isdir, rep_dir)
+
+
+def _build_process_command(
+    proj_base: str,
+    proj_name: str,
+    script_name: str,
+    script_args: list[str] | None = None,
+    *,
+    extra_script_path: str | None = None,
+) -> list[str]:
+    """Build an analyzeHeadless command that runs script_name in -process
+    mode against an EXISTING persistent project, rather than -import-ing a
+    fresh copy of a binary into a throwaway project.
+
+    Used so that .gzf analysis (AnalyzeBinary.java / DecompileFunction.java)
+    observes the live, possibly-renamed state of a GZF process-mode project
+    (see gzf_project_paths) instead of the pristine archive. -noanalysis is
+    required: -process mode reruns full auto-analysis by default, which is
+    slow and would risk overwriting user-applied SourceType.USER_DEFINED
+    names with fresh SourceType.ANALYSIS guesses.
+    """
+    settings = get_settings()
+    analyze_headless = os.path.join(settings.ghidra_path, "support", "analyzeHeadless")
+    scripts_path = settings.ghidra_scripts_path
+
+    cmd = [analyze_headless, proj_base, proj_name, "-process", "*", "-noanalysis"]
+    if extra_script_path:
+        # Single combined -scriptPath flag — see _build_analyze_command's
+        # extra_script_path docstring for why two separate flags don't work.
+        cmd.extend(["-scriptPath", f"{extra_script_path};{scripts_path}"])
+        postscript_target = os.path.join(extra_script_path, script_name)
+    else:
+        cmd.extend(["-scriptPath", scripts_path])
+        postscript_target = script_name
+    cmd.extend(["-postScript", postscript_target])
+    if script_args:
+        cmd.extend(script_args)
+    return cmd
 
 
 def _map_architecture(ghidra_arch: str) -> str:
@@ -400,6 +485,7 @@ async def run_ghidra_subprocess(
     ghidra_import_params: dict | None = None,
     firmware_id: uuid.UUID | None = None,
     binary_sha256: str | None = None,
+    is_gzf_process_mode: bool = False,
 ) -> str:
     """Run a Ghidra headless script and return the raw stdout.
 
@@ -411,20 +497,42 @@ async def run_ghidra_subprocess(
     ghidra_import_params: optional processor/loader/base_addr hints for raw
     bare-metal binaries that Ghidra cannot auto-detect. Passed through to
     _build_analyze_command which translates them into analyzeHeadless flags.
+
+    is_gzf_process_mode: if True, binary_path is a GZF persistent project
+    reference (format: "PROJECT_PROCESS_MODE:proj_base:proj_name") and the
+    script should be run in -process mode against that project.
     """
     settings = get_settings()
     effective_timeout = timeout if timeout is not None else settings.ghidra_timeout
 
-    with tempfile.TemporaryDirectory(prefix="ghidra_") as project_dir:
-        cmd = _build_analyze_command(
-            binary_path, script_name, project_dir, script_args,
-            ghidra_import_params=ghidra_import_params,
-        )
+    # Build the command — either process mode (for persistent GZF projects)
+    # or import mode (for fresh analysis)
+    if is_gzf_process_mode:
+        # Extract project details from the special binary_path format
+        _, proj_base, proj_name = binary_path.split(":", 2)
+        cmd = _build_process_command(proj_base, proj_name, script_name, script_args)
+        log_target = f"{os.path.basename(proj_name)}"
+    else:
+        project_dir = tempfile.mkdtemp(prefix="ghidra_")
+        try:
+            cmd = _build_analyze_command(
+                binary_path, script_name, project_dir, script_args,
+                ghidra_import_params=ghidra_import_params,
+            )
+            log_target = os.path.basename(binary_path)
+        except Exception:
+            shutil.rmtree(project_dir, ignore_errors=True)
+            raise
+
+    with contextlib.ExitStack() as stack:
+        # Clean up temp project dir (import mode only)
+        if not is_gzf_process_mode:
+            stack.callback(shutil.rmtree, project_dir, True)
 
         logger.info(
             "Running Ghidra %s on %s",
             script_name,
-            os.path.basename(binary_path),
+            log_target,
         )
 
         # Capture stdout/stderr to tempfiles rather than asyncio PIPEs.
@@ -435,76 +543,76 @@ async def run_ghidra_subprocess(
         # in a FileOutputStream.write syscall. Tempfiles let the kernel
         # buffer arbitrary output with no possibility of deadlock; we
         # read them once Ghidra has exited.
-        with tempfile.TemporaryFile(prefix="ghidra-stdout-") as stdout_f, \
-             tempfile.TemporaryFile(prefix="ghidra-stderr-") as stderr_f:
-            try:
-                process = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=stdout_f,
-                    stderr=stderr_f,
-                )
-            except FileNotFoundError:
-                raise RuntimeError(
-                    f"Ghidra not found at {cmd[0]}. "
-                    "Install Ghidra or set GHIDRA_PATH in .env."
-                )
-
-            try:
-                await asyncio.wait_for(
-                    process.wait(),
-                    timeout=effective_timeout,
-                )
-            except asyncio.TimeoutError:
-                process.kill()
-                await process.wait()
-                raise TimeoutError(
-                    f"Ghidra analysis timed out after {effective_timeout}s"
-                )
-
-            stdout_f.seek(0)
-            stderr_f.seek(0)
-            stdout = stdout_f.read()
-            stderr = stderr_f.read()
-
-        stdout_text = stdout.decode("utf-8", errors="replace")
-        stderr_text = stderr.decode("utf-8", errors="replace")
-
-        if process.returncode != 0:
-            # Ghidra often returns non-zero but still produces output.
-            # Check for any known output marker before declaring failure.
-            known_markers = (
-                _START_MARKER, _DECOMPILE_START,
-                "===STRING_REFS_START===", "===TAINT_START===",
-                "===STACK_LAYOUT_START===", "===GLOBAL_LAYOUT_START===",
+        stdout_f = stack.enter_context(tempfile.TemporaryFile(prefix="ghidra-stdout-"))
+        stderr_f = stack.enter_context(tempfile.TemporaryFile(prefix="ghidra-stderr-"))
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=stdout_f,
+                stderr=stderr_f,
             )
-            has_output = any(m in stdout_text for m in known_markers)
-            if not has_output:
-                diag = _format_ghidra_diag(stdout_text, stderr_text)
-                logger.error(
-                    "Ghidra failed (rc=%d):\n%s",
-                    process.returncode,
-                    diag,
-                )
-                raise RuntimeError(
-                    f"Ghidra analysis failed (exit code {process.returncode})\n\n"
-                    f"Ghidra output:\n{diag}"
-                )
+        except FileNotFoundError:
+            raise RuntimeError(
+                f"Ghidra not found at {cmd[0]}. "
+                "Install Ghidra or set GHIDRA_PATH in .env."
+            )
 
-        if firmware_id is not None and binary_sha256 is not None:
-            combined = f"=== STDOUT ===\n{stdout_text}\n\n=== STDERR ===\n{stderr_text}"
-            try:
-                async with async_session_factory() as log_db:
-                    await _store_cached(
-                        firmware_id, binary_path, binary_sha256,
-                        f"ghidra_log:{script_name}",
-                        {"log": combined[:100_000], "rc": process.returncode},
-                        log_db,
-                    )
-                    await log_db.commit()
-            except Exception:
-                logger.warning("Failed to persist Ghidra log for %s:%s", script_name, binary_path)
+        try:
+            await asyncio.wait_for(
+                process.wait(),
+                timeout=effective_timeout,
+            )
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+            raise TimeoutError(
+                f"Ghidra analysis timed out after {effective_timeout}s"
+            )
 
-        return stdout_text
+        stdout_f.seek(0)
+        stderr_f.seek(0)
+        stdout = stdout_f.read()
+        stderr = stderr_f.read()
+
+    stdout_text = stdout.decode("utf-8", errors="replace")
+    stderr_text = stderr.decode("utf-8", errors="replace")
+
+    if process.returncode != 0:
+        # Ghidra often returns non-zero but still produces output.
+        # Check for any known output marker before declaring failure.
+        known_markers = (
+            _START_MARKER, _DECOMPILE_START,
+            "===STRING_REFS_START===", "===TAINT_START===",
+            "===STACK_LAYOUT_START===", "===GLOBAL_LAYOUT_START===",
+        )
+        has_output = any(m in stdout_text for m in known_markers)
+        if not has_output:
+            diag = _format_ghidra_diag(stdout_text, stderr_text)
+            logger.error(
+                "Ghidra failed (rc=%d):\n%s",
+                process.returncode,
+                diag,
+            )
+            raise RuntimeError(
+                f"Ghidra analysis failed (exit code {process.returncode})\n\n"
+                f"Ghidra output:\n{diag}"
+            )
+
+    if firmware_id is not None and binary_sha256 is not None:
+        combined = f"=== STDOUT ===\n{stdout_text}\n\n=== STDERR ===\n{stderr_text}"
+        try:
+            async with async_session_factory() as log_db:
+                await _store_cached(
+                    firmware_id, binary_path, binary_sha256,
+                    f"ghidra_log:{script_name}",
+                    {"log": combined[:100_000], "rc": process.returncode},
+                    log_db,
+                )
+                await log_db.commit()
+        except Exception:
+            logger.warning("Failed to persist Ghidra log for %s:%s", script_name, binary_path)
+
+    return stdout_text
 
 
 # ---------------------------------------------------------------------------
@@ -617,11 +725,16 @@ async def _run_full_analysis(
     db: AsyncSession,
     timeout: int | None = None,
     ghidra_import_params: dict | None = None,
+    is_gzf_process_mode: bool = False,
 ) -> None:
     """Run AnalyzeBinary.java and store all results in DB.
 
     timeout: passed through to run_ghidra_subprocess. None means use
     the global ghidra_timeout. Background workers pass a larger value.
+
+    is_gzf_process_mode: if True, binary_path is a GZF persistent project
+    reference (format: "PROJECT_PROCESS_MODE:proj_base:proj_name") and
+    AnalyzeBinary.java should be run in -process mode against that project.
     """
     raw_output = await run_ghidra_subprocess(
         binary_path, "AnalyzeBinary.java",
@@ -629,6 +742,7 @@ async def _run_full_analysis(
         ghidra_import_params=ghidra_import_params,
         firmware_id=firmware_id,
         binary_sha256=binary_sha256,
+        is_gzf_process_mode=is_gzf_process_mode,
     )
 
     data = _parse_analysis_output(raw_output)
@@ -705,6 +819,10 @@ async def ensure_analysis(
     """Ensure full analysis has been run for this binary. Returns binary_sha256.
 
     Uses a concurrency guard so only one Ghidra process runs per binary.
+
+    If the binary is a GZF with a persistent renamed project (from a prior
+    run_ghidra_headless use_saved_project=True), analyzes the persistent
+    project instead of the pristine archive, making script-applied renames visible.
     """
     loop = asyncio.get_running_loop()
     if not await loop.run_in_executor(None, os.path.isfile, binary_path):
@@ -712,7 +830,32 @@ async def ensure_analysis(
 
     binary_sha256 = await _get_binary_sha256(binary_path)
 
-    # Fast path: already analyzed
+    # Check if this GZF has a persistent renamed project from a prior
+    # run_ghidra_headless use_saved_project=True.  This MUST happen before the
+    # fast-path cache check: if the rename script wrote a dirty flag the
+    # existing cache contains pre-rename names and must be cleared first.
+    analysis_target = binary_path
+    is_gzf_with_persistent_project = False
+    if binary_path.lower().endswith(".gzf"):
+        if await gzf_process_project_exists(binary_sha256):
+            proj_base, proj_name, _ = gzf_project_paths(binary_sha256)
+            dirty_flag = os.path.join(proj_base, "_wairz_renamed")
+            if await loop.run_in_executor(None, os.path.exists, dirty_flag):
+                # Invalidate stale pre-rename cache so analysis re-runs below.
+                await clear_binary_analysis(firmware_id, binary_sha256, db)
+                await db.commit()
+                try:
+                    await loop.run_in_executor(None, os.remove, dirty_flag)
+                except OSError:
+                    pass
+                logger.info(
+                    "GZF dirty flag consumed for %s — analysis cache cleared",
+                    os.path.basename(binary_path),
+                )
+            analysis_target = f"PROJECT_PROCESS_MODE:{proj_base}:{proj_name}"
+            is_gzf_with_persistent_project = True
+
+    # Fast path: already analyzed (and cache is not dirty)
     if await _is_analysis_complete(firmware_id, binary_sha256, db):
         return binary_sha256
 
@@ -748,8 +891,9 @@ async def ensure_analysis(
                 if not await _is_analysis_complete(firmware_id, binary_sha256, recheck_db):
                     async with async_session_factory() as analysis_db:
                         await _run_full_analysis(
-                            binary_path, firmware_id, binary_sha256, analysis_db,
+                            analysis_target, firmware_id, binary_sha256, analysis_db,
                             ghidra_import_params=ghidra_import_params,
+                            is_gzf_process_mode=is_gzf_with_persistent_project,
                         )
                         await analysis_db.commit()
     finally:
@@ -1126,6 +1270,10 @@ async def decompile_function(
 
     First tries the full-analysis cache. If the function wasn't in the top 200
     decompiled, falls back to running DecompileFunction.java for that specific function.
+
+    For GZF archives with a persistent renamed project (from run_ghidra_headless
+    use_saved_project=True), DecompileFunction.java runs in -process mode against
+    the persistent project so renamed functions are visible.
     """
     loop = asyncio.get_running_loop()
     if not await loop.run_in_executor(None, os.path.isfile, binary_path):
@@ -1134,7 +1282,20 @@ async def decompile_function(
     binary_sha256 = await _get_binary_sha256(binary_path)
     operation = f"decompile:{function_name}"
 
-    # Check cache (works for both full-analysis and single-function cache entries)
+    # Determine whether this GZF has a persistent renamed project.
+    # When it does, DecompileFunction.java must run in -process mode against
+    # that project so it sees renamed functions instead of the pristine archive.
+    is_gzf_process_mode = False
+    ghidra_subprocess_target = binary_path
+    ghidra_import_params = None
+    if binary_path.lower().endswith(".gzf"):
+        if await gzf_process_project_exists(binary_sha256):
+            proj_base, proj_name, _ = gzf_project_paths(binary_sha256)
+            ghidra_subprocess_target = f"PROJECT_PROCESS_MODE:{proj_base}:{proj_name}"
+            is_gzf_process_mode = True
+
+    # Check cache (works for both full-analysis and single-function cache entries).
+    # Cache entries written after a -process mode run already reflect renames.
     cached = await _get_cached(firmware_id, binary_sha256, operation, db)
     if cached:
         code = cached.get("decompiled_code")
@@ -1146,8 +1307,7 @@ async def decompile_function(
             )
             return code
 
-    # If full analysis was done but this function wasn't decompiled,
-    # fall back to single-function decompilation. Big handler functions
+    # Fall back to single-function decompilation. Big handler functions
     # (the kind you actually want to look at in a daemon) can take
     # several minutes; bump well past the default 300s but stay under
     # the MCP transport timeout (~600s) so the agent gets a real
@@ -1156,15 +1316,17 @@ async def decompile_function(
     # agent should fall back to start_function_decompile /
     # check_function_decompile_status which runs in a detached
     # worker with a 30-minute timeout.
-    ghidra_import_params = await resolve_binary_import_params(binary_path, firmware_id)
+    if not is_gzf_process_mode:
+        ghidra_import_params = await resolve_binary_import_params(binary_path, firmware_id)
     raw_output = await run_ghidra_subprocess(
-        binary_path,
+        ghidra_subprocess_target,
         "DecompileFunction.java",
         script_args=[function_name],
         timeout=580,
         ghidra_import_params=ghidra_import_params,
         firmware_id=firmware_id,
         binary_sha256=binary_sha256,
+        is_gzf_process_mode=is_gzf_process_mode,
     )
 
     decompiled = _parse_decompile_output(raw_output)
@@ -1189,3 +1351,115 @@ async def decompile_function(
     )
 
     return decompiled
+
+
+async def batch_decompile_functions(
+    binary_path: str,
+    function_names: list[str],
+    firmware_id: uuid.UUID,
+    db: AsyncSession,
+) -> dict[str, str | None]:
+    """Batch decompile multiple functions using a single Ghidra headless run.
+
+    Returns a dict mapping function_name -> decompiled_code (or None if failed).
+    Attempts to load from cache first for each function, falls back to batch
+    Ghidra run for uncached functions. Results are cached individually.
+    """
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, os.path.isfile, binary_path):
+        raise FileNotFoundError(f"Binary not found: {binary_path}")
+
+    if not function_names:
+        return {}
+
+    binary_sha256 = await _get_binary_sha256(binary_path)
+
+    # Attempt cache hits first
+    results = {}
+    uncached_funcs = []
+
+    for func_name in function_names:
+        operation = f"decompile:{func_name}"
+        cached = await _get_cached(firmware_id, binary_sha256, operation, db)
+        if cached and cached.get("decompiled_code"):
+            results[func_name] = cached["decompiled_code"]
+            logger.info("Cache hit for %s:%s", os.path.basename(binary_path), func_name)
+        else:
+            uncached_funcs.append(func_name)
+
+    # If all cached, return early
+    if not uncached_funcs:
+        return results
+
+    # Run batch decompilation for uncached functions.
+    ghidra_import_params = await resolve_binary_import_params(binary_path, firmware_id)
+    raw_output = await run_ghidra_subprocess(
+        binary_path,
+        "DecompileFunction.java",
+        script_args=uncached_funcs,
+        timeout=min(580, 60 * len(uncached_funcs)),  # 60s per function, max 580s
+        ghidra_import_params=ghidra_import_params,
+        firmware_id=firmware_id,
+        binary_sha256=binary_sha256,
+    )
+
+    # Parse batch output: collect all decompilations between markers
+    batch_results = _parse_batch_decompile_output(raw_output)
+
+    # Cache individual results and build response dict
+    for func_name in uncached_funcs:
+        decompiled = batch_results.get(func_name)
+        results[func_name] = decompiled
+
+        # Cache even on failure (None value)
+        if decompiled:
+            operation = f"decompile:{func_name}"
+            await _store_cached(
+                firmware_id, binary_path, binary_sha256, operation,
+                {"decompiled_code": decompiled}, db,
+            )
+
+    return results
+
+
+def _parse_batch_decompile_output(raw_output: str) -> dict[str, str | None]:
+    """Parse batch decompilation output containing multiple DECOMPILE_START/END blocks.
+
+    Returns dict mapping function_name -> decompiled_code.
+    """
+    results: dict[str, str | None] = {}
+    current_func = None
+    current_code_lines = []
+    in_decompile = False
+
+    for line in raw_output.split("\n"):
+        if line.startswith("===DECOMPILE_START==="):
+            in_decompile = True
+            current_code_lines = []
+        elif line.startswith("===DECOMPILE_END==="):
+            if current_func and current_code_lines:
+                # Join and clean up the code
+                code = "\n".join(current_code_lines).strip()
+                # Remove leading comment lines that are metadata
+                lines = code.split("\n")
+                # Skip metadata comment lines at the start
+                skip = 0
+                for i, l in enumerate(lines):
+                    if l.startswith("//"):
+                        skip = i + 1
+                    else:
+                        break
+                if skip < len(lines):
+                    code = "\n".join(lines[skip:]).strip()
+                results[current_func] = code if code else None
+            in_decompile = False
+            current_func = None
+            current_code_lines = []
+        elif in_decompile:
+            # Capture function name from "// Function: <name>" line
+            if line.startswith("// Function:"):
+                current_func = line.replace("// Function:", "").strip()
+            elif not line.startswith("// "):  # Skip other metadata lines
+                current_code_lines.append(line)
+
+    return results

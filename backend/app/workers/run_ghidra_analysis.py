@@ -88,9 +88,7 @@ async def _run(
                         await mark_db.commit()
                     return 0
 
-            resolved_params = await _resolve_import_params(
-                binary_path, firmware_id, import_params,
-            )
+            resolved_params = await _resolve_import_params(binary_path, firmware_id, import_params)
 
             async with async_session_factory() as analysis_db:
                 await _run_full_analysis(

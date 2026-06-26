@@ -18,7 +18,8 @@ from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.config import get_settings
 from app.services import ghidra_service
 from app.services.analysis_service import check_binary_protections
-from app.services.ghidra_service import decompile_function, run_ghidra_subprocess
+from app.services.ghidra_research_service import GhidraResearchService
+from app.services.ghidra_service import batch_decompile_functions, decompile_function, run_ghidra_subprocess
 from app.utils.sandbox import safe_walk
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,24 @@ _STACK_LAYOUT_END = "===STACK_LAYOUT_END==="
 # Markers for GlobalLayout.java output
 _GLOBAL_LAYOUT_START = "===GLOBAL_LAYOUT_START==="
 _GLOBAL_LAYOUT_END = "===GLOBAL_LAYOUT_END==="
+
+
+async def _resolve_binary_path(path_input: str, context: ToolContext) -> str:
+    """Resolve a binary_path tool argument to a real on-disk path.
+
+    .gzf inputs are routed through the Ghidra research-file storage pool
+    (GhidraResearchFile rows live under <storage_root>/.../ghidra_research/,
+    outside the firmware sandbox tree that context.resolve_path() validates
+    against) so every binary.py tool can accept a saved Ghidra archive the
+    same way run_ghidra_headless's GZF process mode already does. Raises
+    FileNotFoundError on no match — ToolRegistry.execute()'s generic handler
+    turns that into a clean error string for the MCP client.
+    """
+    if os.path.splitext(path_input)[1].lower() == ".gzf":
+        return await GhidraResearchService(context.db).resolve_gzf_path(
+            context.project_id, path_input,
+        )
+    return context.resolve_path(path_input)
 
 
 def _read_magic_sync(path: str, n: int = 4) -> bytes | None:
@@ -176,7 +195,7 @@ def _extract_ghidra_error(raw_output: str, script_name: str) -> str:
 
 async def _handle_list_functions(input: dict, context: ToolContext) -> str:
     """List functions found in a binary, sorted by size (largest first)."""
-    path = context.resolve_path(input["binary_path"])
+    path = await _resolve_binary_path(input["binary_path"], context)
     limit = min(input.get("limit", 100), 500)
 
     functions = await ghidra_service.get_functions(path, context.firmware_id, context.db)
@@ -206,7 +225,7 @@ async def _handle_list_functions(input: dict, context: ToolContext) -> str:
 
 async def _handle_disassemble_function(input: dict, context: ToolContext) -> str:
     """Disassemble a function by name."""
-    path = context.resolve_path(input["binary_path"])
+    path = await _resolve_binary_path(input["binary_path"], context)
     function_name = input["function_name"]
     max_insn = input.get("num_instructions", 100)
 
@@ -219,7 +238,7 @@ async def _handle_disassemble_function(input: dict, context: ToolContext) -> str
 
 async def _handle_list_imports(input: dict, context: ToolContext) -> str:
     """List imported symbols, grouped by library."""
-    path = context.resolve_path(input["binary_path"])
+    path = await _resolve_binary_path(input["binary_path"], context)
 
     imports = await ghidra_service.get_imports(path, context.firmware_id, context.db)
 
@@ -245,7 +264,7 @@ async def _handle_list_imports(input: dict, context: ToolContext) -> str:
 
 async def _handle_list_exports(input: dict, context: ToolContext) -> str:
     """List exported symbols."""
-    path = context.resolve_path(input["binary_path"])
+    path = await _resolve_binary_path(input["binary_path"], context)
 
     exports = await ghidra_service.get_exports(path, context.firmware_id, context.db)
 
@@ -263,7 +282,7 @@ async def _handle_list_exports(input: dict, context: ToolContext) -> str:
 
 async def _handle_xrefs_to(input: dict, context: ToolContext) -> str:
     """Get cross-references to an address or symbol."""
-    path = context.resolve_path(input["binary_path"])
+    path = await _resolve_binary_path(input["binary_path"], context)
     target = input["address_or_symbol"]
 
     xrefs = await ghidra_service.get_xrefs_to(path, target, context.firmware_id, context.db)
@@ -284,7 +303,7 @@ async def _handle_xrefs_to(input: dict, context: ToolContext) -> str:
 
 async def _handle_xrefs_from(input: dict, context: ToolContext) -> str:
     """Get cross-references from an address or symbol."""
-    path = context.resolve_path(input["binary_path"])
+    path = await _resolve_binary_path(input["binary_path"], context)
     target = input["address_or_symbol"]
 
     xrefs = await ghidra_service.get_xrefs_from(path, target, context.firmware_id, context.db)
@@ -421,7 +440,7 @@ async def _handle_analyze_binary_format(input: dict, context: ToolContext) -> st
 
 async def _handle_get_binary_info(input: dict, context: ToolContext) -> str:
     """Get binary metadata: architecture, format, entry point, etc."""
-    path = context.resolve_path(input["binary_path"])
+    path = await _resolve_binary_path(input["binary_path"], context)
 
     info = None
     try:
@@ -650,7 +669,7 @@ async def _handle_check_binary_protections(
 
 async def _handle_decompile_function(input: dict, context: ToolContext) -> str:
     """Decompile a function using Ghidra headless, returning pseudo-C output."""
-    path = context.resolve_path(input["binary_path"])
+    path = await _resolve_binary_path(input["binary_path"], context)
     function_name = input["function_name"]
 
     try:
@@ -670,9 +689,56 @@ async def _handle_decompile_function(input: dict, context: ToolContext) -> str:
     return f"Decompiled output for {function_name}:\n\n{result}"
 
 
+async def _handle_batch_decompile_functions(input: dict, context: ToolContext) -> str:
+    """Batch decompile multiple functions in a single Ghidra run."""
+    path = await _resolve_binary_path(input["binary_path"], context)
+    function_names = input.get("function_names", [])
+
+    if not function_names:
+        return "Error: function_names list is empty."
+    if not isinstance(function_names, list):
+        return "Error: function_names must be a list of strings."
+
+    # Limit batch size to 10 functions per run (configurable)
+    max_batch = 10
+    if len(function_names) > max_batch:
+        return f"Error: Batch size limited to {max_batch} functions. Requested {len(function_names)}."
+
+    try:
+        results = await batch_decompile_functions(
+            binary_path=path,
+            function_names=function_names,
+            firmware_id=context.firmware_id,
+            db=context.db,
+        )
+    except FileNotFoundError:
+        return f"Error: Binary not found at '{input['binary_path']}'."
+    except TimeoutError as exc:
+        return f"Error: {exc}"
+    except RuntimeError as exc:
+        return f"Error: {exc}"
+
+    # Format output
+    lines = [f"Batch decompilation results for {len(function_names)} function(s):\n"]
+    success_count = 0
+    for func_name in function_names:
+        code = results.get(func_name)
+        if code:
+            lines.append(f"\n{'='*60}")
+            lines.append(f"Function: {func_name}")
+            lines.append(f"{'='*60}\n")
+            lines.append(code)
+            success_count += 1
+        else:
+            lines.append(f"\n--- {func_name}: (not found or decompilation failed) ---")
+
+    lines.append(f"\n\nSummary: {success_count}/{len(function_names)} functions decompiled successfully.")
+    return "\n".join(lines)
+
+
 async def _handle_find_string_refs(input: dict, context: ToolContext) -> str:
     """Find functions referencing strings matching a pattern."""
-    path = context.resolve_path(input["binary_path"])
+    path = await _resolve_binary_path(input["binary_path"], context)
     pattern = input["pattern"]
 
     binary_sha256 = await ghidra_service.get_binary_sha256(path)
@@ -825,7 +891,7 @@ def _resolve_import_sync(
 
 async def _handle_resolve_import(input: dict, context: ToolContext) -> str:
     """Find the library implementing a function and decompile it."""
-    path = context.resolve_path(input["binary_path"])
+    path = await _resolve_binary_path(input["binary_path"], context)
     function_name = input["function_name"]
     real_root = context.real_root_for(input["binary_path"])
 
@@ -1011,7 +1077,7 @@ async def _handle_check_all_binary_protections(
 
 async def _handle_trace_dataflow(input: dict, context: ToolContext) -> str:
     """Trace source-to-sink dataflow paths in a binary."""
-    path = context.resolve_path(input["binary_path"])
+    path = await _resolve_binary_path(input["binary_path"], context)
     sources = input.get("sources", _DEFAULT_SOURCES)
     sinks = input.get("sinks", _DEFAULT_SINKS)
 
@@ -1119,7 +1185,7 @@ async def _handle_trace_dataflow(input: dict, context: ToolContext) -> str:
 
 async def _handle_find_callers(input: dict, context: ToolContext) -> str:
     """Find all functions that call the target function."""
-    path = context.resolve_path(input["binary_path"])
+    path = await _resolve_binary_path(input["binary_path"], context)
     target = input["function_name"]
     include_aliases = input.get("include_aliases", True)
 
@@ -1192,7 +1258,7 @@ async def _handle_find_callers(input: dict, context: ToolContext) -> str:
 
 async def _handle_search_binary_content(input: dict, context: ToolContext) -> str:
     """Search for byte patterns, strings, or disassembly patterns in a binary."""
-    path = context.resolve_path(input["binary_path"])
+    path = await _resolve_binary_path(input["binary_path"], context)
     mode = input.get("mode", "string")
     pattern = input["pattern"]
     max_results = input.get("max_results", 50)
@@ -1352,7 +1418,7 @@ async def _handle_search_binary_content(input: dict, context: ToolContext) -> st
 
 async def _handle_get_stack_layout(input: dict, context: ToolContext) -> str:
     """Get annotated stack frame layout for a function."""
-    path = context.resolve_path(input["binary_path"])
+    path = await _resolve_binary_path(input["binary_path"], context)
     function_name = input["function_name"]
 
     binary_sha256 = await ghidra_service.get_binary_sha256(path)
@@ -1448,7 +1514,7 @@ async def _handle_get_stack_layout(input: dict, context: ToolContext) -> str:
 
 async def _handle_get_global_layout(input: dict, context: ToolContext) -> str:
     """Get global variable layout around a target symbol."""
-    path = context.resolve_path(input["binary_path"])
+    path = await _resolve_binary_path(input["binary_path"], context)
     symbol_name = input["symbol_name"]
 
     binary_sha256 = await ghidra_service.get_binary_sha256(path)
@@ -2094,7 +2160,7 @@ async def _handle_start_binary_analysis(
     input: dict, context: ToolContext,
 ) -> str:
     """Kick off Ghidra analysis in a detached worker, return immediately."""
-    path = context.resolve_path(input["binary_path"])
+    path = await _resolve_binary_path(input["binary_path"], context)
     if not os.path.isfile(path):
         return f"Error: binary not found: {input['binary_path']}"
 
@@ -2186,7 +2252,7 @@ async def _handle_check_binary_analysis_status(
     input: dict, context: ToolContext,
 ) -> str:
     """Report the current state of a background Ghidra analysis."""
-    path = context.resolve_path(input["binary_path"])
+    path = await _resolve_binary_path(input["binary_path"], context)
     if not os.path.isfile(path):
         return f"Error: binary not found: {input['binary_path']}"
 
@@ -2249,7 +2315,7 @@ async def _handle_start_function_decompile(
     input: dict, context: ToolContext,
 ) -> str:
     """Kick off DecompileFunction.java for one function in a detached worker."""
-    path = context.resolve_path(input["binary_path"])
+    path = await _resolve_binary_path(input["binary_path"], context)
     function_name = input["function_name"]
     if not os.path.isfile(path):
         return f"Error: binary not found: {input['binary_path']}"
@@ -2314,7 +2380,7 @@ async def _handle_check_function_decompile_status(
     input: dict, context: ToolContext,
 ) -> str:
     """Report the current state of a background per-function decompile."""
-    path = context.resolve_path(input["binary_path"])
+    path = await _resolve_binary_path(input["binary_path"], context)
     function_name = input["function_name"]
     if not os.path.isfile(path):
         return f"Error: binary not found: {input['binary_path']}"
@@ -2376,7 +2442,7 @@ def _pid_is_alive(pid: int) -> bool:
 
 async def _handle_get_ghidra_analysis_logs(input: dict, context: ToolContext) -> str:
     """Return the full Ghidra stdout+stderr from the most recent run of a script."""
-    path = context.resolve_path(input["binary_path"])
+    path = await _resolve_binary_path(input["binary_path"], context)
     script_name = input.get("script_name", "AnalyzeBinary.java")
 
     binary_sha256 = await ghidra_service.get_binary_sha256(path)
@@ -2639,6 +2705,38 @@ def register_binary_tools(registry: ToolRegistry) -> None:
             "required": ["binary_path", "function_name"],
         },
         handler=_handle_decompile_function,
+    )
+
+    registry.register(
+        name="batch_decompile_functions",
+        description=(
+            "Decompile multiple functions in a single Ghidra run, more efficient "
+            "than calling decompile_function repeatedly. Processes 5-10 utility "
+            "functions in parallel, reducing session overhead. Maximum 10 functions "
+            "per call. Results are cached individually and reused on subsequent calls. "
+            "Ideal for analyzing related utility functions (parsers, validators, etc.) "
+            "in the 300-600B range where individual calls would be inefficient."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "binary_path": {
+                    "type": "string",
+                    "description": "Path to the ELF binary in the firmware filesystem",
+                },
+                "function_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "List of function names to decompile (e.g. ['validate_input', "
+                        "'parse_header', 'check_sig']). Use list_functions to find available names. "
+                        "Maximum 10 functions per call."
+                    ),
+                },
+            },
+            "required": ["binary_path", "function_names"],
+        },
+        handler=_handle_batch_decompile_functions,
     )
 
     registry.register(
