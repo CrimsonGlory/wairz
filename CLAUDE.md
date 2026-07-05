@@ -181,10 +181,12 @@ For every code change:
 4. Preserve existing behavior unless the task explicitly requires a behavior change.
 5. Check nearby related code paths for the same failure pattern.
 6. Add or update tests for new behavior, changed behavior, and reproducible bug fixes.
-7. Run the validation commands below before handoff.
+7. Run the `/lint` skill (`.claude/skills/lint/SKILL.md`) on any change touching `backend/` or `frontend/`, then run the rest of the validation commands below before handoff.
 8. Summarize what changed, why, what was validated, and what was not.
 
 Do not paper over bugs with arbitrary sleeps, magic pixel offsets, excessive z-index values, broad exception swallowing, disabled tests, or undocumented behavior changes.
+
+**Rule #53 — run `/lint` after every backend/frontend change, before claiming a change is complete.** `.claude/skills/lint/SKILL.md` runs the same four checks as `.github/workflows/lint.yml` (Ruff, Bandit, the custom async-subprocess gate, ESLint, TypeScript via `tsc -b --force`) locally, so a failure is caught before push rather than discovered in CI. Mechanical trigger: any edit under `backend/` or `frontend/` in the current task. Skip only for changes confined to docs, `.claude/`, `.planning/`, or other non-code paths the lint workflow doesn't touch. A change is not "done" until `/lint` passes clean or every remaining finding has been triaged as a documented, intentional exception (per-line `noqa`/`nosec` with rationale, matching Rule #43) — do not report a fix as complete on the strength of "the specific thing I touched looks fine."
 
 #### Testing and Validation Policy
 
