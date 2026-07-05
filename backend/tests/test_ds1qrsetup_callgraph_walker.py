@@ -45,7 +45,6 @@ from app.services.ds1qrsetup_callgraph_walker import (
 )
 from tests._live_db import make_live_db
 
-
 # ── Minimal ELF fixture ──────────────────────────────────────────────────────
 
 

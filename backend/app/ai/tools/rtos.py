@@ -14,7 +14,6 @@ from elftools.elf.elffile import ELFFile
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.services.rtos_detection_service import detect_firmware_kind
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -94,7 +93,7 @@ async def _handle_detect_rtos_kernel(input: dict, context: ToolContext) -> str:
             fh.close()
     else:
         try:
-            lines.append(f"Image size: {os.path.getsize(path)} bytes (raw, non-ELF)")
+            lines.append(f"Image size: {os.path.getsize(path)} bytes (raw, non-ELF)")  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
         except OSError:
             pass
     return "\n".join(lines)
@@ -209,7 +208,7 @@ async def _handle_analyze_vector_table(input: dict, context: ToolContext) -> str
                         break
             sym_at = _build_symtab(elf)
         else:
-            with open(path, "rb") as raw:
+            with open(path, "rb") as raw:  # noqa: ASYNC230 -- single bounded stat/open call, not a hot loop
                 blob = raw.read(count * 4)
             section_name = "(raw image, file offset 0)"
     finally:
@@ -285,7 +284,7 @@ async def _handle_recover_base_address(input: dict, context: ToolContext) -> str
 
     # Raw .bin: infer from the Cortex-M reset vector
     try:
-        with open(path, "rb") as raw:
+        with open(path, "rb") as raw:  # noqa: ASYNC230 -- single bounded stat/open call, not a hot loop
             head = raw.read(8)
     except OSError as exc:
         return f"Error reading image: {exc}"
@@ -334,7 +333,7 @@ async def _handle_analyze_memory_map(input: dict, context: ToolContext) -> str:
     elf, fh = _open_elf(path)
     if elf is None:
         try:
-            size = os.path.getsize(path)
+            size = os.path.getsize(path)  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
         except OSError:
             size = -1
         return (

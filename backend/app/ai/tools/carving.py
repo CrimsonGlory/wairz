@@ -66,7 +66,7 @@ async def _handle_run_shell(input: dict, context: ToolContext) -> str:
     parts: list[str] = []
     if result.timed_out:
         parts.append(
-            f"[command timed out after the configured limit; partial output below]"
+            "[command timed out after the configured limit; partial output below]"
         )
     parts.append(f"exit_code: {result.exit_code}")
     if result.stdout:

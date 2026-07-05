@@ -12,7 +12,6 @@ from app.services import report_render_service as rrs
 from app.services.report_template_service import ReportTemplate, TemplateSection
 from app.utils.sandbox import PathTraversalError, validate_path
 
-
 # ---------------------------------------------------------------------------
 # Tiny stand-in objects so we don't need a database session.
 # ---------------------------------------------------------------------------

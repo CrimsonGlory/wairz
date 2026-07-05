@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -405,7 +405,7 @@ async def render_report(
         )
     )
     cached = cache_result.scalar_one_or_none()
-    if cached is not None and os.path.exists(cached.storage_path):
+    if cached is not None and os.path.exists(cached.storage_path):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
         return RenderResult(
             content_hash=content_hash,
             format=payload.format,
@@ -434,7 +434,7 @@ async def render_report(
         # Stale row from a deleted file — refresh in place.
         cached.storage_path = str(path)
         cached.byte_size = len(pdf_bytes)
-        cached.created_at = datetime.now(timezone.utc)
+        cached.created_at = datetime.now(UTC)
     else:
         db.add(
             ReportRender(
@@ -492,7 +492,7 @@ async def download_render(
     except PathTraversalError:
         raise HTTPException(403, "render path escapes report dir")
 
-    if not os.path.exists(render.storage_path):
+    if not os.path.exists(render.storage_path):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
         raise HTTPException(404, "artifact missing on disk")
 
     media_type = "application/pdf" if format == "pdf" else "text/html"

@@ -7,7 +7,7 @@ import json
 import os
 import uuid
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,7 +50,7 @@ def _parse_dt(val) -> datetime | None:
             return None
     # Convert to UTC and strip timezone info for asyncpg compatibility
     if dt.tzinfo is not None:
-        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        dt = dt.astimezone(UTC).replace(tzinfo=None)
     return dt
 
 

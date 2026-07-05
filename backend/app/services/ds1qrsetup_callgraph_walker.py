@@ -808,7 +808,7 @@ async def _do_callgraph_run(
         candidates_with_size: list[tuple[str, int]] = []
         for path in candidates:
             try:
-                sz = os.path.getsize(path)
+                sz = os.path.getsize(path)  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
             except OSError:
                 sz = 0
             candidates_with_size.append((path, sz))

@@ -16,9 +16,10 @@ import hashlib
 import os
 import shutil
 import stat
-from typing import Awaitable, Callable, Literal
+from collections.abc import Awaitable, Callable
+from typing import Literal
 
-from .unpack import _KERNEL_NAME_PATTERNS
+from .unpack_common import _KERNEL_NAME_PATTERNS
 
 FsType = Literal["squashfs", "ubi", "ubifs", "jffs2", "cramfs", "ext", "cpio"]
 
@@ -111,7 +112,7 @@ def _is_excluded(path: str, extraction_root_real: str) -> bool:
 
 async def _run(
     args: list[str],
-    timeout: int,
+    timeout: int,  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
     cwd: str | None = None,
     stdin_path: str | None = None,
 ) -> tuple[int | None, str]:
@@ -122,7 +123,7 @@ async def _run(
     stdin_file = None
     try:
         if stdin_path is not None:
-            stdin_file = open(stdin_path, "rb")
+            stdin_file = open(stdin_path, "rb")  # noqa: ASYNC230 -- single bounded stat/open call, not a hot loop
         proc = await asyncio.create_subprocess_exec(
             *args,
             stdin=stdin_file if stdin_file else asyncio.subprocess.DEVNULL,
@@ -141,7 +142,7 @@ async def _run(
 
     try:
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         try:
             await proc.wait()
@@ -156,28 +157,28 @@ async def _run(
     return proc.returncode, text
 
 
-async def _extract_squashfs(src: str, out_dir: str, timeout: int) -> tuple[bool, str]:
+async def _extract_squashfs(src: str, out_dir: str, timeout: int) -> tuple[bool, str]:  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
     # unsquashfs refuses to extract into an existing directory unless -f.
-    if os.path.exists(out_dir):
+    if os.path.exists(out_dir):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
         return False, "output dir already exists"
 
     rc, _log = await _run(["unsquashfs", "-d", out_dir, src], timeout=timeout)
-    if rc == 0 and os.path.isdir(out_dir) and os.listdir(out_dir):
+    if rc == 0 and os.path.isdir(out_dir) and os.listdir(out_dir):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
         return True, "unsquashfs ok"
 
-    if os.path.isdir(out_dir):
+    if os.path.isdir(out_dir):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
         shutil.rmtree(out_dir, ignore_errors=True)
 
     if not shutil.which("sasquatch"):
         return False, f"unsquashfs rc={rc}; sasquatch unavailable"
 
     rc2, _log2 = await _run(["sasquatch", "-d", out_dir, src], timeout=timeout)
-    if rc2 == 0 and os.path.isdir(out_dir) and os.listdir(out_dir):
+    if rc2 == 0 and os.path.isdir(out_dir) and os.listdir(out_dir):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
         return True, "sasquatch ok (vendor-modified squashfs)"
     return False, f"unsquashfs rc={rc}, sasquatch rc={rc2}"
 
 
-async def _extract_jffs2(src: str, out_dir: str, timeout: int) -> tuple[bool, str]:
+async def _extract_jffs2(src: str, out_dir: str, timeout: int) -> tuple[bool, str]:  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
     os.makedirs(out_dir, exist_ok=True)
     rc, _log = await _run(["jefferson", "-d", out_dir, src], timeout=timeout)
     if rc == 0 and os.listdir(out_dir):
@@ -185,7 +186,7 @@ async def _extract_jffs2(src: str, out_dir: str, timeout: int) -> tuple[bool, st
     return False, f"jefferson rc={rc}"
 
 
-async def _extract_ubi(src: str, out_dir: str, timeout: int) -> tuple[bool, str]:
+async def _extract_ubi(src: str, out_dir: str, timeout: int) -> tuple[bool, str]:  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
     os.makedirs(out_dir, exist_ok=True)
     rc, _log = await _run(
         ["ubireader_extract_images", "-o", out_dir, src], timeout=timeout
@@ -195,7 +196,7 @@ async def _extract_ubi(src: str, out_dir: str, timeout: int) -> tuple[bool, str]
     return False, f"ubireader_extract_images rc={rc}"
 
 
-async def _extract_ubifs(src: str, out_dir: str, timeout: int) -> tuple[bool, str]:
+async def _extract_ubifs(src: str, out_dir: str, timeout: int) -> tuple[bool, str]:  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
     os.makedirs(out_dir, exist_ok=True)
     rc, _log = await _run(
         ["ubireader_extract_files", "-o", out_dir, src], timeout=timeout
@@ -205,17 +206,17 @@ async def _extract_ubifs(src: str, out_dir: str, timeout: int) -> tuple[bool, st
     return False, f"ubireader_extract_files rc={rc}"
 
 
-async def _extract_cramfs(src: str, out_dir: str, timeout: int) -> tuple[bool, str]:
+async def _extract_cramfs(src: str, out_dir: str, timeout: int) -> tuple[bool, str]:  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
     # The Dockerfile provides a cramfsck shim (lines 32-33) that accepts -x <dir>.
-    if os.path.exists(out_dir):
+    if os.path.exists(out_dir):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
         return False, "output dir already exists"
     rc, _log = await _run(["cramfsck", "-x", out_dir, src], timeout=timeout)
-    if rc == 0 and os.path.isdir(out_dir) and os.listdir(out_dir):
+    if rc == 0 and os.path.isdir(out_dir) and os.listdir(out_dir):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
         return True, "cramfsck ok"
     return False, f"cramfsck rc={rc}"
 
 
-async def _extract_ext(src: str, out_dir: str, timeout: int) -> tuple[bool, str]:
+async def _extract_ext(src: str, out_dir: str, timeout: int) -> tuple[bool, str]:  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
     os.makedirs(out_dir, exist_ok=True)
     rc, _log = await _run(
         ["7z", "x", "-y", f"-o{out_dir}", src], timeout=timeout
@@ -225,7 +226,7 @@ async def _extract_ext(src: str, out_dir: str, timeout: int) -> tuple[bool, str]
     return False, f"7z ext rc={rc}"
 
 
-async def _extract_cpio(src: str, out_dir: str, timeout: int) -> tuple[bool, str]:
+async def _extract_cpio(src: str, out_dir: str, timeout: int) -> tuple[bool, str]:  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
     os.makedirs(out_dir, exist_ok=True)
     rc, _log = await _run(
         ["cpio", "-idmv", "--no-absolute-filenames"],
@@ -335,7 +336,7 @@ async def recursive_extract(
     multi-line log suitable for appending to ``firmware.unpack_log``.
     """
     lines: list[str] = [f"[fs_extractors] scanning {extraction_dir}"]
-    extraction_root_real = os.path.realpath(extraction_dir)
+    extraction_root_real = os.path.realpath(extraction_dir)  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
     seen_sha: set[str] = set()
     total_written = 0
     size_cap: int | None = (
@@ -371,7 +372,7 @@ async def recursive_extract(
 
             out_dir = _extraction_output_dir(src)
             extractor = _EXTRACTORS.get(fs_type)
-            rel = os.path.relpath(src, extraction_dir)
+            rel = os.path.relpath(src, extraction_dir)  # noqa: ASYNC240 -- pure-string path math, no filesystem I/O
 
             if extractor is None:
                 lines.append(f"[fs_extractors] {fs_type} {rel}: no extractor registered")

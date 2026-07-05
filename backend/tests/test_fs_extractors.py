@@ -170,7 +170,7 @@ def _install_fake_extractor(monkeypatch, behaviour):
 
     *behaviour* is an async callable (src, out_dir, timeout) -> (ok, msg).
     """
-    async def fake(src, out_dir, timeout):
+    async def fake(src, out_dir, timeout):  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
         return await behaviour(src, out_dir, timeout)
 
     fake_map = {k: fake for k in fs_extractors._EXTRACTORS}
@@ -185,7 +185,7 @@ async def test_dedup_same_blob_under_two_names(tmp_path: Path, monkeypatch):
 
     call_count = {"n": 0}
 
-    async def fake(src, out_dir, timeout):
+    async def fake(src, out_dir, timeout):  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
         call_count["n"] += 1
         os.makedirs(out_dir, exist_ok=True)
         (Path(out_dir) / "marker").write_text("extracted")
@@ -202,7 +202,7 @@ async def test_dedup_same_blob_under_two_names(tmp_path: Path, monkeypatch):
 async def test_loop_terminates_when_no_new_images(tmp_path: Path, monkeypatch):
     (tmp_path / "one.squashfs").write_bytes(b"hsqs" + b"\x01" * MIN_SIZE)
 
-    async def fake(src, out_dir, timeout):
+    async def fake(src, out_dir, timeout):  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
         # Extract to a directory, but don't produce any new filesystem images.
         os.makedirs(out_dir, exist_ok=True)
         (Path(out_dir) / "hello.txt").write_text("payload")
@@ -221,7 +221,7 @@ async def test_max_depth_caps_runaway(tmp_path: Path, monkeypatch):
     # a pathological case we must terminate.
     counter = {"n": 0}
 
-    async def fake(src, out_dir, timeout):
+    async def fake(src, out_dir, timeout):  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
         counter["n"] += 1
         os.makedirs(out_dir, exist_ok=True)
         # Emit a new squashfs blob with unique content so SHA dedup doesn't
@@ -244,7 +244,7 @@ async def test_max_depth_caps_runaway(tmp_path: Path, monkeypatch):
 async def test_extractor_exception_is_logged_not_raised(tmp_path: Path, monkeypatch):
     (tmp_path / "bad.squashfs").write_bytes(b"hsqs" + b"\x00" * MIN_SIZE)
 
-    async def fake(src, out_dir, timeout):
+    async def fake(src, out_dir, timeout):  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
         raise RuntimeError("simulated extractor crash")
 
     _install_fake_extractor(monkeypatch, fake)
@@ -260,7 +260,7 @@ async def test_size_cap_halts_extraction(tmp_path: Path, monkeypatch):
     (tmp_path / "b.squashfs").write_bytes(b"hsqs" + b"\x02" * MIN_SIZE)
     (tmp_path / "c.squashfs").write_bytes(b"hsqs" + b"\x03" * MIN_SIZE)
 
-    async def fake(src, out_dir, timeout):
+    async def fake(src, out_dir, timeout):  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
         os.makedirs(out_dir, exist_ok=True)
         # Emit a huge payload (10 MB) per extraction.
         (Path(out_dir) / "big").write_bytes(b"\x00" * (10 * 1024 * 1024))

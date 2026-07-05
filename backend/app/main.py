@@ -52,8 +52,8 @@ from app.routers import (
     uart,
 )
 from app.routers.terminal import system_ws_router as _system_ws_router
-from app.services.event_service import event_service
 from app.services.carving_service import CarvingService
+from app.services.event_service import event_service
 from app.utils.sandbox import PathTraversalError
 
 

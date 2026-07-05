@@ -174,7 +174,7 @@ class TestRunGhidraHeadlessGzfProcessMode:
             captured: dict = {}
 
             async def fake_run_gzf_process_mode(
-                gzf_path_arg, script_name, script_args, tmp_script_dir, timeout, project_id_arg,
+                gzf_path_arg, script_name, script_args, tmp_script_dir, timeout, project_id_arg,  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
                 context_arg,
             ):
                 captured["gzf_path"] = gzf_path_arg
@@ -320,9 +320,10 @@ class TestRunGzfProcessModeKeepsPersistentProject:
         """After running a process-mode rename script, the persistent project is
         retained on disk so subsequent analysis operations (decompile_function,
         list_functions) can use it and see the renames."""
+        import os
+
         from app.models.firmware import Firmware
         from app.utils.hashing import compute_file_sha256
-        import os
 
         gzf_path = tmp_path / "renamed.gzf"
         gzf_path.write_bytes(b"PK\x03\x04" + b"\x00" * 32)
@@ -382,7 +383,7 @@ class TestRunGzfProcessModeKeepsPersistentProject:
             assert not any("-export" in str(call) for call in calls)
 
             # The persistent project directory should still exist (kept for reuse)
-            assert os.path.exists(rep_dir), "rep_dir should be retained for subsequent analysis"
+            assert os.path.exists(rep_dir), "rep_dir should be retained for subsequent analysis"  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
 
 
 class TestListGhidraResearchFilesFilterAndPaging:
@@ -567,7 +568,7 @@ class TestScriptFileIdTempDirPermissions:
 
             async def fake_run_gzf_process_mode(
                 gzf_path_arg, script_name, script_args, tmp_script_dir,
-                timeout, project_id_arg, context_arg,
+                timeout, project_id_arg, context_arg,  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
             ):
                 # Inspect the temp dir + script at the moment the process step
                 # would run (before the finally-block rmtree).
@@ -604,7 +605,7 @@ class TestResolveFirmwarePathBeyond100:
 
     @pytest.mark.asyncio
     async def test_gzf_past_first_100_is_matched(self, tmp_path, _fake_settings):
-        from datetime import datetime, timedelta, UTC
+        from datetime import UTC, datetime, timedelta
 
         async with make_live_db() as db:
             project_id = uuid.uuid4()

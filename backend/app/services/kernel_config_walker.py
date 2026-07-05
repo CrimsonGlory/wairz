@@ -401,7 +401,7 @@ async def _do_kernel_config_run(
     for b in blob_rows:
         if b.blob_path:
             try:
-                blobs_by_realpath[os.path.realpath(b.blob_path)] = b
+                blobs_by_realpath[os.path.realpath(b.blob_path)] = b  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
             except OSError:
                 continue
 
@@ -450,7 +450,7 @@ async def _do_kernel_config_run(
             # Back-fill the originating blob's metadata (read-modify-write)
             # when we recovered a real config.
             if record["extraction_status"] == "ok" and record["kernel_config"]:
-                origin = blobs_by_realpath.get(os.path.realpath(cand_path))
+                origin = blobs_by_realpath.get(os.path.realpath(cand_path))  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
                 if origin is not None:
                     _backfill_blob_metadata(origin, record)
                     record["back_filled_blob_id"] = str(origin.id)

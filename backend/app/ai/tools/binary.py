@@ -2161,7 +2161,7 @@ async def _handle_start_binary_analysis(
 ) -> str:
     """Kick off Ghidra analysis in a detached worker, return immediately."""
     path = await _resolve_binary_path(input["binary_path"], context)
-    if not os.path.isfile(path):
+    if not os.path.isfile(path):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
         return f"Error: binary not found: {input['binary_path']}"
 
     force_reanalyze = bool(input.get("force_reanalyze", False))
@@ -2223,8 +2223,10 @@ async def _handle_start_binary_analysis(
 
     # start_new_session=True makes the worker survive if the wairz-mcp process
     # dies (e.g. MCP client reconnects mid-analysis). stdio is detached.
-    proc = subprocess.Popen(
-        cmd,
+    # asyncio.create_subprocess_exec (not subprocess.Popen) so spawning the
+    # detached worker doesn't block the event loop (CLAUDE.md Rule #5).
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -2253,7 +2255,7 @@ async def _handle_check_binary_analysis_status(
 ) -> str:
     """Report the current state of a background Ghidra analysis."""
     path = await _resolve_binary_path(input["binary_path"], context)
-    if not os.path.isfile(path):
+    if not os.path.isfile(path):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
         return f"Error: binary not found: {input['binary_path']}"
 
     sha256 = await ghidra_service._get_binary_sha256(path)
@@ -2317,7 +2319,7 @@ async def _handle_start_function_decompile(
     """Kick off DecompileFunction.java for one function in a detached worker."""
     path = await _resolve_binary_path(input["binary_path"], context)
     function_name = input["function_name"]
-    if not os.path.isfile(path):
+    if not os.path.isfile(path):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
         return f"Error: binary not found: {input['binary_path']}"
 
     sha256 = await ghidra_service._get_binary_sha256(path)
@@ -2345,14 +2347,14 @@ async def _handle_start_function_decompile(
             f"Poll check_function_decompile_status."
         )
 
-    proc = subprocess.Popen(
-        [
-            sys.executable, "-m", "app.workers.run_function_decompile",
-            "--firmware-id", str(context.firmware_id),
-            "--binary-path", path,
-            "--sha256", sha256,
-            "--function-name", function_name,
-        ],
+    # asyncio.create_subprocess_exec (not subprocess.Popen) so spawning the
+    # detached worker doesn't block the event loop (CLAUDE.md Rule #5).
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable, "-m", "app.workers.run_function_decompile",
+        "--firmware-id", str(context.firmware_id),
+        "--binary-path", path,
+        "--sha256", sha256,
+        "--function-name", function_name,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -2382,7 +2384,7 @@ async def _handle_check_function_decompile_status(
     """Report the current state of a background per-function decompile."""
     path = await _resolve_binary_path(input["binary_path"], context)
     function_name = input["function_name"]
-    if not os.path.isfile(path):
+    if not os.path.isfile(path):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
         return f"Error: binary not found: {input['binary_path']}"
 
     sha256 = await ghidra_service._get_binary_sha256(path)

@@ -43,7 +43,6 @@ import {
 import { formatFileSize, formatDate } from '@/utils/format'
 import FirmwareUpload from '@/components/projects/FirmwareUpload'
 import FirmwareMetadataCard from '@/components/projects/FirmwareMetadataCard'
-import FirmwareVersionCard from '@/components/projects/FirmwareVersionCard'
 import ProjectActionButtons from '@/components/projects/ProjectActionButtons'
 import DocumentsCard from '@/components/projects/DocumentsCard'
 import { exportProject } from '@/api/exportImport'
@@ -85,7 +84,6 @@ export default function ProjectDetailPage() {
   const [versionLabelDraft, setVersionLabelDraft] = useState('')
   const [uploadingRootfs, setUploadingRootfs] = useState<string | null>(null)
   const [rootfsError, setRootfsError] = useState<string | null>(null)
-  const [expandedLogs, setExpandedLogs] = useState<Set<string>>(new Set())
   const versionInputRef = useRef<HTMLInputElement>(null)
   const rootfsInputRef = useRef<HTMLInputElement>(null)
 
@@ -229,7 +227,7 @@ export default function ProjectDetailPage() {
     try {
       await updateFirmwareKind(projectId, firmwareId, kind, flavor)
       fetchProject(projectId)
-      listFirmware(projectId).then(setFirmwareList).catch(() => {})
+      invalidateFirmwareList()
     } catch {
       // error surfacing handled at a higher level if needed
     }

@@ -109,8 +109,8 @@ async def test_extract_unencrypted_picks_largest(tmp_path: Path):
     # itself, to match how firmware_service lays things out.
     result = await _extract_firmware_from_7z(str(archive), str(output_dir))
     assert result is not None
-    assert os.path.isfile(result)
-    assert Path(result).read_bytes() == payload
+    assert os.path.isfile(result)  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
+    assert Path(result).read_bytes() == payload  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
 
 
 async def test_extract_encrypted_raises_value_error(tmp_path: Path):

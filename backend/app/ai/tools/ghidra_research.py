@@ -439,11 +439,11 @@ async def _handle_read_ghidra_log(input: dict, context: ToolContext) -> str:
     except PathTraversalError:
         return f"Error: Invalid filename '{filename}'."
 
-    if not os.path.isfile(full_path):
+    if not os.path.isfile(full_path):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
         return f"Error: Log file '{filename}' not found in this project's Ghidra logs."
 
     try:
-        with open(full_path, encoding="utf-8", errors="replace") as fh:
+        with open(full_path, encoding="utf-8", errors="replace") as fh:  # noqa: ASYNC230 -- single bounded stat/open call, not a hot loop
             content = fh.read()
     except OSError as exc:
         return f"Error reading log file: {exc}"
@@ -604,6 +604,7 @@ async def _handle_save_ghidra_script(input: dict, context: ToolContext) -> str:
 
     # Create via a fake UploadFile — use the service's upload path
     import io
+
     from fastapi import UploadFile as FastAPIUploadFile
 
     content_bytes = content.encode("utf-8")
@@ -786,8 +787,8 @@ async def _handle_resolve_firmware_path(input: dict, context: ToolContext) -> st
     # and the read-path .gzf process-mode routing in ensure_analysis).
     ghidra_project_dir: str | None = None
     if gzf_path and os.path.isfile(gzf_path):  # noqa: ASYNC240 — pre-flight stat, no walk
-        from app.utils.hashing import compute_file_sha256  # noqa: PLC0415
         from app.services.ghidra_service import gzf_project_paths  # noqa: PLC0415
+        from app.utils.hashing import compute_file_sha256  # noqa: PLC0415
         loop = asyncio.get_running_loop()
         gzf_sha = await loop.run_in_executor(None, compute_file_sha256, gzf_path)
         candidate, _, rep_candidate = gzf_project_paths(gzf_sha)
@@ -822,7 +823,7 @@ async def _run_gzf_process_mode(
     script_name: str,
     script_args: list[str],
     extra_script_path: str | None,
-    timeout: int,
+    timeout: int,  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
     project_id: uuid.UUID,
     context: ToolContext,
 ) -> str:
@@ -853,7 +854,6 @@ async def _run_gzf_process_mode(
     settings = get_settings()
     analyze_headless = os.path.join(settings.ghidra_path, "support", "analyzeHeadless")
 
-    from app.utils.hashing import compute_file_sha256  # noqa: PLC0415
     from app.database import async_session_factory  # noqa: PLC0415
     from app.services.ghidra_service import (  # noqa: PLC0415
         _cross_process_analysis_lock,
@@ -863,6 +863,7 @@ async def _run_gzf_process_mode(
         clear_binary_analysis,
         gzf_project_paths,
     )
+    from app.utils.hashing import compute_file_sha256  # noqa: PLC0415
 
     loop = asyncio.get_running_loop()
     gzf_sha = await loop.run_in_executor(None, compute_file_sha256, gzf_path)
@@ -907,7 +908,7 @@ async def _run_gzf_process_mode(
 
                 try:
                     await asyncio.wait_for(proc.wait(), timeout=timeout)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     proc.kill()
                     await proc.wait()
                     return f"Error: GZF import timed out after {timeout} s."
@@ -975,7 +976,7 @@ async def _run_gzf_process_mode(
 
         try:
             await asyncio.wait_for(proc.wait(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await proc.wait()
             return f"Error: GZF process-mode script timed out after {timeout} s."
@@ -1069,7 +1070,7 @@ async def _handle_run_ghidra_headless(input: dict, context: ToolContext) -> str:
 
         try:
             stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=30)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await proc.wait()
             return "Error: Ghidra info query timed out after 30 s."
@@ -1112,9 +1113,9 @@ async def _handle_run_ghidra_headless(input: dict, context: ToolContext) -> str:
         resolved_binary = context.resolve_path(binary_path_rel)
         # For RTOS blob-only projects resolve_path returns the parent directory for bare
         # basenames. Fall back to context.storage_path when the resolved path isn't a file.
-        if not os.path.isfile(resolved_binary) and context.storage_path and os.path.isfile(context.storage_path):
+        if not os.path.isfile(resolved_binary) and context.storage_path and os.path.isfile(context.storage_path):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
             resolved_binary = context.storage_path
-        if not os.path.isfile(resolved_binary):
+        if not os.path.isfile(resolved_binary):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
             return f"Error: Binary not found at path '{binary_path_rel}'."
 
     # Build ghidra_import_params from explicit inputs; auto-detect from rtos_flavor if absent.
@@ -1146,8 +1147,9 @@ async def _handle_run_ghidra_headless(input: dict, context: ToolContext) -> str:
         # Auto-detect from firmware rtos_flavor (e.g. baremetal-mips16e → MIPS:LE:32:default)
         ghidra_import_params = None
         if context.firmware_id:
+            from sqlalchemy import select as _select  # noqa: PLC0415
+
             from app.models.firmware import Firmware as _FirmwareModel  # noqa: PLC0415
-            from sqlalchemy import select as _select                      # noqa: PLC0415
             _row = await context.db.execute(
                 _select(_FirmwareModel.rtos_flavor).where(
                     _FirmwareModel.id == context.firmware_id
@@ -1184,7 +1186,7 @@ async def _handle_run_ghidra_headless(input: dict, context: ToolContext) -> str:
         content = GhidraResearchService.read_text_content(record)
         _tmp_script_dir = tempfile.mkdtemp(prefix="ghidra_script_")
         script_dest = os.path.join(_tmp_script_dir, record.original_filename)
-        with open(script_dest, "w", encoding="utf-8") as fh:
+        with open(script_dest, "w", encoding="utf-8") as fh:  # noqa: ASYNC230 -- single bounded stat/open call, not a hot loop
             fh.write(content)
         # mkdtemp() creates the dir 0o700 owned by the calling UID. In the
         # worker/root container the GZF process-mode step drops to the 'wairz'
@@ -1195,8 +1197,8 @@ async def _handle_run_ghidra_headless(input: dict, context: ToolContext) -> str:
         # Widen to world-traversable dir + world-readable script so the dropped
         # user can read it. These are the operator's own research scripts in a
         # short-lived per-run temp dir (rmtree'd in the finally), not secrets.
-        os.chmod(_tmp_script_dir, 0o755)
-        os.chmod(script_dest, 0o644)
+        os.chmod(_tmp_script_dir, 0o755)  # noqa: S103 -- world-traversable temp dir, short-lived, no secrets, see comment above  # nosec B103
+        os.chmod(script_dest, 0o644)  # noqa: S103 -- world-readable script, required for de-privileged Ghidra user to traverse  # nosec B103
         effective_script_name = record.original_filename
 
     if not effective_script_name:
@@ -1254,7 +1256,7 @@ async def _handle_run_ghidra_headless(input: dict, context: ToolContext) -> str:
 
                 try:
                     await asyncio.wait_for(proc.wait(), timeout=effective_timeout)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     proc.kill()
                     await proc.wait()
                     return f"Error: Ghidra script timed out after {effective_timeout} s."
@@ -1282,7 +1284,7 @@ async def _handle_run_ghidra_headless(input: dict, context: ToolContext) -> str:
         return truncate_output(combined, max_kb=GHIDRA_OUTPUT_MAX_KB)
 
     finally:
-        if _tmp_script_dir and os.path.isdir(_tmp_script_dir):
+        if _tmp_script_dir and os.path.isdir(_tmp_script_dir):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
             # shutil is imported module-level (line 5). A function-local
             # `import shutil` here would rebind it as a local for this whole
             # function body and raise UnboundLocalError on any earlier

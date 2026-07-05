@@ -477,7 +477,7 @@ async def run_server(
             # RTOS/unknown firmware has no rootfs — skip the directory check and
             # rely on storage_path instead. We still validate when extracted_path
             # is set (Linux case).
-            if state.extracted_path and not os.path.isdir(state.extracted_path):
+            if state.extracted_path and not os.path.isdir(state.extracted_path):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
                 logger.error(
                     "Extracted firmware path does not exist: %s",
                     state.extracted_path,
@@ -490,7 +490,7 @@ async def run_server(
                     project_id,
                 )
                 sys.exit(1)
-            if not state.extracted_path and state.storage_path and not os.path.isfile(state.storage_path):
+            if not state.extracted_path and state.storage_path and not os.path.isfile(state.storage_path):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
                 logger.error(
                     "Firmware storage path does not exist: %s",
                     state.storage_path,
@@ -595,12 +595,12 @@ async def run_server(
         # projects expose a storage_path instead. Validate whichever one
         # this project relies on.
         rootfs_missing = (
-            state.extracted_path and not os.path.isdir(state.extracted_path)
+            state.extracted_path and not os.path.isdir(state.extracted_path)  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
         )
         blob_missing = (
             not state.extracted_path
             and state.storage_path
-            and not os.path.isfile(state.storage_path)
+            and not os.path.isfile(state.storage_path)  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
         )
         if state.firmware_loaded and (rootfs_missing or blob_missing):
             # Revert to old project + firmware

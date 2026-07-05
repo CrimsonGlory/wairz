@@ -23,7 +23,6 @@ from app.models.project import Project
 from app.rate_limit import limiter
 from tests._live_db import make_live_db
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

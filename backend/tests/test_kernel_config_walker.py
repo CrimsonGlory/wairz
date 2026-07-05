@@ -41,13 +41,12 @@ from pathlib import Path
 
 import pytest
 
-from app.services import kernel_config_walker
+from app.services import kernel_config_walker, kernel_decompress
 from app.services.hardware_firmware.parsers import (
     _kernel_ikconfig,
     android_boot_image,
     android_ota_payload,
 )
-from app.services import kernel_decompress
 from tests._live_db import make_live_db
 
 # ───────────────────────────────────────────────────────────────────────
@@ -612,9 +611,10 @@ async def test_blocked_payload_emits_extraction_blocked_finding(tmp_path):
     """A payload.bin with an ff12d941 boot op → extraction_status='blocked'
     AND a kernel_config_extraction_blocked INFO Finding is emitted (the
     honest BLOCKED verdict surfaces to the operator, not a silent no-op)."""
+    from sqlalchemy import select
+
     from app.models.finding import Finding
     from app.models.firmware import Firmware
-    from sqlalchemy import select
 
     root = tmp_path / "rootfs"
     root.mkdir()

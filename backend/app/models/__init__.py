@@ -5,18 +5,18 @@ from app.models.conversation import Conversation
 from app.models.cra_compliance import CraAssessment, CraRequirementResult
 from app.models.device_dump import DeviceDumpSession
 from app.models.document import Document
-from app.models.ghidra_research import GhidraResearchFile
 from app.models.emulation_preset import EmulationPreset
 from app.models.emulation_session import EmulationSession
 from app.models.finding import Finding
 from app.models.firmware import Firmware
 from app.models.fuzzing import FuzzingCampaign, FuzzingCrash
+from app.models.ghidra_research import GhidraResearchFile
 from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.models.linux_container_artifacts import LinuxContainerArtifact
 from app.models.linux_journald_entry import LinuxJournaldEntry
 from app.models.linux_systemd_units import LinuxSystemdUnit
 from app.models.project import Project
-from app.models.report import Report, ReportSection, ReportFinding, ReportRender
+from app.models.report import Report, ReportFinding, ReportRender, ReportSection
 from app.models.sbom import SbomComponent, SbomVulnerability
 from app.models.security_review import ReviewAgent, SecurityReview  # kept for DB/relationship integrity
 from app.models.uart_session import UARTSession

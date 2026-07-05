@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 
+from sqlalchemy import select
+
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.models.firmware import Firmware
 from app.models.project import Project
@@ -29,7 +31,6 @@ from app.services.report_template_service import (
     get_template,
     list_templates,
 )
-from sqlalchemy import select
 
 
 def register_report_writer_tools(registry: ToolRegistry) -> None:
@@ -244,7 +245,7 @@ async def _handle_report_render(
     cached = cache_result.scalar_one_or_none()
 
     import os
-    if cached is not None and os.path.exists(cached.storage_path):
+    if cached is not None and os.path.exists(cached.storage_path):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
         path = cached.storage_path
         size = cached.byte_size
         was_cached = True

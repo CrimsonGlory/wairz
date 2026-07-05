@@ -14,7 +14,7 @@ import hashlib
 import json
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -149,7 +149,7 @@ def render_html(
         language=template.language or "en",
         slots=slots,
         css=_read_css(),
-        generated_at=(generated_at or datetime.now(timezone.utc)).strftime(
+        generated_at=(generated_at or datetime.now(UTC)).strftime(
             "%Y-%m-%d %H:%M UTC"
         ),
     )

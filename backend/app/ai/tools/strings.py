@@ -219,7 +219,7 @@ async def _extract_data_strings(path: str, min_length: int = 8) -> list[str]:
             stderr=asyncio.subprocess.DEVNULL,
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
-    except (OSError, asyncio.TimeoutError):
+    except (TimeoutError, OSError):
         return []
 
     seen: set[str] = set()
@@ -725,9 +725,9 @@ async def _handle_find_hardcoded_credentials(
             if len(results) >= max_results:
                 break
             abs_path = os.path.join(dirpath, name)
-            if not os.path.isfile(abs_path):
+            if not os.path.isfile(abs_path):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
                 continue
-            if os.path.getsize(abs_path) > 50_000_000:
+            if os.path.getsize(abs_path) > 50_000_000:  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
                 continue
             if not _is_elf_file(abs_path):
                 continue

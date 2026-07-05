@@ -69,7 +69,6 @@ pytestmark = pytest.mark.skipif(
 from app.models.firmware import Firmware
 from app.services.carving_service import CarvingService
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

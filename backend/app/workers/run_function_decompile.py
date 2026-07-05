@@ -47,7 +47,7 @@ def _lock_key(binary_sha256: str, function_name: str) -> str:
     'operator()', mangled C++ names), so hash them rather than embed.
     """
     h = hashlib.sha1(
-        f"{binary_sha256}:{function_name}".encode("utf-8"),
+        f"{binary_sha256}:{function_name}".encode(),
     ).hexdigest()
     return f"decompile-{h}"
 

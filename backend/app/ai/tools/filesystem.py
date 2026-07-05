@@ -430,7 +430,7 @@ def _parse_text_uboot_env(path: str) -> dict[str, str]:
     """Parse a uEnv.txt-style file. Tolerates comments, blank lines, CRLFs."""
     env: dict[str, str] = {}
     try:
-        with open(path, "r", errors="replace") as f:
+        with open(path, errors="replace") as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):
@@ -483,7 +483,7 @@ async def _handle_extract_bootloader_env(input: dict, context: ToolContext) -> s
             real = context.resolve_path(rel)
         except Exception:
             continue
-        if os.path.isfile(real):
+        if os.path.isfile(real):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
             parsed = _parse_text_uboot_env(real)
             if parsed:
                 text_env.update(parsed)

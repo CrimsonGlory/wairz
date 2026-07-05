@@ -351,7 +351,7 @@ async def _extract_firmware_from_7z(archive_path: str, output_dir: str) -> str |
                     continue
                 path = os.path.join(root, name)
                 try:
-                    size = os.path.getsize(path)
+                    size = os.path.getsize(path)  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
                 except OSError:
                     continue
                 if size > largest_size:
@@ -364,7 +364,7 @@ async def _extract_firmware_from_7z(archive_path: str, output_dir: str) -> str |
         target_name = _sanitize_filename(os.path.basename(largest_path))
         target_path = os.path.join(output_dir, target_name)
         # Avoid colliding with the original archive still in output_dir.
-        if os.path.exists(target_path):
+        if os.path.exists(target_path):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
             base, ext = os.path.splitext(target_name)
             target_path = os.path.join(output_dir, f"{base}_extracted{ext}")
         shutil.move(largest_path, target_path)

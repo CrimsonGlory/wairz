@@ -33,7 +33,7 @@ class ReportTemplate(BaseModel):
     sections: list[TemplateSection]
 
     @model_validator(mode="after")
-    def _validate_unique_slugs(self) -> "ReportTemplate":
+    def _validate_unique_slugs(self) -> ReportTemplate:
         slugs = [s.slug for s in self.sections]
         if len(set(slugs)) != len(slugs):
             raise ValueError(f"duplicate slugs in template {self.id}: {slugs}")

@@ -17,6 +17,7 @@ from app.ai.tools.emulation import register_emulation_tools
 from app.ai.tools.file_formats import register_file_format_tools
 from app.ai.tools.filesystem import register_filesystem_tools
 from app.ai.tools.fuzzing import register_fuzzing_tools
+from app.ai.tools.ghidra_research import register_ghidra_research_tools
 from app.ai.tools.hardware_firmware import register_hardware_firmware_tools
 from app.ai.tools.ics_protocol import register_ics_protocol_tools
 from app.ai.tools.linux_container import register_linux_container_tools
@@ -66,7 +67,6 @@ from app.ai.tools.windows_srum import register_windows_srum_tools
 from app.ai.tools.windows_storage import register_windows_storage_tools
 from app.ai.tools.windows_update import register_windows_update_tools
 from app.ai.tools.windows_usnjrnl import register_windows_usnjrnl_tools
-from app.ai.tools.ghidra_research import register_ghidra_research_tools
 from app.ai.tools.windows_wmi import register_windows_wmi_tools
 
 

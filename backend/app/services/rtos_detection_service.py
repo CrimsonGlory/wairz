@@ -623,7 +623,6 @@ from dataclasses import dataclass
 
 from elftools.elf.elffile import ELFFile
 
-
 # String markers — byte literals so we can scan raw binaries without
 # decoding. Each tuple is (marker, weight). We require either one
 # weight>=2 hit or two weight==1 hits to call a flavor.

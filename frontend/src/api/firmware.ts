@@ -3,7 +3,6 @@ import type {
   FirmwareDetail,
   FirmwareKind,
   FirmwareMetadata,
-  FirmwareSummary,
   FirmwareUploadStatus,
   RtosFlavor,
 } from '@/types'

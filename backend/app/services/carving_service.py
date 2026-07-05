@@ -75,7 +75,7 @@ class CarvingService:
         project_id: UUID,
         firmware_id: UUID,
         command: str,
-        timeout: int | None = None,
+        timeout: int | None = None,  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
     ) -> ShellResult:
         """Run a shell command in the project's carving sandbox.
 
@@ -259,7 +259,7 @@ class CarvingService:
         self,
         container: docker.models.containers.Container,
         command: str,
-        timeout: int,
+        timeout: int,  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
     ) -> ShellResult:
         def _run() -> ShellResult:
             # We use the low-level API (exec_create + exec_start) instead of
@@ -371,7 +371,7 @@ class CarvingService:
         # container itself may run as a different uid, so chmod 0o775 is
         # safer than chowning.
         try:
-            os.chmod(carved, 0o2775)
+            os.chmod(carved, 0o2775)  # noqa: S103 -- setgid+group-writable so the carving sandbox (uid 1000) can write, not world-writable  # nosec B103
         except OSError:
             pass
         return carved
