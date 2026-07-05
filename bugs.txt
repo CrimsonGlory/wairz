@@ -1,0 +1,141 @@
+Known-flaky backend tests (2026-07-05)
+=======================================
+
+These 37 tests fail ONLY when run as part of the full `pytest tests/`
+suite (7000+ tests). Every one of them passes 100% of the time when run
+in isolation or in small batches. Confirmed stable (same list, +/- 1-2
+tests depending on exact ordering) across 3 consecutive full-suite runs
+during the 2026-07-05 CI-unblock session, both before and after the
+`_cancel_dangling_background_tasks` mitigation added in
+backend/tests/conftest.py (commit 7b339a8d).
+
+Root cause
+----------
+backend/app/database.py creates `engine` (a SQLAlchemy async engine with
+a real connection pool, pool_size=15) as a MODULE-LEVEL SINGLETON at
+import time. This matches production, where uvicorn's single event loop
+lives for the whole process lifetime.
+
+pytest-asyncio's default (function-scoped) event loop gives every test
+function its OWN new event loop. When a router test acquires a real
+Postgres connection from the shared pool under test N's loop, and a
+later test tries to reuse that same pooled connection under test N+1's
+(different) loop, asyncpg refuses the cross-loop reuse:
+
+  RuntimeError: Task ... got Future ... attached to a different loop
+  asyncpg.exceptions._base.InterfaceError: cannot perform operation:
+  another operation is in progress
+
+A related, more clearly diagnosed variant of the same disease: a
+Rule #33 202+polling endpoint test that doesn't fully patch out its
+`asyncio.create_task(_run_unpack_background(...))` (or similar) leaves
+a coroutine that's constructed but never scheduled/awaited (because the
+test patches `asyncio.create_task` itself with a `MagicMock()`, so the
+coroutine argument is evaluated eagerly but never driven). This produces
+a cosmetic "coroutine was never awaited" RuntimeWarning attributed to
+whatever unrelated LATER test happens to be running when the garbage
+collector finally finalizes it — pure warning-attribution noise, not a
+functional bug on its own, but a symptom of the same underlying
+mocking-discipline gap.
+
+A third variant is specific to WebSocket tests: Starlette's sync-style
+`TestClient.websocket_connect()` bridges to async code via an
+`anyio.from_thread.BlockingPortal` running in a background THREAD with
+its OWN event loop — a third loop, distinct from both the async
+`client` fixture's loop and whatever loop scope pytest-asyncio uses for
+that test function. Any earlier test's pooled connection can collide
+with this thread's loop the same way.
+
+Why this wasn't fixed in the 2026-07-05 session
+------------------------------------------------
+Two mitigations were tried and did NOT fully resolve it:
+
+1. `asyncio_default_test_loop_scope = "session"` in pyproject.toml
+   (share one event loop for the whole pytest session, matching
+   production). This didn't fix the WebSocket-test variant, because
+   Starlette's BlockingPortal spins up its own thread+loop independent
+   of pytest-asyncio's loop scope setting. Reverted — no proven benefit
+   and un-auditable risk of subtly changing behavior across ~7000 other
+   async tests in the time available.
+
+2. `_cancel_dangling_background_tasks` autouse fixture in conftest.py
+   (cancels any asyncio.Task left running after a test returns). This
+   IS still in the tree (commit 7b339a8d) — it's a safe, real
+   improvement for the "unawaited coroutine" cosmetic-warning class,
+   but doesn't touch the underlying pooled-connection-across-loops
+   issue since the failures aren't caused by a `Task` object at all.
+
+The real fix requires either:
+  - Recreating `app.database.engine` with `poolclass=NullPool` for the
+    test session specifically (so no connection is ever reused across
+    loops) — requires patching the engine BEFORE any other module does
+    `from app.database import async_session_factory`, i.e. via a
+    pytest plugin hook (`pytest_configure` or an `-p` early-loading
+    plugin) rather than an ordinary conftest.py fixture, since ordinary
+    fixtures run after test collection/import has already bound the
+    old reference in every importing module's namespace.
+  - Or moving every router test's real-DB fixture onto the SQLite-backed
+    `tests._live_db.make_live_db()` helper already used by "live
+    canary" tests, eliminating the shared Postgres pool from the test
+    path entirely.
+
+Either is a real, scoped follow-up task — bigger than fits inside a
+lint/CI-unblock cleanup pass.
+
+Impact on CI
+------------
+The fast `pytest` CI job runs with `--maxfail=5`; because these 37
+failures are spread thinly across the 7000-test suite (not clustered),
+a given CI run may or may not hit 5 of them before finishing. The
+nightly/dispatch `pytest-must-complete` job (no maxfail) will
+consistently show some subset of this list failing until the follow-up
+above lands. None of them indicate an actual product regression.
+
+The list (2026-07-05, session bl3knn9h9 / bvs8fnwcx)
+-----------------------------------------------------
+tests/test_bt_banner_cve_pins_loader.py::test_malformed_yaml_pin_missing_id
+tests/test_bt_banner_cve_pins_loader.py::test_rationale_with_missing_placeholder_falls_back_to_raw
+tests/test_bt_qca_codenames_loader.py::test_malformed_yaml_structure_codenames_not_list
+tests/test_bt_qca_codenames_loader.py::test_yaml_syntax_error_falls_back_to_defaults
+tests/test_forensic10_alignment.py::test_curated_tier_rejects_family_only_entry
+tests/test_forensic10_alignment.py::test_alignment_gate_canary_synthesizes_a_real_rejection
+tests/test_ghidra_research_router.py::test_list_unknown_project_returns_404   (intermittent — passed in the final run)
+tests/test_hardware_firmware_cve_matcher.py::test_f_forensic_10_gate_rejects_family_only_cve_entry
+tests/test_hardware_firmware_cve_matcher.py::test_f_forensic_10_gate_canary_synthesized_violation_actually_fires
+tests/test_hardware_firmware_cve_matcher.py::test_shared_advisory_id_warn_fires_when_only_one_entry_opts_in
+tests/test_hardware_firmware_cve_matcher.py::test_shared_advisory_id_warn_fires_when_neither_entry_opts_in
+tests/test_journald_walker.py::test_do_journald_walk_persists_entries
+tests/test_journald_walker.py::test_do_journald_walk_no_files_returns_empty_aggregate
+tests/test_kernel_config_walker.py::test_stage_f_banner_only_degrades_no_backfill
+tests/test_linux_persistence_walker.py::test_do_linux_persistence_walk_no_files_returns_empty
+tests/test_linux_persistence_walker.py::test_do_linux_persistence_walk_full_triplet
+tests/test_module_reachability_walker.py::test_live_canary_modular_three_way_diff
+tests/test_module_reachability_walker.py::test_static_builtin_posture_krack_reducer
+tests/test_module_reachability_walker.py::test_builtin_y_from_c1_kernel_config
+tests/test_module_reachability_walker.py::test_builtin_y_from_firmware_level_c1_aggregate
+tests/test_prefetch_walker.py::test_do_prefetch_walk_run_no_pf_files_in_root
+tests/test_prefetch_walker.py::test_do_prefetch_walk_run_persists_records_for_corrupted_pf
+tests/test_python_ast_walker.py::test_do_python_ast_run_no_python_in_root
+tests/test_python_ast_walker.py::test_do_python_ast_run_finds_imports_and_callables
+tests/test_python_ast_walker.py::test_do_python_ast_run_handles_syntax_error_gracefully
+tests/test_rate_limit_tiers.py::test_dynamic_429_response_shape_on_security_audit
+tests/test_scheduled_task_walker.py::test_do_scheduled_task_run_no_xml_files
+tests/test_scheduled_task_walker.py::test_do_scheduled_task_run_persists_three_realistic_tasks
+tests/test_scheduled_task_walker.py::test_do_scheduled_task_run_handles_corrupted_alongside_valid
+tests/test_srum_walker.py::test_do_srum_walk_run_no_srudb_in_root
+tests/test_srum_walker.py::test_do_srum_walk_run_corrupted_srudb_records_error
+tests/test_terminal_router.py::test_websocket_terminal_accepts_query_param_key
+tests/test_usnjrnl_walker.py::test_do_usnjrnl_walk_no_files_returns_empty
+tests/test_usnjrnl_walker.py::test_do_usnjrnl_walk_non_ntfs_image_skipped
+tests/test_yaml_hot_reload.py::test_malformed_reload_keeps_previous_valid_state
+tests/test_yaml_hot_reload.py::test_structural_validation_failure_keeps_previous_state
+tests/test_yaml_hot_reload.py::test_file_vanish_after_successful_load_keeps_previous_state
+
+How to verify a given test in this list is "just flaky" and not a real
+regression: run it alone or in a small batch with its own file, e.g.
+
+  docker compose exec -T -w /app -e PYTHONPATH=/app backend \
+    /app/.venv/bin/python -m pytest tests/test_journald_walker.py -v
+
+If it passes standalone, the failure in the full run is this issue, not
+a code defect.
