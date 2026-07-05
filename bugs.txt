@@ -1,16 +1,186 @@
+RESOLVED (2026-07-05): Full-suite-only backend test failures
+==============================================================
+
+Status: FIXED. Full suite (`pytest tests/`, 7092 collected) now runs
+7037 passed, 54 skipped, 1 xfailed, 0 failed — confirmed by two
+consecutive clean full-suite runs after the fixes below landed.
+
+This document originally described 37 tests believed to share ONE root
+cause (SQLAlchemy connection pool reused across pytest-asyncio's
+per-test event loops). Root-causing each failure individually (rather
+than trusting the original single-cause hypothesis) found that the 37
+failures actually had THREE independent, unrelated causes. Only 3 of
+the 37 were actually caused by the originally-diagnosed pool/loop
+issue. Lesson: "fails only in the full suite" is a symptom shared by
+several distinct classes of test-isolation bug, not a signature of any
+one of them — don't stop root-causing at the first plausible theory
+that fits the observed symptom.
+
+Fix 1 — genuine cross-event-loop Postgres pool reuse (3 tests)
+----------------------------------------------------------------
+This is the ORIGINAL diagnosis below, and it was correct for the
+subset of tests that go through the real Postgres engine via
+`httpx.AsyncClient(transport=ASGITransport(app=app))` /
+`TestClient` + `get_db` (router-level tests, not the SQLite
+`make_live_db()` live-canary tests). `backend/app/database.py`
+created `engine` as a module-level singleton with a real pooled
+connection (`pool_size=15, max_overflow=25`). pytest-asyncio's
+function-scoped event loop meant a pooled connection acquired under
+test N's loop could be handed to test N+1 under a *different* loop,
+and asyncpg raises "Task ... attached to a different loop" /
+"cannot perform operation: another operation is in progress".
+
+Fix: `backend/app/database.py` now detects `"pytest" in sys.modules`
+and constructs `engine` with `poolclass=NullPool` under test (opens
+and closes a fresh connection per checkout — no connection is ever
+reused across loops). Production behavior (pool_size=15,
+max_overflow=25, pool_recycle=3600) is unchanged when not running
+under pytest.
+
+Confirmed fixed: tests/test_ghidra_research_router.py::test_list_unknown_project_returns_404,
+tests/test_terminal_router.py::test_websocket_terminal_accepts_query_param_key,
+tests/test_rate_limit_tiers.py::test_dynamic_429_response_shape_on_security_audit.
+
+Fix 2 — Alembic's fileConfig disabling every app-level logger (9 tests)
+--------------------------------------------------------------------------
+`backend/alembic/env.py` called `fileConfig(config.config_file_name)`
+with Python logging's default `disable_existing_loggers=True`.
+`tests/test_alembic_autogenerate_empty.py::test_alembic_autogenerate_is_empty`
+calls `alembic.command.check(cfg)` IN-PROCESS (inside the same pytest
+process as every other test, not as a separate CLI invocation).
+`command.check` runs `alembic/env.py` via `script_directory.run_env()`,
+which calls `fileConfig(...)`. Because `alembic.ini`'s `[loggers]`
+section only lists `root, sqlalchemy, alembic`, `fileConfig`'s default
+`disable_existing_loggers=True` sets `.disabled = True` on every OTHER
+logger that already existed at that point (i.e. every `app.*` module
+logger created via `logging.getLogger(__name__)` anywhere in the
+codebase) — permanently, for the rest of the pytest process. Any later
+test asserting on `caplog.records` for an app-level WARN/ERROR never
+sees the record, because the logger producing it is disabled and never
+propagates.
+
+This has nothing to do with the DB connection pool or event loops —
+it's a pure stdlib `logging.config.fileConfig` footgun for any
+long-running process that invokes Alembic commands programmatically
+(as opposed to Alembic's usual one-shot CLI invocation, where a
+disabled logger doesn't matter because the process exits right after).
+
+Fix: `backend/alembic/env.py` now calls
+`fileConfig(config.config_file_name, disable_existing_loggers=False)`.
+Harmless for the CLI-invoked case (migrator container running
+`alembic upgrade head` in its own dedicated process, which never runs
+another test needing those loggers afterward).
+
+Confirmed fixed (caplog-based WARN assertions):
+tests/test_bt_banner_cve_pins_loader.py::test_malformed_yaml_pin_missing_id,
+tests/test_bt_banner_cve_pins_loader.py::test_rationale_with_missing_placeholder_falls_back_to_raw,
+tests/test_bt_qca_codenames_loader.py::test_malformed_yaml_structure_codenames_not_list,
+tests/test_bt_qca_codenames_loader.py::test_yaml_syntax_error_falls_back_to_defaults,
+tests/test_forensic10_alignment.py::test_curated_tier_rejects_family_only_entry,
+tests/test_forensic10_alignment.py::test_alignment_gate_canary_synthesizes_a_real_rejection,
+tests/test_hardware_firmware_cve_matcher.py::test_f_forensic_10_gate_rejects_family_only_cve_entry,
+tests/test_hardware_firmware_cve_matcher.py::test_f_forensic_10_gate_canary_synthesized_violation_actually_fires,
+tests/test_hardware_firmware_cve_matcher.py::test_shared_advisory_id_warn_fires_when_only_one_entry_opts_in,
+tests/test_hardware_firmware_cve_matcher.py::test_shared_advisory_id_warn_fires_when_neither_entry_opts_in,
+tests/test_yaml_hot_reload.py::test_malformed_reload_keeps_previous_valid_state,
+tests/test_yaml_hot_reload.py::test_structural_validation_failure_keeps_previous_state,
+tests/test_yaml_hot_reload.py::test_file_vanish_after_successful_load_keeps_previous_state.
+
+Fix 3 — a leaked raw-image-extension file poisoning detection-root
+resolution for every later walker test (~25 tests)
+------------------------------------------------------------------------
+`tests/test_fs_extractors.py::test_symlink_escaping_sandbox` wrote a
+permanent file — `tmp_path.parent / "outside.bin"` — directly into the
+directory pytest tmp_path fixtures for ALL tests in the run share
+(pytest's per-session basetemp, e.g. `/tmp/pytest-of-root/pytest-N/`).
+The test never cleaned this file up (no `finally`, no `tmp_path`
+scoping), so it persisted at the top level of the shared basetemp for
+the rest of the pytest session — a real, permanent test-isolation bug,
+independent of run order beyond "this test ran at some point earlier."
+
+`app/services/firmware_paths.py`'s `_compute_roots_sync` has a
+"shallow-container rescue" heuristic (see CLAUDE.md context on
+`get_detection_roots`): when a firmware's `extracted_path` yields at
+most one detection root AND that root's PARENT directory holds a raw
+firmware image file directly at its top level (checked via
+`_dir_has_raw_image`, a non-recursive, extension-only scan — `.bin`
+included), the parent gets promoted into the detection-root list too.
+This heuristic exists for real vendor-BSP shapes (Motorola scatter
+extracts, Tegra L4T) where sibling firmware blobs sit one level above
+the chosen extraction container — it is working exactly as designed.
+
+The problem: any walker test built as
+`Firmware(extracted_path=str(tmp_path), ...)` + `get_detection_roots()`
+has `tmp_path`'s own parent equal to the SAME shared pytest basetemp
+that `test_fs_extractors.py` polluted. Once that one `outside.bin` file
+existed anywhere in the basetemp, `_dir_has_raw_image(basetemp)`
+returned True for every subsequent tmp_path-based walker test in the
+session, promoting the ENTIRE shared basetemp into that test's
+detection roots — so the walker's `os.walk` swept every sibling test's
+own tmp_path subdirectory too, picking up whatever real fixture files
+those OTHER, unrelated tests had written for their own purposes. Result:
+file/entry counts inflated by however many prior sibling tmp_path dirs
+happened to contain matching content by the time each test ran — which
+explains why the counts grew through the run and why isolated/small
+batches never reproduced it (few or no sibling dirs exist yet).
+
+Confirmed via bisection: `pytest tests/test_fs_extractors.py
+tests/test_journald_walker.py` alone reproduced
+`assert result["files_scanned"] == 1` failing with `6` instead — with
+no other files in the run at all.
+
+Fix: `tests/test_fs_extractors.py::test_symlink_escaping_sandbox` now
+nests the "outside" fixture inside its own uniquely-named subdirectory
+(`tmp_path.parent / f"outside-{uuid.uuid4().hex[:8]}"`, `.mkdir()`, then
+the `.bin` file inside that), matching the existing safe pattern
+already used by `test_python_ast_walker.py`,
+`test_prefetch_walker.py`, `test_srum_walker.py`, and
+`test_scheduled_task_walker.py`'s own "escape symlink" tests.
+`_dir_has_raw_image` only scans direct file children (not directories),
+so a raw-extension file nested one level deeper no longer trips the
+heuristic. The test's actual intent (symlink target genuinely outside
+the sandboxed `tmp_path`) is unchanged.
+
+A related, already-safe case: `test_find_filesystem_root.py`'s
+`test_symlink_to_fs_image_not_followed` also writes to
+`tmp_path.parent / "outside.img"`, but wraps it in
+`try/finally: outside.unlink(missing_ok=True)` — genuinely transient,
+not a permanent leak, left as-is.
+
+Confirmed fixed (detection-root-based walker aggregate counts):
+tests/test_journald_walker.py (both), tests/test_kernel_config_walker.py,
+tests/test_linux_persistence_walker.py (both),
+tests/test_module_reachability_walker.py (all 4),
+tests/test_prefetch_walker.py (both), tests/test_python_ast_walker.py
+(all 3), tests/test_scheduled_task_walker.py (all 3),
+tests/test_srum_walker.py (both), tests/test_usnjrnl_walker.py (both).
+
+Files changed
+-------------
+- backend/app/database.py — NullPool under pytest (Fix 1).
+- backend/alembic/env.py — disable_existing_loggers=False (Fix 2).
+- backend/tests/test_fs_extractors.py — nest the "outside" fixture in
+  its own subdirectory (Fix 3).
+
+Validation performed
+--------------------
+- Ruff, Bandit, and the async-subprocess lint gate: clean on all three
+  changed files.
+- Full suite (`pytest tests/`, no `--maxfail`) run twice after all
+  three fixes landed: 7037 passed, 54 skipped, 1 xfailed, 0 failed both
+  times (including `test_alembic_autogenerate_empty.py`, which is not
+  one of the originally-listed 37 and was not in scope for this fix,
+  but happened to pass clean in both post-fix runs).
+- Each of the 3 fixes was independently verified via bisected subset
+  runs (not just the full suite) before being combined, per Rule #46
+  canary discipline: reverting any one fix and re-running its matching
+  subset reproduces that fix's specific failure signature.
+
+Original diagnosis (superseded by the above — kept for history)
+=================================================================
 Known-flaky backend tests (2026-07-05)
-=======================================
-
-These 37 tests fail ONLY when run as part of the full `pytest tests/`
-suite (7000+ tests). Every one of them passes 100% of the time when run
-in isolation or in small batches. Confirmed stable (same list, +/- 1-2
-tests depending on exact ordering) across 3 consecutive full-suite runs
-during the 2026-07-05 CI-unblock session, both before and after the
-`_cancel_dangling_background_tasks` mitigation added in
-backend/tests/conftest.py (commit 7b339a8d).
-
-Root cause
-----------
+Root cause (partial — see Fix 1 above; did NOT explain 34/37 failures)
+----------------------------------------------------------------------
 backend/app/database.py creates `engine` (a SQLAlchemy async engine with
 a real connection pool, pool_size=15) as a MODULE-LEVEL SINGLETON at
 import time. This matches production, where uvicorn's single event loop
@@ -20,122 +190,10 @@ pytest-asyncio's default (function-scoped) event loop gives every test
 function its OWN new event loop. When a router test acquires a real
 Postgres connection from the shared pool under test N's loop, and a
 later test tries to reuse that same pooled connection under test N+1's
-(different) loop, asyncpg refuses the cross-loop reuse:
+(different) loop, asyncpg refuses the cross-loop reuse.
 
-  RuntimeError: Task ... got Future ... attached to a different loop
-  asyncpg.exceptions._base.InterfaceError: cannot perform operation:
-  another operation is in progress
-
-A related, more clearly diagnosed variant of the same disease: a
-Rule #33 202+polling endpoint test that doesn't fully patch out its
-`asyncio.create_task(_run_unpack_background(...))` (or similar) leaves
-a coroutine that's constructed but never scheduled/awaited (because the
-test patches `asyncio.create_task` itself with a `MagicMock()`, so the
-coroutine argument is evaluated eagerly but never driven). This produces
-a cosmetic "coroutine was never awaited" RuntimeWarning attributed to
-whatever unrelated LATER test happens to be running when the garbage
-collector finally finalizes it — pure warning-attribution noise, not a
-functional bug on its own, but a symptom of the same underlying
-mocking-discipline gap.
-
-A third variant is specific to WebSocket tests: Starlette's sync-style
-`TestClient.websocket_connect()` bridges to async code via an
-`anyio.from_thread.BlockingPortal` running in a background THREAD with
-its OWN event loop — a third loop, distinct from both the async
-`client` fixture's loop and whatever loop scope pytest-asyncio uses for
-that test function. Any earlier test's pooled connection can collide
-with this thread's loop the same way.
-
-Why this wasn't fixed in the 2026-07-05 session
-------------------------------------------------
-Two mitigations were tried and did NOT fully resolve it:
-
-1. `asyncio_default_test_loop_scope = "session"` in pyproject.toml
-   (share one event loop for the whole pytest session, matching
-   production). This didn't fix the WebSocket-test variant, because
-   Starlette's BlockingPortal spins up its own thread+loop independent
-   of pytest-asyncio's loop scope setting. Reverted — no proven benefit
-   and un-auditable risk of subtly changing behavior across ~7000 other
-   async tests in the time available.
-
-2. `_cancel_dangling_background_tasks` autouse fixture in conftest.py
-   (cancels any asyncio.Task left running after a test returns). This
-   IS still in the tree (commit 7b339a8d) — it's a safe, real
-   improvement for the "unawaited coroutine" cosmetic-warning class,
-   but doesn't touch the underlying pooled-connection-across-loops
-   issue since the failures aren't caused by a `Task` object at all.
-
-The real fix requires either:
-  - Recreating `app.database.engine` with `poolclass=NullPool` for the
-    test session specifically (so no connection is ever reused across
-    loops) — requires patching the engine BEFORE any other module does
-    `from app.database import async_session_factory`, i.e. via a
-    pytest plugin hook (`pytest_configure` or an `-p` early-loading
-    plugin) rather than an ordinary conftest.py fixture, since ordinary
-    fixtures run after test collection/import has already bound the
-    old reference in every importing module's namespace.
-  - Or moving every router test's real-DB fixture onto the SQLite-backed
-    `tests._live_db.make_live_db()` helper already used by "live
-    canary" tests, eliminating the shared Postgres pool from the test
-    path entirely.
-
-Either is a real, scoped follow-up task — bigger than fits inside a
-lint/CI-unblock cleanup pass.
-
-Impact on CI
-------------
-The fast `pytest` CI job runs with `--maxfail=5`; because these 37
-failures are spread thinly across the 7000-test suite (not clustered),
-a given CI run may or may not hit 5 of them before finishing. The
-nightly/dispatch `pytest-must-complete` job (no maxfail) will
-consistently show some subset of this list failing until the follow-up
-above lands. None of them indicate an actual product regression.
-
-The list (2026-07-05, session bl3knn9h9 / bvs8fnwcx)
------------------------------------------------------
-tests/test_bt_banner_cve_pins_loader.py::test_malformed_yaml_pin_missing_id
-tests/test_bt_banner_cve_pins_loader.py::test_rationale_with_missing_placeholder_falls_back_to_raw
-tests/test_bt_qca_codenames_loader.py::test_malformed_yaml_structure_codenames_not_list
-tests/test_bt_qca_codenames_loader.py::test_yaml_syntax_error_falls_back_to_defaults
-tests/test_forensic10_alignment.py::test_curated_tier_rejects_family_only_entry
-tests/test_forensic10_alignment.py::test_alignment_gate_canary_synthesizes_a_real_rejection
-tests/test_ghidra_research_router.py::test_list_unknown_project_returns_404   (intermittent — passed in the final run)
-tests/test_hardware_firmware_cve_matcher.py::test_f_forensic_10_gate_rejects_family_only_cve_entry
-tests/test_hardware_firmware_cve_matcher.py::test_f_forensic_10_gate_canary_synthesized_violation_actually_fires
-tests/test_hardware_firmware_cve_matcher.py::test_shared_advisory_id_warn_fires_when_only_one_entry_opts_in
-tests/test_hardware_firmware_cve_matcher.py::test_shared_advisory_id_warn_fires_when_neither_entry_opts_in
-tests/test_journald_walker.py::test_do_journald_walk_persists_entries
-tests/test_journald_walker.py::test_do_journald_walk_no_files_returns_empty_aggregate
-tests/test_kernel_config_walker.py::test_stage_f_banner_only_degrades_no_backfill
-tests/test_linux_persistence_walker.py::test_do_linux_persistence_walk_no_files_returns_empty
-tests/test_linux_persistence_walker.py::test_do_linux_persistence_walk_full_triplet
-tests/test_module_reachability_walker.py::test_live_canary_modular_three_way_diff
-tests/test_module_reachability_walker.py::test_static_builtin_posture_krack_reducer
-tests/test_module_reachability_walker.py::test_builtin_y_from_c1_kernel_config
-tests/test_module_reachability_walker.py::test_builtin_y_from_firmware_level_c1_aggregate
-tests/test_prefetch_walker.py::test_do_prefetch_walk_run_no_pf_files_in_root
-tests/test_prefetch_walker.py::test_do_prefetch_walk_run_persists_records_for_corrupted_pf
-tests/test_python_ast_walker.py::test_do_python_ast_run_no_python_in_root
-tests/test_python_ast_walker.py::test_do_python_ast_run_finds_imports_and_callables
-tests/test_python_ast_walker.py::test_do_python_ast_run_handles_syntax_error_gracefully
-tests/test_rate_limit_tiers.py::test_dynamic_429_response_shape_on_security_audit
-tests/test_scheduled_task_walker.py::test_do_scheduled_task_run_no_xml_files
-tests/test_scheduled_task_walker.py::test_do_scheduled_task_run_persists_three_realistic_tasks
-tests/test_scheduled_task_walker.py::test_do_scheduled_task_run_handles_corrupted_alongside_valid
-tests/test_srum_walker.py::test_do_srum_walk_run_no_srudb_in_root
-tests/test_srum_walker.py::test_do_srum_walk_run_corrupted_srudb_records_error
-tests/test_terminal_router.py::test_websocket_terminal_accepts_query_param_key
-tests/test_usnjrnl_walker.py::test_do_usnjrnl_walk_no_files_returns_empty
-tests/test_usnjrnl_walker.py::test_do_usnjrnl_walk_non_ntfs_image_skipped
-tests/test_yaml_hot_reload.py::test_malformed_reload_keeps_previous_valid_state
-tests/test_yaml_hot_reload.py::test_structural_validation_failure_keeps_previous_state
-tests/test_yaml_hot_reload.py::test_file_vanish_after_successful_load_keeps_previous_state
-
-How to verify a given test in this list is "just flaky" and not a real
-regression: run it alone or in a small batch with its own file, e.g.
-
-  docker compose exec -T -w /app -e PYTHONPATH=/app backend \
-    /app/.venv/bin/python -m pytest tests/test_journald_walker.py -v
-
-If it passes standalone, the failure in the full run is this issue, not
-a code defect.
+The three "variants" originally described here (dangling background
+tasks producing cosmetic "coroutine was never awaited" warnings, and
+the WebSocket BlockingPortal thread-loop case) are real but were,
+on closer inspection, either cosmetic (the coroutine warnings) or
+already covered by Fix 1 (the WebSocket case, terminal_router).

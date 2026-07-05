@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from pathlib import Path
 
 import pytest
@@ -128,7 +129,20 @@ class TestExclusion:
         assert _is_excluded(str(p), str(tmp_path)) is False
 
     def test_symlink_escaping_sandbox(self, tmp_path: Path):
-        outside = tmp_path.parent / "outside.bin"
+        # The "outside" fixture lives in its own uniquely-named subdirectory
+        # of the shared pytest basetemp (matching the pattern used by
+        # test_python_ast_walker.py / test_prefetch_walker.py / etc.),
+        # NOT a bare raw-extension file directly at the basetemp's top
+        # level. A bare ``outside.bin`` sitting there forever (this test
+        # never cleans it up) trips app.services.firmware_paths's
+        # "shallow-container rescue" heuristic (_dir_has_raw_image) for
+        # every OTHER tmp_path-based walker test in the rest of the pytest
+        # session, promoting the shared basetemp itself as a detection
+        # root and causing those tests to sweep every sibling test's
+        # leftover files.
+        outside_dir = tmp_path.parent / f"outside-{uuid.uuid4().hex[:8]}"
+        outside_dir.mkdir()
+        outside = outside_dir / "outside.bin"
         outside.write_bytes(b"hsqs" + b"\x00" * MIN_SIZE)
         inside_link = tmp_path / "linked.bin"
         inside_link.symlink_to(outside)
