@@ -63,13 +63,41 @@ def register_ghidra_research_tools(registry: ToolRegistry) -> None:
     registry.register(
         name="list_ghidra_research_files",
         description=(
-            "List all Ghidra research files uploaded to the current project. "
+            "List Ghidra research files uploaded to the current project. "
             "These include .gzf Ghidra archive exports (with pre-existing analysis, "
             "renamed functions, custom types, and researcher comments) and .py/.java "
             "analysis scripts. Use this to discover what prior research is available "
-            "before using import_ghidra_archive or read_ghidra_script."
+            "before using import_ghidra_archive or read_ghidra_script. "
+            "Projects can hold hundreds of files: pass name_contains to find a "
+            "specific script by name regardless of list position, or use "
+            "limit/offset to page through the full set."
         ),
-        input_schema={"type": "object", "properties": {}},
+        input_schema={
+            "type": "object",
+            "properties": {
+                "name_contains": {
+                    "type": "string",
+                    "description": (
+                        "Case-insensitive substring filter over filename and "
+                        "description, applied to the FULL file set before paging. "
+                        "Use this to retrieve a specific script's ID even when the "
+                        "project has more files than one page can show."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max files to return after filtering (default 100).",
+                    "default": 100,
+                    "minimum": 1,
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Files to skip after filtering, for paging (default 0).",
+                    "default": 0,
+                    "minimum": 0,
+                },
+            },
+        },
         handler=_handle_list_ghidra_research_files,
     )
 
@@ -440,9 +468,33 @@ async def _handle_read_ghidra_log(input: dict, context: ToolContext) -> str:
 
 
 async def _handle_list_ghidra_research_files(input: dict, context: ToolContext) -> str:
+    name_contains = input.get("name_contains") or None
+
+    try:
+        limit = int(input.get("limit", 100))
+    except (TypeError, ValueError):
+        return "Error: 'limit' must be an integer."
+    if limit < 1:
+        return "Error: 'limit' must be >= 1."
+
+    try:
+        offset = int(input.get("offset", 0))
+    except (TypeError, ValueError):
+        return "Error: 'offset' must be an integer."
+    if offset < 0:
+        return "Error: 'offset' must be >= 0."
+
     svc = GhidraResearchService(context.db)
-    files = await svc.list_by_project(context.project_id)
+    total = await svc.count_by_project(context.project_id, name_contains=name_contains)
+    files = await svc.list_by_project(
+        context.project_id, limit=limit, offset=offset, name_contains=name_contains,
+    )
     if not files:
+        if name_contains:
+            return (
+                f"No Ghidra research files match name_contains={name_contains!r} "
+                "in this project."
+            )
         return (
             "No Ghidra research files have been uploaded to this project. "
             "Upload .gzf archives or .py/.java scripts via the Ghidra Research tab in the UI."
@@ -451,7 +503,11 @@ async def _handle_list_ghidra_research_files(input: dict, context: ToolContext) 
     archives = [f for f in files if f.file_category == "ghidra_archive"]
     scripts = [f for f in files if f.file_category != "ghidra_archive"]
 
-    lines = [f"Found {len(files)} Ghidra research file(s):\n"]
+    filter_note = f" matching name_contains={name_contains!r}" if name_contains else ""
+    lines = [
+        f"Found {len(files)} of {total} research file(s){filter_note} "
+        f"(offset={offset}, limit={limit}):\n"
+    ]
 
     if archives:
         lines.append("=== Ghidra Archives (.gzf) ===")
@@ -657,9 +713,18 @@ async def _handle_resolve_firmware_path(input: dict, context: ToolContext) -> st
     gzf_path: str | None = None
     logical_name: str | None = None
 
-    # Check if the input matches a GhidraResearchFile (by original_filename or storage_path)
+    # Check if the input matches a GhidraResearchFile (by original_filename or storage_path).
+    # This match runs over the COMPLETE research-file set: the default 100-row
+    # cap on list_by_project would make any file past the first 100 unmatchable
+    # here (both the direct-name match below and the .gzf-association loop in the
+    # else-branch). name_contains can't substitute — it filters original_filename
+    # only, missing the storage_path-based match and the gzf-association loop's
+    # basename-substring search — so size the fetch by the true count instead.
     svc = GhidraResearchService(context.db)
-    research_files = await svc.list_by_project(context.project_id)
+    total_research_files = await svc.count_by_project(context.project_id)
+    research_files = await svc.list_by_project(
+        context.project_id, limit=max(total_research_files, 1),
+    )
 
     matched_research: GhidraResearchFile | None = None
     for rf in research_files:
@@ -793,6 +858,7 @@ async def _run_gzf_process_mode(
     from app.services.ghidra_service import (  # noqa: PLC0415
         _cross_process_analysis_lock,
         _format_ghidra_diag,
+        _make_ghidra_preexec_fn,
         bump_gzf_project_rev_sync,
         clear_binary_analysis,
         gzf_project_paths,
@@ -834,6 +900,7 @@ async def _run_gzf_process_mode(
                         *import_cmd,
                         stdout=out_f,
                         stderr=err_f,
+                        preexec_fn=_make_ghidra_preexec_fn(),
                     )
                 except FileNotFoundError:
                     return f"Error: Ghidra not found at {analyze_headless}. Set GHIDRA_PATH in .env."
@@ -901,6 +968,7 @@ async def _run_gzf_process_mode(
                 *process_cmd,
                 stdout=out_f,
                 stderr=err_f,
+                preexec_fn=_make_ghidra_preexec_fn(),
             )
         except FileNotFoundError:
             return f"Error: Ghidra not found at {analyze_headless}. Set GHIDRA_PATH in .env."
@@ -1118,6 +1186,17 @@ async def _handle_run_ghidra_headless(input: dict, context: ToolContext) -> str:
         script_dest = os.path.join(_tmp_script_dir, record.original_filename)
         with open(script_dest, "w", encoding="utf-8") as fh:
             fh.write(content)
+        # mkdtemp() creates the dir 0o700 owned by the calling UID. In the
+        # worker/root container the GZF process-mode step drops to the 'wairz'
+        # user via _make_ghidra_preexec_fn (so persistent-project ownership
+        # stays consistent), and that de-privileged Ghidra process then cannot
+        # traverse the 0o700 root-owned temp dir — analyzeHeadless reports
+        # "Script not found: <tmp>/<name>.java" even though the file exists.
+        # Widen to world-traversable dir + world-readable script so the dropped
+        # user can read it. These are the operator's own research scripts in a
+        # short-lived per-run temp dir (rmtree'd in the finally), not secrets.
+        os.chmod(_tmp_script_dir, 0o755)
+        os.chmod(script_dest, 0o644)
         effective_script_name = record.original_filename
 
     if not effective_script_name:

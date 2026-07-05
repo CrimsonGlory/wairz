@@ -383,3 +383,279 @@ class TestRunGzfProcessModeKeepsPersistentProject:
 
             # The persistent project directory should still exist (kept for reuse)
             assert os.path.exists(rep_dir), "rep_dir should be retained for subsequent analysis"
+
+
+class TestListGhidraResearchFilesFilterAndPaging:
+    """The >100-file listing fix: name_contains filter + limit/offset paging +
+    true-total header (wairz_requested_changes 2026-06-29 casualty:
+    RomRegionBreakdown.java undiscoverable past the first 100 rows)."""
+
+    @staticmethod
+    def _mk_record(project_id: uuid.UUID, name: str) -> GhidraResearchFile:
+        return GhidraResearchFile(
+            id=uuid.uuid4(),
+            project_id=project_id,
+            original_filename=name,
+            file_category="script",
+            content_type="text/x-java-source",
+            file_size=1024,
+            sha256=uuid.uuid4().hex + uuid.uuid4().hex,
+            storage_path=f"/tmp/{name}",
+        )
+
+    @pytest.mark.asyncio
+    async def test_name_contains_finds_file_past_the_first_100(self):
+        async with make_live_db() as db:
+            project_id = uuid.uuid4()
+            db.add(Project(id=project_id, name="rtl8761bu", status="ready"))
+            await db.flush()
+
+            # 120 filler scripts, then the target — created LAST so it sorts
+            # first by created_at desc; but assert on the filter, not order.
+            for i in range(120):
+                db.add(self._mk_record(project_id, f"RenamePass{i}.java"))
+            db.add(self._mk_record(project_id, "RomRegionBreakdown.java"))
+            await db.commit()
+
+            context = ToolContext(
+                project_id=project_id, firmware_id=uuid.uuid4(),
+                extracted_path=None, db=db,
+            )
+
+            result = await gr._handle_list_ghidra_research_files(
+                {"name_contains": "RomRegionBreakdown"}, context,
+            )
+            assert "RomRegionBreakdown.java" in result
+            assert "Found 1 of 1 research file(s)" in result
+            # None of the filler scripts leaked in
+            assert "RenamePass" not in result
+
+    @pytest.mark.asyncio
+    async def test_name_contains_is_case_insensitive(self):
+        async with make_live_db() as db:
+            project_id = uuid.uuid4()
+            db.add(Project(id=project_id, name="ci", status="ready"))
+            await db.flush()
+            db.add(self._mk_record(project_id, "RomRegionBreakdown.java"))
+            await db.commit()
+
+            context = ToolContext(
+                project_id=project_id, firmware_id=uuid.uuid4(),
+                extracted_path=None, db=db,
+            )
+            result = await gr._handle_list_ghidra_research_files(
+                {"name_contains": "romregion"}, context,
+            )
+            assert "RomRegionBreakdown.java" in result
+
+    @pytest.mark.asyncio
+    async def test_no_arg_caps_at_100_but_reports_true_total(self):
+        async with make_live_db() as db:
+            project_id = uuid.uuid4()
+            db.add(Project(id=project_id, name="capped", status="ready"))
+            await db.flush()
+            for i in range(150):
+                db.add(self._mk_record(project_id, f"Script{i}.java"))
+            await db.commit()
+
+            context = ToolContext(
+                project_id=project_id, firmware_id=uuid.uuid4(),
+                extracted_path=None, db=db,
+            )
+            result = await gr._handle_list_ghidra_research_files({}, context)
+            assert "Found 100 of 150 research file(s)" in result
+            # Exactly 100 rendered list items ("- ...")
+            assert result.count("\n- ") == 100
+
+    @pytest.mark.asyncio
+    async def test_offset_pages_through_the_set(self):
+        async with make_live_db() as db:
+            project_id = uuid.uuid4()
+            db.add(Project(id=project_id, name="paged", status="ready"))
+            await db.flush()
+            for i in range(150):
+                db.add(self._mk_record(project_id, f"Script{i}.java"))
+            await db.commit()
+
+            context = ToolContext(
+                project_id=project_id, firmware_id=uuid.uuid4(),
+                extracted_path=None, db=db,
+            )
+            page2 = await gr._handle_list_ghidra_research_files(
+                {"offset": 100, "limit": 100}, context,
+            )
+            assert "Found 50 of 150 research file(s)" in page2
+            assert page2.count("\n- ") == 50
+
+    @pytest.mark.asyncio
+    async def test_name_contains_no_match_returns_clear_message(self):
+        async with make_live_db() as db:
+            project_id = uuid.uuid4()
+            db.add(Project(id=project_id, name="nomatch", status="ready"))
+            await db.flush()
+            db.add(self._mk_record(project_id, "Script0.java"))
+            await db.commit()
+
+            context = ToolContext(
+                project_id=project_id, firmware_id=uuid.uuid4(),
+                extracted_path=None, db=db,
+            )
+            result = await gr._handle_list_ghidra_research_files(
+                {"name_contains": "DoesNotExist"}, context,
+            )
+            assert "No Ghidra research files match" in result
+            assert "DoesNotExist" in result
+
+    @pytest.mark.asyncio
+    async def test_bad_limit_is_rejected(self):
+        context = ToolContext(
+            project_id=uuid.uuid4(), firmware_id=uuid.uuid4(),
+            extracted_path=None, db=AsyncMock(),
+        )
+        result = await gr._handle_list_ghidra_research_files({"limit": "abc"}, context)
+        assert "Error" in result and "limit" in result
+
+
+class TestScriptFileIdTempDirPermissions:
+    """script_file_id + use_saved_project=True writes the script to a mkdtemp
+    dir (0o700, owned by the caller). In the worker/root container the GZF
+    process step drops to the 'wairz' user, which then can't traverse the
+    root-owned temp dir — analyzeHeadless reported "Script not found:
+    /tmp/ghidra_script_*/<name>.java". The dir/script must be widened so the
+    de-privileged Ghidra process can read the script (wairz_requested_changes
+    2026-06-29 pre-existing bug)."""
+
+    @pytest.mark.asyncio
+    async def test_tmp_script_dir_and_file_are_world_readable(
+        self, tmp_path, _fake_settings,
+    ):
+        import os
+        import stat
+
+        async with make_live_db() as db:
+            project_id = uuid.uuid4()
+            db.add(Project(id=project_id, name="gzf-scriptid", status="ready"))
+            await db.flush()
+
+            gzf_path = tmp_path / "saved.gzf"
+            gzf_path.write_bytes(b"PK\x03\x04")
+            db.add(GhidraResearchFile(
+                id=uuid.uuid4(), project_id=project_id,
+                original_filename="saved.gzf", file_category="ghidra_archive",
+                content_type="application/octet-stream", file_size=4,
+                sha256="a" * 64, storage_path=str(gzf_path),
+            ))
+
+            script_path = tmp_path / "RomRegionBreakdown.java"
+            script_path.write_text("// analysis script\n")
+            script_id = uuid.uuid4()
+            db.add(GhidraResearchFile(
+                id=script_id, project_id=project_id,
+                original_filename="RomRegionBreakdown.java", file_category="script",
+                content_type="text/x-java-source", file_size=20,
+                sha256="b" * 64, storage_path=str(script_path),
+            ))
+            await db.commit()
+
+            context = ToolContext(
+                project_id=project_id, firmware_id=uuid.uuid4(),
+                extracted_path=str(tmp_path / "empty"), db=db,
+            )
+            (tmp_path / "empty").mkdir()
+
+            captured: dict = {}
+
+            async def fake_run_gzf_process_mode(
+                gzf_path_arg, script_name, script_args, tmp_script_dir,
+                timeout, project_id_arg, context_arg,
+            ):
+                # Inspect the temp dir + script at the moment the process step
+                # would run (before the finally-block rmtree).
+                dest = os.path.join(tmp_script_dir, script_name)
+                captured["dir_mode"] = stat.S_IMODE(os.stat(tmp_script_dir).st_mode)
+                captured["file_mode"] = stat.S_IMODE(os.stat(dest).st_mode)
+                captured["script_name"] = script_name
+                return "OK"
+
+            with patch.object(gr, "_run_gzf_process_mode", new=fake_run_gzf_process_mode):
+                result = await gr._handle_run_ghidra_headless(
+                    {
+                        "binary_path": "saved.gzf",
+                        "script_file_id": str(script_id),
+                        "use_saved_project": True,
+                    },
+                    context,
+                )
+
+            assert result == "OK"
+            assert captured["script_name"] == "RomRegionBreakdown.java"
+            # Dir must be traversable (o+x) and script readable (o+r) by the
+            # dropped-to 'wairz' user.
+            assert captured["dir_mode"] & stat.S_IXOTH, "temp dir not world-traversable"
+            assert captured["dir_mode"] & stat.S_IROTH, "temp dir not world-readable"
+            assert captured["file_mode"] & stat.S_IROTH, "script not world-readable"
+
+
+class TestResolveFirmwarePathBeyond100:
+    """_handle_resolve_firmware_path matches an input against the FULL research
+    file set. The default 100-row cap on list_by_project would make a .gzf past
+    the first 100 unmatchable — the same >100 casualty class as the listing
+    tool. Fetch is now sized by the true count."""
+
+    @pytest.mark.asyncio
+    async def test_gzf_past_first_100_is_matched(self, tmp_path, _fake_settings):
+        from datetime import datetime, timedelta, UTC
+
+        async with make_live_db() as db:
+            project_id = uuid.uuid4()
+            db.add(Project(id=project_id, name="resolve-101", status="ready"))
+            await db.flush()
+
+            # Bury the target .gzf at position 131 in created_at-desc order by
+            # giving it the OLDEST explicit timestamp and the 130 fillers newer
+            # ones. Explicit timestamps make the ordering deterministic — the
+            # server_default func.now() ties at second-resolution for rows in
+            # one transaction, which would make "position >100" flaky. Under the
+            # old 100-row cap the target is off the fetched page and unmatchable.
+            base = datetime(2026, 1, 1, tzinfo=UTC)
+            gzf_path = tmp_path / "target.gzf"
+            gzf_path.write_bytes(b"PK\x03\x04")
+            db.add(GhidraResearchFile(
+                id=uuid.uuid4(), project_id=project_id,
+                original_filename="target.gzf", file_category="ghidra_archive",
+                content_type="application/octet-stream", file_size=4,
+                sha256="c" * 64, storage_path=str(gzf_path),
+                created_at=base,
+            ))
+            for i in range(130):
+                db.add(GhidraResearchFile(
+                    id=uuid.uuid4(), project_id=project_id,
+                    original_filename=f"RenamePass{i}.java", file_category="script",
+                    content_type="text/x-java-source", file_size=10,
+                    sha256=uuid.uuid4().hex + uuid.uuid4().hex,
+                    storage_path=f"/tmp/RenamePass{i}.java",
+                    created_at=base + timedelta(seconds=i + 1),
+                ))
+            await db.commit()
+
+            context = ToolContext(
+                project_id=project_id, firmware_id=uuid.uuid4(),
+                extracted_path=str(tmp_path / "empty"), db=db,
+            )
+            (tmp_path / "empty").mkdir()
+
+            # Stub the gzf project-dir derivation so we don't need real Ghidra
+            # (real sha256 over the 4-byte file is fine; only the project-path
+            # resolution needs settings the fake doesn't provide).
+            with patch(
+                "app.services.ghidra_service.gzf_project_paths",
+                return_value=(str(tmp_path / "proj"), "gzf_project", str(tmp_path / "proj" / "gzf_project.rep")),
+            ):
+                result = await gr._handle_resolve_firmware_path(
+                    {"binary_path": "target.gzf"}, context,
+                )
+
+            # The target .gzf (position >100) must be recognised, not reported
+            # as an unresolvable path.
+            assert "Cannot resolve" not in result
+            assert "target.gzf" in result

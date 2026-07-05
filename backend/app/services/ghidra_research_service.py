@@ -9,7 +9,7 @@ from datetime import datetime, UTC
 
 import aiofiles
 from fastapi import UploadFile
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -89,17 +89,61 @@ class GhidraResearchService:
         await self.db.flush()
         return record
 
+    @staticmethod
+    def _name_filter(name_contains: str | None):
+        """Case-insensitive substring filter over filename OR description.
+
+        Returns a SQLAlchemy predicate, or None when no filter is requested.
+        """
+        if not name_contains:
+            return None
+        pattern = f"%{name_contains}%"
+        return or_(
+            GhidraResearchFile.original_filename.ilike(pattern),
+            GhidraResearchFile.description.ilike(pattern),
+        )
+
     async def list_by_project(
-        self, project_id: uuid.UUID, *, limit: int = 100, offset: int = 0,
+        self,
+        project_id: uuid.UUID,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+        name_contains: str | None = None,
     ) -> list[GhidraResearchFile]:
-        result = await self.db.execute(
+        stmt = (
             select(GhidraResearchFile)
             .where(GhidraResearchFile.project_id == project_id)
-            .order_by(GhidraResearchFile.created_at.desc())
+        )
+        name_filter = self._name_filter(name_contains)
+        if name_filter is not None:
+            stmt = stmt.where(name_filter)
+        stmt = (
+            stmt.order_by(GhidraResearchFile.created_at.desc())
             .limit(limit)
             .offset(offset)
         )
+        result = await self.db.execute(stmt)
         return list(result.scalars().all())
+
+    async def count_by_project(
+        self, project_id: uuid.UUID, *, name_contains: str | None = None,
+    ) -> int:
+        """Total research files for a project after applying the name filter.
+
+        Used by the MCP listing tool to report the true total so callers can
+        tell when a page is truncated.
+        """
+        stmt = (
+            select(func.count())
+            .select_from(GhidraResearchFile)
+            .where(GhidraResearchFile.project_id == project_id)
+        )
+        name_filter = self._name_filter(name_contains)
+        if name_filter is not None:
+            stmt = stmt.where(name_filter)
+        result = await self.db.execute(stmt)
+        return int(result.scalar_one())
 
     async def get(self, file_id: uuid.UUID) -> GhidraResearchFile | None:
         result = await self.db.execute(
@@ -172,10 +216,14 @@ class GhidraResearchService:
         which turns it into a clean error string for the MCP client.
         """
         basename = os.path.basename(name_or_path)
-        records = await self.list_by_project(project_id)
+        result = await self.db.execute(
+            select(GhidraResearchFile).where(
+                GhidraResearchFile.project_id == project_id,
+                GhidraResearchFile.original_filename.ilike("%.gzf"),
+            )
+        )
+        records = list(result.scalars().all())
         for record in records:
-            if os.path.splitext(record.original_filename)[1].lower() != ".gzf":
-                continue
             if (
                 record.original_filename == basename
                 or record.original_filename == name_or_path
