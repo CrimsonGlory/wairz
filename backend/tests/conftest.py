@@ -1,10 +1,62 @@
 """Shared test fixtures for the Wairz backend test suite."""
 
+import asyncio
 from pathlib import Path
 from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+async def _cancel_dangling_background_tasks():
+    """Cancel any asyncio task a test spawns and doesn't clean up itself.
+
+    Router tests that exercise a Rule #33 202+polling endpoint without
+    patching out the fire-and-forget ``asyncio.create_task(...)`` call
+    (e.g. ``_run_unpack_background``) leave a real task running past the
+    end of the test. pytest-asyncio gives every test its own event loop,
+    so the dangling task never actually completes — it sits until the
+    garbage collector finalizes it (producing a "coroutine was never
+    awaited" RuntimeWarning attributed to whatever LATER test happens to
+    be running at GC time) while still holding its AsyncSession/asyncpg
+    connection in a not-quite-finished state. A subsequent test that
+    acquires the same pooled connection can then hit
+    "InterfaceError: cannot perform operation: another operation is in
+    progress" — a flaky, test-order-dependent failure with no relation
+    to the test it's attributed to. Cancelling leftover tasks at the end
+    of every test starves this at the source.
+    """
+    before = asyncio.all_tasks()
+    yield
+    current = asyncio.current_task()
+    leftover = [t for t in asyncio.all_tasks() - before if t is not current and not t.done()]
+    for t in leftover:
+        t.cancel()
+    for t in leftover:
+        try:
+            await t
+        except (asyncio.CancelledError, Exception):
+            pass
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _allow_httpx_test_host_in_origin_guard():
+    """Let httpx's ASGITransport default Host ("test") through origin_host_guard.
+
+    httpx.AsyncClient(transport=ASGITransport(app=app)) defaults to
+    base_url="http://test" unless a test overrides it, so every router
+    test's request carries Host: test. app.main's origin_host_guard
+    middleware 403s any Host not in ALLOWED_HOSTS, which doesn't include
+    "test" (deliberately — that allowlist guards the real deployed
+    backend against DNS-rebinding/CSRF, and "test" has no place in a
+    production allowlist). Widening it here, once, for the test session
+    is cheaper and less error-prone than adding an explicit Host header
+    override to every router test file.
+    """
+    from app.main import ALLOWED_HOSTS
+
+    ALLOWED_HOSTS.add("test")
 
 
 @pytest.fixture

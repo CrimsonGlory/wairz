@@ -109,6 +109,14 @@ def _build_capability_tables() -> tuple[
     the FIRST capability wins (deterministic via catalog's sorted-by-
     format_id snapshot iteration). UNKNOWN routes to NONE.
 
+    The catalog's single ``detection.always_matches: true`` manifest
+    (``linux_blob_fallback.yaml``) is processed LAST — it's the catch-all
+    tried only when no specific format matches at detection time, so its
+    (deliberately conservative) capability must not pre-empt a specific
+    format's entry just because its filename happens to sort first
+    alphabetically (``linux_blob_fallback.yaml`` < ``linux_cramfs.yaml``).
+    It still fills in any ``detected_format`` no specific manifest covers.
+
     Rule #46 META-CANARY target — the corresponding test in
     :file:`test_file_format_detected_alignment.py` asserts the dict is
     derived from catalog state, not a hardcoded constant.
@@ -120,7 +128,11 @@ def _build_capability_tables() -> tuple[
     except Exception:
         logger.exception("format_detection: catalog load failed; falling back")
         return _LEGACY_CAPABILITY_FALLBACK, _LEGACY_NOTES_FALLBACK
-    for manifest in catalog.values():
+    manifests = sorted(
+        catalog.values(),
+        key=lambda m: bool(m.detection.always_matches),
+    )
+    for manifest in manifests:
         if manifest.pre_upload is None:
             continue
         try:
@@ -128,8 +140,13 @@ def _build_capability_tables() -> tuple[
             ec = ExtractionCapability(manifest.pre_upload.extraction_capability)
         except ValueError:
             continue
-        if df not in cap:
-            cap[df] = ec
+        # Notes are tied to whichever manifest's capability WON for this
+        # detected_format — a later manifest's banner_note must not attach
+        # itself to an earlier (different) manifest's winning capability
+        # value, or a 'full' format could surface a stale 'partial' note.
+        if df in cap:
+            continue
+        cap[df] = ec
         if manifest.pre_upload.banner_note and df not in notes:
             notes[df] = manifest.pre_upload.banner_note
     # Guarantee UNKNOWN is mapped (always NONE — the catch-all).

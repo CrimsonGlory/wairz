@@ -388,6 +388,7 @@ def test_no_new_direct_extracted_path_reads():
         "fuzzing_service.py",
         "device_service.py",
         "arq_worker.py",
+        "carving_service.py",  # mounts a single firmware's extracted tree read-only
         # Export is a single-archive bundling step, not a detection walk
         "export_service.py",
     }

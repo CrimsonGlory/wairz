@@ -399,7 +399,6 @@ class TestSymlinks:
         assert len(link_entries) == 1
         assert link_entries[0].type == "directory"
 
-from app.services.file_service import FileService
 
 
 def _make_dirs(base: Path, layout: dict) -> None:

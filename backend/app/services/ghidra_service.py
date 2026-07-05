@@ -21,10 +21,12 @@ import json
 import logging
 import os
 import pathlib
+import pwd
 import shutil
 import tempfile
 import time
 import uuid
+from collections.abc import Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -120,6 +122,31 @@ def _format_ghidra_diag(stdout_text: str, stderr_text: str, max_lines: int = 15)
     return "\n".join(f"  {ln}" for ln in deduped[-max_lines:])
 
 
+def _make_ghidra_preexec_fn() -> Callable[[], None] | None:
+    """Return a ``preexec_fn`` that drops a spawned Ghidra child to 'wairz'.
+
+    Standard deployment already runs as the unprivileged 'wairz' user
+    (entrypoint.sh execs uvicorn via ``su -s /bin/sh wairz``), so this is
+    a no-op (``None``) there — there is no privilege to drop, and
+    ``os.setuid()`` from a non-root process raises ``PermissionError``.
+    Only meaningful for a hypothetical root-context invocation, where it
+    keeps GZF process-mode project ownership consistently 'wairz' rather
+    than root.
+    """
+    if os.geteuid() != 0:
+        return None
+    try:
+        pw = pwd.getpwnam("wairz")
+    except KeyError:
+        return None
+
+    def _drop_to_wairz() -> None:
+        os.setgid(pw.pw_gid)
+        os.setuid(pw.pw_uid)
+
+    return _drop_to_wairz
+
+
 async def resolve_binary_import_params(
     binary_path: str,
     firmware_id: uuid.UUID,
@@ -149,8 +176,9 @@ async def resolve_binary_import_params(
     if _is_known_format(magic):
         return None
 
-    from app.models.firmware import Firmware as _FirmwareModel  # noqa: PLC0415
     from sqlalchemy import select as _select
+
+    from app.models.firmware import Firmware as _FirmwareModel  # noqa: PLC0415
     async with async_session_factory() as hint_db:
         row = await hint_db.execute(
             _select(_FirmwareModel.rtos_flavor).where(_FirmwareModel.id == firmware_id)
@@ -581,7 +609,7 @@ async def run_ghidra_subprocess(
     binary_path: str,
     script_name: str,
     script_args: list[str] | None = None,
-    timeout: int | None = None,
+    timeout: int | None = None,  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
     ghidra_import_params: dict | None = None,
     firmware_id: uuid.UUID | None = None,
     binary_sha256: str | None = None,
@@ -662,7 +690,7 @@ async def run_ghidra_subprocess(
                 process.wait(),
                 timeout=effective_timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             process.kill()
             await process.wait()
             raise TimeoutError(
@@ -823,7 +851,7 @@ async def _run_full_analysis(
     firmware_id: uuid.UUID,
     binary_sha256: str,
     db: AsyncSession,
-    timeout: int | None = None,
+    timeout: int | None = None,  # noqa: ASYNC109 -- caller-supplied timeout per Rule #29 contract
     ghidra_import_params: dict | None = None,
     is_gzf_process_mode: bool = False,
 ) -> None:
@@ -1029,6 +1057,7 @@ async def clear_binary_analysis(
     The caller owns commit().
     """
     from sqlalchemy import delete as _delete  # noqa: PLC0415
+
     from app.models.analysis_cache import AnalysisCache as _AC  # noqa: PLC0415
     await db.execute(
         _delete(_AC).where(
@@ -1564,8 +1593,8 @@ def _parse_batch_decompile_output(raw_output: str) -> dict[str, str | None]:
                 lines = code.split("\n")
                 # Skip metadata comment lines at the start
                 skip = 0
-                for i, l in enumerate(lines):
-                    if l.startswith("//"):
+                for i, line_text in enumerate(lines):
+                    if line_text.startswith("//"):
                         skip = i + 1
                     else:
                         break

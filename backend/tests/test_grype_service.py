@@ -727,7 +727,12 @@ class TestScanWithGrypeReplaces:
                     grype_mod.asyncio, "create_subprocess_exec",
                     side_effect=fake_create,
                 ):
-                    result = await scan_with_grype(firmware.id, pid, db)
+                    # force_rescan=True: a stale vuln already persisted for
+                    # this firmware would otherwise hit the force_rescan=False
+                    # cache short-circuit (Session 2a Fix #6) and return the
+                    # existing counts without running the delete+insert this
+                    # test verifies.
+                    result = await scan_with_grype(firmware.id, pid, db, force_rescan=True)
             await db.commit()
 
             # Stale CVE-1900-0000 must be GONE; only CVE-2024-NEW1 remains.

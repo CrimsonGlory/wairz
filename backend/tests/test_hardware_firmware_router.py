@@ -341,7 +341,7 @@ class TestListPeSignaturesValidation:
 
         resp = await client.get(
             f"/api/v1/projects/{project_id}/hardware-firmware/pe-signatures",
-            params={"limit": 1000},
+            params={"limit": 1001},
         )
         assert resp.status_code == 400
         assert "limit" in resp.json()["detail"]
@@ -456,7 +456,7 @@ class TestPeSignaturesLiveCanary:
             body = resp.json()
             assert body["total"] == 1
             assert body["offset"] == 0
-            assert body["limit"] == 50
+            assert body["limit"] == 100
             assert len(body["signatures"]) == 1
 
             row = body["signatures"][0]

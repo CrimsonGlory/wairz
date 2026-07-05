@@ -119,6 +119,13 @@ class TestKernelFromKoVermagic:
         assert kernels[0]["detection_source"] == "kernel_modules"
 
     def test_no_ko_no_kernel(self, tmp_path: Path):
-        _make_dirs(tmp_path, {"bin": {}, "lib": {}})
-        components = SbomService(str(tmp_path)).generate_sbom()
+        # _scan_from_vermagic also scans sibling dirs of extracted_root (for
+        # Android partition splits); pytest's tmp_path fixture shares a common
+        # parent across every test in the session, so using tmp_path directly
+        # as extracted_root risks picking up a sibling test's .ko fixture
+        # (e.g. test_extracts_kernel_version_from_ko's exfat.ko). Nest one
+        # level deeper so this test has no siblings to leak from.
+        root = tmp_path / "extracted"
+        _make_dirs(root, {"bin": {}, "lib": {}})
+        components = SbomService(str(root)).generate_sbom()
         assert not any(c["name"] == "linux-kernel" for c in components)

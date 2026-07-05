@@ -18,12 +18,15 @@ from app.mcp_server import _select_firmware
 class _FakeFirmware:
     """Minimal stand-in for the SQLAlchemy Firmware model.
 
-    `_select_firmware` only reads .id, .extracted_path, and .created_at, so a
+    `_select_firmware` reads .id, .extracted_path, .created_at, and (via
+    `_is_loadable`'s RTOS branch) .firmware_kind + .storage_path, so a
     dataclass avoids pulling in the async ORM stack just for these tests.
     """
     id: uuid.UUID
     extracted_path: str | None
     created_at: datetime
+    firmware_kind: str = "linux"
+    storage_path: str | None = None
 
 
 def _fw(idx: int, *, extracted: bool = True, offset_seconds: int = 0) -> _FakeFirmware:
@@ -60,7 +63,7 @@ class TestSelectFirmware:
 
     def test_no_unpacked_raises(self):
         firmwares = [_fw(i, extracted=False, offset_seconds=i) for i in range(1, 4)]
-        with pytest.raises(ValueError, match="has been unpacked"):
+        with pytest.raises(ValueError, match="ready for analysis"):
             _select_firmware(firmwares)
 
     def test_explicit_id_returns_that_firmware(self):
@@ -81,5 +84,5 @@ class TestSelectFirmware:
         has no extracted_path and fail confusingly on the first tool call.
         """
         fw = _fw(1, extracted=False)
-        with pytest.raises(ValueError, match="has not been unpacked"):
+        with pytest.raises(ValueError, match="has not finished unpacking"):
             _select_firmware([fw], firmware_id=fw.id)

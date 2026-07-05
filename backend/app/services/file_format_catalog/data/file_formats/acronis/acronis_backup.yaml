@@ -35,7 +35,12 @@ output:
   confidence: medium
 pre_upload:
   detected_format: acronis_backup
-  extraction_capability: partial
+  # The automated BYOB side-container extractor (commit 767d0d6) was
+  # reverted (9428b5fd) — Acronis Cyber Protection Agent activation is
+  # non-negotiable and crashes tibxread without it. wairz currently has
+  # NO working extractor; the banner_note below is a fully-manual,
+  # outside-wairz workaround, not a partial automated capability.
+  extraction_capability: none
   banner_note: |
     Acronis .tibx / .tib backup detected. The format is proprietary;
     extract via Acronis Cyber Protection Agent for Linux (30-day

@@ -125,6 +125,7 @@ class TestListProjects:
         project.status = "ready"
         project.created_at = datetime.now(UTC)
         project.updated_at = datetime.now(UTC)
+        project.firmware = []
 
         async def fake_paginate(db, stmt, offset, limit):  # noqa: ARG001
             return [project], 1

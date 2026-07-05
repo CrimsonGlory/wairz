@@ -257,10 +257,29 @@ def _classify_via_catalog(path: str, magic: bytes, size: int) -> Classification 
     cat = get_default_catalog().get_catalog().get(result.format_id)
     if cat is None or cat.output is None:
         return None
+    category = cat.output.classifier_category
+    # mtk_lk.yaml's by_partition_name dispatch only redirects to a
+    # DIFFERENT format_id for partitions with a role-specific parser
+    # (atf/gz/scp/sspm/mcupm/dpm/spmfw); a partition name outside that
+    # set (cam_vpu1, md1rom, etc.) falls through to the manifest's own
+    # bootloader/mtk_lk output. Refine just the category via the embedded
+    # LK header's partition-name field + mediatek_gfh's lookup table —
+    # this mirrors the pre-P3.1.h classifier behaviour (commit 9e1de6cd)
+    # for partitions that don't (yet) have a dedicated role parser.
+    if result.format_id == "mtk_lk":
+        from app.services.hardware_firmware.parsers.mediatek_gfh import (
+            lookup_partition,
+            parse_lk_header,
+        )
+        hdr = parse_lk_header(magic)
+        if hdr is not None and hdr.name:
+            dispatch = lookup_partition(hdr.name)
+            if dispatch is not None:
+                category, _component = dispatch
     return _classification_from_catalog(
         catalog_format_id=result.format_id,
         catalog_vendor=cat.output.classifier_vendor,
-        catalog_category=cat.output.classifier_category,
+        catalog_category=category,
         catalog_confidence=cat.output.confidence,
         catalog_product=cat.output.classifier_product,
     )

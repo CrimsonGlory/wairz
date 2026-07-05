@@ -445,9 +445,11 @@ class TestListVulnerabilities:
         vuln = _make_vulnerability(comp.id, firmware.id)
 
         # paginate_query_rows yields rows shaped per the SELECT in the router:
-        # (SbomVulnerability, SbomComponent.name, SbomComponent.version).
+        # (SbomVulnerability, SbomComponent.name, SbomComponent.version,
+        # HardwareFirmwareBlob.blob_path). blob_path is None here since this
+        # vuln is SBOM-component-linked, not hardware-firmware-blob-linked.
         async def fake_paginate(db, stmt, offset, limit):  # noqa: ARG001
-            return [(vuln, comp.name, comp.version)], 1
+            return [(vuln, comp.name, comp.version, None)], 1
 
         monkeypatch.setattr(
             "app.routers.sbom.paginate_query_rows", fake_paginate,

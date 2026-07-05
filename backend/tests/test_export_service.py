@@ -21,7 +21,7 @@ from app.services.export_service import (
     ExportService,
     _dumps,
     _json_serial,
-    _write_file_to_zip,
+    _safe_write_file,
 )
 
 # ---------------------------------------------------------------------------
@@ -63,7 +63,7 @@ class TestJsonSerial:
 
 
 # ---------------------------------------------------------------------------
-# _write_file_to_zip — timestamp clamping
+# _safe_write_file — timestamp clamping
 # ---------------------------------------------------------------------------
 
 class TestWriteFileToZip:
@@ -73,7 +73,7 @@ class TestWriteFileToZip:
 
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
-            _write_file_to_zip(zf, str(f), "test.txt")
+            _safe_write_file(zf, str(f), "test.txt")
 
         buf.seek(0)
         with zipfile.ZipFile(buf, "r") as zf:
@@ -90,7 +90,7 @@ class TestWriteFileToZip:
 
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
-            _write_file_to_zip(zf, str(f), "recent.txt")
+            _safe_write_file(zf, str(f), "recent.txt")
 
         buf.seek(0)
         with zipfile.ZipFile(buf, "r") as zf:
@@ -104,7 +104,7 @@ class TestWriteFileToZip:
 
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
-            _write_file_to_zip(zf, str(f), "binary.bin")
+            _safe_write_file(zf, str(f), "binary.bin")
 
         buf.seek(0)
         with zipfile.ZipFile(buf, "r") as zf:
@@ -139,6 +139,9 @@ def _make_mock_firmware(project_id, tmp_path=None):
     fw.kernel_path = "/vmlinux"
     fw.version_label = "v1.0"
     fw.unpack_log = "Success"
+    fw.firmware_kind = "linux"
+    fw.firmware_kind_source = "detected"
+    fw.rtos_flavor = None
     fw.created_at = datetime(2024, 1, 1, tzinfo=UTC)
     if tmp_path:
         storage = tmp_path / "firmware.bin"

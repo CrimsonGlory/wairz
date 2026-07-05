@@ -345,12 +345,17 @@ class FileService:
         # Try rootfs first for paths that look like they belong there
         # (e.g. /etc/main.conf from a security finding or SBOM component).
         # This allows rootfs-relative paths to work without the /rootfs/ prefix.
-        try:
-            resolved = validate_path(self.extracted_root, path)
-            if os.path.exists(resolved):
-                return resolved
-        except Exception:
-            pass
+        # Skipped for the bare root ("") — validate_path(extracted_root, "/")
+        # trivially exists, which would silently hide extraction_dir-level
+        # siblings (e.g. search_files("*", "/") walking only the rootfs and
+        # never seeing files like /ppstool that live beside it).
+        if clean:
+            try:
+                resolved = validate_path(self.extracted_root, path)
+                if os.path.exists(resolved):
+                    return resolved
+            except Exception:
+                pass
 
         # Everything else → extraction_dir/...
         return validate_path(self.extraction_dir, path)
@@ -817,9 +822,14 @@ class FileService:
         seen: set[str] = set()
         truncated = False
 
+        pattern_lower = pattern.lower()
         for root, dirs, files in safe_walk(full_path):
             for name in files + dirs:
-                if not fnmatch.fnmatch(name, pattern):
+                # fnmatch.fnmatch() case-folds via os.path.normcase, which is
+                # a no-op on POSIX — matching would be case-sensitive on the
+                # Linux containers this runs in. Fold explicitly so search is
+                # case-insensitive on every platform.
+                if not fnmatch.fnmatch(name.lower(), pattern_lower):
                     continue
                 abs_path = os.path.join(root, name)
                 vpath = self.to_virtual_path(abs_path)
