@@ -114,6 +114,7 @@ wairz/
    ```
    The MCP server filters `list_tools` by the active firmware's kind and rejects mismatched `call_tool` invocations as defense in depth. `switch_project` emits `notifications/tools/list_changed` so clients re-fetch automatically.
 4. If it's a new category file, import and call `register_<category>_tools(registry)` in `backend/app/ai/__init__.py`.
+5. **Update `README.md` in the same commit.** Bump the total tool count and the per-category count in the tool table, and add the new tool name to its category's tool list if the README enumerates tools individually. Recompute the total via `find backend/app/ai/tools -name '*.py' | xargs grep -c 'registry\.register' | awk -F: '{s+=$2}END{print s}'` (same command used for the count in this file's Tool Categories table below) rather than incrementing by hand — Rule #31 width-canary discipline applies to tool counts too. If the category table in this CLAUDE.md file is also out of date, update it in the same commit (Rule #21 companion-file sync).
 
 ### Adding a New REST Endpoint
 
