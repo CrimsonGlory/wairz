@@ -74,15 +74,20 @@ jobs:
       - name: Install test runner
         run: |
           docker compose exec -T backend /app/.venv/bin/pip install --quiet \
-            pytest pytest-asyncio
+            pytest pytest-asyncio pytest-cov
 
       - name: Run pytest
         run: |
           docker compose exec -T -w /app \
             -e PYTHONPATH=/app \
             backend /app/.venv/bin/python -m pytest tests/ \
-              -v --tb=short --maxfail=5
+              -v --tb=short --maxfail=5 --cov=app --cov-report=
         timeout-minutes: 20
+
+      - name: Coverage report
+        run: |
+          docker compose exec -T -w /app \
+            backend /app/.venv/bin/python -m coverage report -m
 
       - name: Upload backend logs on failure
         if: failure()
@@ -159,15 +164,20 @@ jobs:
       - name: Install test runner
         run: |
           docker compose exec -T backend /app/.venv/bin/pip install --quiet \
-            pytest pytest-asyncio
+            pytest pytest-asyncio pytest-cov
 
       - name: Run pytest (nightly must-complete; no maxfail to surface every regression)
         run: |
           docker compose exec -T -w /app \
             -e PYTHONPATH=/app \
             backend /app/.venv/bin/python -m pytest tests/ \
-              -v --tb=short
+              -v --tb=short --cov=app --cov-report=
         timeout-minutes: 30
+
+      - name: Coverage report
+        run: |
+          docker compose exec -T -w /app \
+            backend /app/.venv/bin/python -m coverage report -m
 
       - name: Upload backend logs on failure
         if: failure()
