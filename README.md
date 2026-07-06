@@ -68,6 +68,15 @@ Optional:
 - [Docker](https://docs.docker.com/get-docker/) and Docker Compose
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) (for local development only)
 
+## About This Fork
+
+This repository is a fork of [digitalandrew/wairz](https://github.com/digitalandrew/wairz) with a large number of additional commits on top of upstream:
+
+- **eastmadc** — a broad expansion of the analysis "walker" pipeline and corresponding MCP tools: new forensic and security artifact parsers (kernel config extraction, network exposure, Android posture, Windows/registry/persistence artifacts, ICS protocol detection, and more), each with its own MCP tools, migrations, and cross-firmware lookup support.
+- **CrimsonGlory** — mainly focused on making the Ghidra MCP integration more flexible: support for raw MIPS16E binaries, a `run_ghidra_headless` tool, persistent Ghidra research files/scripts/logs across sessions, plus assorted CI, lint, and dev-server (CORS/host-check) fixes.
+
+See the git history for the full list of changes relative to upstream.
+
 ## Public Beta
 
 WAIRZ is currently in **public beta**. You may encounter bugs or rough edges. If you run into any issues, please [open an issue on GitHub](https://github.com/digitalandrew/wairz/issues) or reach out at andrew@digitalandrew.io.
