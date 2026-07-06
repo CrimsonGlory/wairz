@@ -361,12 +361,20 @@ async def _extract_firmware_from_7z(archive_path: str, output_dir: str) -> str |
         if largest_path is None:
             return None
 
+        output_dir_real = os.path.realpath(output_dir)
         target_name = _sanitize_filename(os.path.basename(largest_path))
         target_path = os.path.join(output_dir, target_name)
+        target_path_real = os.path.realpath(target_path)
+        if os.path.commonpath([output_dir_real, target_path_real]) != output_dir_real:
+            raise RuntimeError("Refusing to write extracted file outside output directory")
+
         # Avoid colliding with the original archive still in output_dir.
         if os.path.exists(target_path):  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
             base, ext = os.path.splitext(target_name)
             target_path = os.path.join(output_dir, f"{base}_extracted{ext}")
+            target_path_real = os.path.realpath(target_path)
+            if os.path.commonpath([output_dir_real, target_path_real]) != output_dir_real:
+                raise RuntimeError("Refusing to write extracted file outside output directory")
         shutil.move(largest_path, target_path)
         return target_path
     finally:
