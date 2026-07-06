@@ -6,7 +6,7 @@
 
 Upload firmware images, unpack them, explore the filesystem, analyze binaries, and conduct security assessments — all powered by AI analysis via [Model Context Protocol (MCP)](https://modelcontextprotocol.io/).
 
-Connect any MCP-compatible AI agent to Wairz's 172 analysis tools — [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Claude Desktop](https://claude.ai/download), [OpenCode](https://opencode.ai/), [Codex](https://github.com/openai/codex), [Cursor](https://cursor.com/), [VS Code + Copilot](https://code.visualstudio.com/docs/copilot/), [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Windsurf](https://windsurf.com/), and more.
+Connect any MCP-compatible AI agent to Wairz's 383 analysis tools — [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Claude Desktop](https://claude.ai/download), [OpenCode](https://opencode.ai/), [Codex](https://github.com/openai/codex), [Cursor](https://cursor.com/), [VS Code + Copilot](https://code.visualstudio.com/docs/copilot/), [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Windsurf](https://windsurf.com/), and more.
 
 [Watch the demo video](https://www.youtube.com/watch?v=gDLhtMFMmMM)
 
@@ -30,13 +30,20 @@ Connect any MCP-compatible AI agent to Wairz's 172 analysis tools — [Claude Co
 - **Firmware Comparison** — Diff filesystem trees, binaries, and decompiled functions across firmware versions
 - **RTOS & Bare-Metal Support** — Detection of FreeRTOS, VxWorks, Zephyr, ThreadX and companion components (lwIP, FatFs, etc.)
 - **UEFI Firmware Support** — UEFIExtract for firmware volumes, module listing, NVRAM variable extraction, and PE32+ scanning
-- **Android Firmware** — Multi-phase APK security scanning: 18 manifest security checks (MobSF-equivalent), DEX bytecode pattern detection (~30 insecure API patterns), jadx decompilation + mobsfscan SAST (43 rules), with firmware-aware severity adjustment for system/priv-app APKs. Includes batch scanning of all APKs, decompiled source viewer, permission analysis, and signature verification
+- **Android Firmware** — Multi-phase APK security scanning: 18 manifest security checks (MobSF-equivalent), DEX bytecode pattern detection (~30 insecure API patterns), jadx decompilation + mobsfscan SAST (43 rules), with firmware-aware severity adjustment for system/priv-app APKs. Includes batch scanning of all APKs, decompiled source viewer, permission analysis, signature verification, and Android device-posture auditing
 - **Device Acquisition** — Pull firmware directly from ADB-connected Android devices via a host-side bridge
 - **Firmware Update Detection** — Identify SWUpdate, RAUC, Mender, opkg, U-Boot, and custom update mechanisms with security gap analysis
 - **CRA Compliance** — EU Cyber Resilience Act Annex I assessment (20 requirements), auto-populate from existing findings, Article 14 notification export
 - **Live Device UART** — Connect to physical devices via a host-side serial bridge for interactive console access
-- **AI Analysis via MCP** — 172 analysis tools (across 21 categories) exposed to any MCP-compatible AI agent for autonomous security research
-- **Findings & Reports** — Record security findings with severity ratings and evidence, export as Markdown, with full assessment orchestration
+- **Windows Forensic Artifacts** — Registry hives, EVTX event logs, Prefetch, SRUM, MFT, USN Journal, LNK files, Scheduled Tasks, WMI persistence, DPAPI master keys, EFS-encrypted files, BCD/ESP boot chain, MBR/VBR, ETL traces, AppCompat/Shim DB, driver signing & BYOVD detection, .NET single-file bundles & R2R stomping, and archive/installer formats (MSI, MSIX, MSU, CAB, INF)
+- **Linux Forensic Artifacts** — systemd units, journald logs, container artifacts, persistence mechanisms, and kernel hardening config, each with cross-firmware lookup
+- **ICS/OT Protocol Detection** — Extensible YAML-driven catalog identifying Modbus/TCP, DNP3, Siemens S7comm, and other industrial protocols embedded in firmware
+- **Bare-Metal / MCU Chip Analysis** — Schema-driven chip-family catalog (e.g. TI C28x DSPs) for security posture auditing of raw MCU/DSP firmware blobs, extensible via operator-supplied YAML descriptors
+- **Firmware Carving Sandbox** — Isolated, network-less shell environment with a full reverse-engineering toolset (binwalk, unsquashfs, jefferson, ubireader, mkimage, etc.) for manual extraction of non-standard vendor envelopes
+- **Cross-Firmware Lookup** — Dozens of `lookup_*_across_firmwares` MCP tools let an agent query artifacts (drivers, registry keys, systemd units, ICS protocols, chip families, and more) across the entire project corpus in one call, not just the active firmware
+- **Ghidra Research Workspace** — Persistent research scripts, logs, and archive imports across sessions, plus a `run_ghidra_headless` tool for ad hoc headless analysis
+- **AI Analysis via MCP** — 383 analysis tools (across 34 categories) exposed to any MCP-compatible AI agent for autonomous security research
+- **Findings & Reports** — Record security findings with severity ratings and evidence, export as Markdown or a structured narrative report, with full assessment orchestration
 
 ## Architecture
 
@@ -48,7 +55,7 @@ Claude Code / Claude Desktop / OpenCode
 ┌─────────────────┐     ┌──────────────────────────────────┐
 │   wairz-mcp     │────▶│         FastAPI Backend           │
 │  (MCP server)   │     │                                    │
-│  172 tools      │     │  Services: firmware, analysis,     │
+│  383 tools      │     │  Services: firmware, analysis,     │
 │                 │     │  emulation, fuzzing, sbom, uart    │
 └─────────────────┘     │                                    │
                         │  Ghidra headless · QEMU · AFL++    │
@@ -70,9 +77,9 @@ Optional:
 
 ## About This Fork
 
-This repository is a fork of [digitalandrew/wairz](https://github.com/digitalandrew/wairz) with a large number of additional commits on top of upstream:
+This repository is a fork of [digitalandrew/wairz](https://github.com/digitalandrew/wairz) with a large number of additional commits on top of upstream, growing the MCP tool surface from upstream's baseline to 383 tools across 34 categories:
 
-- **eastmadc** — a broad expansion of the analysis "walker" pipeline and corresponding MCP tools: new forensic and security artifact parsers (kernel config extraction, network exposure, Android posture, Windows/registry/persistence artifacts, ICS protocol detection, and more), each with its own MCP tools, migrations, and cross-firmware lookup support.
+- **eastmadc** — a broad expansion of the analysis "walker" pipeline and corresponding MCP tools: a large suite of Windows forensic artifact parsers (registry hives, EVTX event logs, Prefetch, SRUM, MFT, USN Journal, LNK, Scheduled Tasks, WMI persistence, DPAPI, EFS, BCD/ESP boot chain, MBR/VBR, ETL traces, AppCompat/Shim DB, driver signing & BYOVD, .NET bundles, and archive/installer formats), Linux forensic artifact parsers (systemd, journald, containers, persistence, kernel hardening), ICS/OT protocol detection, a schema-driven bare-metal/MCU chip-family catalog, Android posture auditing, a firmware carving sandbox, and hardware-firmware/SBOM extensions — each with its own MCP tools, migrations, and (where applicable) cross-firmware lookup support.
 - **CrimsonGlory** — mainly focused on making the Ghidra MCP integration more flexible: support for raw MIPS16E binaries, a `run_ghidra_headless` tool, persistent Ghidra research files/scripts/logs across sessions, plus assorted CI, lint, and dev-server (CORS/host-check) fixes.
 
 See the git history for the full list of changes relative to upstream.
@@ -186,7 +193,7 @@ Add to your `opencode.json` (project root or `~/.config/opencode/opencode.json`)
 }
 ```
 
-> **Note:** The `timeout` must be increased from the default 5000ms because Wairz registers 172 tools.
+> **Note:** The `timeout` must be increased from the default 5000ms because Wairz registers 383 tools.
 
 Once connected, your AI agent can autonomously explore firmware, analyze binaries, run emulation, fuzz targets, and generate security findings. The MCP server supports dynamic project switching via the `switch_project` tool — no restart needed to change projects.
 
@@ -194,29 +201,48 @@ Once connected, your AI agent can autonomously explore firmware, analyze binarie
 
 When a project has more than one firmware uploaded (useful for diffing across versions via `diff_firmware`), the MCP server picks the earliest-uploaded unpacked firmware by default. To target a specific version, add `--firmware-id <FIRMWARE_ID>` to the launch command, or pass `firmware_id` to the `switch_project` MCP tool. Use `list_firmware_versions` to find IDs.
 
-### MCP Tools (172 across 21 categories)
+### MCP Tools (383 across 34 categories)
+
+Source-of-truth count: `create_tool_registry()` (`backend/app/ai/__init__.py`) registers 379 tools across 32 category files under `backend/app/ai/tools/`; `backend/app/mcp_server.py` registers 4 more directly (`get_project_info`, `switch_project`, `list_projects`, `save_code_cleanup`) for 383 total.
 
 | Category | Count | Tools |
 |----------|-------|-------|
+| **Windows Forensics** | 126 | `list_appcompat_entries`, `lookup_appcompat_entry`, `lookup_appcompat_entry_across_firmwares`, `appcompat_walk_status`, `trigger_appcompat_walk`, `list_cab_contents`, `read_msix_manifest`, `dump_msi_custom_actions`, `parse_inf_basic`, `identify_psf_baseline`, `classify_driver_package_subtype`, `search_bcd_entries`, `bcd_walk_status`, `trigger_bcd_walk`, `lookup_bcd_entry_across_firmwares`, `list_dotnet_bundles`, `get_bundle_metadata`, `list_extracted_assemblies`, `get_assembly_il`, `scan_r2r_stomping`, `trigger_dotnet_decompile`, `list_dpapi_master_keys`, `lookup_dpapi_master_key`, `lookup_dpapi_master_key_across_firmwares`, `dpapi_walk_status`, `trigger_dpapi_walk`, `list_drivers`, `get_driver_info`, `list_signed_drivers`, `get_signing_tier_histogram`, `scan_inf_imports`, `diff_driver_matrix`, `lookup_byovd_driver`, `list_efs_encrypted_files`, `lookup_efs_encrypted_file`, `search_efs_by_sid`, `efs_walk_status`, `trigger_efs_walk`, `lookup_efs_recovery_agent_across_firmwares`, `search_esp_entries`, `esp_walk_status`, `trigger_esp_walk`, `lookup_esp_chain`, `lookup_esp_entry_across_firmwares`, `list_etl_events`, `lookup_etl_event`, `search_etl_events`, `etl_walk_status`, `trigger_etl_walk`, `lookup_etl_provider_across_firmwares`, `list_evtx_files`, `parse_evtx_file`, `query_evtx_events`, `evtx_walk_status`, `trigger_evtx_walk`, `search_events`, `evtx_walk_summary`, `lookup_event_record_across_firmwares`, `list_windows_injection_detections`, `windows_injection_walk_status`, `trigger_windows_injection_walk`, `lookup_volatility_injection_across_firmwares`, `search_lnk_records`, `lnk_walk_status`, `trigger_lnk_walk`, `lookup_lnk_record_across_firmwares`, `list_mbr_vbr_sectors`, `lookup_mbr_vbr_sector`, `lookup_mbr_vbr_sector_across_firmwares`, `search_mft_records`, `mft_walk_status`, `lookup_mft_record_across_firmwares`, `trigger_mft_walk`, `verify_authenticode`, `decode_rich_header`, `scan_dbx_revocation`, `detect_pe_arch_view`, `list_signatures`, `get_signature_chain`, `search_prefetch_records`, `prefetch_walk_status`, `trigger_prefetch_walk`, `lookup_prefetch_record_across_firmwares`, `list_windows_processes`, `windows_processes_walk_status`, `trigger_windows_processes_walk`, `lookup_windows_process_across_firmwares`, `list_hives`, `walk_hive`, `get_run_keys`, `scan_persistence`, `dump_subkey`, `diff_hives`, `trigger_registry_hive_walk`, `lookup_registry_extract_across_firmwares`, `search_scheduled_tasks`, `scheduled_task_walk_status`, `trigger_scheduled_task_walk`, `lookup_scheduled_task_across_firmwares`, `list_sdb_entries`, `lookup_sdb_shim`, `summarize_sdb_anomalies`, `lookup_sdb_entry_across_firmwares`, `search_srum_records`, `srum_walk_status`, `trigger_srum_walk`, `lookup_srum_record_across_firmwares`, `list_vhdx_partitions`, `list_bcd_entries`, `list_esedb_tables`, `dump_esedb_table`, `get_storage_summary`, `list_update_packages`, `get_package_metadata`, `get_supersedence_chain`, `list_kb_files`, `diff_kb_packages`, `list_usnjrnl_entries`, `lookup_usnjrnl_entry`, `lookup_usnjrnl_entry_across_firmwares`, `usnjrnl_walk_status`, `trigger_usnjrnl_walk`, `search_wmi_events`, `wmi_walk_status`, `trigger_wmi_walk`, `lookup_wmi_persistence` |
+| **Linux Forensics** | 27 | `list_journald_entries`, `lookup_journald_entry`, `search_journald_messages`, `journald_walk_status`, `trigger_journald_walk`, `lookup_journald_entry_across_firmwares`, `list_systemd_units`, `lookup_systemd_unit`, `search_systemd_units`, `systemd_walk_status`, `trigger_systemd_walk`, `lookup_systemd_unit_across_firmwares`, `list_container_artifacts`, `lookup_container_artifact`, `search_container_images`, `container_walk_status`, `trigger_container_walk`, `lookup_container_image_across_firmwares`, `list_linux_persistence_entries`, `lookup_linux_persistence_entry`, `lookup_linux_persistence_across_firmwares`, `linux_persistence_walk_status`, `trigger_linux_persistence_walk`, `audit_kernel_config_firmware`, `lookup_kernel_config_across_firmwares`, `trigger_kernel_config_walk`, `get_kernel_config_extraction` |
 | **Security** | 26 | `check_known_cves`, `analyze_config_security`, `check_setuid_binaries`, `analyze_init_scripts`, `check_filesystem_permissions`, `analyze_certificate`, `check_kernel_hardening`, `scan_with_yara`, `extract_kernel_config`, `check_kernel_config`, `analyze_selinux_policy`, `check_selinux_enforcement`, `check_compliance`, `scan_scripts`, `shellcheck_scan`, `bandit_scan`, `check_secure_boot`, `update_yara_rules`, `detect_network_dependencies`, `detect_update_mechanisms`, `analyze_update_config`, `create_cra_assessment`, `auto_populate_cra`, `update_cra_requirement`, `export_cra_checklist`, `generate_article14_notification` |
+| **Binary Analysis** | 29 | `start_binary_analysis`, `check_binary_analysis_status`, `start_function_decompile`, `check_function_decompile_status`, `list_functions`, `disassemble_function`, `decompile_function`, `batch_decompile_functions`, `list_imports`, `list_exports`, `xrefs_to`, `xrefs_from`, `get_binary_info`, `analyze_binary_format`, `check_binary_protections`, `find_string_refs`, `resolve_import`, `check_all_binary_protections`, `trace_dataflow`, `find_callers`, `search_binary_content`, `get_stack_layout`, `get_global_layout`, `cross_binary_dataflow`, `detect_capabilities`, `list_binary_capabilities`, `analyze_raw_binary`, `detect_rtos`, `get_ghidra_analysis_logs` |
+| **Emulation** | 25 | `list_available_kernels`, `download_kernel`, `start_emulation`, `run_command_in_emulation`, `stop_emulation`, `check_emulation_status`, `get_emulation_logs`, `diagnose_emulation_environment`, `troubleshoot_emulation`, `enumerate_emulation_services`, `get_crash_dump`, `run_gdb_command`, `save_emulation_preset`, `list_emulation_presets`, `start_emulation_from_preset`, `emulate_with_qiling`, `check_qiling_rootfs`, `start_system_emulation`, `system_emulation_status`, `list_firmware_services`, `run_command_in_firmware`, `stop_system_emulation`, `capture_network_traffic`, `get_nvram_state`, `interact_web_endpoint` |
+| **Hardware Firmware** | 10 | `list_hardware_firmware`, `analyze_hardware_firmware`, `list_firmware_drivers`, `check_firmware_cves`, `find_unsigned_firmware`, `export_hardware_firmware_hbom`, `extract_dtb`, `verify_cve_attribution`, `describe_advisory`, `list_extension_points` |
 | **Threat Intelligence** | 10 | `scan_with_clamav`, `scan_firmware_clamav`, `check_virustotal`, `scan_firmware_virustotal`, `check_malwarebazaar_hash`, `check_threatfox_ioc`, `check_urlhaus_url`, `enrich_firmware_threat_intel`, `check_known_good_hash`, `scan_firmware_known_good` |
-| **Emulation** | 25 | `start_emulation`, `run_command_in_emulation`, `stop_emulation`, `check_emulation_status`, `get_emulation_logs`, `diagnose_emulation_environment`, `troubleshoot_emulation`, `enumerate_emulation_services`, `get_crash_dump`, `run_gdb_command`, `save_emulation_preset`, `list_emulation_presets`, `start_emulation_from_preset`, `emulate_with_qiling`, `check_qiling_rootfs`, `start_system_emulation`, `system_emulation_status`, `list_firmware_services`, `run_command_in_firmware`, `stop_system_emulation`, `capture_network_traffic`, `get_nvram_state`, `interact_web_endpoint`, `list_available_kernels`, `download_kernel` |
-| **Binary Analysis** | 23 | `list_functions`, `disassemble_function`, `decompile_function`, `list_imports`, `list_exports`, `xrefs_to`, `xrefs_from`, `get_binary_info`, `analyze_binary_format`, `check_binary_protections`, `check_all_binary_protections`, `find_string_refs`, `resolve_import`, `find_callers`, `search_binary_content`, `get_stack_layout`, `get_global_layout`, `trace_dataflow`, `cross_binary_dataflow`, `detect_capabilities`, `list_binary_capabilities`, `detect_rtos`, `analyze_raw_binary` |
+| **Android** | 9 | `analyze_apk`, `list_apk_permissions`, `check_apk_signatures`, `scan_apk_manifest`, `scan_apk_bytecode`, `scan_apk_sast`, `trigger_android_posture_walk`, `get_android_posture`, `lookup_android_posture_across_firmwares` |
 | **Fuzzing** | 9 | `analyze_fuzzing_target`, `generate_fuzzing_dictionary`, `generate_seed_corpus`, `generate_fuzzing_harness`, `start_fuzzing_campaign`, `check_fuzzing_status`, `stop_fuzzing_campaign`, `triage_fuzzing_crash`, `diagnose_fuzzing_campaign` |
 | **SBOM** | 9 | `generate_sbom`, `get_sbom_components`, `check_component_cves`, `run_vulnerability_scan`, `list_vulnerabilities_for_assessment`, `export_sbom`, `push_to_dependency_track`, `assess_vulnerabilities`, `set_vulnerability_status` |
+| **Ghidra Research** | 9 | `list_ghidra_research_files`, `read_ghidra_script`, `save_ghidra_script`, `import_ghidra_archive`, `get_ghidra_import_status`, `resolve_firmware_path`, `run_ghidra_headless`, `list_ghidra_logs`, `read_ghidra_log` |
+| **Documents** | 7 | `read_scratchpad`, `update_scratchpad`, `save_document`, `read_project_instructions`, `list_project_documents`, `read_project_document`, `save_code_cleanup` |
 | **Filesystem** | 8 | `list_directory`, `read_file`, `search_files`, `file_info`, `find_files_by_type`, `get_component_map`, `get_firmware_metadata`, `extract_bootloader_env` |
 | **UART** | 8 | `uart_connect`, `uart_send_command`, `uart_read`, `uart_send_break`, `uart_send_raw`, `uart_disconnect`, `uart_status`, `uart_get_transcript` |
 | **Reporting** | 6 | `add_finding`, `list_findings`, `update_finding`, `generate_assessment_report`, `generate_executive_summary`, `run_full_assessment` |
-| **Documents** | 6 | `read_scratchpad`, `update_scratchpad`, `save_document`, `read_project_instructions`, `list_project_documents`, `read_project_document` |
 | **Strings** | 5 | `extract_strings`, `search_strings`, `find_crypto_material`, `find_hardcoded_credentials`, `find_hardcoded_ips` |
 | **Network** | 5 | `analyze_network_traffic`, `get_protocol_breakdown`, `identify_insecure_protocols`, `get_dns_queries`, `get_network_conversations` |
 | **UEFI** | 5 | `list_firmware_volumes`, `list_uefi_modules`, `extract_nvram_variables`, `identify_uefi_module`, `read_uefi_module` |
+| **RTOS** *(applies_to `rtos`)* | 5 | `detect_rtos_kernel`, `enumerate_rtos_tasks`, `analyze_vector_table`, `recover_base_address`, `analyze_memory_map` |
 | **Comparison** | 4 | `list_firmware_versions`, `diff_firmware`, `diff_binary`, `diff_decompilation` |
+| **Bare-Metal / MCU** | 4 | `list_chip_families`, `audit_bare_metal_firmware`, `submit_bare_metal_descriptor`, `lookup_bare_metal_findings_across_firmwares` |
+| **ICS Protocol** | 4 | `trigger_ics_protocol_walk`, `list_ics_protocols`, `lookup_ics_protocol_across_firmwares`, `describe_ics_protocol_anomalies` |
+| **Python AST** | 4 | `python_ast_walk_status`, `trigger_python_ast_walk`, `get_python_ast_summary`, `lookup_python_ast_across_firmwares` |
 | **Project** | 3 | `get_project_info`, `switch_project`, `list_projects` |
-| **Android** | 3 | `analyze_apk`, `list_apk_permissions`, `check_apk_signatures` |
 | **cwe_checker** | 3 | `cwe_check_status`, `cwe_check_binary`, `cwe_check_firmware` |
 | **VulHunt** | 3 | `vulhunt_scan_binary`, `vulhunt_scan_firmware`, `vulhunt_check_available` |
+| **Report Writer** | 3 | `report_start`, `report_write_section`, `report_render` |
+| **File Format Detection** | 3 | `validate_file_format`, `list_file_formats`, `cross_firmware_format_collision_audit` |
+| **Module Reachability** | 3 | `trigger_module_reachability_walk`, `get_module_reachability`, `lookup_module_across_firmwares` |
+| **Network Exposure** | 3 | `trigger_network_exposure_walk`, `get_network_exposure`, `lookup_network_listener_across_firmwares` |
+| **DS1QRSetup Callgraph** | 3 | `ds1qrsetup_callgraph_walk_status`, `trigger_ds1qrsetup_callgraph_walk`, `lookup_ds1qrsetup_callgraph_across_firmwares` |
 | **Attack Surface** | 2 | `detect_input_vectors`, `analyze_binary_attack_surface` |
+| **Taint LLM** | 2 | `scan_taint_analysis`, `deep_dive_taint_analysis` |
+| **Carving Sandbox** | 1 | `run_shell` |
+
+Many categories above ship a `lookup_*_across_firmwares` tool — a cross-project aggregation query (e.g. "which firmwares share this driver hash / registry key / systemd unit / ICS protocol / chip family") answerable in a single MCP call instead of iterating per firmware.
 
 ## UART Bridge (Optional)
 
@@ -296,8 +322,8 @@ wairz/
 │   │   ├── schemas/             # Pydantic request/response schemas
 │   │   ├── routers/             # REST API endpoints
 │   │   ├── services/            # Business logic
-│   │   ├── ai/                  # MCP tool registry + 172 tool implementations
-│   │   │   └── tools/           # 21 category files (filesystem, binary, security, emulation, hardware_firmware, cwe_checker, vulhunt, attack_surface, network, uefi, taint_llm, etc.)
+│   │   ├── ai/                  # MCP tool registry + 383 tool implementations
+│   │   │   └── tools/           # 32 category files (filesystem, binary, security, emulation, hardware_firmware, windows_*, linux_*, ics_protocol, bare_metal, cwe_checker, vulhunt, attack_surface, network, uefi, taint_llm, etc.)
 │   │   └── utils/               # Path sandboxing, output truncation
 │   ├── alembic/                 # Database migrations
 │   └── pyproject.toml
