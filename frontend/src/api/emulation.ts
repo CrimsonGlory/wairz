@@ -205,17 +205,6 @@ export async function runCommandInFirmware(
   return data
 }
 
-export function buildSystemEmulationTerminalURL(
-  projectId: string,
-  sessionId: string,
-  port: number,
-): string {
-  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const host = window.location.host
-  return appendApiKey(
-    `${proto}//${host}/api/v1/projects/${projectId}/emulation/system/${sessionId}/ws/${port}`,
-  )
-}
 
 // ── Network Traffic Analysis ──
 

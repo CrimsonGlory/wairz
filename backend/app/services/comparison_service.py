@@ -313,40 +313,6 @@ def diff_binary(binary_a_path: str, binary_b_path: str, binary_rel_path: str) ->
 
 MAX_TEXT_DIFF_SIZE = 512 * 1024  # 512 KB per file for text diffing
 
-# Extensions commonly containing readable/diffable content in firmware
-_TEXT_EXTENSIONS = frozenset({
-    ".conf", ".cfg", ".ini", ".json", ".xml", ".yaml", ".yml",
-    ".sh", ".ash", ".bash", ".csh", ".lua", ".py", ".pl", ".rb",
-    ".html", ".htm", ".css", ".js", ".php", ".cgi",
-    ".txt", ".log", ".md", ".csv", ".tsv",
-    ".service", ".timer", ".mount", ".socket", ".target",
-    ".rules", ".pem", ".crt", ".key",
-})
-
-# Paths that are always interesting for firmware comparison
-_TEXT_PATH_PATTERNS = (
-    "/etc/", "/usr/share/", "/www/", "/opt/",
-    "init.d/", "rc.d/", "crontab",
-)
-
-
-def is_diffable_text(path: str, abs_path: str) -> bool:
-    """Check if a file is likely a text file worth diffing."""
-    _, ext = os.path.splitext(path.lower())
-    if ext in _TEXT_EXTENSIONS:
-        return True
-    if any(p in path for p in _TEXT_PATH_PATTERNS):
-        # Check if it's actually text by reading first bytes
-        try:
-            with open(abs_path, "rb") as f:
-                chunk = f.read(512)
-                if b"\x00" in chunk:
-                    return False
-                return True
-        except OSError:
-            return False
-    return False
-
 
 def diff_text_file(path_a: str, path_b: str, rel_path: str) -> dict:
     """Generate a unified diff between two text files.
@@ -644,35 +610,6 @@ def diff_function_instructions(
     result["diff_text"] = "\n".join(diff_lines)
 
     return result
-
-
-def _extract_functions(binary_path: str) -> dict[str, int] | None:
-    """Extract function names and sizes from an ELF binary (legacy, pyelftools).
-
-    Kept for backward compatibility. Use _extract_function_hashes() instead.
-    Returns {function_name: size} or None if parsing fails.
-    """
-    from elftools.elf.elffile import ELFFile
-    from elftools.elf.sections import SymbolTableSection
-
-    try:
-        with open(binary_path, "rb") as f:
-            elf = ELFFile(f)
-            functions: dict[str, int] = {}
-
-            for section_name in (".symtab", ".dynsym"):
-                section = elf.get_section_by_name(section_name)
-                if section and isinstance(section, SymbolTableSection):
-                    for sym in section.iter_symbols():
-                        if (sym.entry.st_info.type == "STT_FUNC"
-                                and sym.name
-                                and sym.entry.st_shndx != "SHN_UNDEF"
-                                and sym.entry.st_size > 0):
-                            functions[sym.name] = sym.entry.st_size
-
-            return functions
-    except Exception:
-        return None
 
 
 def _extract_binary_info(binary_path: str) -> dict:

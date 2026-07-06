@@ -149,26 +149,6 @@ class ToolRegistry:
             applies_to=applies_to,
         )
 
-    def subset(self, tool_names: list[str]) -> "ToolRegistry":
-        """Return a new ToolRegistry containing only the named tools."""
-        new_registry = ToolRegistry()
-        for name in tool_names:
-            if name in self._tools:
-                new_registry._tools[name] = self._tools[name]
-        return new_registry
-
-    def for_kind(self, kind: str) -> "ToolRegistry":
-        """Return a new ToolRegistry with only the tools that apply to *kind*.
-
-        Tools without an explicit applies_to default to ALL_KINDS and pass
-        through unchanged.
-        """
-        new_registry = ToolRegistry()
-        for name, tool in self._tools.items():
-            if kind in tool.applies_to:
-                new_registry._tools[name] = tool
-        return new_registry
-
     def get_anthropic_tools(self) -> list[dict]:
         return [
             {

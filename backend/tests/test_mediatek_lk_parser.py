@@ -19,7 +19,6 @@ from pathlib import Path
 import pytest
 
 from app.services.hardware_firmware.classifier import classify
-from app.services.hardware_firmware.cve_matcher import extract_subcomponent
 from app.services.hardware_firmware.parsers.mediatek_gfh import (
     derive_chipset,
     is_stub_descriptor,
@@ -273,22 +272,3 @@ class TestParserMetadata:
         assert result.metadata.get("stub_descriptor") is not True
         assert result.metadata["partition_name"] == "cam_vpu1"
         assert result.metadata["component"] == "cam_vpu"
-
-
-# ─── NVD subcomponent extractor ───────────────────────────────────────
-
-class TestExtractSubcomponent:
-    @pytest.mark.parametrize("description,expected", [
-        ("In geniezone, there is a possible use after free ...", "geniezone"),
-        ("In atf, there is a possible information disclosure ...", "atf"),
-        ("In wlan service, there is a possible OOB write ...", "wlan"),
-        ("In modem, there is a buffer overflow ...", "modem"),
-    ])
-    def test_matches_mtk_bulletin_format(self, description, expected):
-        assert extract_subcomponent(description) == expected
-
-    def test_returns_none_on_unrelated_format(self):
-        assert extract_subcomponent("A flaw was found in the Linux kernel...") is None
-
-    def test_empty_returns_none(self):
-        assert extract_subcomponent("") is None

@@ -337,8 +337,3 @@ async def run_ghidra_import_background(file_id: uuid.UUID) -> None:
                 logger.exception("Ghidra archive import failed for file %s", file_id)
     except Exception:
         logger.exception("Unrecoverable error in run_ghidra_import_background for file %s", file_id)
-
-
-async def auto_ghidra_import_safe(file_id: uuid.UUID) -> None:
-    """SAFE: no-op hook — archives are imported on operator request, not at unpack time."""
-    pass

@@ -65,22 +65,6 @@ function toastOnce(
   toast.error(title, { description })
 }
 
-// Module-scope "we're rate-limited until X" cooldown so per-page handlers
-// can short-circuit a redundant POST before it leaves the browser. Reads
-// the standard `Retry-After` header (slowapi sets seconds-since-now) and
-// gates by epoch-ms. Pages don't have to call this — the axios interceptor
-// updates it on every 429; pages can OPT IN by importing `rateLimitedUntil`.
-let _rateLimitedUntilMs = 0
-export function rateLimitedUntil(): number {
-  return _rateLimitedUntilMs
-}
-export function isRateLimited(): boolean {
-  return Date.now() < _rateLimitedUntilMs
-}
-export function rateLimitRemainingMs(): number {
-  return Math.max(0, _rateLimitedUntilMs - Date.now())
-}
-
 apiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
@@ -121,7 +105,6 @@ apiClient.interceptors.response.use(
         const retryAfterHeader = error.response.headers?.['retry-after']
         const retryAfterRaw = typeof retryAfterHeader === 'string' ? parseInt(retryAfterHeader, 10) : NaN
         const retryAfterSec = Number.isFinite(retryAfterRaw) && retryAfterRaw > 0 ? retryAfterRaw : 60
-        _rateLimitedUntilMs = Date.now() + retryAfterSec * 1000
         // The custom handler in backend/app/main.py sets data.hint to an
         // operator-friendly string; data.error is slowapi's raw form.
         const data = error.response.data as { hint?: string; error?: string; tier?: string } | undefined

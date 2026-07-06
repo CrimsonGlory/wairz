@@ -543,13 +543,3 @@ def detect_raw_architecture(file_path: str, chunk_size: int = 0) -> list[dict[st
         logger.warning("Heuristic architecture detection failed for %s: %s", file_path, exc)
 
     return results
-
-
-def get_arch_and_endianness(file_path: str) -> tuple[str | None, str | None]:
-    """Quick architecture + endianness detection for a single binary.
-
-    Convenience wrapper around analyze_binary() for the firmware upload pipeline.
-    Returns (architecture, endianness) matching existing Wairz conventions.
-    """
-    info = analyze_binary(file_path)
-    return info.get("architecture"), info.get("endianness")

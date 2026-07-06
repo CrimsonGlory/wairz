@@ -27,7 +27,6 @@ from app.services.comparison_service import (
     diff_filesystems,
     diff_function_instructions,
     diff_text_file,
-    is_diffable_text,
 )
 
 # ---------------------------------------------------------------------------
@@ -286,41 +285,6 @@ class TestDiffTextFile:
         assert result["truncated"] is True
         assert "truncated" in result["diff"]
 
-
-class TestIsDiffableText:
-
-    def test_conf_file_detected(self, tmp_path: Path):
-        f = tmp_path / "test.conf"
-        f.write_text("key=value\n")
-        assert is_diffable_text("/etc/test.conf", str(f)) is True
-
-    def test_binary_file_rejected(self, tmp_path: Path):
-        f = tmp_path / "binary.bin"
-        f.write_bytes(b"\x7fELF" + b"\x00" * 100)
-        assert is_diffable_text("/usr/bin/prog.bin", str(f)) is False
-
-    def test_text_in_etc_detected_by_path(self, tmp_path: Path):
-        """Files under /etc/ are checked for text content even without known extension."""
-        f = tmp_path / "noext"
-        f.write_text("readable text content\n")
-        assert is_diffable_text("/etc/noext", str(f)) is True
-
-    def test_binary_in_etc_rejected(self, tmp_path: Path):
-        """Binary files under /etc/ are still rejected despite path match."""
-        f = tmp_path / "noext"
-        f.write_bytes(b"\x00\x01\x02\x03" * 50)
-        assert is_diffable_text("/etc/noext", str(f)) is False
-
-    @pytest.mark.parametrize("ext", [".json", ".xml", ".yaml", ".sh", ".py", ".html", ".pem"])
-    def test_known_text_extensions(self, ext, tmp_path: Path):
-        f = tmp_path / f"test{ext}"
-        f.write_text("content")
-        assert is_diffable_text(f"/some/path/file{ext}", str(f)) is True
-
-    def test_unknown_extension_outside_text_paths(self, tmp_path: Path):
-        f = tmp_path / "data.xyz"
-        f.write_text("text")
-        assert is_diffable_text("/random/data.xyz", str(f)) is False
 
 
 # ---------------------------------------------------------------------------

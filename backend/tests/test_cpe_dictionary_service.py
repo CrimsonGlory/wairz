@@ -29,8 +29,6 @@ Coverage targets:
 * Module constants: ``CONFIDENCE_AUTO`` / ``CONFIDENCE_SUGGEST``
   threshold values; key prefixes.
 * ``_serialize_index`` / ``_deserialize_index`` round-trip.
-* ``lookup_exact`` — case-insensitive match; missing returns None
-  vs empty index returns None.
 * ``lookup_fuzzy`` — rapidfuzz-missing returns []; with-rapidfuzz
   ranks exact-match candidates above fuzzy matches; ``_build_cpe``
   emits well-formed CPE 2.3 strings.
@@ -146,34 +144,6 @@ class TestSerializeRoundTrip:
         svc = CpeDictionaryService()
         svc._index = None
         assert svc._serialize_index() == "{}"
-
-
-# ===========================================================================
-# lookup_exact
-# ===========================================================================
-
-
-class TestLookupExact:
-    def test_case_insensitive_match(self):
-        svc = CpeDictionaryService()
-        svc._index = {
-            "openssl": [
-                ("openssl", "openssl", "cpe:2.3:a:openssl:openssl:*:*:*:*:*:*:*:*"),
-            ],
-        }
-        assert svc.lookup_exact("OpenSSL") is not None
-        assert svc.lookup_exact("OPENSSL") is not None
-        assert svc.lookup_exact("openssl") is not None
-
-    def test_no_index_returns_none(self):
-        svc = CpeDictionaryService()
-        # _index is None.
-        assert svc.lookup_exact("anything") is None
-
-    def test_missing_product_returns_none(self):
-        svc = CpeDictionaryService()
-        svc._index = {"foo": [("v", "foo", "cpe:...")]}
-        assert svc.lookup_exact("bar") is None
 
 
 # ===========================================================================

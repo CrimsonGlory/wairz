@@ -98,28 +98,6 @@ class CarvingService:
         container = await self._ensure_container(project_id, firmware)
         return await self._exec(container, command, timeout)
 
-    async def stop_container(self, project_id: UUID) -> bool:
-        """Stop and remove the project's carving container if any. Idempotent."""
-        client = self._get_docker_client()
-        name = self._container_name(project_id)
-
-        def _stop() -> bool:
-            try:
-                container = client.containers.get(name)
-            except docker.errors.NotFound:
-                return False
-            try:
-                container.stop(timeout=2)
-            except Exception:
-                pass
-            try:
-                container.remove(force=True)
-            except Exception:
-                pass
-            return True
-
-        return await asyncio.to_thread(_stop)
-
     @classmethod
     def cleanup_orphans(cls) -> None:
         """Remove every carving container left behind by a previous backend run.

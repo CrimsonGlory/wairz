@@ -247,9 +247,6 @@ class ReportAuthoringService:
         )
         return [row[0] for row in result.all()]
 
-    async def template_for(self, report: Report) -> ReportTemplate:
-        return get_template(report.template_id)
-
     async def rename(self, report_id: uuid.UUID, title: str) -> Report:
         new_title = (title or "").strip()
         if not new_title:

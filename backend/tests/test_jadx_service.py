@@ -31,8 +31,6 @@ Coverage targets:
   (FileNotFoundError); cache MISS triggers _run_decompilation; cache HIT
   short-circuits and does NOT re-invoke JADX (the load-bearing
   performance contract — JADX runs are 30-300s).
-* ``get_decompilation_status`` — returns None when APK missing; returns
-  cached sentinel dict when complete.
 * **Rule #35b live canary** — cache round-trip on a real SQLite session:
   first ``ensure_decompilation`` call invokes the (stubbed) subprocess
   + persists 4 cache rows (sentinel + source_tree + per-file +
@@ -358,18 +356,6 @@ class TestEnsureDecompilationGuards:
                 )
 
 
-class TestGetDecompilationStatus:
-    @pytest.mark.asyncio
-    async def test_missing_apk_returns_none(self, tmp_path: Path):
-        cache = JadxDecompilationCache()
-        async with make_live_db() as db:
-            result = await cache.get_decompilation_status(
-                apk_path=str(tmp_path / "missing.apk"),
-                firmware_id=uuid.uuid4(),
-                db=db,
-            )
-        assert result is None
-
 
 # ===========================================================================
 # Module singleton
@@ -507,67 +493,3 @@ class TestEnsureDecompilationLiveCanary:
                     f"key wrong?"
                 )
 
-    @pytest.mark.asyncio
-    async def test_get_source_tree_returns_cached_when_complete(
-        self, tmp_path: Path,
-    ):
-        """After ensure_decompilation completes, get_source_tree returns
-        the cached source_tree entry directly (no second subprocess
-        invocation)."""
-        apk = tmp_path / "test.apk"
-        apk.write_bytes(b"PK\x03\x04" + b"\x00" * 100)
-
-        call_count = 0
-
-        async def fake_run_jadx(apk_path, output_dir, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            sources_dir = os.path.join(output_dir, "sources")
-            os.makedirs(sources_dir, exist_ok=True)
-            with open(os.path.join(sources_dir, "App.java"), "w") as f:  # noqa: ASYNC230 — test stub: fake_run_jadx writes App.java to seed output dir for service round-trip; sync open acceptable
-                f.write("public class App {}")
-            return ("ok", "", 0)
-
-        async with make_live_db() as db:
-            pid = uuid.uuid4()
-            project = Project(id=pid, name="jadx-tree", status="ready")
-            db.add(project)
-            await db.flush()
-            firmware = Firmware(
-                id=uuid.uuid4(), project_id=pid, sha256="t" * 64,
-            )
-            db.add(firmware)
-            await db.flush()
-            await db.commit()
-
-            cache = JadxDecompilationCache()
-
-            with patch.object(
-                jadx_service, "run_jadx_subprocess",
-                new=fake_run_jadx,
-            ):
-                tree1 = await cache.get_source_tree(
-                    apk_path=str(apk),
-                    firmware_id=firmware.id,
-                    db=db,
-                )
-                await db.commit()
-                # source_tree contains the single Java file we wrote.
-                assert "App.java" in tree1["source_tree"]
-                assert tree1["stats"]["total_source_files"] == 1
-                assert call_count == 1
-
-                # Second call → cache hit, identical result, no JADX.
-                tree2 = await cache.get_source_tree(
-                    apk_path=str(apk),
-                    firmware_id=firmware.id,
-                    db=db,
-                )
-                # Strip _schema_version stamps before comparing
-                # (write-side stamp, not a caller concern).
-                t1_clean = {k: v for k, v in tree1.items()
-                            if k != "_schema_version"}
-                t2_clean = {k: v for k, v in tree2.items()
-                            if k != "_schema_version"}
-                assert t2_clean == t1_clean
-                assert call_count == 1

@@ -755,18 +755,3 @@ class SystemEmulationService:
             "body": body[:30000],  # Cap body size
         }
 
-    async def get_container_ip(self, container_id: str) -> str | None:
-        """Get the container's IP address on the emulation network."""
-        loop = asyncio.get_running_loop()
-        try:
-            client = await loop.run_in_executor(None, self._get_docker_client)
-            container = await loop.run_in_executor(
-                None, client.containers.get, container_id,
-            )
-            await loop.run_in_executor(None, container.reload)
-
-            networks = container.attrs.get("NetworkSettings", {}).get("Networks", {})
-            net = networks.get(self._settings.emulation_network, {})
-            return net.get("IPAddress")
-        except Exception:
-            return None

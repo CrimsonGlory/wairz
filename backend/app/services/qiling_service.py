@@ -79,15 +79,6 @@ def get_rootfs_path(binary_format: str, architecture: str) -> str | None:
     return None
 
 
-def get_qiling_ostype(binary_format: str, architecture: str) -> str | None:
-    """Get the Qiling ostype string for a given binary format and architecture."""
-    key = (binary_format.lower(), architecture.lower())
-    mapping = _FORMAT_ARCH_TO_QILING.get(key)
-    if mapping:
-        return mapping[0]
-    return None
-
-
 def is_qiling_supported(binary_format: str, architecture: str) -> bool:
     """Check if Qiling can emulate binaries of this format and architecture."""
     key = (binary_format.lower(), architecture.lower())

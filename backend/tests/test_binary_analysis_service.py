@@ -49,7 +49,6 @@ Coverage targets:
 * ``detect_raw_architecture`` — empty file returns []; cpu_rec hit
   produces an "architecture" + "raw_name" entry; cpu_rec ImportError
   falls back to heuristic.
-* ``get_arch_and_endianness`` — dispatch wrapper round-trips.
 
 * **Rule #35b live canary** — real ELF + real PE bytes built in the
   test, written to disk, run through ``analyze_binary`` and
@@ -72,7 +71,6 @@ from app.services.binary_analysis_service import (
     analyze_binary,
     check_pe_protections,
     detect_raw_architecture,
-    get_arch_and_endianness,
 )
 
 # ===========================================================================
@@ -613,27 +611,6 @@ class TestDetectRawArchitecture:
                 f"{raw} → invalid endianness {endian!r}"
             )
             assert arch and isinstance(arch, str)
-
-
-# ===========================================================================
-# get_arch_and_endianness — convenience wrapper
-# ===========================================================================
-
-
-class TestGetArchAndEndianness:
-    def test_round_trips_through_analyze_binary(self):
-        # Real binary in the container — /bin/ls is x86_64 little.
-        arch, endian = get_arch_and_endianness("/bin/ls")
-        assert arch == "x86_64"
-        assert endian == "little"
-
-    def test_returns_none_tuple_for_unknown(self, tmp_path: Path):
-        f = tmp_path / "junk"
-        f.write_bytes(b"junk" * 100)
-        arch, endian = get_arch_and_endianness(str(f))
-        # Unknown format → both None.
-        assert arch is None
-        assert endian is None
 
 
 # ===========================================================================

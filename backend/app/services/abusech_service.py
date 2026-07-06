@@ -254,23 +254,6 @@ async def check_yaraify(sha256: str) -> YARAifyResult:
         return YARAifyResult(sha256=sha256, found=False)
 
 
-async def batch_check_malwarebazaar(
-    hashes: list[tuple[str, str]],  # [(sha256, file_path), ...]
-) -> list[MalwareBazaarResult]:
-    """Batch check multiple hashes against MalwareBazaar.
-
-    Inserts a small delay between requests to be polite.
-    """
-    results: list[MalwareBazaarResult] = []
-    for i, (sha256, file_path) in enumerate(hashes):
-        if i > 0:
-            await asyncio.sleep(BATCH_DELAY)
-        result = await check_malwarebazaar(sha256)
-        result.file_path = file_path
-        results.append(result)
-    return results
-
-
 async def enrich_iocs(
     hashes: list[tuple[str, str]],
     ips: list[str] | None = None,

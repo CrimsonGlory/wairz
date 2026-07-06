@@ -48,11 +48,6 @@ _CERT_SEARCH_DIRS = [
 # ---------------------------------------------------------------------------
 
 
-def _walk_firmware(extracted_root: str, path: str | None) -> str:
-    """Return the validated starting path for a filesystem walk."""
-    return validate_path(extracted_root, path or "/")
-
-
 def _rel(abs_path: str, extracted_root: str) -> str:
     """Return a firmware-relative path for display."""
     return "/" + os.path.relpath(abs_path, os.path.realpath(extracted_root))

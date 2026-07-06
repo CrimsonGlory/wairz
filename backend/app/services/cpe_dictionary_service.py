@@ -222,12 +222,6 @@ class CpeDictionaryService:
             self._index[key] = [tuple(e) for e in entries]  # type: ignore[misc]
         self._product_names = list(self._index.keys())
 
-    def lookup_exact(self, product: str) -> list[tuple[str, str, str]] | None:
-        """Exact product name lookup. Returns list of (vendor, product, cpe23)."""
-        if not self._index:
-            return None
-        return self._index.get(product.lower())
-
     def lookup_fuzzy(
         self,
         name: str,

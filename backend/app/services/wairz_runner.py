@@ -41,7 +41,6 @@ from pathlib import Path
 from typing import Any
 
 from app.services.androguard_service import AndroguardService
-from app.services.mobsf_runner import compare_findings
 
 logger = logging.getLogger(__name__)
 
@@ -309,58 +308,6 @@ class WairzRunner:
             ),
         )
 
-    def scan_apk_from_raw(
-        self,
-        raw_result: dict[str, Any],
-        *,
-        apk_hash: str = "",
-        is_priv_app: bool = False,
-        is_platform_signed: bool = False,
-    ) -> WairzScanResult:
-        """Normalize a pre-existing raw scan result without re-scanning.
-
-        Useful for offline comparison when a previously cached scan
-        result is available (e.g., from the ``analysis_cache`` table).
-
-        Parameters
-        ----------
-        raw_result:
-            A dict from ``AndroguardService.scan_manifest_security()``.
-        apk_hash:
-            Optional SHA256 hash of the APK for tracking.
-        is_priv_app:
-            Whether the APK was from a ``/system/priv-app/`` directory.
-        is_platform_signed:
-            Whether the APK was platform-signed.
-
-        Returns
-        -------
-        WairzScanResult
-            Normalized scan result for comparison.
-        """
-        active_findings = _normalize_findings(
-            raw_result.get("findings", []),
-            suppressed=False,
-        )
-        suppressed_findings = _normalize_findings(
-            raw_result.get("suppressed_findings", []),
-            suppressed=True,
-        )
-
-        return WairzScanResult(
-            success=True,
-            package_name=raw_result.get("package", ""),
-            manifest_findings=active_findings,
-            suppressed_findings=suppressed_findings,
-            raw_result=raw_result,
-            apk_hash=apk_hash,
-            is_priv_app=is_priv_app,
-            is_platform_signed=is_platform_signed,
-            severity_bumped=raw_result.get("severity_bumped", False),
-            severity_reduced=raw_result.get("severity_reduced", False),
-            reduced_check_ids=raw_result.get("reduced_check_ids", []),
-        )
-
 
 # ---------------------------------------------------------------------------
 # Normalization
@@ -409,82 +356,6 @@ def _normalize_findings(
         )
 
     return normalized
-
-
-# ---------------------------------------------------------------------------
-# Batch scanning
-# ---------------------------------------------------------------------------
-
-
-def batch_scan(
-    apk_paths: list[str],
-    *,
-    is_priv_app: bool = False,
-    is_platform_signed: bool = False,
-    runner: WairzRunner | None = None,
-) -> dict[str, WairzScanResult]:
-    """Scan multiple APKs and return results keyed by path.
-
-    Parameters
-    ----------
-    apk_paths:
-        List of absolute paths to APK files.
-    is_priv_app:
-        Whether the APKs are from ``/system/priv-app/``.
-    is_platform_signed:
-        Whether the APKs are platform-signed.
-    runner:
-        Optional pre-configured runner.  A new one is created if None.
-
-    Returns
-    -------
-    dict[str, WairzScanResult]
-        Results keyed by APK path.
-    """
-    if runner is None:
-        runner = WairzRunner()
-
-    results: dict[str, WairzScanResult] = {}
-    for path in apk_paths:
-        logger.info("Scanning %s", path)
-        results[path] = runner.scan_apk(
-            path,
-            is_priv_app=is_priv_app,
-            is_platform_signed=is_platform_signed,
-        )
-
-    return results
-
-
-# ---------------------------------------------------------------------------
-# Comparison helpers
-# ---------------------------------------------------------------------------
-
-
-def compare_with_mobsf(
-    wairz_result: WairzScanResult,
-    mobsf_findings: list[Any],
-) -> dict[str, Any]:
-    """Compare Wairz scan result against MobSF normalized findings.
-
-    This is a convenience wrapper around
-    :func:`~app.services.mobsf_runner.compare_findings` that handles
-    the conversion from ``WairzScanResult`` to finding dicts.
-
-    Parameters
-    ----------
-    wairz_result:
-        Wairz scan result from :meth:`WairzRunner.scan_apk`.
-    mobsf_findings:
-        List of ``NormalizedManifestFinding`` from MobSF runner.
-
-    Returns
-    -------
-    dict
-        Structured comparison report (see ``mobsf_runner.compare_findings``).
-    """
-    wairz_dicts = [f.to_dict() for f in wairz_result.manifest_findings]
-    return compare_findings(wairz_dicts, mobsf_findings)
 
 
 # ---------------------------------------------------------------------------

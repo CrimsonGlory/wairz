@@ -41,7 +41,7 @@ Coverage targets:
 * ``get_rootfs_path`` — returns the path when rootfs dir exists;
   returns None when format/arch unsupported; returns None when
   the rootfs dir is absent on disk.
-* ``get_qiling_ostype`` / ``is_qiling_supported`` — basic lookups.
+* ``is_qiling_supported`` — basic lookups.
 * ``check_rootfs_status`` — returns dict keyed by ``fmt/arch`` with
   available + ostype + has_system_libs fields.
 * ``run_binary`` (synchronous):
@@ -84,7 +84,6 @@ from app.services.qiling_service import (
     _FORMAT_ARCH_TO_QILING,
     QilingResult,
     check_rootfs_status,
-    get_qiling_ostype,
     get_rootfs_path,
     is_qiling_supported,
     run_binary,
@@ -117,7 +116,7 @@ class TestFormatArchMapping:
 
 
 # ===========================================================================
-# get_rootfs_path / get_qiling_ostype / is_qiling_supported
+# get_rootfs_path / is_qiling_supported
 # ===========================================================================
 
 
@@ -150,16 +149,6 @@ class TestGetRootfsPath:
         # Mixed case format/arch normalised to lower for lookup.
         result = get_rootfs_path("ELF", "X86_64")
         assert result == str(rootfs_base / "x8664_linux")
-
-
-class TestGetQilingOstype:
-    def test_known_format_arch(self):
-        assert get_qiling_ostype("pe", "x86_64") == "windows"
-        assert get_qiling_ostype("macho", "aarch64") == "macos"
-        assert get_qiling_ostype("elf", "arm") == "linux"
-
-    def test_unknown_returns_none(self):
-        assert get_qiling_ostype("unknown", "z80") is None
 
 
 class TestIsQilingSupported:

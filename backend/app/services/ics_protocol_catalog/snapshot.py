@@ -66,17 +66,6 @@ class IcsProtocolCatalogSnapshot:
                 return m
         return None
 
-    def by_protocol_family(
-        self, protocol_family: str,
-    ) -> tuple[IcsProtocolManifest, ...]:
-        """Filter snapshot by protocol_family. Closed-Literal-typed at
-        the IcsProtocolFamily layer (the manifest's output.protocol_family).
-        Returns all manifests detecting the given family."""
-        return tuple(
-            m for m in self.manifests
-            if m.output.protocol_family == protocol_family
-        )
-
     def __len__(self) -> int:
         return len(self.manifests)
 

@@ -449,24 +449,6 @@ class JadxDecompilationCache:
 
         return apk_sha256
 
-    async def get_source_tree(
-        self,
-        apk_path: str,
-        firmware_id: uuid.UUID,
-        db: AsyncSession,
-    ) -> dict[str, Any]:
-        """Get the decompiled source file tree for an APK.
-
-        Returns a dict with ``source_tree``, ``resource_tree``, and ``stats``.
-        Triggers decompilation if not already cached.
-        """
-        apk_sha256 = await self.ensure_decompilation(apk_path, firmware_id, db)
-
-        cached = await self._get_cached(
-            firmware_id, apk_sha256, "jadx_source_tree", db,
-        )
-        return cached or {"source_tree": [], "resource_tree": [], "stats": {}}
-
     async def get_source_file(
         self,
         apk_path: str,
@@ -520,26 +502,6 @@ class JadxDecompilationCache:
         if cached:
             return cached.get("sources", {})
         return {}
-
-    async def get_decompilation_status(
-        self,
-        apk_path: str,
-        firmware_id: uuid.UUID,
-        db: AsyncSession,
-    ) -> dict[str, Any] | None:
-        """Check if decompilation is complete and return stats.
-
-        Returns None if decompilation has not been run yet.
-        Does NOT trigger decompilation.
-        """
-        loop = asyncio.get_running_loop()
-        if not await loop.run_in_executor(None, os.path.isfile, apk_path):
-            return None
-
-        apk_sha256 = await self._get_apk_sha256(apk_path)
-        return await self._get_cached(
-            firmware_id, apk_sha256, "jadx_decompilation", db,
-        )
 
     async def write_sources_to_disk(
         self,

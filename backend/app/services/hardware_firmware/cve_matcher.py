@@ -328,31 +328,6 @@ def _load_known_firmware() -> list[dict]:
     return _KNOWN_FIRMWARE_LOADER.get()
 
 
-# MediaTek's monthly Product Security Bulletins tag every CVE with a
-# Subcomponent (geniezone, atf, tinysys, wlan, modem, …). NVD descriptions
-# for these CVEs consistently begin "In <subcomponent>, …" — extracting
-# that tag lets downstream filtering narrow Tier 3/4 matches from
-# vendor-wide to component-scoped. The match itself is not yet enforced;
-# this utility exists so a future tightening can flip the switch without
-# schema changes.
-_SUBCOMPONENT_RE = re.compile(
-    r"^In\s+([a-z][a-z0-9_]{1,40})\b",
-    re.IGNORECASE,
-)
-
-
-def extract_subcomponent(description: str) -> str | None:
-    """Extract a MediaTek-style subcomponent tag from an NVD description.
-
-    Returns the lowercased tag (e.g. ``"geniezone"``, ``"atf"``,
-    ``"wlan"``) or ``None`` when the description doesn't follow the
-    ``"In <word>, …"`` convention.
-    """
-    if not description:
-        return None
-    m = _SUBCOMPONENT_RE.match(description.strip())
-    return m.group(1).lower() if m else None
-
 
 def _stringify_metadata(md: dict) -> list[str]:
     """Return all string values found in metadata (one level deep)."""

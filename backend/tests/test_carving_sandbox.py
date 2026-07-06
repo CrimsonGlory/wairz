@@ -359,24 +359,6 @@ class TestLifecycle:
         assert len(containers) == 1
 
     @pytest.mark.asyncio
-    async def test_stop_container_is_idempotent(
-        self, service: CarvingService, fw_blob
-    ):
-        fw, _ = fw_blob
-
-        async def _stub(_pid, _fid):
-            return fw
-
-        service._load_firmware = _stub  # type: ignore[method-assign]
-
-        await service.run_command(fw.project_id, fw.id, "true", timeout=5)
-        first = await service.stop_container(fw.project_id)
-        assert first is True
-        # Second call: nothing to stop
-        second = await service.stop_container(fw.project_id)
-        assert second is False
-
-    @pytest.mark.asyncio
     async def test_cleanup_orphans_removes_carving_containers(
         self, service: CarvingService, fw_blob
     ):

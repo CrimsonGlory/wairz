@@ -850,34 +850,6 @@ class AndroguardService:
             "warnings": warnings,
         }
 
-    def check_is_debug_signed(self, apk_path: str) -> bool:
-        """Lightweight check: is the APK signed with a debug certificate?
-
-        Uses ``APK()`` (no DEX parsing) so it completes in milliseconds
-        instead of seconds.  Suitable for the platform-signing heuristic
-        in manifest scan workflows where full signature analysis is overkill.
-        """
-        from androguard.core.apk import APK
-
-        try:
-            apk_obj = APK(apk_path)
-            certs = apk_obj.get_certificates()
-            for cert in certs:
-                sig_info: dict[str, Any] = {}
-                try:
-                    sig_info["subject"] = (
-                        str(cert.subject.human_friendly)
-                        if hasattr(cert.subject, "human_friendly")
-                        else str(cert.subject)
-                    )
-                except Exception:
-                    sig_info["subject"] = "unknown"
-                if self._is_debug_cert(sig_info):
-                    return True
-        except Exception:
-            pass
-        return False
-
     def check_platform_signed(self, apk_path: str) -> bool:
         """Detect whether an APK is likely platform-signed.
 

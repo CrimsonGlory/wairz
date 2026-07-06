@@ -170,28 +170,6 @@ def _filetime_to_datetime(ts: int) -> _dt.datetime | None:
         return None
 
 
-def _safe_get_value(record: Any, idx: int) -> Any:
-    """Safely extract a value from a pyesedb record column at idx.
-
-    libesedb-python's record API returns None for NULL, but raises on
-    invalid indices or unusable column types. We swallow every exception
-    at the row boundary so one bad column doesn't abort the walk.
-    """
-    try:
-        # Try the typed-int accessor first (most SRUM columns are ints).
-        return record.get_value_data_as_integer(idx)
-    except Exception:
-        pass
-    try:
-        return record.get_value_data_as_string(idx)
-    except Exception:
-        pass
-    try:
-        return record.get_value_data(idx)  # raw bytes
-    except Exception:
-        return None
-
-
 def _build_id_map(table: Any) -> dict[int, str]:
     """Build the {IdIndex → IdBlob-decoded-string} map from SruDbIdMapTable.
 
@@ -367,39 +345,6 @@ def _build_record_for_table(
     )
 
     return WindowsSrumRecord(**kwargs)
-
-
-def _parse_srudb_file(path: str) -> dict[str, Any]:
-    """Parse one SRUDB.dat file. Sync — wrap in run_in_executor.
-
-    Returns:
-        {
-            "status": "ok" | "unavailable" | "error",
-            "tables": dict[record_type, list[(table, col_idx)]],
-            "id_map": dict[int, str],
-            "table_guid_map": dict[record_type, str],
-            "error": str (if status == "error"),
-        }
-    """
-    if not is_pyesedb_available():
-        return {
-            "status": "unavailable",
-            "reason": "pyesedb (libesedb-python) not installed",
-        }
-    import pyesedb
-
-    try:
-        f = pyesedb.open(path)
-    except Exception as exc:
-        msg = str(exc)
-        if len(msg) > 500:
-            msg = msg[:500] + "..."
-        return {"status": "error", "error": msg}
-
-    return {
-        "status": "ok",
-        "file": f,
-    }
 
 
 # ── Inner orchestrator (accepts a db; reusable in tier-1 live canaries) ──────

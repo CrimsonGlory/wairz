@@ -35,7 +35,6 @@ Coverage targets:
 * ``list_kernels`` — filters out ``.json`` sidecars, ``.initrd``
   companions, hidden ``.X`` files, directories; sorts by name;
   ``architecture=`` filter restricts results; missing kernel dir → [].
-* ``get_kernel`` — validates name; raises if missing; returns info.
 * ``upload_kernel`` — validates name + arch + existence; writes binary
   AND sidecar; sidecar contains architecture / description /
   uploaded_at.
@@ -303,7 +302,7 @@ class TestKernelInfo:
 
 
 # ===========================================================================
-# list_kernels / get_kernel / find_kernel_for_arch
+# list_kernels / find_kernel_for_arch
 # ===========================================================================
 
 
@@ -337,24 +336,6 @@ class TestListKernels:
         with patch.object(ks_mod, "get_settings", lambda: fake_settings):
             service = KernelService()
             assert service.list_kernels() == []
-
-
-class TestGetKernel:
-    def test_validates_name_first(self, patched_kernel_dir: Path):
-        service = KernelService()
-        with pytest.raises(ValueError, match="must not contain"):
-            service.get_kernel("etc/passwd")
-
-    def test_missing_kernel_raises(self, patched_kernel_dir: Path):
-        service = KernelService()
-        with pytest.raises(ValueError, match="not found"):
-            service.get_kernel("absent")
-
-    def test_returns_info_dict(self, patched_kernel_dir: Path):
-        (patched_kernel_dir / "k1").write_bytes(b"bin")
-        service = KernelService()
-        info = service.get_kernel("k1")
-        assert info["name"] == "k1"
 
 
 class TestFindKernelForArch:
@@ -709,10 +690,6 @@ class TestKernelLifecycleLiveCanary:
         # Architecture filter restricts.
         assert service.list_kernels(architecture="aarch64") == listing
         assert service.list_kernels(architecture="x86") == []
-
-        # get_kernel matches list output.
-        got = service.get_kernel("vmlinuz-canary")
-        assert got == entry
 
         # find_kernel_for_arch returns the entry.
         found = service.find_kernel_for_arch("aarch64")

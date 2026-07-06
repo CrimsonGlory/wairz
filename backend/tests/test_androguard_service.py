@@ -25,7 +25,6 @@ Coverage targets:
 * ``scan_manifest_security()`` — FileNotFoundError on missing file (only
   the file-existence guard is exercised here; the full check pipeline
   is covered by manifest_checks tests).
-* ``check_is_debug_signed()`` — exception swallow returns False.
 * ``check_platform_signed()`` — exception swallow returns False.
 * ``check_signatures()``      — wraps analyze_apk; flags unsigned APKs;
   flags weak signature algorithms (MD5/SHA1).
@@ -223,42 +222,8 @@ class TestScanManifestSecurity:
 
 
 # ===========================================================================
-# check_is_debug_signed / check_platform_signed — exception swallow
+# check_platform_signed — exception swallow
 # ===========================================================================
-
-
-class TestCheckIsDebugSigned:
-    def test_returns_false_when_apk_ctor_raises(self, tmp_path: Path):
-        """``APK`` is lazy-imported inside the method (line 861); patch
-        the SOURCE module per Rule #30 — patching
-        ``app.services.androguard_service.APK`` would silently no-op."""
-        apk_file = tmp_path / "broken.apk"
-        apk_file.write_bytes(b"not a real apk")
-
-        with patch(
-            "androguard.core.apk.APK",
-            side_effect=Exception("malformed apk"),
-        ):
-            svc = AndroguardService()
-            assert svc.check_is_debug_signed(str(apk_file)) is False
-
-    def test_returns_true_when_debug_cert_present(self, tmp_path: Path):
-        apk_file = tmp_path / "debug.apk"
-        apk_file.write_bytes(b"PK\x03\x04" + b"\x00" * 100)
-
-        # APK returns a cert with a debug subject.
-        cert = MagicMock()
-        cert.subject = MagicMock()
-        cert.subject.human_friendly = "CN=Android Debug, O=Android"
-        apk_obj = MagicMock()
-        apk_obj.get_certificates = MagicMock(return_value=[cert])
-
-        with patch(
-            "androguard.core.apk.APK",
-            return_value=apk_obj,
-        ):
-            svc = AndroguardService()
-            assert svc.check_is_debug_signed(str(apk_file)) is True
 
 
 class TestCheckPlatformSigned:

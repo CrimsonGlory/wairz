@@ -144,21 +144,6 @@ async def store_cached(
     await db.flush()
 
 
-async def invalidate_firmware(db: AsyncSession, firmware_id: UUID) -> int:
-    """Delete all cache entries for a firmware. Returns the row count.
-
-    The ``analysis_cache.firmware_id`` FK already has ``ON DELETE
-    CASCADE``, so dropping the firmware itself removes cache rows for
-    free. Use this helper for explicit invalidation without removing
-    the firmware (e.g., after a re-analysis request).
-    """
-    result = await db.execute(
-        delete(AnalysisCache).where(AnalysisCache.firmware_id == firmware_id)
-    )
-    await db.flush()
-    return result.rowcount or 0
-
-
 async def cleanup_older_than(db: AsyncSession, *, days: int) -> int:
     """Delete cache rows older than ``days`` days. Returns the row count.
 

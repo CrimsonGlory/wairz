@@ -208,14 +208,6 @@ class KernelService:
         kernels.sort(key=lambda k: k["name"])
         return kernels
 
-    def get_kernel(self, name: str) -> dict:
-        """Get info for a single kernel by name."""
-        _validate_kernel_name(name)
-        kernel_path = self._kernel_path(name)
-        if not os.path.isfile(kernel_path):
-            raise ValueError(f"Kernel '{name}' not found")
-        return self._kernel_info(name)
-
     async def upload_kernel(
         self,
         name: str,

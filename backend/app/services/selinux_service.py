@@ -152,39 +152,6 @@ class SELinuxService:
 
         return result
 
-    def find_permissive_domains(self, policy_path: str) -> list[str]:
-        """Find permissive domains in a single policy file or directory.
-
-        Tries (in order):
-          1. setools Python API (SEPolicy)
-          2. seinfo CLI tool
-          3. CIL text parsing for (typepermissive ...) statements
-        """
-        abs_path = os.path.join(self.extracted_root, policy_path.lstrip("/"))
-        abs_path = os.path.realpath(abs_path)
-        if not abs_path.startswith(self.extracted_root):
-            return []
-
-        # If it's a directory, collect from all files inside
-        if os.path.isdir(abs_path):
-            return self._permissive_from_dir(abs_path)
-
-        if not os.path.isfile(abs_path):
-            return []
-
-        # Try setools Python API
-        domains = self._try_setools_permissive(abs_path)
-        if domains is not None:
-            return domains
-
-        # Try seinfo CLI
-        domains = self._try_seinfo_permissive(abs_path)
-        if domains is not None:
-            return domains
-
-        # Fallback: CIL text parsing
-        return self._parse_cil_permissive(abs_path)
-
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

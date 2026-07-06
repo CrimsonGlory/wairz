@@ -84,24 +84,3 @@ def canonical_kernel_version(
     return None
 
 
-def canonical_android_version(raw: str | None) -> str | None:
-    """Return the canonical Android marketing version (e.g. "11", "12", "15").
-
-    Android NVD CPEs use the marketing version (single integer in most
-    cases — "11", "12", "13", "14", "15"; older releases like "4.4"
-    use the 2-part form).
-    """
-    if not raw:
-        return None
-    s = str(raw).strip()
-    # Marketing version is a single integer (post-2.x) or a 2-part for
-    # pre-5.0. NVD CPE uses the bare integer (e.g. cpe:2.3:o:google:android:11).
-    if re.match(r"^\d+$", s):
-        return s
-    if re.match(r"^\d+\.\d+$", s):
-        return s
-    # Strip any trailing suffix like "11.0.0_r45" → "11"
-    m = re.match(r"^(\d+)(?:[.\-_]|$)", s)
-    if m:
-        return m.group(1)
-    return None

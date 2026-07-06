@@ -223,35 +223,6 @@ class TestStoreCached:
 
 
 # ---------------------------------------------------------------------------
-# invalidate_firmware
-# ---------------------------------------------------------------------------
-
-
-class TestInvalidateFirmware:
-    @pytest.mark.asyncio
-    async def test_deletes_all_rows_for_firmware(self) -> None:
-        db = _mock_session(execute_returns=[_result_with_rowcount(7)])
-        fw_id = uuid.uuid4()
-        count = await _cache.invalidate_firmware(db, fw_id)
-        assert count == 7
-        delete_stmt = db.execute.call_args[0][0]
-        compiled = str(delete_stmt.compile(compile_kwargs={"literal_binds": True}))
-        assert "DELETE FROM analysis_cache" in compiled
-        # SQLAlchemy compiles UUID literals hyphenless (32-char hex).
-        assert fw_id.hex in compiled
-        # No operation / sha filter — deletes EVERY row for this firmware_id.
-        assert "operation" not in compiled.split("WHERE")[-1]
-        assert "binary_sha256" not in compiled.split("WHERE")[-1]
-        db.flush.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_returns_zero_when_none_matched(self) -> None:
-        db = _mock_session(execute_returns=[_result_with_rowcount(0)])
-        count = await _cache.invalidate_firmware(db, uuid.uuid4())
-        assert count == 0
-
-
-# ---------------------------------------------------------------------------
 # cleanup_older_than
 # ---------------------------------------------------------------------------
 
