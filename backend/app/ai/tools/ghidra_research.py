@@ -345,6 +345,42 @@ def register_ghidra_research_tools(registry: ToolRegistry) -> None:
     )
 
     registry.register(
+        name="export_ghidra_archive",
+        description=(
+            "Export the LIVE persistent Ghidra project for a .gzf archive back out "
+            "as a new downloadable .gzf file — the reverse of import_ghidra_archive. "
+            "Requires run_ghidra_headless(use_saved_project=True) to have been run at "
+            "least once against this archive (so a persistent project exists on disk); "
+            "packages that project's CURRENT state (including any renames, retyping, "
+            "or comments applied by prior script runs) via Ghidra's own project-archive "
+            "API. The export is registered as a NEW Ghidra research file — it does not "
+            "overwrite the source archive. Download it via the ghidra-research download "
+            "endpoint or a fresh list_ghidra_research_files call."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "file_id": {
+                    "type": "string",
+                    "description": (
+                        "UUID of the source .gzf archive whose persistent project "
+                        "should be exported."
+                    ),
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": (
+                        "Timeout in seconds for the export run. Defaults to the "
+                        "ghidra_timeout setting (300 s)."
+                    ),
+                },
+            },
+            "required": ["file_id"],
+        },
+        handler=_handle_export_ghidra_archive,
+    )
+
+    registry.register(
         name="list_ghidra_logs",
         description=(
             "List Ghidra run logs persisted for the current project. Every "
@@ -695,6 +731,131 @@ async def _handle_get_ghidra_import_status(input: dict, context: ToolContext) ->
         lines.append("Import is in progress. Poll again in a few seconds.")
 
     return "\n".join(lines)
+
+
+async def _handle_export_ghidra_archive(input: dict, context: ToolContext) -> str:
+    file_id_str = input.get("file_id", "")
+    try:
+        file_id = uuid.UUID(file_id_str)
+    except (ValueError, AttributeError):
+        return f"Error: Invalid file ID: {file_id_str}"
+
+    svc = GhidraResearchService(context.db)
+    record = await svc.get(file_id)
+    if not record or record.project_id != context.project_id:
+        return f"Error: File {file_id_str} not found in this project."
+
+    ext = os.path.splitext(record.original_filename)[1].lower()
+    if ext != ".gzf":
+        return f"Error: Only .gzf archives can be exported. '{record.original_filename}' is not a .gzf file."
+
+    if not os.path.exists(record.storage_path):  # noqa: ASYNC240 — pre-flight stat, no walk
+        return f"Error: Archive file not found on disk: {record.storage_path}"
+
+    from app.services.ghidra_service import (  # noqa: PLC0415
+        _cross_process_analysis_lock,
+        _format_ghidra_diag,
+        _make_ghidra_preexec_fn,
+        gzf_project_paths,
+    )
+    from app.utils.hashing import compute_file_sha256  # noqa: PLC0415
+
+    loop = asyncio.get_running_loop()
+    gzf_sha = await loop.run_in_executor(None, compute_file_sha256, record.storage_path)
+    proj_base, proj_name, rep_dir = gzf_project_paths(gzf_sha)
+
+    if not await loop.run_in_executor(None, os.path.isdir, rep_dir):
+        return (
+            f"Error: No persistent Ghidra project found for '{record.original_filename}'. "
+            "Run run_ghidra_headless with use_saved_project=True against this archive at "
+            "least once before exporting — export_ghidra_archive packages the LIVE "
+            "persistent project (with any renames/retyping applied), not the pristine "
+            "uploaded archive."
+        )
+
+    settings = get_settings()
+    analyze_headless = os.path.join(settings.ghidra_path, "support", "analyzeHeadless")
+    scripts_path = settings.ghidra_scripts_path
+
+    timeout_override = input.get("timeout")
+    timeout = timeout_override if isinstance(timeout_override, int) else settings.ghidra_timeout
+
+    export_dir = tempfile.mkdtemp(prefix="ghidra-export-")
+    export_stem = os.path.splitext(record.original_filename)[0]
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+    output_filename = f"{export_stem}_export_{timestamp}.gzf"
+    output_path = os.path.join(export_dir, output_filename)
+
+    process_cmd = [
+        analyze_headless,
+        proj_base,
+        proj_name,
+        "-process", "*",
+        "-noanalysis",
+        "-scriptPath", scripts_path,
+        "-postScript", "ExportProjectArchive.java",
+        output_path,
+    ]
+
+    try:
+        async with _cross_process_analysis_lock(f"gzf_{gzf_sha[:16]}"):
+            with (
+                tempfile.TemporaryFile(prefix="ghidra-export-out-") as out_f,
+                tempfile.TemporaryFile(prefix="ghidra-export-err-") as err_f,
+            ):
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        *process_cmd,
+                        stdout=out_f,
+                        stderr=err_f,
+                        preexec_fn=_make_ghidra_preexec_fn(),
+                    )
+                except FileNotFoundError:
+                    return f"Error: Ghidra not found at {analyze_headless}. Set GHIDRA_PATH in .env."
+
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=timeout)
+                except TimeoutError:
+                    proc.kill()
+                    await proc.wait()
+                    return f"Error: Ghidra export timed out after {timeout} s."
+
+                out_f.seek(0)
+                err_f.seek(0)
+                stdout_text = out_f.read().decode("utf-8", errors="replace")
+                stderr_text = err_f.read().decode("utf-8", errors="replace")
+
+            output_exists = await loop.run_in_executor(None, os.path.isfile, output_path)
+            if proc.returncode != 0 or not output_exists:
+                diag = _format_ghidra_diag(stdout_text, stderr_text)
+                return (
+                    f"Error: Ghidra export failed (exit code {proc.returncode}) — "
+                    f"'{output_filename}' not produced.\n\n"
+                    f"Ghidra diagnostics:\n{diag}"
+                )
+
+        exported = await svc.register_local_file(
+            context.project_id,
+            output_path,
+            output_filename,
+            description=(
+                f"Exported from the persistent project of '{record.original_filename}' "
+                "via export_ghidra_archive"
+            ),
+        )
+    finally:
+        shutil.rmtree(export_dir, ignore_errors=True)
+
+    size_mb = exported.file_size / (1024 * 1024)
+    return (
+        "Ghidra archive exported successfully.\n"
+        f"  Source archive: {record.original_filename}\n"
+        f"  Exported file:  {exported.original_filename}\n"
+        f"  Size:           {size_mb:.1f} MB\n"
+        f"  File ID:        {exported.id}\n"
+        "Use list_ghidra_research_files to confirm it's registered, or download it via "
+        f"GET /api/v1/projects/{context.project_id}/ghidra-research/{exported.id}/download"
+    )
 
 
 # ---------------------------------------------------------------------------

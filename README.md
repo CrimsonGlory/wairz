@@ -77,7 +77,7 @@ Optional:
 
 ## About This Fork
 
-This repository is a fork of [digitalandrew/wairz](https://github.com/digitalandrew/wairz) with a large number of additional commits on top of upstream, growing the MCP tool surface from upstream's baseline to 383 tools across 34 categories:
+This repository is a fork of [digitalandrew/wairz](https://github.com/digitalandrew/wairz) with a large number of additional commits on top of upstream, growing the MCP tool surface from upstream's baseline to 384 tools across 34 categories:
 
 - **eastmadc** — a broad expansion of the analysis "walker" pipeline and corresponding MCP tools: a large suite of Windows forensic artifact parsers (registry hives, EVTX event logs, Prefetch, SRUM, MFT, USN Journal, LNK, Scheduled Tasks, WMI persistence, DPAPI, EFS, BCD/ESP boot chain, MBR/VBR, ETL traces, AppCompat/Shim DB, driver signing & BYOVD, .NET bundles, and archive/installer formats), Linux forensic artifact parsers (systemd, journald, containers, persistence, kernel hardening), ICS/OT protocol detection, a schema-driven bare-metal/MCU chip-family catalog, Android posture auditing, a firmware carving sandbox, and hardware-firmware/SBOM extensions — each with its own MCP tools, migrations, and (where applicable) cross-firmware lookup support.
 - **CrimsonGlory** — mainly focused on making the Ghidra MCP integration more flexible: support for raw MIPS16E binaries, a `run_ghidra_headless` tool, persistent Ghidra research files/scripts/logs across sessions, plus assorted CI, lint, and dev-server (CORS/host-check) fixes.
@@ -203,7 +203,7 @@ When a project has more than one firmware uploaded (useful for diffing across ve
 
 ### MCP Tools (383 across 34 categories)
 
-Source-of-truth count: `create_tool_registry()` (`backend/app/ai/__init__.py`) registers 379 tools across 32 category files under `backend/app/ai/tools/`; `backend/app/mcp_server.py` registers 4 more directly (`get_project_info`, `switch_project`, `list_projects`, `save_code_cleanup`) for 383 total.
+Source-of-truth count: `create_tool_registry()` (`backend/app/ai/__init__.py`) registers 380 tools across 32 category files under `backend/app/ai/tools/`; `backend/app/mcp_server.py` registers 4 more directly (`get_project_info`, `switch_project`, `list_projects`, `save_code_cleanup`) for 384 total.
 
 | Category | Count | Tools |
 |----------|-------|-------|
@@ -217,7 +217,7 @@ Source-of-truth count: `create_tool_registry()` (`backend/app/ai/__init__.py`) r
 | **Android** | 9 | `analyze_apk`, `list_apk_permissions`, `check_apk_signatures`, `scan_apk_manifest`, `scan_apk_bytecode`, `scan_apk_sast`, `trigger_android_posture_walk`, `get_android_posture`, `lookup_android_posture_across_firmwares` |
 | **Fuzzing** | 9 | `analyze_fuzzing_target`, `generate_fuzzing_dictionary`, `generate_seed_corpus`, `generate_fuzzing_harness`, `start_fuzzing_campaign`, `check_fuzzing_status`, `stop_fuzzing_campaign`, `triage_fuzzing_crash`, `diagnose_fuzzing_campaign` |
 | **SBOM** | 9 | `generate_sbom`, `get_sbom_components`, `check_component_cves`, `run_vulnerability_scan`, `list_vulnerabilities_for_assessment`, `export_sbom`, `push_to_dependency_track`, `assess_vulnerabilities`, `set_vulnerability_status` |
-| **Ghidra Research** | 9 | `list_ghidra_research_files`, `read_ghidra_script`, `save_ghidra_script`, `import_ghidra_archive`, `get_ghidra_import_status`, `resolve_firmware_path`, `run_ghidra_headless`, `list_ghidra_logs`, `read_ghidra_log` |
+| **Ghidra Research** | 10 | `list_ghidra_research_files`, `read_ghidra_script`, `save_ghidra_script`, `import_ghidra_archive`, `get_ghidra_import_status`, `export_ghidra_archive`, `resolve_firmware_path`, `run_ghidra_headless`, `list_ghidra_logs`, `read_ghidra_log` |
 | **Documents** | 7 | `read_scratchpad`, `update_scratchpad`, `save_document`, `read_project_instructions`, `list_project_documents`, `read_project_document`, `save_code_cleanup` |
 | **Filesystem** | 8 | `list_directory`, `read_file`, `search_files`, `file_info`, `find_files_by_type`, `get_component_map`, `get_firmware_metadata`, `extract_bootloader_env` |
 | **UART** | 8 | `uart_connect`, `uart_send_command`, `uart_read`, `uart_send_break`, `uart_send_raw`, `uart_disconnect`, `uart_status`, `uart_get_transcript` |

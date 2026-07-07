@@ -3,6 +3,7 @@ import hashlib
 import logging
 import mimetypes
 import os
+import shutil
 import traceback
 import uuid
 from datetime import UTC, datetime
@@ -72,6 +73,64 @@ class GhidraResearchService:
         async with aiofiles.open(storage_path, "wb") as f:
             for chunk in chunks:
                 await f.write(chunk)
+
+        record = GhidraResearchFile(
+            id=file_id,
+            project_id=project_id,
+            original_filename=original_filename,
+            file_category=file_category,
+            description=description,
+            content_type=content_type,
+            file_size=total_size,
+            sha256=sha256,
+            storage_path=storage_path,
+            import_status="idle",
+        )
+        self.db.add(record)
+        await self.db.flush()
+        return record
+
+    async def register_local_file(
+        self,
+        project_id: uuid.UUID,
+        local_path: str,
+        original_filename: str,
+        description: str | None = None,
+    ) -> GhidraResearchFile:
+        """Register an already-on-disk file as a new GhidraResearchFile.
+
+        Mirrors upload(), but the source is a local path (e.g. an archive
+        just produced by export_ghidra_archive) rather than an UploadFile
+        streamed from an HTTP request. Copies the file into the project's
+        ghidra_research storage dir so it is served identically to an
+        uploaded file (list/download/delete all go through the same rows).
+        """
+        ext = os.path.splitext(original_filename)[1].lower()
+        content_type = mimetypes.guess_type(original_filename)[0] or "application/octet-stream"
+        file_category = FILE_CATEGORY_MAP.get(ext, "python_script")
+
+        hasher = hashlib.sha256()
+        total_size = 0
+        async with aiofiles.open(local_path, "rb") as src:
+            while True:
+                chunk = await src.read(64 * 1024)
+                if not chunk:
+                    break
+                hasher.update(chunk)
+                total_size += len(chunk)
+        sha256 = hasher.hexdigest()
+
+        settings = get_settings()
+        file_id = uuid.uuid4()
+        safe_filename = original_filename.replace("/", "_").replace("\\", "_")
+        storage_dir = os.path.join(
+            settings.storage_root, "projects", str(project_id), "ghidra_research"
+        )
+        os.makedirs(storage_dir, exist_ok=True)
+        storage_path = os.path.join(storage_dir, f"{file_id}_{safe_filename}")
+
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, shutil.copyfile, local_path, storage_path)
 
         record = GhidraResearchFile(
             id=file_id,

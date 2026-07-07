@@ -386,6 +386,176 @@ class TestRunGzfProcessModeKeepsPersistentProject:
             assert os.path.exists(rep_dir), "rep_dir should be retained for subsequent analysis"  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
 
 
+class TestExportGhidraArchive:
+    """export_ghidra_archive: reverse of import_ghidra_archive. Packages the
+    LIVE persistent Ghidra project (renames/retyping applied by prior script
+    runs) back out as a new downloadable .gzf research file."""
+
+    @pytest.fixture
+    def _fake_ghidra_settings(self, tmp_path, monkeypatch):
+        from app.services import ghidra_service as gs
+
+        fake_settings = MagicMock()
+        fake_settings.storage_root = str(tmp_path / "storage")
+        fake_settings.ghidra_projects_dir = str(tmp_path / "ghidra_projects")
+        fake_settings.ghidra_path = "/opt/ghidra"
+        fake_settings.ghidra_scripts_path = "/opt/ghidra_scripts"
+        fake_settings.ghidra_timeout = 300
+        monkeypatch.setattr(gr, "get_settings", lambda: fake_settings)
+        monkeypatch.setattr(gs, "get_settings", lambda: fake_settings)
+        return fake_settings
+
+    @pytest.mark.asyncio
+    async def test_export_rejects_non_gzf(self, tmp_path, _fake_ghidra_settings):
+        async with make_live_db() as db:
+            project_id = uuid.uuid4()
+            db.add(Project(id=project_id, name="export-nongzf", status="ready"))
+            await db.flush()
+
+            script_path = tmp_path / "script.java"
+            script_path.write_text("// x")
+            record_id = uuid.uuid4()
+            db.add(GhidraResearchFile(
+                id=record_id, project_id=project_id,
+                original_filename="script.java", file_category="java_script",
+                content_type="text/x-java-source", file_size=4,
+                sha256="a" * 64, storage_path=str(script_path),
+            ))
+            await db.commit()
+
+            context = ToolContext(
+                project_id=project_id, firmware_id=uuid.uuid4(),
+                extracted_path=str(tmp_path), db=db,
+            )
+            result = await gr._handle_export_ghidra_archive(
+                {"file_id": str(record_id)}, context,
+            )
+            assert "Error: Only .gzf archives" in result
+
+    @pytest.mark.asyncio
+    async def test_export_missing_persistent_project_is_clean_error(
+        self, tmp_path, _fake_ghidra_settings,
+    ):
+        async with make_live_db() as db:
+            project_id = uuid.uuid4()
+            db.add(Project(id=project_id, name="export-missing-proj", status="ready"))
+            await db.flush()
+
+            gzf_path = tmp_path / "archive.gzf"
+            gzf_path.write_bytes(b"PK\x03\x04" + b"\x00" * 16)
+            record_id = uuid.uuid4()
+            db.add(GhidraResearchFile(
+                id=record_id, project_id=project_id,
+                original_filename="archive.gzf", file_category="ghidra_archive",
+                content_type="application/octet-stream", file_size=20,
+                sha256="b" * 64, storage_path=str(gzf_path),
+            ))
+            await db.commit()
+
+            context = ToolContext(
+                project_id=project_id, firmware_id=uuid.uuid4(),
+                extracted_path=str(tmp_path), db=db,
+            )
+            result = await gr._handle_export_ghidra_archive(
+                {"file_id": str(record_id)}, context,
+            )
+            assert "No persistent Ghidra project found" in result
+
+    @pytest.mark.asyncio
+    async def test_export_success_registers_new_research_file(
+        self, tmp_path, _fake_ghidra_settings,
+    ):
+        import os
+
+        from app.utils.hashing import compute_file_sha256
+
+        async with make_live_db() as db:
+            project_id = uuid.uuid4()
+            db.add(Project(id=project_id, name="export-success", status="ready"))
+            await db.flush()
+
+            gzf_path = tmp_path / "annotated.gzf"
+            gzf_path.write_bytes(b"PK\x03\x04" + b"\x00" * 16)
+            gzf_sha = compute_file_sha256(str(gzf_path))
+            record_id = uuid.uuid4()
+            db.add(GhidraResearchFile(
+                id=record_id, project_id=project_id,
+                original_filename="annotated.gzf", file_category="ghidra_archive",
+                content_type="application/octet-stream", file_size=20,
+                sha256="c" * 64, storage_path=str(gzf_path),
+            ))
+            await db.commit()
+
+            # Pre-create the persistent project's .rep dir so the "no
+            # persistent project" error path is skipped.
+            proj_base = tmp_path / "ghidra_projects" / gzf_sha[:16]
+            rep_dir = proj_base / "gzf_project.rep"
+            rep_dir.mkdir(parents=True)
+
+            context = ToolContext(
+                project_id=project_id, firmware_id=uuid.uuid4(),
+                extracted_path=str(tmp_path), db=db,
+            )
+
+            class _FakeProc:
+                returncode = 0
+
+                async def wait(self):
+                    return 0
+
+            async def fake_create_subprocess(*args, **kwargs):
+                # The export script's last CLI arg is the output path — write
+                # a fake archive there so the handler's post-run isfile()
+                # check succeeds, simulating a successful Ghidra packFile run.
+                output_path = args[-1]
+                with open(output_path, "wb") as f:
+                    f.write(b"PK\x03\x04FAKE_EXPORTED_GZF")
+                return _FakeProc()
+
+            with patch.object(
+                gr.asyncio, "create_subprocess_exec",
+                new=AsyncMock(side_effect=fake_create_subprocess),
+            ):
+                result = await gr._handle_export_ghidra_archive(
+                    {"file_id": str(record_id)}, context,
+                )
+
+            assert "Ghidra archive exported successfully" in result
+            assert "annotated.gzf" in result
+
+            # Rule #35b live canary: the exported file is a real, separate
+            # GhidraResearchFile row (not an overwrite of the source archive).
+            svc = gr.GhidraResearchService(db)
+            all_files = await svc.list_by_project(project_id, limit=10)
+            exported_rows = [
+                f for f in all_files if f.original_filename != "annotated.gzf"
+            ]
+            assert len(exported_rows) == 1
+            exported = exported_rows[0]
+            assert exported.file_category == "ghidra_archive"
+            assert exported.original_filename.startswith("annotated_export_")
+            assert os.path.exists(exported.storage_path)  # noqa: ASYNC240 -- single bounded stat, not a hot loop
+            with open(exported.storage_path, "rb") as f:  # noqa: ASYNC230 -- single bounded open/read, not a hot loop
+                assert f.read() == b"PK\x03\x04FAKE_EXPORTED_GZF"
+
+    @pytest.mark.asyncio
+    async def test_export_file_not_found_in_project(self, tmp_path, _fake_ghidra_settings):
+        async with make_live_db() as db:
+            project_id = uuid.uuid4()
+            db.add(Project(id=project_id, name="export-notfound", status="ready"))
+            await db.flush()
+            await db.commit()
+
+            context = ToolContext(
+                project_id=project_id, firmware_id=uuid.uuid4(),
+                extracted_path=str(tmp_path), db=db,
+            )
+            result = await gr._handle_export_ghidra_archive(
+                {"file_id": str(uuid.uuid4())}, context,
+            )
+            assert "not found in this project" in result
+
+
 class TestListGhidraResearchFilesFilterAndPaging:
     """The >100-file listing fix: name_contains filter + limit/offset paging +
     true-total header (wairz_requested_changes 2026-06-29 casualty:
