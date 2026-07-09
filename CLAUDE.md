@@ -1,8 +1,8 @@
 # CLAUDE.md — Wairz Codebase Guide
 
-This file is for AI agents (Claude Code, etc.) working on the Wairz codebase. It describes the architecture, conventions, and patterns you need to follow when making changes.
+This file is for AI agents working on the Wairz codebase: architecture, conventions, and patterns required when making changes. User-facing docs live in `README.md`.
 
-**What is Wairz?** An open-source, browser-based firmware reverse engineering and security assessment platform. Users upload firmware, the tool unpacks it, and provides a unified interface for filesystem exploration, binary analysis, emulation, fuzzing, and security assessment — augmented by an AI assistant connected via MCP (Model Context Protocol). See `README.md` for user-facing documentation.
+**Wairz** is a browser-based firmware reverse engineering and security assessment platform (unpack → explore → analyze → emulate/fuzz), with an MCP server exposing analysis tools to AI agents.
 
 ---
 
@@ -16,7 +16,7 @@ Claude Code / Claude Desktop
 ┌─────────────────┐     ┌──────────────────────────────────┐
 │   wairz-mcp     │────▶│         FastAPI Backend           │
 │  (MCP server)   │     │                                    │
-│  172 tools      │     │  Services: firmware, file,         │
+│  MCP tools      │     │  Services: firmware, file,         │
 │                 │     │  analysis, emulation, fuzzing,     │
 │  Entry point:   │     │  sbom, uart, finding, export...    │
 │  wairz-mcp CLI  │     │                                    │
@@ -28,15 +28,14 @@ Claude Code / Claude Desktop
 │  (Frontend)  │    │              │              │
 └──────────────┘    └──────────────┴──────────────┘
 
-Host machine (optional):
-  wairz-uart-bridge.py ←─ TCP:9999 ─→ Docker backend
+Host (optional): UART bridge :9999 · device/ADB bridge :9998 → backend
 ```
 
-- **Frontend:** React 19 + Vite + TypeScript, shadcn/ui + Tailwind, Monaco Editor, ReactFlow, xterm.js, Zustand
+- **Frontend:** React 19 + Vite + TypeScript, shadcn/ui + Tailwind, Zustand (+ Monaco, ReactFlow, xterm)
 - **Backend:** Python 3.12 + FastAPI (async), SQLAlchemy 2.0 (async) + Alembic, pydantic-settings
-- **MCP Server:** `wairz-mcp` CLI entry point (`app.mcp_server:main`), stdio transport, 172 tools across 21 categories
-- **Database:** PostgreSQL 16 (JSONB for analysis cache)
-- **Containers:** Docker Compose — backend, postgres, redis, emulation (QEMU), fuzzing (AFL++)
+- **MCP:** `wairz-mcp` (`app.mcp_server:main`), stdio; tools under `backend/app/ai/tools/`
+- **Data:** PostgreSQL 16 (JSONB analysis cache), Redis
+- **Containers:** Docker Compose — backend, worker, migrator, postgres, redis, emulation (QEMU), fuzzing (AFL++)
 
 ---
 
@@ -81,7 +80,8 @@ wairz/
 ├── fuzzing/
 │   └── Dockerfile               # AFL++ with QEMU mode
 └── scripts/
-    └── wairz-uart-bridge.py     # Host-side serial bridge (standalone, pyserial only)
+    ├── wairz-uart-bridge.py     # Host-side UART serial bridge (pyserial)
+    └── wairz-device-bridge.py   # Host-side ADB device acquisition bridge
 ```
 
 ---
@@ -114,7 +114,7 @@ wairz/
    ```
    The MCP server filters `list_tools` by the active firmware's kind and rejects mismatched `call_tool` invocations as defense in depth. `switch_project` emits `notifications/tools/list_changed` so clients re-fetch automatically.
 4. If it's a new category file, import and call `register_<category>_tools(registry)` in `backend/app/ai/__init__.py`.
-5. **Update `README.md` in the same commit.** Bump the total tool count and the per-category count in the tool table, and add the new tool name to its category's tool list if the README enumerates tools individually. Recompute the total via `find backend/app/ai/tools -name '*.py' | xargs grep -c 'registry\.register' | awk -F: '{s+=$2}END{print s}'` (same command used for the count in this file's Tool Categories table below) rather than incrementing by hand — Rule #31 width-canary discipline applies to tool counts too. If the category table in this CLAUDE.md file is also out of date, update it in the same commit (Rule #21 companion-file sync).
+5. **Update `README.md` in the same commit.** Bump the total tool count and the per-category count in the tool table, and add the new tool name if the README enumerates tools individually. Recompute the total via `find backend/app/ai/tools -name '*.py' | xargs grep -c 'registry\.register' | awk -F: '{s+=$2}END{print s}'` (Rule #31 — do not increment by hand).
 
 ### Adding a New REST Endpoint
 
@@ -497,161 +497,51 @@ These rules were extracted from recurring bugs and failures across 30+ developme
 
 ## Companion scaffold: `.mex/`
 
-`.mex/` is a forward-looking task-navigation graph + recipe book that sits alongside this file. CLAUDE.md is canonical for learned rules and the top-level project reference; `.mex/` is the navigation layer you hit when starting a *specific* task. Roles:
+`.mex/` is the task-navigation layer next to this file. CLAUDE.md is canonical for learned rules; `.mex/` is what you load for a *specific* task:
 
-- `.mex/ROUTER.md` — session bootstrap + routing table ("what file do I load for task X?"). Auto-maintained "Current Project State" section replaces re-discovering state on each session.
-- `.mex/context/{architecture,stack,conventions,decisions,mcp-tools}.md` — dense, YAML-fronted context files with `triggers` + `edges` for graph navigation. The Verify Checklist in `conventions.md` is the task-time gate derived from rules 1–51 above.
-- `.mex/patterns/INDEX.md` + `patterns/*.md` — recipes ("add mcp tool", "add rest endpoint", "docker rebuild backend+worker") with Context / Steps / Gotchas / Verify / Debug sections. These are authored upfront; `.planning/knowledge/*-patterns.md` are extracted post-hoc. Both exist.
+- `.mex/ROUTER.md` — session bootstrap + routing table; includes auto-maintained "Current Project State"
+- `.mex/context/{architecture,stack,conventions,decisions,mcp-tools}.md` — dense context with `triggers` + `edges`. Verify Checklist in `conventions.md` is the task-time gate derived from the Learned Rules below
+- `.mex/patterns/` — recipes (add MCP tool, REST endpoint, docker rebuild, …). Post-hoc extractions live under `.planning/knowledge/`
 
-Orchestration sits in Citadel (skills, harness hooks, campaigns). mex sits in version-controlled docs. The two talk through CLAUDE.md (canonical rules) and `.planning/knowledge/` (extracted patterns) — no shared state that drifts silently.
+Orchestration (Citadel) config: `.claude/harness.json`. mex is version-controlled docs only — no shared state with Citadel.
 
 ---
 
 ## MCP Server
 
-Entry point: `wairz-mcp = "app.mcp_server:main"` (defined in `pyproject.toml`)
+Entry point: `wairz-mcp = "app.mcp_server:main"` (`pyproject.toml`). Stdio transport; mutable `ProjectState` so `switch_project` can change project/firmware context without restart. Kind changes emit `notifications/tools/list_changed`.
 
-The server uses a mutable `ProjectState` dataclass so all project context (project_id, firmware_id, extracted_path, storage_path, firmware_kind, rtos_flavor) can be switched dynamically via the `switch_project` tool without restarting the MCP process. When the firmware kind changes, the server emits `notifications/tools/list_changed` so clients re-fetch the visible tool set.
+`--project-id` is **optional**. When omitted, empty `ProjectState` (`firmware_kind="unknown"`) hides analysis tools; only `list_projects`, `switch_project`, `get_project_info`, `list_firmware_versions` remain. Used for shared multi-user instances.
 
-`--project-id` is **optional**. When omitted, the server boots with an empty `ProjectState` (`project_id` = zero UUID, `firmware_kind="unknown"`); the firmware-kind filter naturally hides every analysis tool so only `list_projects`, `switch_project`, `get_project_info`, and `list_firmware_versions` remain callable, and `build_system_prompt` returns a short directive telling the agent to pick a project before doing anything else. Used for shared/team Wairz instances where multiple users connect to one server and `switch_project` between projects independently.
+### Firmware kind
 
-### Firmware kind discriminator
+`firmware.firmware_kind` ∈ `linux | rtos | unknown`, plus optional `rtos_flavor` and `firmware_kind_source` (`detected | manual`). Auto-detect in `app/services/rtos_detection_service.py` at unpack tail only when `firmware_kind_source != 'manual'`. Kind feeds MCP system prompt (`system_prompt.py`), `registry.for_kind(kind)`, and frontend Sidebar tab filtering.
 
-Every `firmware` row carries `firmware_kind` (`linux | rtos | unknown`) plus an optional `rtos_flavor` (`freertos | zephyr | baremetal-cortexm`) and `firmware_kind_source` (`detected | manual`). Auto-detection runs in `app/services/rtos_detection_service.py` at the tail of unpack and only writes when `firmware_kind_source != 'manual'` — the dropdown override on the project page always wins. Kind plumbs through to the MCP system prompt (kind-aware blocks in `app/ai/system_prompt.py`), the tool registry filter (`registry.for_kind(kind)`), and the frontend (`Project.firmware_kind` from the projects-list endpoint, used by Sidebar to filter analysis tabs).
+### RTOS path resolution
 
-### Path resolution for RTOS firmware
+RTOS has no rootfs (`extracted_path` may be empty). `FileService` blob-only virtual paths: `/firmware/<basename>` (canonical), also `/<basename>` and bare basename. Prefer `context.resolve_path()`; use `context.storage_path` only when bypassing the virtual layer (e.g. pyelftools on the blob).
 
-RTOS projects have no `extracted_path` (no rootfs to mount). `FileService` recognises this "blob-only" mode and exposes the firmware blob via:
+### Tool inventory
 
-- `/firmware/<basename>` — the canonical virtual path
-- `/<basename>` and bare `<basename>` — also resolve, for forgiving callers
+Handlers live in `backend/app/ai/tools/<category>.py`. User-facing category lists and counts: `README.md`. Recompute total:
 
-Tools that take a `binary_path` / `path` argument and call `context.resolve_path()` work transparently across Linux and RTOS; `context.storage_path` is the underlying real path when an RTOS-specific tool needs to bypass the virtual layer (e.g. `enumerate_rtos_tasks` uses pyelftools directly on it).
-
-### Tool Categories (172 across 21 categories)
-
-Source-of-truth count: `find backend/app/ai/tools -name '*.py' | xargs grep -c 'registry\.register' | awk -F: '{s+=$2}END{print s}'` → 172.
-
-| Category | File | Count | Notes |
-|----------|------|------:|-------|
-| Project | `tools/filesystem.py` | 3 | `get_project_info`, `switch_project`, `list_projects` |
-| Filesystem | `tools/filesystem.py` | 8 | `list_directory`, `read_file`, `search_files`, `file_info`, `find_files_by_type`, `get_component_map`, `get_firmware_metadata`, `extract_bootloader_env` |
-| Strings | `tools/strings.py` | 5 | `extract_strings`, `search_strings`, `find_crypto_material`, `find_hardcoded_credentials`, plus expanded variants |
-| Binary | `tools/binary.py` | 23 | radare2 + Ghidra-backed: list/disassemble/decompile/xrefs/protections/dataflow/stack-layout/global-layout/cross-binary-dataflow |
-| Security | `tools/security.py` | 36 | CVE lookup, config audit, SetUID, init scripts, perms, certificates, kernel hardening, YARA, CWE, etc. |
-| SBOM | `tools/sbom.py` | 9 | generate/list components/CVE check/vuln scan + adjusters |
-| Emulation | `tools/emulation.py` | 25 | user-mode + system-mode (FirmAE) + Qiling: start/exec/stop/status/logs/services/troubleshoot/crash-dump/gdb/presets/networking |
-| Fuzzing | `tools/fuzzing.py` | 9 | target analysis, dictionary, seed corpus, harness gen, campaign start/status/stop, crash triage, diagnose |
-| Comparison | `tools/comparison.py` | 4 | list versions, diff firmware/binary/decompilation |
-| UART | `tools/uart.py` | 8 | connect, send command/break/raw, read, disconnect, status, transcript |
-| Reporting | `tools/reporting.py` | 6 | add/list/update finding, read project instructions/documents |
-| Android | `tools/android.py` | 4 | analyze APK, permissions, signatures, manifest scan |
-| Android Bytecode | `tools/android_bytecode.py` | 1 | `scan_apk_bytecode` |
-| Android SAST | `tools/android_sast.py` | 1 | `scan_apk_sast` |
-| Code | `tools/documents.py` | 6 | code-cleanup save + document management |
-| Hardware Firmware | `tools/hardware_firmware.py` | 7 | list/analyze blobs, drivers, CVEs, unsigned, HBOM export, DTB extract |
-| CWE Checker | `tools/cwe_checker.py` | 3 | status, check binary, check firmware |
-| Vulhunt | `tools/vulhunt.py` | 3 | scan binary, scan firmware, check availability |
-| Attack Surface | `tools/attack_surface.py` | 2 | detect input vectors, analyze binary attack surface |
-| Network | `tools/network.py` | 5 | pcap analyze, protocol breakdown, insecure protocols, DNS queries, conversations |
-| UEFI | `tools/uefi.py` | 5 | list firmware volumes, list/identify/read UEFI modules, extract NVRAM |
-| Taint LLM | `tools/taint_llm.py` | 2 | scan taint analysis, deep-dive taint analysis |
-| RTOS *(applies_to=`("rtos",)`)* | `tools/rtos.py` | 5 | `detect_rtos_kernel`, `enumerate_rtos_tasks`, `analyze_vector_table`, `recover_base_address`, `analyze_memory_map` |
-
----
-
-## UART Bridge Architecture
-
-The bridge runs on the host (not in Docker) because USB serial adapters can't easily pass through to containers.
-
-**How it works:**
-- **Host:** `scripts/wairz-uart-bridge.py` is a standalone TCP server (only requires pyserial). It listens on TCP 9999 and proxies serial I/O.
-- **Docker:** `uart_service.py` in the backend container connects to the bridge via `host.docker.internal:9999`
-- **Protocol:** Newline-delimited JSON, request/response matched by `id` field
-- **Important:** The bridge does NOT take a serial device path or baudrate on its command line. Those are specified by the MCP `uart_connect` tool at connection time.
-
-**Starting the bridge:**
 ```bash
-python3 scripts/wairz-uart-bridge.py --bind 0.0.0.0 --port 9999
-```
-The bridge will print "UART bridge listening on ..." when ready. It waits for connection commands from the backend.
-
-**Connecting via MCP:** Call `uart_connect` with the `device_path` (e.g., `/dev/ttyUSB0`) and `baudrate` (e.g., 115200). The backend sends these to the bridge, which opens the serial port.
-
-**Common setup issues (Bridge unreachable):**
-1. `UART_BRIDGE_HOST` in `.env` must be `host.docker.internal` (NOT `localhost` — `localhost` inside Docker refers to the container, not the host)
-2. An iptables rule is required to allow Docker bridge traffic to reach the host:
-   ```bash
-   sudo iptables -I INPUT -i docker0 -p tcp --dport 9999 -j ACCEPT
-   ```
-3. After changing `.env`, restart the backend: `docker compose restart backend`
-4. After restarting the backend, reconnect MCP (e.g., `/mcp` in Claude Code)
-
----
-
-## Device Acquisition Bridge
-
-Similar to the UART bridge, the device bridge runs on the host to access ADB-connected Android devices.
-
-**How it works:**
-- **Host:** `scripts/wairz-device-bridge.py` is a standalone TCP server (only requires `adb` on PATH). Listens on TCP 9998.
-- **Docker:** `device_service.py` connects to the bridge via `host.docker.internal:9998`
-- **Protocol:** Same as UART bridge — newline-delimited JSON, request/response matched by `id` field
-- **Commands:** `list_devices`, `get_device_info`, `dump_partition`, `dump_all`, `get_dump_status`, `cancel_dump`, `resume_dump`
-- **Frontend:** 4-step wizard at `/projects/{id}/device` — Connect → Select Device → Dump Progress → Summary/Import
-
-**Starting the bridge:**
-```bash
-python3 scripts/wairz-device-bridge.py --bind 0.0.0.0 --port 9998
+find backend/app/ai/tools -name '*.py' | xargs grep -c 'registry\.register' | awk -F: '{s+=$2}END{print s}'
 ```
 
-**Mock mode (for development without a real device):**
-```bash
-python3 scripts/wairz-device-bridge.py --mock --port 9998
-```
+RTOS-only tools register with `applies_to=("rtos",)` (see How to Add Things).
 
-**Setup (same pattern as UART bridge):**
-1. `DEVICE_BRIDGE_HOST` in `.env` must be `host.docker.internal`
-2. iptables rule: `sudo iptables -I INPUT -i docker0 -p tcp --dport 9998 -j ACCEPT`
-3. Restart backend after `.env` changes
+### Host bridges (agent-relevant)
 
----
+USB serial and ADB cannot pass through Docker cleanly. Host scripts bridge into the backend:
 
-## Environment Variables
+| Bridge | Script | Port | Backend service | Env |
+|--------|--------|-----:|-----------------|-----|
+| UART | `scripts/wairz-uart-bridge.py` | 9999 | `uart_service.py` | `UART_BRIDGE_HOST` / `UART_BRIDGE_PORT` |
+| Device (ADB) | `scripts/wairz-device-bridge.py` | 9998 | `device_service.py` | `DEVICE_BRIDGE_HOST` / `DEVICE_BRIDGE_PORT` |
 
-See `.env.example` for defaults. Key variables:
+Protocol: newline-delimited JSON, request/response matched by `id`. Device path / baudrate are **not** CLI args on the UART bridge — they come from MCP `uart_connect` at connection time. Operator setup (iptables, mock mode, start commands): `README.md` and `docs/features/`.
 
-| Variable | Description |
-|----------|-------------|
-| `DATABASE_URL` | PostgreSQL connection string (asyncpg) |
-| `REDIS_URL` | Redis connection string |
-| `POSTGRES_HOST_PORT` | Host-side port for PostgreSQL (default 5432, change if port conflicts) |
-| `REDIS_HOST_PORT` | Host-side port for Redis (default 6379, change if port conflicts) |
-| `DOCKER_GID` | Docker socket GID for container access (run `stat -c %g /var/run/docker.sock`) |
-| `STORAGE_ROOT` | Where firmware files are stored on disk |
-| `MAX_UPLOAD_SIZE_MB` | Maximum firmware upload size (default 2048) |
-| `MAX_TOOL_OUTPUT_KB` | MCP tool output truncation limit (default 30) |
-| `GHIDRA_PATH` / `GHIDRA_SCRIPTS_PATH` | Ghidra headless installation paths |
-| `GHIDRA_TIMEOUT` | Decompilation timeout in seconds (default 300 per `config.py:24 ghidra_timeout`; frontend `GHIDRA_ANALYSIS_TIMEOUT` = 360_000 ms per Rule #29) |
-| `EMULATION_IMAGE` / `EMULATION_NETWORK` | Docker image and network for QEMU containers |
-| `FUZZING_IMAGE` / `FUZZING_TIMEOUT_MINUTES` | Docker image and timeout for AFL++ containers |
-| `UART_BRIDGE_HOST` / `UART_BRIDGE_PORT` | Host-side UART bridge connection |
-| `DEVICE_BRIDGE_HOST` / `DEVICE_BRIDGE_PORT` | Host-side device acquisition bridge (default: host.docker.internal:9998) |
-| `NVD_API_KEY` | Optional, for higher NVD rate limits during CVE scanning |
+### Config
 
----
-
-## Testing Firmware
-
-Good images for development and testing:
-
-- **OpenWrt** (MIPS, ARM) — well-structured embedded Linux with lots of components
-- **DD-WRT** — similar to OpenWrt
-- **DVRF** (Damn Vulnerable Router Firmware) — intentionally vulnerable, great for security tool testing
-
----
-
-## Citadel Harness
-
-This project uses the [Citadel](https://github.com/SethGammon/Citadel) agent
-orchestration harness. Configuration is in `.claude/harness.json`.
+Settings via pydantic-settings (`app/config.py`). Operator env defaults: `.env.example`. When coding long-ops, align frontend axios timeouts with backend ceilings (Rule #29); Ghidra default is `ghidra_timeout=300` in `config.py`.
