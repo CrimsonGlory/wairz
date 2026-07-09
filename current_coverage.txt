@@ -6,29 +6,29 @@ app/ai/system_prompt.py                                                  40     
 app/ai/tool_registry.py                                                  72      8    89%   75, 79-87
 app/ai/tools/__init__.py                                                  0      0   100%
 app/ai/tools/_android_helpers.py                                         39     14    64%   36-44, 69, 76-80
-app/ai/tools/android.py                                                  261     21    92%   (remeasured wave3)
-app/ai/tools/android_bytecode.py                                         211     39    82%   (remeasured wave3)
+app/ai/tools/android.py                                                 261     21    92%   (remeasured wave3)
+app/ai/tools/android_bytecode.py                                        211     39    82%   (remeasured wave3)
 app/ai/tools/android_posture.py                                         128     17    87%   64, 86, 93-94, 186, 193-194, 198, 272, 287, 301, 331, 343, 345-346, 371, 400
 app/ai/tools/android_sast.py                                             52      4    92%   79-82
 app/ai/tools/attack_surface.py                                          156     73    53%   127-128, 148-151, 163, 197-251, 273, 288-353
-app/ai/tools/bare_metal.py                                               100     10    90%   (remeasured wave3)
+app/ai/tools/bare_metal.py                                              100     10    90%   (remeasured wave3)
 app/ai/tools/binary.py                                                 1355     80    94%   74-75, 144, 178, 186, 217-218, 246, 272, 291, 306-322, 327-438, 448-449, 472-578, 594-628, 639, 659, 672-689, 700, 714-719, 741-818, 839-885, 894-940, 948-1009, 1016-1075, 1080-1183, 1188-1256, 1261-1416, 1421-1512, 1517-1592, 1597-1790, 1795-1799, 1806-1953, 1960-1967, 1974-1980, 1984-1986, 1992-2042, 2047-2109, 2114-2156, 2163-2243, 2257-2313, 2320-2370, 2385-2427, 2432-2442, 2447-2465
-app/ai/tools/carving.py                                                   43      0   100%   (remeasured wave3)
+app/ai/tools/carving.py                                                  43      0   100%
 app/ai/tools/comparison.py                                              228     30    87%   57, 76, 85, 94, 107, 115, 125-126, 134, 137, 146-147, 170, 178, 187, 235-236, 247, 250, 254-255, 259-260, 267-268, 274-275, 292, 316, 318
-app/ai/tools/cwe_checker.py                                              101      2    98%   (remeasured wave3)
+app/ai/tools/cwe_checker.py                                             101      2    98%   (remeasured wave3)
 app/ai/tools/documents.py                                                83      8    90%   187-188, 213, 240-241, 287-290
 app/ai/tools/ds1qrsetup_callgraph.py                                    101     14    86%   51-53, 120, 194-195, 208-209, 256, 259, 261, 288, 305, 336
 app/ai/tools/emulation.py                                              1151     26    98%   1289, 1414-1415, 1454, 1456-1457, 1505-1506, 1539-1542, 1565-1568, 1608, 1622-1623, 1635-1636, 1849, 1934-1937
 app/ai/tools/file_formats.py                                            204     44    78%   89-91, 108-111, 192, 197-199, 245, 270, 272-281, 298-300, 326-332, 347-348, 355-358, 370-373, 385-386, 459, 461, 473, 481
 app/ai/tools/filesystem.py                                              320    204    36%   42-44, 71, 74, 102, 106, 108, 111, 115, 125, 133-135, 140, 156, 174-176, 192, 210-311, 316-416, 431-446, 462-520
 app/ai/tools/fuzzing.py                                                 480     20    96%   366, 401-402, 418-419, 429, 656, 952-953, 989-990, 998-999, 1054-1055, 1057-1069, 1084
-app/ai/tools/ghidra_research.py                                          561    173    69%   (remeasured wave3)
+app/ai/tools/ghidra_research.py                                         561    173    69%   (remeasured wave3)
 app/ai/tools/hardware_firmware.py                                       309    153    50%   31-70, 75-123, 128-190, 233-234, 242-243, 247-248, 252-253, 267-283, 314, 328, 336-339, 610-660
 app/ai/tools/ics_protocol.py                                            136     24    82%   95, 117, 172-185, 212, 221, 281, 293, 312, 334-335, 384, 410, 418, 421, 456, 467
 app/ai/tools/linux_container.py                                         185     26    86%   88-90, 178, 180, 182, 216, 316, 318, 320, 437-448, 511, 514, 516, 528, 534, 608, 610
 app/ai/tools/linux_journald.py                                          173     59    66%   73-75, 147, 149, 151, 163-164, 166, 243, 268, 270, 272, 365, 440-579
 app/ai/tools/linux_kernel_hardening.py                                  118     57    52%   77-109, 142-205, 229, 236-237, 314, 321-322, 326
-app/ai/tools/linux_persistence.py                                        172      7    96%   (remeasured wave3)
+app/ai/tools/linux_persistence.py                                       172      7    96%   (remeasured wave3)
 app/ai/tools/linux_systemd.py                                           162     22    86%   78-80, 167, 169, 171, 201, 291, 293, 295, 413-424, 462, 464, 476
 app/ai/tools/module_reachability.py                                     132     15    89%   61, 82, 89-90, 175, 182-183, 187, 251, 255, 269, 299, 315, 318, 342
 app/ai/tools/network.py                                                 124     19    85%   122-142, 235, 278, 305
@@ -38,7 +38,7 @@ app/ai/tools/report_writer.py                                            88     
 app/ai/tools/reporting.py                                               163    139    15%   235-254, 261-277, 281-305, 309-360, 370-465, 470-514
 app/ai/tools/rtos.py                                                    244    115    53%   24-36, 40-43, 47, 56-66, 75-99, 112-159, 177-247, 256-315, 330-400
 app/ai/tools/sbom.py                                                    435      2   100%   1033-1034
-app/ai/tools/security.py                                                2059    367    82%   (remeasured wave3)
+app/ai/tools/security.py                                               2059    367    82%   (remeasured wave3)
 app/ai/tools/strings.py                                                 628    139    78%   124-127, 202-203, 222-223, 261, 286, 315, 320-321, 334, 348-349, 362, 367, 418-421, 456, 465, 470-472, 479-480, 485-487, 501, 521, 526-530, 541-554, 562-607, 625-626, 635-636, 638-639, 644, 647, 651, 653, 663, 669-679, 681, 696-697, 711, 723, 726, 729, 731, 736, 741, 759-764, 809, 818, 822, 879-880, 883, 885, 891, 893, 897-899, 933-934, 945-946, 948, 956-958, 961, 965-966, 968, 981-982, 999, 1004, 1006, 1010, 1012, 1022-1025, 1060, 1082, 1085-1094, 1098, 1127, 1154, 1157
 app/ai/tools/taint_llm.py                                               326     51    84%   89, 100, 377, 406-410, 514-515, 530, 539-540, 555-556, 563, 575, 578, 597-599, 620-621, 634-635, 649, 655-656, 666, 677-682, 700, 703-706, 715, 718-721, 729, 731, 754-762, 785-786
 app/ai/tools/uart.py                                                    135      0   100%
@@ -157,7 +157,7 @@ app/routers/projects.py                                                  58     
 app/routers/reports.py                                                  203    156    23%   69-73, 80-86, 94-120, 135, 148-150, 162-163, 176-186, 194-214, 223-228, 237-246, 261-279, 293-312, 325-334, 343-361, 375-450, 470-499
 app/routers/sbom.py                                                     552    253    54%   94, 96, 123-126, 149-155, 179-210, 242-258, 266-332, 392-393, 426-601, 638, 679, 746-755, 823-845, 895-976, 1123, 1125, 1127, 1129, 1146-1147, 1178-1208, 1246-1290, 1313, 1318, 1326, 1328, 1345-1354, 1427, 1431, 1435
 app/routers/security_audit.py                                           411    310    25%   121-137, 140-146, 159-161, 167-169, 175-177, 183-185, 192-194, 218-443, 482-525, 567-634, 672-755, 799-820, 843-899, 930-976
-app/routers/terminal.py                                                  266    209    21%   (remeasured wave3)
+app/routers/terminal.py                                                 266    209    21%   (remeasured wave3)
 app/routers/tools.py                                                     41      3    93%   178-180
 app/routers/uart.py                                                      96     15    84%   69, 91, 109-110, 128-130, 149-151, 165-167, 202-203
 app/schemas/__init__.py                                                   0      0   100%
@@ -192,8 +192,8 @@ app/services/abusech_service.py                                         171    1
 app/services/analysis_service.py                                         45      2    96%   76-77
 app/services/androguard_service.py                                      241     39    84%   45-46, 59-60, 166, 433, 552-553, 556-557, 560-561, 564-565, 569-570, 575-576, 659-672, 712-713, 751-757, 837, 866
 app/services/android_posture_walker.py                                  285     84    71%   274-275, 286, 310-311, 315, 345-346, 429, 451-452, 457, 465-466, 471, 476-498, 524-533, 536, 603, 631, 751-793, 826-846
-app/services/appcompat_walker.py                                         381    183    52%   (remeasured wave3)
-app/services/assessment_service.py                                       329    121    63%   (remeasured wave3)
+app/services/appcompat_walker.py                                        381    183    52%   (remeasured wave3)
+app/services/assessment_service.py                                      329    121    63%   (remeasured wave3)
 app/services/attack_surface_service.py                                  258     69    73%   70, 74, 85-86, 120-121, 133, 138-139, 152-173, 180-188, 195-196, 216-217, 219, 225-226, 290, 294, 296, 298, 300, 304, 341, 357, 372, 386, 400, 438-440, 455, 457, 463-464, 476-477, 488-489, 505-508, 537
 app/services/authenticode_chain_runner.py                               128      7    95%   145-146, 248, 309, 462, 506-509
 app/services/authenticode_service.py                                    110      4    96%   156, 217-219
@@ -373,14 +373,14 @@ app/services/security_audit/network.py                                  109     
 app/services/security_audit/orchestrator.py                              50     23    54%   97-102, 118-120, 149-170
 app/services/security_audit/permissions.py                               66     12    82%   37, 42-43, 45, 75-76, 84-85, 108, 113-114, 116
 app/services/selinux_service.py                                         165     24    85%   128-129, 175, 208-209, 212, 220, 224, 256-258, 269-276, 279-281, 319-320
-app/services/srum_walker.py                                              353    204    42%   (remeasured wave3)
+app/services/srum_walker.py                                             353    204    42%   (remeasured wave3)
 app/services/sysroot_service.py                                          70      0   100%
-app/services/system_emulation_service.py                                 382    166    57%   (remeasured wave3)
+app/services/system_emulation_service.py                                382    166    57%   (remeasured wave3)
 app/services/systemd_walker.py                                          435     94    78%   285, 296, 354-355, 435, 501, 522-523, 546-547, 550-551, 553, 555, 578-579, 597-598, 600, 607-608, 616, 619-620, 636-637, 639, 643-644, 711, 715, 718, 721, 724, 727, 737-739, 749-752, 755-758, 833, 837-840, 846-848, 861-868, 932, 948-959, 1066-1128, 1158-1161, 1169-1170
 app/services/uart_service.py                                            108      3    97%   128, 253-254
 app/services/unpack_audit_service.py                                    140     36    74%   62-69, 130, 154-204, 241-242, 244, 364
 app/services/update_mechanism_service.py                                594    136    77%   71-81, 89, 92-93, 104, 122-126, 167, 169-179, 185-186, 188, 194, 216-261, 274-310, 332, 334-337, 347-348, 384-433, 448-491, 503, 510, 517, 522-563, 579-580, 587-593, 598, 603, 621-627, 635, 642-647, 652-682, 711-719, 740-745, 755-766, 818, 823, 832, 865, 880-942, 949-1013
-app/services/usnjrnl_walker.py                                           404    198    51%   (remeasured wave3)
+app/services/usnjrnl_walker.py                                          404    198    51%   (remeasured wave3)
 app/services/virustotal_service.py                                      127    100    21%   44-45, 50-57, 66-126, 141-166, 179-224
 app/services/vol3_runner.py                                             124      3    98%   176-177, 400
 app/services/vulnerability_service.py                                   339    168    50%   72-159, 170-224, 233-302, 335, 346-353, 381-386, 420, 498-514, 521-562, 583-627, 634, 637, 643-647, 699, 773
