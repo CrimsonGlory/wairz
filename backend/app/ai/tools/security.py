@@ -287,9 +287,9 @@ def _check_setuid_binaries_sync(
             if not stat.S_ISREG(st.st_mode):
                 continue
 
-            rel = context.to_virtual_path(abs_path)
-            if rel is None:
-                continue
+            # real_root is the sandbox base for display paths (was a NameError
+            # on free-variable ``context`` — fixed so the walk can complete).
+            rel = _rel(abs_path, real_root)
             mode = st.st_mode
 
             if mode & stat.S_ISUID:
@@ -526,9 +526,7 @@ def _check_filesystem_permissions_sync(
                 continue
 
             mode = st.st_mode
-            rel = context.to_virtual_path(abs_path)
-            if rel is None:
-                continue
+            rel = _rel(abs_path, real_root)
             perm_str = oct(mode)[-4:]
 
             # World-writable files (not symlinks)
@@ -808,9 +806,7 @@ def _analyze_certificate_sync(
         except (OSError, PermissionError):
             continue
 
-        rel_path = context.to_virtual_path(cert_file)
-        if rel_path is None:
-            continue
+        rel_path = _rel(cert_file, real_root)
         result = _audit_certificate(cert_data, cert_file, rel_path)
         result["path"] = rel_path
         if "error" not in result:
