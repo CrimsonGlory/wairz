@@ -2,7 +2,7 @@ Name                                                                      Stmts 
 -------------------------------------------------------------------------------------------------------
 app/__init__.py                                                          0      0   100%
 app/ai/__init__.py                                                     130      0   100%
-app/ai/system_prompt.py                                                 40     32    20%   135-289
+app/ai/system_prompt.py                                                       40      0  100%   
 app/ai/tool_registry.py                                                 72      8    89%   75, 79-87
 app/ai/tools/__init__.py                                                 0      0   100%
 app/ai/tools/_android_helpers.py                                        39     14    64%   36-44, 69, 76-80
@@ -10,7 +10,7 @@ app/ai/tools/android.py                                                261     2
 app/ai/tools/android_bytecode.py                                       211     39    82%   122, 172-173, 186-187, 197-198, 286, 365, 371-372, 383-388, 390-395, 397-398, 413-414, 419-429, 438-442, 480-481, 485
 app/ai/tools/android_posture.py                                        128     17    87%   64, 86, 93-94, 186, 193-194, 198, 272, 287, 301, 331, 343, 345-346, 371, 400
 app/ai/tools/android_sast.py                                            52      4    92%   79-82
-app/ai/tools/attack_surface.py                                         156     73    53%   127-128, 148-151, 163, 197-251, 273, 288-353
+app/ai/tools/attack_surface.py                                               156     28   82%   47-48, 62, 99, 110, 202-203, 216-217, 228-229, 287, 291, 303, 305, 340-351, 353
 app/ai/tools/bare_metal.py                                             100     10    90%   76, 120, 158, 203, 210-223
 app/ai/tools/binary.py                                                1355     80    94%   144, 178, 544-545, 547-548, 552, 571, 604, 639, 659, 845-848, 856-885, 955, 961-962, 964, 968-969, 976-979, 982, 987, 989, 991, 994, 996, 1052, 1060, 1291, 1297, 1299, 1345-1346, 1348-1349, 1358, 1360, 1363, 1375, 1414, 1611, 1616-1617, 1620, 1641-1642, 1669, 1767, 1783-1785, 2439
 app/ai/tools/carving.py                                                 43      0   100%
@@ -149,7 +149,7 @@ app/routers/files.py                                                   137     6
 app/routers/findings.py                                                 83     13    84%   40-42, 62, 64, 66, 88, 104-105, 119, 143-145
 app/routers/firmware.py                                                330    144    56%   54-70, 110-111, 197-199, 231, 253, 271, 325-339, 348-561, 578, 582, 589-590, 607, 629, 631, 658, 692-693, 698-700, 729
 app/routers/fuzzing.py                                                 111     28    75%   45-55, 94, 97, 129-134, 147-152, 165, 168, 183-186, 201, 204, 257, 260
-app/routers/ghidra_research.py                                         122     81    34%   32-35, 55-61, 72-73, 82-87, 96-105, 120-129, 138-145, 159-165, 174-179, 190-208, 217-222
+app/routers/ghidra_research.py                                               122     65   47%   54-61, 85-87, 99-105, 120-129, 138-145, 159-165, 177-179, 189-193, 195-197, 199-200, 202-205, 207-208, 220-222
 app/routers/hardware_firmware.py                                       289     61    79%   171, 173, 175, 207-208, 252-262, 319-339, 403, 451-464, 479-483, 541-545, 589-590, 602, 606-608, 637-640, 778, 1012-1013, 1042-1049, 1060-1076, 1095, 1097, 1099
 app/routers/health.py                                                   55      2    96%   78-79
 app/routers/kernels.py                                                  49      9    82%   49, 80, 84-93, 104
@@ -214,19 +214,19 @@ app/services/dbx_service.py                                            122     1
 app/services/dependency_track_service.py                                24     13    46%   18-20, 24, 37-61
 app/services/device_service.py                                         303    108    64%   250-253, 277-334, 354-355, 370, 376, 381-382, 387-431, 446, 472-473, 517, 536, 548, 558-580, 608-645
 app/services/document_service.py                                       169      3    98%   234, 326-327
-app/services/dotnet_decompile_service.py                               165     87    47%   103-156, 173-237, 263-273, 368-419
+app/services/dotnet_decompile_service.py                                     165     40   76%   111, 116, 135-137, 140-141, 146-151, 155-156, 202-206, 209-213, 222-226, 235, 267-269, 393, 408, 412-414, 418
 app/services/dpapi_walker.py                                           290     86    70%   243-245, 289-293, 393-394, 398, 402-403, 405, 427-428, 442-443, 445, 484-489, 492-496, 502-503, 509-514, 525-526, 540, 587-588, 592-593, 600, 676, 695-696, 706-718, 721-722, 725-726, 730, 732, 734, 739, 775-836, 858-861, 871-872
 app/services/driver_extractor.py                                       276     68    75%   90, 107-108, 120-121, 160, 241-242, 247, 251-289, 329-330, 336-337, 365-367, 424-425, 514, 542, 546-551, 560-568, 578-579, 601-606, 618-619, 627-628, 642-643, 705-706
 app/services/driver_inf_parser.py                                      169     15    91%   117, 133-135, 142, 239, 291-293, 316-320, 392, 396-397
 app/services/ds1qrsetup_callgraph_walker.py                            344    125    64%   211-212, 225, 264-265, 278-279, 281, 328, 423-485, 524, 532, 558-559, 566-567, 580-581, 592-593, 597-598, 603-604, 607-608, 613-614, 617-618, 628-641, 648, 650, 670-671, 676-677, 812-813, 817-818, 839-852, 865-881, 892, 907-924, 974-1023, 1028, 1056-1059, 1067-1068
 app/services/efs_walker.py                                             448    147    67%   174-175, 208, 218-219, 332-335, 341-345, 369-371, 375-379, 423-426, 484-486, 492, 572-573, 577-578, 580, 584, 587-588, 602-603, 607-608, 611, 618-619, 630, 632-635, 643-644, 653-655, 662-663, 666-667, 669, 676-678, 685-686, 690-691, 699-702, 742-747, 750-754, 757-759, 763-766, 778, 783-784, 798-802, 806-810, 815-823, 833, 835, 837, 839, 841, 843, 850, 879-885, 917-918, 922-923, 930, 999, 1030-1052, 1068, 1108-1170, 1201-1202, 1213-1214
 app/services/emulation/__init__.py                                       2      0   100%
-app/services/emulation/docker_ops.py                                   121     68    44%   116-123, 139-282, 303, 306-330, 354, 357-359, 371, 377-379, 385-390, 409-443
-app/services/emulation/kernel_selection.py                              39     31    21%   48-84, 102-119
+app/services/emulation/docker_ops.py                                         121      7   94%   359, 371, 379, 388-390, 424
+app/services/emulation/kernel_selection.py                                    39      0  100%   
 app/services/emulation/service.py                                      414     59    86%   246-249, 281-289, 330, 332, 350-358, 393, 415-418, 596-598, 705-706, 722, 743, 755, 890-891, 906, 908, 916, 921-925, 947-948, 957, 992-993, 999-1000, 1026, 1032, 1042-1046, 1070-1071
-app/services/emulation/sysroot_mount.py                                 44     33    25%   73-80, 93-96, 125-174, 204-247
-app/services/emulation/system_mode.py                                   64     51    20%   78-131, 149-209
-app/services/emulation/user_mode.py                                     60     49    18%   72-139, 176-231, 248-263
+app/services/emulation/sysroot_mount.py                                       44      0  100%   
+app/services/emulation/system_mode.py                                         64      3   95%   196, 204-205
+app/services/emulation/user_mode.py                                           60      2   97%   129-130
 app/services/emulation_constants.py                                     44     18    59%   105-106, 109, 114-115, 118, 123-133, 143, 147, 151
 app/services/emulation_preset_service.py                                32      0   100%
 app/services/esp_walker.py                                             323    108    67%   176-177, 216-217, 236-237, 239, 242-244, 277-278, 412-415, 494-499, 502-508, 511-513, 517-519, 529-535, 606-607, 611-612, 619, 704-705, 714-731, 745, 750-751, 756, 764, 798-892, 928-930, 935-955, 967-968
@@ -293,7 +293,7 @@ app/services/ics_protocol_catalog/plugins/__init__.py                   11      
 app/services/ics_protocol_catalog/plugins/string_scanner.py             15      0   100%
 app/services/ics_protocol_catalog/resolver.py                          202     49    76%   127, 130-131, 134, 139-140, 142, 166, 169-170, 173, 177, 209, 214-215, 217, 226, 257, 286-298, 330, 364-368, 371-376, 385, 387, 389-392, 396, 535, 538, 566, 581-582
 app/services/ics_protocol_catalog/snapshot.py                           27      0   100%
-app/services/ics_protocol_walker.py                                    170     97    43%   149-161, 171-175, 233, 264-268, 274-311, 326-354, 404-442, 474-495
+app/services/ics_protocol_walker.py                                          170     58   66%   153, 157-158, 233, 264, 268, 280-281, 286-288, 291-293, 306-311, 326-330, 335-337, 352-354, 408, 411, 424-426, 429-434, 436-438, 441-442, 473, 482-483, 485-490, 494-495
 app/services/import_service.py                                         279     60    78%   53, 153, 185-186, 265-268, 275, 279, 283-305, 311-312, 322-329, 413, 475-476, 503-504, 532-533, 539, 558, 575-576, 609-634
 app/services/jadx_service.py                                           174     25    86%   105, 150, 196-197, 208-209, 276, 322, 429, 436-437, 477-484, 497-504, 527-534
 app/services/journald_walker.py                                        425    110    74%   275-276, 307-308, 346, 349, 354-355, 376, 382-383, 388, 390, 400-407, 417-418, 443, 446, 449, 453, 513-514, 523, 546, 552, 555, 564-565, 586, 604, 611, 615-616, 650-651, 663-664, 666, 669-671, 683-684, 688-689, 696, 760-762, 766-772, 775-777, 790, 803, 814, 818, 822, 930, 961-982, 985, 1000, 1040-1103, 1134-1137, 1147-1148
@@ -321,18 +321,18 @@ app/services/mft_walker.py                                             386    13
 app/services/mobsf_runner.py                                           281     70    75%   300-365, 415-434, 443-458, 466-476, 600-601, 707, 774, 858, 882-887, 979
 app/services/mobsfscan/__init__.py                                       3      0   100%
 app/services/mobsfscan/normalization.py                                158      1    99%   383
-app/services/mobsfscan/parser.py                                       133     87    35%   85-89, 107, 112, 143-227, 264-339, 352-358
-app/services/mobsfscan/pipeline.py                                     146     97    34%   82, 112, 151, 164, 180-198, 211-227, 253-254, 265-266, 346-501, 564-580, 606-636, 647-670, 682
+app/services/mobsfscan/parser.py                                             133      2   98%   195-196
+app/services/mobsfscan/pipeline.py                                           146     34   77%   385-386, 391, 399, 473, 489, 574, 606-610, 612-614, 616, 618-621, 625-626, 633-636, 647-648, 651, 656-657, 660-661, 670
 app/services/mobsfscan/service.py                                        5      0   100%
 app/services/module_reachability_walker.py                             291     88    70%   143, 167, 178, 184-185, 196-197, 214-215, 228, 266-281, 286-287, 292-299, 368, 397-401, 434-436, 440, 459, 553-554, 594-636, 669-689
 app/services/network_exposure_walker.py                                447    131    71%   171, 181-182, 237, 262, 313-314, 390, 397, 401, 407, 418, 420, 424, 446-447, 453, 456, 459, 474-479, 510, 524, 571-572, 575, 607-613, 619, 635, 645, 664, 667-673, 676-719, 734, 740, 747-749, 765-766, 772, 775, 856, 875-879, 887-892, 945-987, 1019-1039
 app/services/pcap_analysis_service.py                                  289     67    77%   22-23, 188, 194-196, 201-203, 230, 329, 333, 341-349, 366, 372, 376, 384, 390, 396, 489, 498-501, 537-592
-app/services/prefetch_walker.py                                        223    114    49%   100-101, 118-126, 137-171, 194, 205, 209-238, 275-276, 278, 286-287, 292-294, 331-332, 336-337, 340, 350-353, 418-431, 437-446, 492-550, 580-583, 590-591
+app/services/prefetch_walker.py                                              223     72   68%   100-101, 125-126, 141-143, 147, 153-154, 159-164, 171, 194, 205, 209, 213-215, 217-221, 223, 225-230, 232, 236, 238, 275-276, 278, 286-287, 292-294, 331-332, 336-337, 340, 352, 418-422, 431, 437-446, 500, 503, 549-550
 app/services/python_ast_walker.py                                      369     90    76%   162-163, 165, 176-177, 182-184, 202-203, 207-208, 211, 319, 333, 367-377, 399-403, 446-447, 453-466, 491-492, 496-502, 507-508, 514-518, 528-529, 537-538, 573-574, 590, 640, 646, 675-676, 847-895, 899, 930-933, 943-944
 app/services/qiling_service.py                                          97      0   100%
 app/services/r2r_stomping.py                                            86      8    91%   218, 223-224, 238, 241-242, 291-292
 app/services/registry_hive_walker.py                                   257     70    73%   185-186, 202-203, 213-214, 281-289, 298-303, 348-350, 377-378, 394-395, 432-434, 472, 524, 545-551, 562-563, 578-584, 591, 636-689, 727-730, 737-738
-app/services/report_authoring_service.py                               102     78    24%   42, 54-95, 98-107, 110-116, 128-140, 153-187, 199-229, 237-248, 251-259, 265-271, 274-277, 280-282
+app/services/report_authoring_service.py                                     102      2   98%   219, 224
 app/services/report_render_service.py                                   77      3    96%   169-180
 app/services/report_service.py                                         160      1    99%   28
 app/services/report_template_service.py                                 67      9    87%   47-50, 63, 67, 94, 101, 104
@@ -342,33 +342,33 @@ app/services/sbom/__init__.py                                            4      
 app/services/sbom/constants.py                                          26      0   100%
 app/services/sbom/enrichment.py                                        135     37    73%   59, 186-189, 195-199, 207-213, 217-224, 230-242, 250-252
 app/services/sbom/normalization.py                                      48      6    88%   42-45, 72, 80, 120
-app/services/sbom/purl.py                                               23      9    61%   35, 42-45, 60, 65-74
+app/services/sbom/purl.py                                                     23      8   65%   35, 42-45, 65, 69, 74
 app/services/sbom/service.py                                           115     35    70%   110-122, 126, 150-156, 161, 164-170, 215, 218, 237-241, 252-266, 322
 app/services/sbom/service_risks.py                                      26     10    62%   41-42, 50-74
 app/services/sbom/strategies/__init__.py                                 3      0   100%
-app/services/sbom/strategies/android_strategy.py                       130     49    62%   60, 67-69, 77, 136-137, 143-155, 161-187, 193-203, 241-262
+app/services/sbom/strategies/android_strategy.py                             130     11   92%   67-68, 168, 186-187, 199, 202-203, 247, 261-262
 app/services/sbom/strategies/base.py                                    16      0   100%
 app/services/sbom/strategies/binary_strings_strategy.py                114     36    68%   53, 73-74, 78, 85, 91-93, 109-110, 130-150, 182, 186, 188, 191, 204-240
 app/services/sbom/strategies/busybox_strategy.py                        64     10    84%   64, 75-76, 79, 83, 89-91, 100-101
-app/services/sbom/strategies/c_library_strategy.py                      92     61    34%   41, 43-47, 55-56, 58, 61-81, 88-135, 139-155, 159-175
-app/services/sbom/strategies/dpkg_strategy.py                           53     25    53%   33, 55, 59-100
+app/services/sbom/strategies/c_library_strategy.py                            92     11   88%   45-47, 55-56, 58, 62, 71-72, 115-116
+app/services/sbom/strategies/dpkg_strategy.py                                 53      5   91%   33, 62-63, 74, 77
 app/services/sbom/strategies/firmware_markers_strategy.py               26     12    54%   32-63
 app/services/sbom/strategies/gcc_strategy.py                            42     15    64%   42-43, 45, 49, 55, 58-59, 63-83
 app/services/sbom/strategies/kernel_strategy.py                         88     24    73%   54-55, 66, 88-89, 133-134, 145-179
-app/services/sbom/strategies/loose_deb_strategy.py                     116     43    63%   73-75, 98-103, 119-121, 125-152, 156-157, 185, 187-190, 200-220, 238, 243, 260, 264-266
-app/services/sbom/strategies/opkg_strategy.py                           36     21    42%   37, 41-78
-app/services/sbom/strategies/python_packages_strategy.py                70     54    23%   29-46, 58-65, 69-119
-app/services/sbom/strategies/so_files_strategy.py                      101     75    26%   47-63, 72-105, 117-130, 157, 160-212
-app/services/sbom/strategies/standalone_apk_strategy.py                 66     53    20%   63, 66-161
+app/services/sbom/strategies/loose_deb_strategy.py                           116     42   64%   100-103, 119-121, 145-146, 149-152, 156-157, 185, 187-190, 200, 220, 228, 234, 238, 244-249, 255-258, 260, 262-264, 266, 268, 286
+app/services/sbom/strategies/opkg_strategy.py                                 36      3   92%   44-45, 55
+app/services/sbom/strategies/python_packages_strategy.py                      70      9   87%   41, 44-45, 59, 62-63, 96-98
+app/services/sbom/strategies/so_files_strategy.py                            101      6   94%   100, 126, 130, 157, 164, 174
+app/services/sbom/strategies/standalone_apk_strategy.py                       66      7   89%   88-89, 108-109, 121, 157-158
 app/services/sbom/strategies/syft_strategy.py                           51     13    75%   50, 63-72, 84, 87-88, 98, 102
-app/services/sbom/version_normalize.py                                  26     26     0%   16-84
+app/services/sbom/version_normalize.py                                        26      0  100%   
 app/services/scheduled_task_walker.py                                  340     87    74%   179-180, 212, 219, 224-225, 239, 261, 296, 314-316, 345, 357, 363, 389, 396-397, 401-404, 432, 463, 465-469, 545-546, 548, 561-562, 567-569, 576-577, 579, 630-631, 635-636, 643, 655, 671, 752-759, 777-793, 863-929, 962-965, 973-974
 app/services/sdb_walker.py                                             301    105    65%   223-225, 305-306, 321-322, 327-328, 343-344, 414-441, 489-491, 523, 525-534, 539-552, 555-564, 567, 597-598, 602-603, 610, 705-723, 729, 736, 745, 747, 749, 804-905, 941-945, 952-975, 989-990
 app/services/security_audit/__init__.py                                  4      0   100%
 app/services/security_audit/_base.py                                    40      4    90%   59, 75-77
 app/services/security_audit/credentials.py                             111     19    83%   39, 42, 45, 49-50, 58, 67, 101-102, 116, 121-128, 151-152, 163, 167, 174, 178-179
 app/services/security_audit/external_scanners.py                       229     52    77%   74, 163-165, 174-176, 181-190, 213, 220, 232-236, 251, 257-258, 261, 266-267, 270-288, 309, 312, 327-328, 338-340, 343, 347-348, 356
-app/services/security_audit/hash_lookups.py                             73     62    15%   33-58, 67-108, 117-170, 179-206
+app/services/security_audit/hash_lookups.py                                   73      0  100%   
 app/services/security_audit/network.py                                 109     37    66%   53, 56, 69-70, 79, 82, 95-96, 101, 104, 107, 110-112, 114, 120, 128-138, 143-153, 158-178, 195, 199, 207-208
 app/services/security_audit/orchestrator.py                             50     18    64%   98, 118-120, 149-170
 app/services/security_audit/permissions.py                              66     12    82%   37, 42-43, 45, 75-76, 84-85, 108, 113-114, 116
@@ -405,8 +405,8 @@ app/utils/yaml_cache.py                                                136      
 app/workers/__init__.py                                                  0      0   100%
 app/workers/arq_worker.py                                              343    136    60%   66-252, 308-311, 398-401, 491-496, 609-614, 622-623, 639-640, 646, 660, 710, 714-729, 746, 788-794
 app/workers/extraction_strategies.py                                    25      0   100%
-app/workers/run_function_decompile.py                                   57     57     0%   21-156
-app/workers/run_ghidra_analysis.py                                      62     62     0%   19-166
+app/workers/run_function_decompile.py                                         57      1   98%   156
+app/workers/run_ghidra_analysis.py                                            62      1   98%   166
 app/workers/safe_extract.py                                             55      7    87%   139, 157-158, 177-179, 189
 app/workers/unpack.py                                                  563    210    63%   149-150, 236, 313, 322-323, 440, 463-467, 494-504, 510, 519-522, 526-646, 696-697, 755, 772, 780-783, 785-787, 791-829, 843-845, 855-860, 865, 870-878, 902, 904, 924-929, 945-990, 1010, 1012-1019, 1035-1036, 1043, 1049-1052, 1056-1061, 1077-1084, 1112-1115, 1122-1134, 1140-1141, 1150-1154
 app/workers/unpack_android.py                                          631    213    66%   90-91, 104-105, 137-138, 210-212, 216-217, 253, 263, 299-304, 311-315, 321-334, 383-387, 392, 445, 448-449, 472, 494-495, 501-552, 640, 643-644, 646-650, 652-654, 661-665, 670-672, 683-687, 696-761, 807-831, 894-899, 943-945, 948, 981-986, 1005-1009, 1048-1049, 1052-1053, 1068-1070, 1077, 1087-1129, 1136-1137, 1140-1180, 1189, 1227-1228, 1259-1260
@@ -427,4 +427,4 @@ app/workers/unpack_wim.py                                              114     2
 app/workers/unpack_windows_installer_iso.py                            125     11    91%   105-106, 182, 189-190, 201-205, 330-331, 339-343
 app/workers/walker_registry.py                                          68      0   100%
 -------------------------------------------------------------------------------------------------------
-TOTAL                                                                     67743  13568    80%
+TOTAL                                                                      67743  12410   82%
