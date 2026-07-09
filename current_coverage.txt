@@ -1,431 +1,430 @@
-Name                                                                      Stmts   Miss  Cover   Missing
--------------------------------------------------------------------------------------------------------
-app/__init__.py                                                             0      0   100%
-app/ai/__init__.py                                                        130      0   100%
-app/ai/system_prompt.py                                                    40      0   100%
-app/ai/tool_registry.py                                                    72      8    89%   75, 79-87
-app/ai/tools/__init__.py                                                    0      0   100%
-app/ai/tools/_android_helpers.py                                           39     14    64%   36-44, 69, 76-80
-app/ai/tools/android.py                                                   261     21    92%   175-176, 186-187, 237-238, 246-247, 260-261, 281-282, 293-294, 307-308, 318-322, 373, 434
-app/ai/tools/android_bytecode.py                                          211     39    82%   122, 172-173, 186-187, 197-198, 286, 365, 371-372, 383-388, 390-395, 397-398, 413-414, 419-429, 438-442, 480-481, 485
-app/ai/tools/android_posture.py                                           128     17    87%   64, 86, 93-94, 186, 193-194, 198, 272, 287, 301, 331, 343, 345-346, 371, 400
-app/ai/tools/android_sast.py                                               52      4    92%   79-82
-app/ai/tools/attack_surface.py                                            156     22    86%   202-203, 216-217, 228-229, 291, 303-353
-app/ai/tools/bare_metal.py                                                100     10    90%   76, 120, 158, 203, 210-223
-app/ai/tools/binary.py                                                   1355     77    94%   144, 178, 544-545, 547-548, 552, 571, 604, 639, 659, 845-848, 856-885, 955, 961-962, 964, 968-969, 976-977, 987, 989, 991, 994, 996, 1052, 1060, 1291, 1297, 1299, 1345-1346, 1348-1349, 1358, 1360, 1363, 1375, 1414, 1611, 1616-1617, 1620, 1641-1642, 1669, 1767, 1783-1785, 2439
-app/ai/tools/carving.py                                                    43      0   100%
-app/ai/tools/comparison.py                                                228     30    87%   57, 76, 85, 94, 107, 115, 125-126, 134, 137, 146-147, 170, 178, 187, 235-236, 247, 250, 254-255, 259-260, 267-268, 274-275, 292, 316, 318
-app/ai/tools/cwe_checker.py                                               101      2    98%   52, 147
-app/ai/tools/documents.py                                                  83      6    93%   187-188, 213, 240-241, 287
-app/ai/tools/ds1qrsetup_callgraph.py                                      101     14    86%   51-53, 120, 194-195, 208-209, 256, 259, 261, 288, 305, 336
-app/ai/tools/emulation.py                                                1151     26    98%   1289, 1414-1415, 1454, 1456-1457, 1505-1506, 1539-1542, 1565-1568, 1608, 1622-1623, 1635-1636, 1849, 1934-1937
-app/ai/tools/file_formats.py                                              204     44    78%   89-91, 108-111, 192, 197-199, 245, 270, 272-281, 298-300, 326-332, 347-348, 355-358, 370-373, 385-386, 459, 461, 473, 481
-app/ai/tools/filesystem.py                                                320     12    96%   102, 106, 108, 115, 328, 363, 413-414, 469, 484-485, 494
-app/ai/tools/fuzzing.py                                                   480     20    96%   366, 401-402, 418-419, 429, 656, 952-953, 989-990, 998-999, 1054-1055, 1057-1069, 1084
-app/ai/tools/ghidra_research.py                                           561     72    87%   450-451, 484-485, 498, 518-519, 549-553, 678, 813-814, 818-821, 830-831, 910, 921-922, 925, 939-944, 957, 1077-1080, 1082-1084, 1092, 1140-1143, 1174-1175, 1179, 1234-1237, 1294, 1300-1306, 1321-1322, 1331-1332, 1337, 1342, 1366, 1412-1413, 1420-1423
-app/ai/tools/hardware_firmware.py                                         309     52    83%   43, 119-120, 188, 233-234, 242-243, 247-248, 252-253, 267-283, 314, 328, 629-660
-app/ai/tools/ics_protocol.py                                              136     24    82%   95, 117, 172-185, 212, 221, 281, 293, 312, 334-335, 384, 410, 418, 421, 456, 467
-app/ai/tools/linux_container.py                                           185     26    86%   88-90, 178, 180, 182, 216, 316, 318, 320, 437-448, 511, 514, 516, 528, 534, 608, 610
-app/ai/tools/linux_journald.py                                            173     22    87%   73-75, 147, 149, 151, 163-164, 166, 243, 268, 270, 272, 453, 458, 479, 514-546, 567-568
-app/ai/tools/linux_kernel_hardening.py                                    118      2    98%   229, 314
-app/ai/tools/linux_persistence.py                                         172      7    96%   175, 210, 267, 333, 346, 351, 414
-app/ai/tools/linux_systemd.py                                             162     22    86%   78-80, 167, 169, 171, 201, 291, 293, 295, 413-424, 462, 464, 476
-app/ai/tools/module_reachability.py                                       132     15    89%   61, 82, 89-90, 175, 182-183, 187, 251, 255, 269, 299, 315, 318, 342
-app/ai/tools/network.py                                                   124     19    85%   122-142, 235, 278, 305
-app/ai/tools/network_exposure.py                                          146     23    84%   73, 80, 86-90, 112, 119-120, 206, 213-214, 218, 285-286, 290, 304, 334, 341, 345, 355, 366
-app/ai/tools/python_ast.py                                                143     27    81%   53-55, 80, 139, 212, 218, 246-250, 320, 322, 326, 349, 364, 369, 392, 396, 403-404, 409-410, 428-431, 437, 449
-app/ai/tools/report_writer.py                                              88     15    83%   124-125, 176-177, 186-189, 205-206, 249-251, 266-267
-app/ai/tools/reporting.py                                                 163      4    98%   446-448, 455
-app/ai/tools/rtos.py                                                      244     43    82%   97-98, 134, 137, 147, 193-197, 272, 289-290, 292, 309-312, 337-338, 348, 361, 364, 368-381, 384-387, 389-392, 394-397
-app/ai/tools/sbom.py                                                      435      2   100%   1033-1034
-app/ai/tools/security.py                                                 2059     82    96%   284-285, 525-526, 648, 650, 716-717, 765, 770, 807-808, 986, 1106, 1218, 1245-1246, 1256, 1354-1355, 1395-1396, 1406, 1427-1428, 1670, 1705, 1821, 1829, 1950-1951, 1999, 2184, 2187, 2190, 2269, 2307-2308, 2354-2355, 2375-2376, 2388, 2474-2475, 2498-2499, 2525-2526, 2567-2568, 2597-2598, 2630-2631, 2684-2688, 2697-2698, 2762, 2766, 2946-2948, 2954-2955, 3036, 3151-3152, 3155-3156, 3163-3164, 3171, 3296, 3465, 3550, 3707, 3842
-app/ai/tools/strings.py                                                   628     83    87%   124-127, 222-223, 261, 286, 315, 320-321, 334, 348-349, 362, 367, 418-421, 456, 479-480, 486-487, 553-554, 605-606, 625-626, 635-636, 644, 647, 651, 653, 663, 696-697, 711, 723, 726, 729, 731, 736, 741, 759-764, 809, 818, 822, 898, 933-934, 945-946, 948, 957-958, 961, 965-966, 999, 1004, 1006, 1010, 1012, 1022-1025, 1082, 1093-1094, 1098, 1127, 1154, 1157
-app/ai/tools/taint_llm.py                                                 326     51    84%   89, 100, 377, 406-410, 514-515, 530, 539-540, 555-556, 563, 575, 578, 597-599, 620-621, 634-635, 649, 655-656, 666, 677-682, 700, 703-706, 715, 718-721, 729, 731, 754-762, 785-786
-app/ai/tools/uart.py                                                      135      0   100%
-app/ai/tools/uefi.py                                                      230     36    84%   174-175, 182-184, 238, 253, 275, 310, 352-357, 362-369, 377-389, 484, 515
-app/ai/tools/vulhunt.py                                                   264     29    89%   164-168, 188-191, 216, 253, 259, 262-263, 288, 292, 298, 303-304, 310, 317-320, 390-392, 517, 522-523, 556, 584
-app/ai/tools/windows_appcompat.py                                         148      5    97%   128, 164, 313, 316, 393
-app/ai/tools/windows_archive.py                                           273     47    83%   63-64, 245-251, 258, 276-277, 316-317, 363-364, 381-387, 392, 400, 406-407, 415, 434, 436, 455-456, 460, 488, 502-506, 520-521, 566-567, 611, 613, 624-625
-app/ai/tools/windows_bcd.py                                               137     10    93%   96, 98, 100, 338, 343, 345, 370, 400, 417, 441
-app/ai/tools/windows_dotnet.py                                            152     21    86%   65, 68, 94-95, 122, 166, 179, 188, 194, 215-216, 219, 235, 242, 246, 248-249, 281, 307, 311-312
-app/ai/tools/windows_dpapi.py                                             138      7    95%   176, 333, 336, 338, 357, 362, 411
-app/ai/tools/windows_driver.py                                            130      9    93%   62-63, 68, 71, 195, 299, 312-313, 323
-app/ai/tools/windows_efs.py                                               215     17    92%   77-79, 158, 168, 182, 193, 302, 304, 306, 308, 362, 534, 537, 539, 546, 631
-app/ai/tools/windows_esp.py                                               175     21    88%   57-59, 107, 109, 111, 115, 119, 127, 152, 358, 360, 380, 463, 470, 472, 478, 501, 528, 543, 558
-app/ai/tools/windows_etl.py                                               177     14    92%   68-70, 150, 160, 162, 175, 188, 281, 283, 285, 467, 469, 479
-app/ai/tools/windows_event_log.py                                         227     16    93%   154, 176, 178, 182-183, 193, 195, 204, 206, 239, 278, 289-291, 437, 511
-app/ai/tools/windows_injection.py                                         130     13    90%   121, 143-144, 146, 150, 329, 341, 343, 347, 357, 362, 412, 422
-app/ai/tools/windows_lnk.py                                               156     28    82%   45-47, 60, 81, 108, 141, 143, 145, 153, 179, 342-353, 391, 397, 399, 403, 426, 454, 473, 484
-app/ai/tools/windows_mbr_vbr.py                                           138     18    87%   48-50, 126, 128, 130, 134, 224, 226, 334, 341, 343, 351, 374, 402, 404, 421, 437
-app/ai/tools/windows_mft.py                                               152     28    82%   49-51, 65, 68-69, 111, 113, 115, 123, 301-312, 350, 356, 358, 362, 385, 413, 415, 432, 443
-app/ai/tools/windows_pe_signature.py                                      136     20    85%   65-66, 79, 291-293, 324, 327-328, 342-343, 364-365, 445, 453, 480-500
-app/ai/tools/windows_prefetch.py                                          129     17    87%   55-57, 94, 104, 114-120, 313, 328, 330, 334, 357, 405, 416
-app/ai/tools/windows_processes.py                                         160      6    96%   114, 190, 194, 196, 387, 489
-app/ai/tools/windows_registry.py                                          205     21    90%   61-62, 67, 70, 235, 262, 294, 298, 332, 343, 368-371, 472, 478, 480, 484, 511, 559, 570
-app/ai/tools/windows_scheduled_task.py                                    144     26    82%   51-53, 78, 121, 123, 125, 133, 312-325, 363, 369, 371, 375, 398, 426, 430, 448, 473
-app/ai/tools/windows_sdb.py                                               163     17    90%   57-59, 139, 141, 143, 147, 240, 242, 446, 453, 455, 461, 484, 511, 528, 544
-app/ai/tools/windows_srum.py                                              133     23    83%   55-57, 96, 98, 100, 108-114, 118-124, 315, 321, 323, 327, 350, 397, 408
-app/ai/tools/windows_storage.py                                           103      3    97%   65, 136-137
-app/ai/tools/windows_update.py                                             98      3    97%   67, 116, 189
-app/ai/tools/windows_usnjrnl.py                                           131      5    96%   325, 328, 330, 355, 388
-app/ai/tools/windows_wmi.py                                               119      9    92%   54-56, 107, 109, 111, 119, 343, 345
-app/cli/__init__.py                                                         0      0   100%
-app/cli/compare_apk.py                                                    311     39    87%   450-453, 457-458, 461-463, 468-469, 482-483, 520, 528, 583-584, 586, 590-593, 645, 819, 844, 850-852, 855, 865-867, 885-890, 896
-app/cli/scan.py                                                           345     35    90%   189-190, 209-212, 256, 283-299, 330, 358, 361, 363, 365, 391, 393, 412, 414, 442, 484, 511-512, 516-518, 596, 649, 694, 696, 698, 732-733, 745-746
-app/config.py                                                              89      0   100%
-app/database.py                                                            19      0   100%
-app/logging_config.py                                                      19      0   100%
-app/main.py                                                               196     32    84%   95-97, 107-109, 128-130, 166-168, 253-255, 269-271, 303-312, 345-354, 370-372, 383-385
-app/mcp_server.py                                                         373     58    84%   132-133, 194, 356, 367-378, 468, 494-498, 522-537, 573, 591-592, 607-618, 637-639, 695-703, 806-808, 828, 860-879, 969-972, 975-979, 985
-app/middleware/__init__.py                                                  0      0   100%
-app/middleware/asgi_auth.py                                                56      7    88%   73-74, 76-77, 89, 117-122
-app/models/__init__.py                                                     41      0   100%
-app/models/analysis_cache.py                                               16      0   100%
-app/models/attack_surface.py                                               27      0   100%
-app/models/bare_metal_descriptor.py                                        19      0   100%
-app/models/conversation.py                                                 15      0   100%
-app/models/cra_compliance.py                                               42      0   100%
-app/models/device_dump.py                                                  22      0   100%
-app/models/document.py                                                     17      0   100%
-app/models/emulation_preset.py                                             24      0   100%
-app/models/emulation_session.py                                            32      0   100%
-app/models/finding.py                                                      27      0   100%
-app/models/firmware.py                                                    236      0   100%
-app/models/fuzzing.py                                                      35      0   100%
-app/models/ghidra_research.py                                              22      0   100%
-app/models/hardware_firmware.py                                            31      0   100%
-app/models/linux_bash_history_entries.py                                   18      0   100%
-app/models/linux_container_artifacts.py                                    38      0   100%
-app/models/linux_cron_jobs.py                                              20      0   100%
-app/models/linux_journald_entry.py                                         31      0   100%
-app/models/linux_ld_preload_entries.py                                     18      0   100%
-app/models/linux_systemd_units.py                                          33      0   100%
-app/models/memory_dump_image.py                                            20      0   100%
-app/models/project.py                                                      25      0   100%
-app/models/report.py                                                       49      0   100%
-app/models/sbom.py                                                         48      0   100%
-app/models/security_review.py                                              36      0   100%
-app/models/uart_session.py                                                 19      0   100%
-app/models/volatility_injection_record.py                                  28      0   100%
-app/models/volatility_process_record.py                                    25      0   100%
-app/models/windows_appcompat_entries.py                                    23      0   100%
-app/models/windows_bcd_entry.py                                            26      0   100%
-app/models/windows_dpapi_master_keys.py                                    29      0   100%
-app/models/windows_driver.py                                               30      0   100%
-app/models/windows_efs_encrypted_files.py                                  24      0   100%
-app/models/windows_esp_entry.py                                            21      0   100%
-app/models/windows_etl_events.py                                           34      0   100%
-app/models/windows_event_record.py                                         24      0   100%
-app/models/windows_lnk_record.py                                           26      0   100%
-app/models/windows_mbr_vbr_sector.py                                       22      0   100%
-app/models/windows_mft_record.py                                           31      0   100%
-app/models/windows_pe_signature.py                                         27      0   100%
-app/models/windows_prefetch_record.py                                      22      0   100%
-app/models/windows_registry_extract.py                                     21      0   100%
-app/models/windows_scheduled_task.py                                       24      0   100%
-app/models/windows_sdb_entry.py                                            22      0   100%
-app/models/windows_srum_record.py                                          30      0   100%
-app/models/windows_update_dll_diff.py                                      20      0   100%
-app/models/windows_update_package.py                                       20      0   100%
-app/models/windows_usnjrnl_entries.py                                      25      0   100%
-app/models/windows_wmi_event.py                                            24      0   100%
-app/rate_limit.py                                                          54      9    83%   126-129, 190-193, 202-203, 243
-app/routers/__init__.py                                                     0      0   100%
-app/routers/analysis.py                                                   164     45    73%   131-155, 163-197
-app/routers/apk_scan.py                                                   315     93    70%   187-191, 266-267, 285-286, 298-306, 323-324, 331-332, 336-342, 357-358, 502, 521, 537-544, 561-569, 583-584, 599-602, 683, 698-773, 822, 831-834, 871, 882-885
-app/routers/attack_surface.py                                              79     14    82%   130-175, 198, 215, 219
-app/routers/bare_metal.py                                                  68     32    53%   126-222
-app/routers/comparison.py                                                  96     25    74%   100-110, 161-166, 190-200, 224-236, 240, 253
-app/routers/compliance.py                                                  25      0   100%
-app/routers/component_map.py                                               28      0   100%
-app/routers/cra_compliance.py                                              84     27    68%   59-67, 78-79, 94, 97, 123, 127, 153, 155, 181-192, 208-219
-app/routers/deps.py                                                        18      0   100%
-app/routers/device.py                                                      70      8    89%   35, 73, 88, 92, 150, 163, 182-183
-app/routers/documents.py                                                  102     35    66%   52-57, 76-81, 95, 104-105, 116-117, 131, 141-147, 165, 168, 182-188, 202
-app/routers/emulation.py                                                  388     44    89%   144-181, 203-204, 228-229, 260-261, 287-288, 311-312, 334-335, 365-368, 420-421, 444-445, 496, 521, 543, 569, 603, 631, 639, 661, 737, 907, 938-939, 946, 948, 963-964
-app/routers/events.py                                                      57     18    68%   85-105, 112, 137-144
-app/routers/export_import.py                                               49      4    92%   68, 97-103
-app/routers/files.py                                                      137     12    91%   76, 92-94, 150-154, 188, 198-199
-app/routers/findings.py                                                    83     13    84%   40-42, 62, 64, 66, 88, 104-105, 119, 143-145
-app/routers/firmware.py                                                   330     56    83%   55, 57, 65-70, 197-199, 231, 253, 271, 325-339, 368-369, 386-387, 413-421, 438-451, 544-546, 549-557, 560-561, 578, 582, 589-590, 607, 629, 631, 658, 692-693, 698-700, 729
-app/routers/fuzzing.py                                                    111     28    75%   45-55, 94, 97, 129-134, 147-152, 165, 168, 183-186, 201, 204, 257, 260
-app/routers/ghidra_research.py                                            122      7    94%   100, 124, 142, 163, 178, 193, 221
-app/routers/hardware_firmware.py                                          289     61    79%   171, 173, 175, 207-208, 252-262, 319-339, 403, 451-464, 479-483, 541-545, 589-590, 602, 606-608, 637-640, 778, 1012-1013, 1042-1049, 1060-1076, 1095, 1097, 1099
-app/routers/health.py                                                      55      2    96%   78-79
-app/routers/kernels.py                                                     49      9    82%   49, 80, 84-93, 104
-app/routers/projects.py                                                    58     12    79%   56-72, 119, 135-139, 148
-app/routers/reports.py                                                    203     16    92%   105, 241, 265, 297, 329, 347, 355-356, 359-360, 379, 435-437, 492-493
-app/routers/sbom.py                                                       552     87    84%   94, 96, 123-126, 296, 331-332, 392-393, 436-440, 462, 511-524, 528, 542-567, 571, 577-578, 600-601, 638, 946, 975-976, 1123, 1125, 1127, 1129, 1146-1147, 1178-1208
-app/routers/security_audit.py                                             411     18    96%   167, 175, 183, 254, 261-262, 284, 298, 306-307, 310, 320, 324, 326, 339, 397, 414-415
-app/routers/terminal.py                                                   266     95    64%   64, 181-184, 205-206, 220, 226, 228, 249-250, 257-258, 265, 267, 283-284, 287-288, 291-292, 332-334, 351-355, 371-378, 392-473
-app/routers/tools.py                                                       41      3    93%   178-180
-app/routers/uart.py                                                        96     15    84%   69, 91, 109-110, 128-130, 149-151, 165-167, 202-203
-app/schemas/__init__.py                                                     0      0   100%
-app/schemas/apk_scan.py                                                   133      0   100%
-app/schemas/attack_surface.py                                              36      0   100%
-app/schemas/chat.py                                                        16     16     0%   1-26
-app/schemas/chip_family.py                                                159      7    96%   282-283, 361-365
-app/schemas/comparison.py                                                  93      0   100%
-app/schemas/component_map.py                                               19      0   100%
-app/schemas/cra_compliance.py                                              79      0   100%
-app/schemas/device.py                                                      62      0   100%
-app/schemas/document.py                                                    23      0   100%
-app/schemas/emulation.py                                                  169      0   100%
-app/schemas/file_format.py                                                295     11    96%   631, 652, 677, 680, 682, 685, 764, 821, 823, 856, 1157
-app/schemas/finding.py                                                     71      0   100%
-app/schemas/firmware.py                                                   135      1    99%   303
-app/schemas/fuzzing.py                                                     53      0   100%
-app/schemas/ghidra_research.py                                             29      0   100%
-app/schemas/hardware_firmware.py                                          166      0   100%
-app/schemas/ics_protocol.py                                               166      6    96%   283, 293, 354-355, 459-460
-app/schemas/kernel.py                                                      11      0   100%
-app/schemas/pagination.py                                                  12      0   100%
-app/schemas/project.py                                                     52      3    94%   55-57
-app/schemas/report.py                                                      85      0   100%
-app/schemas/sbom.py                                                       113      0   100%
-app/schemas/security_audit.py                                              64      0   100%
-app/schemas/tools.py                                                       17      0   100%
-app/schemas/uart.py                                                        48      0   100%
-app/services/__init__.py                                                    0      0   100%
-app/services/_cache.py                                                     36      1    97%   72
-app/services/abusech_service.py                                           171      2    99%   302, 309
-app/services/analysis_service.py                                           45      2    96%   76-77
-app/services/androguard_service.py                                        241     39    84%   45-46, 59-60, 166, 433, 552-553, 556-557, 560-561, 564-565, 569-570, 575-576, 659-672, 712-713, 751-757, 837, 866
-app/services/android_posture_walker.py                                    285     49    83%   274-275, 310-311, 315, 345-346, 429, 451-452, 457, 465-466, 471, 476-498, 524-533, 536, 603, 631, 755-758, 833-840
-app/services/appcompat_walker.py                                          381     80    79%   345, 360-364, 370-374, 378-382, 397-400, 412-413, 422-423, 435-438, 464, 467-468, 482-483, 491-492, 494, 511-512, 571-574, 606-611, 618-620, 641-642, 645-646, 657-706, 734-735, 739-740, 814, 841-861, 873, 876, 878
-app/services/assessment_service.py                                        329     24    93%   124-125, 150-151, 227-228, 238-239, 471, 724, 728, 751-752, 783-816
-app/services/attack_surface_service.py                                    258     38    85%   85-86, 133, 138-139, 169-171, 181, 216-217, 225-226, 294, 298, 300, 304, 341, 357, 372, 386, 400, 438-440, 455, 457, 463-464, 476-477, 488-489, 505-508, 537
-app/services/authenticode_chain_runner.py                                 128      7    95%   145-146, 248, 309, 462, 506-509
-app/services/authenticode_service.py                                      110      4    96%   156, 217-219
-app/services/bare_metal_walker.py                                         243     16    93%   303-304, 318-320, 325, 334, 451, 522-526, 575-577, 618-619
-app/services/bcd_walker.py                                                517     85    84%   178-179, 219-220, 233-234, 236, 239-241, 296-297, 302-303, 323-324, 326, 347-348, 359-360, 363-366, 382, 400, 405, 408-409, 415, 424, 426, 438-439, 444-445, 451-452, 454-457, 609-610, 612, 615-617, 623, 626, 629-630, 632, 636-647, 653-654, 659-662, 683-684, 691, 705, 713-714, 779-782, 884, 914-915, 919-920, 1019-1036
-app/services/binary_analysis_service.py                                   263     51    81%   104, 107, 109-113, 128, 259, 270-275, 285-289, 361, 486-492, 501-545
-app/services/bytecode_analysis_service.py                                 279     22    92%   777, 793, 834, 838, 886-892, 909, 972-973, 989, 1043-1044, 1149, 1199, 1209-1210, 1253, 1260, 1264-1265, 1269
-app/services/carving_service.py                                           190     31    84%   152-153, 268, 273, 294-295, 306-307, 353-354, 358-360, 376-398
-app/services/clamav_service.py                                            102      4    96%   107-108, 155-156
-app/services/comparison_service.py                                        435     42    90%   105-106, 135-136, 145-146, 155-156, 244, 251, 374-375, 530, 535, 541-544, 551-552, 555, 561-562, 581-582, 586-590, 668, 674-677, 684, 689, 691, 697, 745-749, 805-807
-app/services/compliance_service.py                                        100      0   100%
-app/services/component_map_service.py                                     378     50    87%   120, 193-194, 196, 301-302, 344-362, 376-379, 387-390, 398-402, 422-424, 439, 446-453, 476-477, 481-483, 549-550, 569-570, 590-591, 616-617
-app/services/container_walker.py                                          554     32    94%   265, 516, 861-862, 864, 866, 879-880, 889-890, 909-910, 1087-1088, 1127-1129, 1131-1132, 1136-1137, 1154-1155, 1177-1178, 1215, 1228-1229, 1306-1307, 1311, 1319
-app/services/cpe_dictionary_service.py                                    193      5    97%   100, 129, 165, 202-203
-app/services/cra_compliance_service.py                                    219     22    90%   409, 427-428, 436-443, 477, 649-653, 789, 797, 810, 817, 828, 830
-app/services/cwe_checker_service.py                                       113      1    99%   251
-app/services/dbx_service.py                                               122     10    92%   211, 214-215, 264, 295-296, 330-334, 344-345
-app/services/dependency_track_service.py                                   24     13    46%   18-20, 24, 37-61
-app/services/device_service.py                                            303     35    88%   250-253, 292-293, 370, 381-382, 396-397, 416, 430-431, 446, 517, 548, 558-580, 623-624, 641-645
-app/services/document_service.py                                          169      3    98%   234, 326-327
-app/services/dotnet_decompile_service.py                                  165     40    76%   111-116, 135-156, 202-235, 267-269, 393, 408-418
-app/services/dpapi_walker.py                                              290     50    83%   243-245, 289, 293, 393-394, 402-403, 405, 427-428, 442-443, 445, 484-486, 489, 492-493, 496, 502-503, 509-511, 514, 525-526, 540, 587-588, 592-593, 695-696, 706-707, 711-712, 718, 721-722, 725-726, 730, 732, 734, 739
-app/services/driver_extractor.py                                          276     63    77%   107-108, 120-121, 241-242, 247, 251-253, 258-260, 263-269, 274-279, 282-286, 288-289, 329-330, 336-337, 365-367, 424-425, 542, 546-547, 551, 560-561, 565-568, 578-579, 601-602, 606, 618-619, 627-628, 642-643
-app/services/driver_inf_parser.py                                         169     15    91%   117, 133-135, 142, 239, 291-293, 316-320, 392, 396-397
-app/services/ds1qrsetup_callgraph_walker.py                               344     85    75%   211-212, 225, 264-265, 278-279, 281, 328, 423-485, 524, 558-559, 566-567, 580-581, 592-593, 603-604, 607-608, 613-614, 617-618, 630-631, 633, 639, 641, 648, 650, 670-671, 812-813, 817-818, 839-852, 865-881, 892, 907-924
-app/services/efs_walker.py                                                448     77    83%   174-175, 208, 219, 332-335, 341-345, 369-371, 375-379, 423-426, 484-486, 492, 572-573, 580, 584, 587-588, 602-603, 611, 618-619, 630, 632-635, 662-663, 669, 676-678, 685-686, 699-702, 763-766, 783-784, 806-810, 819-823, 833, 835, 837, 839, 841, 850, 882, 917-918, 922-923, 999, 1030-1052, 1068
-app/services/emulation/__init__.py                                          2      0   100%
-app/services/emulation/docker_ops.py                                      121      2    98%   371, 424
-app/services/emulation/kernel_selection.py                                 39      0   100%
-app/services/emulation/service.py                                         414     59    86%   246-249, 281-289, 330, 332, 350-358, 393, 415-418, 596-598, 705-706, 722, 743, 755, 890-891, 906, 908, 916, 921-925, 947-948, 957, 992-993, 999-1000, 1026, 1032, 1042-1046, 1070-1071
-app/services/emulation/sysroot_mount.py                                    44      0   100%
-app/services/emulation/system_mode.py                                      64      3    95%   196, 204-205
-app/services/emulation/user_mode.py                                        60      2    97%   129-130
-app/services/emulation_constants.py                                        44     18    59%   105-106, 109, 114-115, 118, 123-133, 143, 147, 151
-app/services/emulation_preset_service.py                                   32      0   100%
-app/services/esp_walker.py                                                323     51    84%   176-177, 216-217, 236-237, 239, 242-244, 412-415, 494-499, 502-508, 511-513, 517-519, 529-535, 606-607, 611-612, 704-705, 714-731, 745, 750-751, 756, 764
-app/services/etl_walker.py                                                441     70    84%   297-298, 377, 400, 458-459, 476-477, 479, 481, 494-495, 497, 509-510, 514-515, 546-548, 555-556, 559-560, 587-588, 610-611, 661-663, 691-692, 696-697, 699, 714-720, 722-731, 733, 735, 740, 742-745, 835, 959-960, 990-991, 995-996, 1010, 1013, 1032
-app/services/event_service.py                                              58     13    78%   114-131
-app/services/evtx_service.py                                              240     61    75%   137-138, 279-280, 297-298, 306-308, 356-357, 361-362, 370-371, 380-381, 392-393, 397-398, 537-541, 549, 553, 581, 583-584, 633-635, 640-642, 644-646, 648-654, 661-663, 666-667, 672-679, 715
-app/services/export_service.py                                            180     18    90%   94, 152-155, 409-415, 465-472, 477-478, 504-506, 516-518
-app/services/extraction_pipeline.py                                        24      0   100%
-app/services/file_format_catalog/__init__.py                                6      0   100%
-app/services/file_format_catalog/catalog.py                               295     32    89%   116, 118, 184, 191, 231, 236, 239, 247-249, 354-360, 373-377, 385, 411, 424, 446, 453, 484-487, 504, 511-518, 535-541, 591
-app/services/file_format_catalog/plugins/__init__.py                       13      2    85%   50-51
-app/services/file_format_catalog/plugins/rtos_detection_default.py         39     14    64%   73, 76-81, 84-89, 92-98
-app/services/file_format_catalog/resolver.py                              411     65    84%   230-231, 233, 239-242, 246, 251, 255-256, 258, 260, 262, 269, 273, 275, 293-295, 303, 306, 311-314, 320-321, 335, 338-339, 345-351, 374-375, 437, 500, 518-522, 608, 650-654, 733, 805-810, 832, 840-842, 854, 925, 944, 948, 955-959, 963-967
-app/services/file_format_catalog/snapshot.py                               27      3    89%   75, 78, 81
-app/services/file_service.py                                              449     72    84%   97, 191, 209, 242-243, 254, 263, 266, 272-273, 292, 311-312, 357-358, 385-386, 390-392, 429, 435, 467-468, 480-481, 504-505, 509-510, 522-523, 534-535, 542-543, 549, 551, 565-566, 576-577, 598-609, 635-636, 646-647, 658-659, 674-675, 685-686, 709-710, 718-719, 760, 766, 779-780, 790, 837, 841-842, 844
-app/services/finding_service.py                                          1494     33    98%   804, 809, 818, 1154, 1391, 1479, 1483-1484, 1486, 1979, 2209, 3682, 3691, 5446, 5451, 7194, 7199-7201, 7215-7220, 7222-7227, 7267-7272, 7841-7842, 7845, 7876
-app/services/firmware_metadata_service.py                                 241     14    94%   216, 219-220, 267-269, 350, 357-359, 397-398, 408, 414
-app/services/firmware_paths.py                                            392     42    89%   141, 153-154, 159-160, 172-173, 186, 207, 213-214, 220-221, 245-246, 268, 303-304, 317, 351-352, 359, 365-366, 374, 476, 478, 530, 546, 576, 587-588, 626, 628, 767-768, 774-776, 779, 781, 879
-app/services/firmware_service.py                                          451     71    84%   193, 198, 211, 217, 248, 268-278, 351, 355-356, 368-369, 379-380, 386, 408-413, 417-419, 488-492, 508-516, 531-548, 780-817, 845-846, 851-852, 857-858, 870-871, 910, 930-931, 973-974
-app/services/format_detection.py                                          222     48    78%   128-130, 141-142, 237-238, 244-246, 297-298, 334, 336, 338, 340, 342, 346, 349, 351, 353, 355-358, 365, 369, 377-382, 395, 397, 440, 448, 456, 464, 486-487, 496-497, 508-509, 525-527
-app/services/fuzzing_service.py                                           572     69    88%   164, 174, 215-217, 308, 561, 574-575, 594, 673-674, 683-684, 719-720, 739, 769-772, 777, 807, 828-831, 873, 882, 889-890, 912, 966, 978-1006, 1018, 1025-1027, 1091-1092, 1167, 1184-1188
-app/services/ghidra_research_service.py                                   213     63    70%   216-221, 226, 245-260, 293, 307, 311-312, 330-358, 370, 372-396
-app/services/ghidra_service.py                                            563     50    91%   201-203, 316-319, 368, 399-400, 446-448, 640-642, 651-653, 711-724, 739, 964, 997, 1006, 1015-1016, 1237, 1276, 1290, 1347, 1418, 1468-1479, 1504, 1507, 1519-1520, 1526, 1598
-app/services/grype_service.py                                             129      6    95%   150, 235-238, 250
-app/services/hardware_firmware/__init__.py                                  3      0   100%
-app/services/hardware_firmware/chip_catalog.py                            115      7    94%   83, 91, 104, 145-147, 220
-app/services/hardware_firmware/classifier.py                              145     24    83%   182, 186, 188, 190, 192, 194, 201, 204, 219, 228, 259, 317-320, 395, 397-398, 401, 409, 411, 413, 434, 438-439
-app/services/hardware_firmware/cve_matcher.py                             360     25    93%   99, 109, 193, 208, 214-215, 224-225, 532, 574-577, 621-628, 686, 863-865, 875, 883-891, 1068
-app/services/hardware_firmware/detector.py                                235     51    78%   107-108, 110, 113, 125-133, 143, 147-148, 166-167, 172, 176-177, 182, 186, 190-191, 195, 200, 208, 212-219, 233-235, 266-267, 271, 276, 336, 377-382, 472-473, 507-514
-app/services/hardware_firmware/graph.py                                   154     18    88%   153, 168, 205-217, 288-289, 295, 312-319, 347
-app/services/hardware_firmware/hbom_export.py                             147      6    96%   185-188, 238, 334
-app/services/hardware_firmware/kernel_vulns_index.py                      273     53    81%   154, 210, 232-233, 235, 237, 268-271, 287, 303, 344, 349, 377-379, 421-422, 426-427, 449-450, 457-458, 475, 485-490, 492, 497-498, 503-518, 525, 534-536, 540-541
-app/services/hardware_firmware/matchers/__init__.py                         4      0   100%
-app/services/hardware_firmware/matchers/base.py                            62     10    84%   74, 76, 82, 119, 123, 126, 130, 150-151, 156
-app/services/hardware_firmware/matchers/yaml_driven.py                    174      5    97%   353, 357, 360-361, 365
-app/services/hardware_firmware/parsers/__init__.py                          4      0   100%
-app/services/hardware_firmware/parsers/_kernel_ikconfig.py                 72     10    86%   80, 84, 98-101, 123, 158-159, 166-167
-app/services/hardware_firmware/parsers/android_boot_image.py               77     14    82%   106, 110-111, 136-137, 144-145, 151, 156-157, 160-165, 169-174
-app/services/hardware_firmware/parsers/android_ota_payload.py             148     30    80%   116, 118, 124, 129-140, 154, 179, 181, 194, 198-199, 203-204, 206-209, 216-221, 239-241, 298
-app/services/hardware_firmware/parsers/awinic_acf.py                       81     24    70%   44-45, 54-55, 81-85, 100-101, 113-120, 129-134
-app/services/hardware_firmware/parsers/base.py                             27      1    96%   66
-app/services/hardware_firmware/parsers/broadcom_wl.py                      83     12    86%   53-54, 68, 77-78, 82, 84, 108-109, 135-137
-app/services/hardware_firmware/parsers/bt_firmware_banner.py              450     39    91%   369-370, 385-386, 410, 439, 462, 542, 546, 557, 569, 571, 626-627, 631, 651-652, 685-686, 700, 707, 709, 741-742, 759-760, 823, 829, 832-834, 931-933, 958, 1273-1274, 1292-1294
-app/services/hardware_firmware/parsers/dtb.py                             171     48    72%   51-52, 65-66, 87-88, 106-107, 115-141, 148, 162-163, 196-197, 209-211, 222, 225-226, 279-281
-app/services/hardware_firmware/parsers/elf_tee.py                          89     23    74%   42, 47-48, 57-58, 81-82, 86-87, 89, 99-100, 104-105, 122-123, 134-141
-app/services/hardware_firmware/parsers/kernel_image.py                     78     15    81%   81, 117-118, 127-129, 142-144, 149-151, 158-160
-app/services/hardware_firmware/parsers/kmod.py                            131     14    89%   67-68, 70, 83, 87, 98-99, 117-118, 176-178, 256, 261
-app/services/hardware_firmware/parsers/mediatek_atf.py                     59      6    90%   60-61, 74-75, 87-88
-app/services/hardware_firmware/parsers/mediatek_geniezone.py               84      8    90%   70-71, 88-89, 116-117, 128-129
-app/services/hardware_firmware/parsers/mediatek_gfh.py                    109     11    90%   68-69, 141-142, 158, 169-170, 364, 375-377
-app/services/hardware_firmware/parsers/mediatek_lk.py                      82     14    83%   69-70, 77-80, 151, 156-160, 187-188, 190
-app/services/hardware_firmware/parsers/mediatek_modem.py                  112     20    82%   55, 60-61, 71-72, 98, 102-103, 109, 112-113, 116-117, 184-185, 192-193, 196-198
-app/services/hardware_firmware/parsers/mediatek_preloader.py               89     16    82%   57-58, 68-69, 76, 79-80, 82, 86-87, 90, 117-118, 168-170
-app/services/hardware_firmware/parsers/mediatek_tinysys.py                 91     14    85%   65-66, 75, 78, 80, 95-96, 110-111, 163-164, 173-176
-app/services/hardware_firmware/parsers/mediatek_wifi.py                   101     18    82%   68-71, 77, 82-83, 94-95, 130-132, 143, 160-165
-app/services/hardware_firmware/parsers/qualcomm_mbn.py                    283     65    77%   112-116, 124, 142-143, 163, 167, 177-178, 181-182, 187-188, 195-198, 200-202, 220-221, 229-230, 270, 290-291, 325, 340, 389-390, 398-399, 401, 405-406, 413-414, 418-423, 428, 437-441, 444, 449-450, 453-459, 489-490
-app/services/hardware_firmware/parsers/raw_bin.py                          74     12    84%   58-59, 68-69, 71, 92-95, 110-112
-app/services/hardware_firmware/parsers/tegra_blob.py                      164      9    95%   329, 380, 569, 642, 649, 677-681, 715
-app/services/hardware_firmware/patterns_loader.py                         512     78    85%   155, 163, 166, 204, 210-211, 220-226, 229-237, 241, 279, 300, 306-307, 316-322, 325-334, 340-346, 349-358, 362, 367-368, 403, 495, 536, 540, 543-544, 682, 688-698, 708, 714, 719, 726, 730, 737, 761, 888, 897, 912, 925, 938, 956-962, 971, 994, 1055, 1061, 1068, 1072, 1076, 1092, 1126, 1132, 1386, 1400
-app/services/hashlookup_service.py                                         62     15    76%   54-55, 89-91, 117-132, 137, 140
-app/services/ics_protocol_catalog/__init__.py                               7      1    86%   52
-app/services/ics_protocol_catalog/catalog.py                              203     34    83%   91-92, 95, 100, 102, 117-118, 121, 126, 187, 199-200, 214-215, 224, 237-239, 242-244, 246-247, 250-255, 260-263, 296, 336, 377-378, 434-435
-app/services/ics_protocol_catalog/plugins/__init__.py                      11      0   100%
-app/services/ics_protocol_catalog/plugins/string_scanner.py                15      0   100%
-app/services/ics_protocol_catalog/resolver.py                             202     49    76%   127, 130-131, 134, 139-140, 142, 166, 169-170, 173, 177, 209, 214-215, 217, 226, 257, 286-298, 330, 364-368, 371-376, 385, 387, 389-392, 396, 535, 538, 566, 581-582
-app/services/ics_protocol_catalog/snapshot.py                              27      0   100%
-app/services/ics_protocol_walker.py                                       170     33    81%   153, 157-158, 233, 264-268, 280-281, 286-288, 291-311, 326-354, 408-411
-app/services/import_service.py                                            279     60    78%   53, 153, 185-186, 265-268, 275, 279, 283-305, 311-312, 322-329, 413, 475-476, 503-504, 532-533, 539, 558, 575-576, 609-634
-app/services/jadx_service.py                                              174     25    86%   105, 150, 196-197, 208-209, 276, 322, 429, 436-437, 477-484, 497-504, 527-534
-app/services/journald_walker.py                                           425     70    84%   275-276, 307-308, 346, 349, 354-355, 376, 382-383, 388, 390, 400-402, 405-407, 417-418, 443, 446, 449, 453, 546, 552, 555, 564-565, 586, 604, 611, 650-651, 663-664, 666, 669-671, 683-684, 688-689, 760-762, 766-772, 775-777, 790, 803, 814, 818, 822, 961-962, 966-967, 982, 985, 1000
-app/services/jsonb_normalizers.py                                         886      6    99%   1055, 1101, 1155, 1217, 1609, 2093
-app/services/kernel_config_walker.py                                      349     65    81%   192, 196, 198-199, 241, 250, 252, 260, 262-263, 276, 292-294, 343-345, 349-350, 378, 405-406, 419-423, 433, 438, 444-446, 499-500, 548, 554, 561, 570, 576, 588, 594, 600, 622, 625, 658, 663, 669-670, 692, 694, 714, 717, 741-751, 773, 812-815, 883-890
-app/services/kernel_decompress.py                                          88     28    68%   73, 117-119, 127-129, 140-142, 155-162, 176-188
-app/services/kernel_service.py                                            216      4    98%   94, 298-299, 372
-app/services/linux_kernel_hardening_walker.py                             143     12    92%   376, 384-386, 421-426, 479-482, 540-542
-app/services/linux_persistence_walker.py                                  463     77    83%   282, 286-287, 330-331, 333, 337-338, 375, 378-379, 395-397, 430, 432, 436-437, 471-472, 488-489, 491, 498-499, 523-524, 528, 535-536, 550-551, 563-569, 571-573, 592-593, 600-601, 611-612, 617-627, 757, 760-761, 764, 771, 780, 815, 820-821, 824, 831, 844, 883, 886-887, 890, 897, 904
-app/services/lnk_walker.py                                                305     50    84%   216-217, 248, 251, 253-256, 258, 264, 279, 285, 297, 300, 305, 308, 310-312, 315, 343, 347-348, 385, 390, 398, 410, 412, 470-471, 491-492, 494, 497-499, 540-541, 545-546, 570, 656, 663, 681-682, 686-688, 697, 724
-app/services/loldrivers_lookup_service.py                                 171     11    94%   82, 251, 254, 258, 312-318, 321-326, 429, 448
-app/services/manifest_checks/__init__.py                                    4      0   100%
-app/services/manifest_checks/_base.py                                      44      5    89%   112-113, 126-128
-app/services/manifest_checks/backup_and_debug.py                           95     11    88%   60-61, 77, 96, 124, 166-167, 175, 201, 214, 344
-app/services/manifest_checks/checker.py                                    36      0   100%
-app/services/manifest_checks/components.py                                306     38    88%   109-111, 120-121, 272-274, 303, 325, 329, 408-410, 421-422, 427-428, 460, 463, 468, 494-496, 554-556, 732-733, 772, 836-837, 864, 925-926, 956, 965, 967
-app/services/manifest_checks/misc.py                                       20      2    90%   37-38
-app/services/manifest_checks/network_security.py                          152     39    74%   60-61, 127-143, 147-163, 192-198, 214-236, 248, 331, 447, 471, 512-528, 535, 538, 560
-app/services/manifest_checks/permissions.py                                59      6    90%   124-126, 170, 213-214
-app/services/manifest_checks/signing.py                                    83     23    72%   105-106, 109, 114, 118-119, 127-128, 131, 140-141, 149, 174-175, 178-179, 182-183, 240-241, 265-266, 292
-app/services/mbr_vbr_walker.py                                            336     36    89%   317-320, 332, 377, 492-493, 508-509, 511, 514-515, 534-535, 537, 613-615, 642, 645, 655, 682-683, 687-688, 695, 776-777, 786-802, 808, 839
-app/services/memory_image_enumerator.py                                    89      3    97%   194, 228-229
-app/services/memory_image_paths.py                                         49      2    96%   159-160
-app/services/mft_walker.py                                                386     43    89%   153-154, 190-191, 204-205, 207, 210-212, 257-258, 298-299, 342-343, 361-362, 478-479, 492-495, 558-561, 575-576, 598-600, 671, 700-701, 705-706, 804-820
-app/services/mobsf_runner.py                                              281     68    76%   302-304, 309-311, 313-314, 318-320, 327-328, 331-333, 341-343, 351-352, 354, 363-365, 415, 417-418, 420-421, 428-434, 443-445, 452-458, 466-468, 470-476, 600-601, 707, 774, 858, 882-887
-app/services/mobsfscan/__init__.py                                          3      0   100%
-app/services/mobsfscan/normalization.py                                   158      1    99%   383
-app/services/mobsfscan/parser.py                                          133      2    98%   195-196
-app/services/mobsfscan/pipeline.py                                        146     34    77%   385-399, 473, 489, 574, 606-636, 647-670
-app/services/mobsfscan/service.py                                           5      0   100%
-app/services/module_reachability_walker.py                                291     51    82%   167, 178, 184-185, 196-197, 214-215, 228, 266-281, 286-287, 292-299, 368, 397-401, 434-436, 440, 459, 598-601, 676-683
-app/services/network_exposure_walker.py                                   447     61    86%   171, 181-182, 237, 262, 390, 397, 401, 407, 418, 424, 446-447, 453, 456, 459, 474-479, 510, 524, 571-572, 575, 607-613, 619, 635, 645, 672-673, 681, 693, 740, 765-766, 772, 775, 856, 875-879, 887-892, 949-952, 1026-1033
-app/services/pcap_analysis_service.py                                     289     33    89%   22-23, 188, 194-196, 201-203, 329, 333, 341-349, 366, 372, 376, 384, 390, 396, 489, 498-501, 555-556, 574-575
-app/services/prefetch_walker.py                                           223     65    71%   100-101, 125-126, 141-171, 194, 205, 209-238, 275-276, 286-287, 293-294, 331-332, 336-337, 352, 418-431, 437-446
-app/services/python_ast_walker.py                                         369     56    85%   162-163, 176-177, 183-184, 202-203, 207-208, 319, 333, 367-377, 399-403, 446-447, 453-466, 491-492, 496-502, 514-518, 528-529, 537-538, 573-574, 590, 640, 646, 675-676
-app/services/qiling_service.py                                             97      0   100%
-app/services/r2r_stomping.py                                               86      8    91%   218, 223-224, 238, 241-242, 291-292
-app/services/registry_hive_walker.py                                      257     59    77%   185-186, 202-203, 213-214, 298-300, 303, 348-350, 377-378, 432-434, 472, 545-546, 550-551, 562-563, 578-579, 583-584, 591, 636-638, 643-644, 647, 649-651, 653-657, 660-661, 667-669, 672-673, 678-680, 683-685, 688-689
-app/services/report_authoring_service.py                                  102      2    98%   219-224
-app/services/report_render_service.py                                      77      3    96%   169-180
-app/services/report_service.py                                            160      1    99%   28
-app/services/report_template_service.py                                    67      9    87%   47-50, 63, 67, 94, 101, 104
-app/services/rich_header_service.py                                        48      3    94%   121-123
-app/services/rtos_detection_service.py                                    481     66    86%   27-28, 102, 123-124, 168, 192, 195, 200-202, 272, 276, 327, 338, 358, 363, 371, 373-374, 392, 401, 406, 488, 492, 498-501, 509, 517, 524-526, 578-581, 594-600, 605, 608, 696, 712, 716-717, 721, 723-725, 773-776, 780-784, 787, 834
-app/services/sbom/__init__.py                                               4      0   100%
-app/services/sbom/constants.py                                             26      0   100%
-app/services/sbom/enrichment.py                                           135     37    73%   59, 186-189, 195-199, 207-213, 217-224, 230-242, 250-252
-app/services/sbom/normalization.py                                         48      6    88%   42-45, 72, 80, 120
-app/services/sbom/purl.py                                                  23      8    65%   35, 42-45, 65-74
-app/services/sbom/service.py                                              115     35    70%   110-122, 126, 150-156, 161, 164-170, 215, 218, 237-241, 252-266, 322
-app/services/sbom/service_risks.py                                         26     10    62%   41-42, 50-74
-app/services/sbom/strategies/__init__.py                                    3      0   100%
-app/services/sbom/strategies/android_strategy.py                          130     11    92%   67-68, 168, 186-187, 199, 202-203, 247, 261-262
-app/services/sbom/strategies/base.py                                       16      0   100%
-app/services/sbom/strategies/binary_strings_strategy.py                   114     36    68%   53, 73-74, 78, 85, 91-93, 109-110, 130-150, 182, 186, 188, 191, 204-240
-app/services/sbom/strategies/busybox_strategy.py                           64     10    84%   64, 75-76, 79, 83, 89-91, 100-101
-app/services/sbom/strategies/c_library_strategy.py                         92     11    88%   45-47, 55-56, 58, 62, 71-72, 115-116
-app/services/sbom/strategies/dpkg_strategy.py                              53      5    91%   33, 62-63, 74, 77
-app/services/sbom/strategies/firmware_markers_strategy.py                  26     12    54%   32-63
-app/services/sbom/strategies/gcc_strategy.py                               42     15    64%   42-43, 45, 49, 55, 58-59, 63-83
-app/services/sbom/strategies/kernel_strategy.py                            88     24    73%   54-55, 66, 88-89, 133-134, 145-179
-app/services/sbom/strategies/loose_deb_strategy.py                        116     26    78%   100-103, 119-121, 145-146, 149-152, 156-157, 185, 187-190, 200-220, 238, 260, 264-266
-app/services/sbom/strategies/opkg_strategy.py                              36      3    92%   44-45, 55
-app/services/sbom/strategies/python_packages_strategy.py                   70      9    87%   41, 44-45, 59, 62-63, 96-98
-app/services/sbom/strategies/so_files_strategy.py                         101      6    94%   100, 126, 130, 157, 164, 174
-app/services/sbom/strategies/standalone_apk_strategy.py                    66      7    89%   88-89, 108-109, 121, 157-158
-app/services/sbom/strategies/syft_strategy.py                              51     13    75%   50, 63-72, 84, 87-88, 98, 102
-app/services/sbom/version_normalize.py                                     26      0   100%
-app/services/scheduled_task_walker.py                                     340     48    86%   179-180, 212, 219, 239, 261, 296, 314-316, 345, 357, 363, 389, 396-397, 401-404, 432, 463, 465-469, 545-546, 561-562, 568-569, 576-577, 630-631, 635-636, 655, 671, 752-759, 777-793
-app/services/sdb_walker.py                                                301     48    84%   223-225, 305-306, 321-322, 327-328, 414-441, 489-491, 523, 525-534, 539-552, 555-564, 567, 597-598, 602-603, 705-723, 729, 736, 745, 747, 749
-app/services/security_audit/__init__.py                                     4      0   100%
-app/services/security_audit/_base.py                                       40      4    90%   59, 75-77
-app/services/security_audit/credentials.py                                111     19    83%   39, 42, 45, 49-50, 58, 67, 101-102, 116, 121-128, 151-152, 163, 167, 174, 178-179
-app/services/security_audit/external_scanners.py                          229     51    78%   74, 163-165, 174-176, 181-190, 213, 220, 232-236, 251, 257-258, 261, 266-267, 270-288, 312, 327-328, 338-340, 343, 347-348, 356
-app/services/security_audit/hash_lookups.py                                73      0   100%
-app/services/security_audit/network.py                                    109     37    66%   53, 56, 69-70, 79, 82, 95-96, 101, 104, 107, 110-112, 114, 120, 128-138, 143-153, 158-178, 195, 199, 207-208
-app/services/security_audit/orchestrator.py                                50     23    54%   97-102, 118-120, 149-170
-app/services/security_audit/permissions.py                                 66     12    82%   37, 42-43, 45, 75-76, 84-85, 108, 113-114, 116
-app/services/selinux_service.py                                           165     24    85%   128-129, 175, 208-209, 212, 220, 224, 256-258, 269-276, 279-281, 319-320
-app/services/srum_walker.py                                               353     77    78%   106-107, 128-129, 139-140, 146-147, 195-198, 204, 209-210, 219-220, 222, 232-233, 238-239, 254-255, 279-280, 282, 289-292, 300-301, 303, 321-323, 328-333, 337, 339-340, 397-408, 473-486, 546-547, 555-556, 560, 563-564, 579-585, 615-616, 620-621
-app/services/sysroot_service.py                                            70      0   100%
-app/services/system_emulation_service.py                                  382     40    90%   59, 70, 106-114, 279-281, 317, 328, 333, 340-341, 343, 345, 347-348, 355-356, 374, 384, 430-431, 457-458, 468-471, 494, 509-510, 598-599, 706
-app/services/systemd_walker.py                                            435     55    87%   285, 296, 354-355, 522-523, 546-547, 550-551, 553, 578-579, 597-598, 607-608, 616, 619-620, 636-637, 639, 711, 715, 718, 721, 724, 727, 737-739, 749-752, 755-758, 833, 837-840, 846-848, 861-868, 932, 948-959
-app/services/uart_service.py                                              108      3    97%   128, 253-254
-app/services/unpack_audit_service.py                                      140     36    74%   62-69, 130, 154-204, 241-242, 244, 364
-app/services/update_mechanism_service.py                                  594     76    87%   89, 122-126, 178-179, 188, 240, 245, 332, 347-348, 413, 456, 458, 534, 551-552, 579-580, 587-593, 598, 621-627, 635, 756-757, 760, 899, 922-936, 939-940, 964, 978, 989, 992, 996-1011
-app/services/usnjrnl_walker.py                                            404     68    83%   191-192, 223-224, 237-238, 240, 243-245, 379-380, 392-396, 405-407, 425-426, 436, 442-443, 446, 450-451, 467-468, 532-535, 567, 571, 579-580, 586-587, 602-603, 608-609, 616-617, 701, 715, 721, 726, 729-735, 777-778, 782-783, 882-883, 887-888, 899, 916, 918
-app/services/virustotal_service.py                                        127      7    94%   188-189, 191, 199-200, 221-222
-app/services/vol3_runner.py                                               124      3    98%   176-177, 400
-app/services/vulnerability_service.py                                     339     63    81%   136-159, 189, 254-261, 273, 284-285, 346-353, 381-386, 420, 498-514, 521-562, 614-627, 699
-app/services/wairz_runner.py                                              102      4    96%   270, 299-302
-app/services/windows_info_walker.py                                       193     14    93%   185-190, 192, 253, 278, 376-377, 499-500, 504
-app/services/windows_injection_walker.py                                  235     23    90%   187-195, 203, 279, 329, 342, 344, 386, 426, 505, 521, 569-570, 682-683, 687
-app/services/windows_processes_walker.py                                  231     17    93%   162, 164, 176, 196, 229, 240, 301, 317, 360-361, 403, 407, 454-455, 558-559, 563
-app/services/windows_update_diff_service.py                               138     38    72%   81-137, 197-201, 250-251, 266-267, 385-386
-app/services/wmi_walker.py                                                274     41    85%   170-171, 218-219, 231-232, 234, 237-239, 379-384, 387-393, 399-404, 411-417, 440, 444, 471, 551-552, 556-557, 656-673, 684
-app/services/yara_service.py                                              154     31    80%   80-81, 108, 131, 141, 152-154, 160-168, 178-179, 202-203, 257-260, 301-304, 307-308, 314-315, 324
-app/utils/__init__.py                                                       0      0   100%
-app/utils/background.py                                                    11      0   100%
-app/utils/credential_patterns.py                                            4      0   100%
-app/utils/docker_client.py                                                  7      1    86%   31
-app/utils/firmware_context.py                                             168     14    92%   88, 144, 256, 325-332, 346-347, 368
-app/utils/getprop.py                                                       39      0   100%
-app/utils/hashing.py                                                        7      0   100%
-app/utils/pagination.py                                                    19      4    79%   58-61
-app/utils/sandbox.py                                                       49      6    88%   26, 70, 76, 104-106
-app/utils/truncation.py                                                    17      0   100%
-app/utils/yaml_cache.py                                                   136      9    93%   135, 162-170, 243-254
-app/workers/__init__.py                                                     0      0   100%
-app/workers/arq_worker.py                                                 343     73    79%   74-75, 78-95, 109-110, 131-132, 211-217, 232-233, 236-248, 250-252, 308-311, 398-401, 491-496, 609-614, 622-623, 639-640, 646, 660, 710, 714-729, 746, 788-794
-app/workers/extraction_strategies.py                                       25      0   100%
-app/workers/run_function_decompile.py                                      57      1    98%   156
-app/workers/run_ghidra_analysis.py                                         62      1    98%   166
-app/workers/safe_extract.py                                                55      7    87%   139, 157-158, 177-179, 189
-app/workers/unpack.py                                                     563    103    82%   149-150, 236, 313, 322-323, 440, 463-467, 504, 605-606, 638-639, 755, 780-783, 785-787, 802-804, 816, 821-826, 859-860, 870-878, 902, 904, 924-929, 945-990, 1010, 1012-1019, 1035-1036, 1043, 1049-1052, 1056-1061, 1077-1084, 1112-1115, 1122-1134, 1140-1141, 1150-1154
-app/workers/unpack_android.py                                             631     89    86%   90-91, 104-105, 137-138, 210-212, 216-217, 263, 311-315, 321-334, 383-387, 392, 448-449, 472, 515, 548-549, 640, 643-644, 670-672, 683-687, 707-708, 718, 756-757, 894-899, 943-945, 948, 981-986, 1005-1009, 1048-1049, 1052-1053, 1069-1070, 1077, 1111-1112, 1124-1125, 1127-1129, 1160-1161, 1168-1174, 1227-1228, 1259-1260
-app/workers/unpack_apex.py                                                124     38    69%   111-114, 134-141, 184-188, 201-215, 218-223, 233-238, 250-251, 255, 264, 271-272, 303-309
-app/workers/unpack_cab.py                                                 107     29    73%   94-95, 111-119, 147-157, 192-201, 211-212, 242-244, 257-259, 269
-app/workers/unpack_common.py                                             1121    115    90%   66-67, 233-234, 308, 365, 384-385, 387-389, 550-551, 560-561, 566-567, 670, 676-677, 846-847, 872-873, 881-882, 1017-1018, 1025-1026, 1041-1042, 1080-1081, 1143-1144, 1157, 1160-1165, 1175-1176, 1207, 1239, 1268-1269, 1341-1342, 1344, 1357-1358, 1361-1362, 1434, 1443, 1458-1460, 1477-1478, 1483-1484, 1548-1549, 1572-1573, 1588-1589, 1591-1598, 1633-1634, 1636, 1640-1641, 1716-1717, 1720-1725, 1806-1807, 1838-1839, 1861, 1865, 1902-1903, 2036, 2039-2040, 2069, 2071, 2073, 2075-2077, 2119-2120, 2123, 2198-2200
-app/workers/unpack_driver_package.py                                      110     25    77%   75-76, 90-97, 122-132, 199, 211-212, 248-250, 257-258, 264
-app/workers/unpack_iso9660.py                                              85     13    85%   92-93, 108-116, 150-151, 178-180, 214
-app/workers/unpack_linux.py                                               220     63    71%   34-35, 39, 43, 55, 88-89, 158, 163-164, 177-179, 182-183, 198, 212, 214, 217, 221-222, 227-264, 269-270, 284-285, 308-309, 340-343
-app/workers/unpack_msi.py                                                 107     26    76%   96-97, 112-119, 146-156, 190-198, 208-209, 239-241, 267
-app/workers/unpack_msix.py                                                117     29    75%   100-101, 116-123, 149-159, 209-215, 225-226, 264-266, 274-276, 288
-app/workers/unpack_msu.py                                                 141     22    84%   91-92, 129-130, 138, 150-157, 224-229, 299, 307-309, 316-318, 331
-app/workers/unpack_no_handler.py                                           46      7    85%   56, 66-67, 70, 77, 123-124
-app/workers/unpack_psf.py                                                  52      4    92%   75-76, 120-121
-app/workers/unpack_qnx_ifs.py                                             116     19    84%   147-148, 165-173, 206-207, 252-262, 272-273, 311-313, 348
-app/workers/unpack_vhdx.py                                                124     30    76%   71, 104-105, 124-127, 162-172, 204-211, 230-237, 248-249, 279-280, 297
-app/workers/unpack_wim.py                                                 114     26    77%   118-119, 136-144, 171-181, 218-227, 237-238, 270-272, 306
-app/workers/unpack_windows_installer_iso.py                               125     11    91%   105-106, 182, 189-190, 201-205, 330-331, 339-343
-app/workers/walker_registry.py                                             68      0   100%
--------------------------------------------------------------------------------------------------------
-TOTAL                                                                   67743   8189    88%
-
+Name                                                                     Stmts    Miss   Cover   Missing
+--------------------------------------------------------------------------------------------------------------
+app/__init__.py                                                              0       0    100%   
+app/ai/__init__.py                                                         130       0    100%   
+app/ai/system_prompt.py                                                     40       0    100%   
+app/ai/tool_registry.py                                                     72       8     89%   75, 79-87
+app/ai/tools/__init__.py                                                     0       0    100%   
+app/ai/tools/_android_helpers.py                                            39      14     64%   36-44, 69, 76-80
+app/ai/tools/android.py                                                    261      21     92%   175-176, 186-187, 237-238, 246-247, 260-261, 281-282, 293-294, 307-308, 318-322, 373, 434
+app/ai/tools/android_bytecode.py                                           211      39     82%   122, 172-173, 186-187, 197-198, 286, 365, 371-372, 383-388, 390-395, 397-398, 413-414, 419-429, 438-442, 480-481, 485
+app/ai/tools/android_posture.py                                            128      17     87%   64, 86, 93-94, 186, 193-194, 198, 272, 287, 301, 331, 343, 345-346, 371, 400
+app/ai/tools/android_sast.py                                                52       4     92%   79-82
+app/ai/tools/attack_surface.py                                             156      22     86%   202-203, 216-217, 228-229, 291, 303-353
+app/ai/tools/bare_metal.py                                                 100      10     90%   76, 120, 158, 203, 210-223
+app/ai/tools/binary.py                                                    1355      77     94%   144, 178, 544-545, 547-548, 552, 571, 604, 639, 659, 845-848, 856-885, 955, 961-962, 964, 968-969, 976-977, 987, 989, 991, 994, 996, 1052, 1060, 1291, 1297, 1299, 1345-1346, 1348-1349, 1358, 1360, 1363, 1375, 1414, 1611, 1616-1617, 1620, 1641-1642, 1669, 1767, 1783-1785, 2439
+app/ai/tools/carving.py                                                     43       0    100%   
+app/ai/tools/comparison.py                                                 228      30     87%   57, 76, 85, 94, 107, 115, 125-126, 134, 137, 146-147, 170, 178, 187, 235-236, 247, 250, 254-255, 259-260, 267-268, 274-275, 292, 316, 318
+app/ai/tools/cwe_checker.py                                                101       2     98%   52, 147
+app/ai/tools/documents.py                                                   83       6     93%   187-188, 213, 240-241, 287
+app/ai/tools/ds1qrsetup_callgraph.py                                       101      14     86%   51-53, 120, 194-195, 208-209, 256, 259, 261, 288, 305, 336
+app/ai/tools/emulation.py                                                 1151      26     98%   1289, 1414-1415, 1454, 1456-1457, 1505-1506, 1539-1542, 1565-1568, 1608, 1622-1623, 1635-1636, 1849, 1934-1937
+app/ai/tools/file_formats.py                                               204      44     78%   89-91, 108-111, 192, 197-199, 245, 270, 272-281, 298-300, 326-332, 347-348, 355-358, 370-373, 385-386, 459, 461, 473, 481
+app/ai/tools/filesystem.py                                                 320      12     96%   102, 106, 108, 115, 328, 363, 413-414, 469, 484-485, 494
+app/ai/tools/fuzzing.py                                                    480      20     96%   366, 401-402, 418-419, 429, 656, 952-953, 989-990, 998-999, 1054-1055, 1057-1069, 1084
+app/ai/tools/ghidra_research.py                                            561      72     87%   450-451, 484-485, 498, 518-519, 549-553, 678, 813-814, 818-821, 830-831, 910, 921-922, 925, 939-944, 957, 1077-1080, 1082-1084, 1092, 1140-1143, 1174-1175, 1179, 1234-1237, 1294, 1300-1306, 1321-1322, 1331-1332, 1337, 1342, 1366, 1412-1413, 1420-1423
+app/ai/tools/hardware_firmware.py                                          309      52     83%   43, 119-120, 188, 233-234, 242-243, 247-248, 252-253, 267-283, 314, 328, 629-660
+app/ai/tools/ics_protocol.py                                               136      24     82%   95, 117, 172-185, 212, 221, 281, 293, 312, 334-335, 384, 410, 418, 421, 456, 467
+app/ai/tools/linux_container.py                                            185      26     86%   88-90, 178, 180, 182, 216, 316, 318, 320, 437-448, 511, 514, 516, 528, 534, 608, 610
+app/ai/tools/linux_journald.py                                             173      22     87%   73-75, 147, 149, 151, 163-164, 166, 243, 268, 270, 272, 453, 458, 479, 514-546, 567-568
+app/ai/tools/linux_kernel_hardening.py                                     118       2     98%   229, 314
+app/ai/tools/linux_persistence.py                                          172       7     96%   175, 210, 267, 333, 346, 351, 414
+app/ai/tools/linux_systemd.py                                              162      22     86%   78-80, 167, 169, 171, 201, 291, 293, 295, 413-424, 462, 464, 476
+app/ai/tools/module_reachability.py                                        132      15     89%   61, 82, 89-90, 175, 182-183, 187, 251, 255, 269, 299, 315, 318, 342
+app/ai/tools/network.py                                                    124      19     85%   122-142, 235, 278, 305
+app/ai/tools/network_exposure.py                                           146      23     84%   73, 80, 86-90, 112, 119-120, 206, 213-214, 218, 285-286, 290, 304, 334, 341, 345, 355, 366
+app/ai/tools/python_ast.py                                                 143      27     81%   53-55, 80, 139, 212, 218, 246-250, 320, 322, 326, 349, 364, 369, 392, 396, 403-404, 409-410, 428-431, 437, 449
+app/ai/tools/report_writer.py                                               88      15     83%   124-125, 176-177, 186-189, 205-206, 249-251, 266-267
+app/ai/tools/reporting.py                                                  163       4     98%   446-448, 455
+app/ai/tools/rtos.py                                                       244      43     82%   97-98, 134, 137, 147, 193-197, 272, 289-290, 292, 309-312, 337-338, 348, 361, 364, 368-381, 384-387, 389-392, 394-397
+app/ai/tools/sbom.py                                                       435       2    100%   1033-1034
+app/ai/tools/security.py                                                  2059      82     96%   284-285, 525-526, 648, 650, 716-717, 765, 770, 807-808, 986, 1106, 1218, 1245-1246, 1256, 1354-1355, 1395-1396, 1406, 1427-1428, 1670, 1705, 1821, 1829, 1950-1951, 1999, 2184, 2187, 2190, 2269, 2307-2308, 2354-2355, 2375-2376, 2388, 2474-2475, 2498-2499, 2525-2526, 2567-2568, 2597-2598, 2630-2631, 2684-2688, 2697-2698, 2762, 2766, 2946-2948, 2954-2955, 3036, 3151-3152, 3155-3156, 3163-3164, 3171, 3296, 3465, 3550, 3707, 3842
+app/ai/tools/strings.py                                                    628      83     87%   124-127, 222-223, 261, 286, 315, 320-321, 334, 348-349, 362, 367, 418-421, 456, 479-480, 486-487, 553-554, 605-606, 625-626, 635-636, 644, 647, 651, 653, 663, 696-697, 711, 723, 726, 729, 731, 736, 741, 759-764, 809, 818, 822, 898, 933-934, 945-946, 948, 957-958, 961, 965-966, 999, 1004, 1006, 1010, 1012, 1022-1025, 1082, 1093-1094, 1098, 1127, 1154, 1157
+app/ai/tools/taint_llm.py                                                  326      51     84%   89, 100, 377, 406-410, 514-515, 530, 539-540, 555-556, 563, 575, 578, 597-599, 620-621, 634-635, 649, 655-656, 666, 677-682, 700, 703-706, 715, 718-721, 729, 731, 754-762, 785-786
+app/ai/tools/uart.py                                                       135       0    100%   
+app/ai/tools/uefi.py                                                       230      36     84%   174-175, 182-184, 238, 253, 275, 310, 352-357, 362-369, 377-389, 484, 515
+app/ai/tools/vulhunt.py                                                    264      29     89%   164-168, 188-191, 216, 253, 259, 262-263, 288, 292, 298, 303-304, 310, 317-320, 390-392, 517, 522-523, 556, 584
+app/ai/tools/windows_appcompat.py                                          148       5     97%   128, 164, 313, 316, 393
+app/ai/tools/windows_archive.py                                            273      47     83%   63-64, 245-251, 258, 276-277, 316-317, 363-364, 381-387, 392, 400, 406-407, 415, 434, 436, 455-456, 460, 488, 502-506, 520-521, 566-567, 611, 613, 624-625
+app/ai/tools/windows_bcd.py                                                137      10     93%   96, 98, 100, 338, 343, 345, 370, 400, 417, 441
+app/ai/tools/windows_dotnet.py                                             152      21     86%   65, 68, 94-95, 122, 166, 179, 188, 194, 215-216, 219, 235, 242, 246, 248-249, 281, 307, 311-312
+app/ai/tools/windows_dpapi.py                                              138       7     95%   176, 333, 336, 338, 357, 362, 411
+app/ai/tools/windows_driver.py                                             130       9     93%   62-63, 68, 71, 195, 299, 312-313, 323
+app/ai/tools/windows_efs.py                                                215      17     92%   77-79, 158, 168, 182, 193, 302, 304, 306, 308, 362, 534, 537, 539, 546, 631
+app/ai/tools/windows_esp.py                                                175      21     88%   57-59, 107, 109, 111, 115, 119, 127, 152, 358, 360, 380, 463, 470, 472, 478, 501, 528, 543, 558
+app/ai/tools/windows_etl.py                                                177      14     92%   68-70, 150, 160, 162, 175, 188, 281, 283, 285, 467, 469, 479
+app/ai/tools/windows_event_log.py                                          227      16     93%   154, 176, 178, 182-183, 193, 195, 204, 206, 239, 278, 289-291, 437, 511
+app/ai/tools/windows_injection.py                                          130      13     90%   121, 143-144, 146, 150, 329, 341, 343, 347, 357, 362, 412, 422
+app/ai/tools/windows_lnk.py                                                156      28     82%   45-47, 60, 81, 108, 141, 143, 145, 153, 179, 342-353, 391, 397, 399, 403, 426, 454, 473, 484
+app/ai/tools/windows_mbr_vbr.py                                            138      18     87%   48-50, 126, 128, 130, 134, 224, 226, 334, 341, 343, 351, 374, 402, 404, 421, 437
+app/ai/tools/windows_mft.py                                                152      28     82%   49-51, 65, 68-69, 111, 113, 115, 123, 301-312, 350, 356, 358, 362, 385, 413, 415, 432, 443
+app/ai/tools/windows_pe_signature.py                                       136      20     85%   65-66, 79, 291-293, 324, 327-328, 342-343, 364-365, 445, 453, 480-500
+app/ai/tools/windows_prefetch.py                                           129      17     87%   55-57, 94, 104, 114-120, 313, 328, 330, 334, 357, 405, 416
+app/ai/tools/windows_processes.py                                          160       6     96%   114, 190, 194, 196, 387, 489
+app/ai/tools/windows_registry.py                                           205      21     90%   61-62, 67, 70, 235, 262, 294, 298, 332, 343, 368-371, 472, 478, 480, 484, 511, 559, 570
+app/ai/tools/windows_scheduled_task.py                                     144      26     82%   51-53, 78, 121, 123, 125, 133, 312-325, 363, 369, 371, 375, 398, 426, 430, 448, 473
+app/ai/tools/windows_sdb.py                                                163      17     90%   57-59, 139, 141, 143, 147, 240, 242, 446, 453, 455, 461, 484, 511, 528, 544
+app/ai/tools/windows_srum.py                                               133      23     83%   55-57, 96, 98, 100, 108-114, 118-124, 315, 321, 323, 327, 350, 397, 408
+app/ai/tools/windows_storage.py                                            103       3     97%   65, 136-137
+app/ai/tools/windows_update.py                                              98       3     97%   67, 116, 189
+app/ai/tools/windows_usnjrnl.py                                            131       5     96%   325, 328, 330, 355, 388
+app/ai/tools/windows_wmi.py                                                119       9     92%   54-56, 107, 109, 111, 119, 343, 345
+app/cli/__init__.py                                                          0       0    100%   
+app/cli/compare_apk.py                                                     311      39     87%   450-453, 457-458, 461-463, 468-469, 482-483, 520, 528, 583-584, 586, 590-593, 645, 819, 844, 850-852, 855, 865-867, 885-890, 896
+app/cli/scan.py                                                            345      35     90%   189-190, 209-212, 256, 283-299, 330, 358, 361, 363, 365, 391, 393, 412, 414, 442, 484, 511-512, 516-518, 596, 649, 694, 696, 698, 732-733, 745-746
+app/config.py                                                               89       0    100%   
+app/database.py                                                             19       0    100%   
+app/logging_config.py                                                       19       0    100%   
+app/main.py                                                                196      32     84%   95-97, 107-109, 128-130, 166-168, 253-255, 269-271, 303-312, 345-354, 370-372, 383-385
+app/mcp_server.py                                                          373      58     84%   132-133, 194, 356, 367-378, 468, 494-498, 522-537, 573, 591-592, 607-618, 637-639, 695-703, 806-808, 828, 860-879, 969-972, 975-979, 985
+app/middleware/__init__.py                                                   0       0    100%   
+app/middleware/asgi_auth.py                                                 56       7     88%   73-74, 76-77, 89, 117-122
+app/models/__init__.py                                                      41       0    100%   
+app/models/analysis_cache.py                                                16       0    100%   
+app/models/attack_surface.py                                                27       0    100%   
+app/models/bare_metal_descriptor.py                                         19       0    100%   
+app/models/conversation.py                                                  15       0    100%   
+app/models/cra_compliance.py                                                42       0    100%   
+app/models/device_dump.py                                                   22       0    100%   
+app/models/document.py                                                      17       0    100%   
+app/models/emulation_preset.py                                              24       0    100%   
+app/models/emulation_session.py                                             32       0    100%   
+app/models/finding.py                                                       27       0    100%   
+app/models/firmware.py                                                     236       0    100%   
+app/models/fuzzing.py                                                       35       0    100%   
+app/models/ghidra_research.py                                               22       0    100%   
+app/models/hardware_firmware.py                                             31       0    100%   
+app/models/linux_bash_history_entries.py                                    18       0    100%   
+app/models/linux_container_artifacts.py                                     38       0    100%   
+app/models/linux_cron_jobs.py                                               20       0    100%   
+app/models/linux_journald_entry.py                                          31       0    100%   
+app/models/linux_ld_preload_entries.py                                      18       0    100%   
+app/models/linux_systemd_units.py                                           33       0    100%   
+app/models/memory_dump_image.py                                             20       0    100%   
+app/models/project.py                                                       25       0    100%   
+app/models/report.py                                                        49       0    100%   
+app/models/sbom.py                                                          48       0    100%   
+app/models/security_review.py                                               36       0    100%   
+app/models/uart_session.py                                                  19       0    100%   
+app/models/volatility_injection_record.py                                   28       0    100%   
+app/models/volatility_process_record.py                                     25       0    100%   
+app/models/windows_appcompat_entries.py                                     23       0    100%   
+app/models/windows_bcd_entry.py                                             26       0    100%   
+app/models/windows_dpapi_master_keys.py                                     29       0    100%   
+app/models/windows_driver.py                                                30       0    100%   
+app/models/windows_efs_encrypted_files.py                                   24       0    100%   
+app/models/windows_esp_entry.py                                             21       0    100%   
+app/models/windows_etl_events.py                                            34       0    100%   
+app/models/windows_event_record.py                                          24       0    100%   
+app/models/windows_lnk_record.py                                            26       0    100%   
+app/models/windows_mbr_vbr_sector.py                                        22       0    100%   
+app/models/windows_mft_record.py                                            31       0    100%   
+app/models/windows_pe_signature.py                                          27       0    100%   
+app/models/windows_prefetch_record.py                                       22       0    100%   
+app/models/windows_registry_extract.py                                      21       0    100%   
+app/models/windows_scheduled_task.py                                        24       0    100%   
+app/models/windows_sdb_entry.py                                             22       0    100%   
+app/models/windows_srum_record.py                                           30       0    100%   
+app/models/windows_update_dll_diff.py                                       20       0    100%   
+app/models/windows_update_package.py                                        20       0    100%   
+app/models/windows_usnjrnl_entries.py                                       25       0    100%   
+app/models/windows_wmi_event.py                                             24       0    100%   
+app/rate_limit.py                                                           54       9     83%   126-129, 190-193, 202-203, 243
+app/routers/__init__.py                                                      0       0    100%   
+app/routers/analysis.py                                                    164      45     73%   131-155, 163-197
+app/routers/apk_scan.py                                                    315      51     84%   266-267, 285-286, 298-306, 323-324, 331-332, 336-342, 357-358, 502, 521, 537-544, 561-569, 583-584, 599-602
+app/routers/attack_surface.py                                               79      14     82%   130-175, 198, 215, 219
+app/routers/bare_metal.py                                                   68      32     53%   126-222
+app/routers/comparison.py                                                   96      25     74%   100-110, 161-166, 190-200, 224-236, 240, 253
+app/routers/compliance.py                                                   25       0    100%   
+app/routers/component_map.py                                                28       0    100%   
+app/routers/cra_compliance.py                                               84      27     68%   59-67, 78-79, 94, 97, 123, 127, 153, 155, 181-192, 208-219
+app/routers/deps.py                                                         18       0    100%   
+app/routers/device.py                                                       70       8     89%   35, 73, 88, 92, 150, 163, 182-183
+app/routers/documents.py                                                   102      35     66%   52-57, 76-81, 95, 104-105, 116-117, 131, 141-147, 165, 168, 182-188, 202
+app/routers/emulation.py                                                   388      44     89%   144-181, 203-204, 228-229, 260-261, 287-288, 311-312, 334-335, 365-368, 420-421, 444-445, 496, 521, 543, 569, 603, 631, 639, 661, 737, 907, 938-939, 946, 948, 963-964
+app/routers/events.py                                                       57      18     68%   85-105, 112, 137-144
+app/routers/export_import.py                                                49       4     92%   68, 97-103
+app/routers/files.py                                                       137      12     91%   76, 92-94, 150-154, 188, 198-199
+app/routers/findings.py                                                     83      13     84%   40-42, 62, 64, 66, 88, 104-105, 119, 143-145
+app/routers/firmware.py                                                    330      56     83%   55, 57, 65-70, 197-199, 231, 253, 271, 325-339, 368-369, 386-387, 413-421, 438-451, 544-546, 549-557, 560-561, 578, 582, 589-590, 607, 629, 631, 658, 692-693, 698-700, 729
+app/routers/fuzzing.py                                                     111      28     75%   45-55, 94, 97, 129-134, 147-152, 165, 168, 183-186, 201, 204, 257, 260
+app/routers/ghidra_research.py                                             122       7     94%   100, 124, 142, 163, 178, 193, 221
+app/routers/hardware_firmware.py                                           289      61     79%   171, 173, 175, 207-208, 252-262, 319-339, 403, 451-464, 479-483, 541-545, 589-590, 602, 606-608, 637-640, 778, 1012-1013, 1042-1049, 1060-1076, 1095, 1097, 1099
+app/routers/health.py                                                       55       2     96%   78-79
+app/routers/kernels.py                                                      49       9     82%   49, 80, 84-93, 104
+app/routers/projects.py                                                     58      12     79%   56-72, 119, 135-139, 148
+app/routers/reports.py                                                     203      16     92%   105, 241, 265, 297, 329, 347, 355-356, 359-360, 379, 435-437, 492-493
+app/routers/sbom.py                                                        552      87     84%   94, 96, 123-126, 296, 331-332, 392-393, 436-440, 462, 511-524, 528, 542-567, 571, 577-578, 600-601, 638, 946, 975-976, 1123, 1125, 1127, 1129, 1146-1147, 1178-1208
+app/routers/security_audit.py                                              411      18     96%   167, 175, 183, 254, 261-262, 284, 298, 306-307, 310, 320, 324, 326, 339, 397, 414-415
+app/routers/terminal.py                                                    266       6     98%   220, 226, 265, 418, 454, 466
+app/routers/tools.py                                                        41       3     93%   178-180
+app/routers/uart.py                                                         96      15     84%   69, 91, 109-110, 128-130, 149-151, 165-167, 202-203
+app/schemas/__init__.py                                                      0       0    100%   
+app/schemas/apk_scan.py                                                    133       0    100%   
+app/schemas/attack_surface.py                                               36       0    100%   
+app/schemas/chat.py                                                         16      16      0%   1-26
+app/schemas/chip_family.py                                                 159       7     96%   282-283, 361-365
+app/schemas/comparison.py                                                   93       0    100%   
+app/schemas/component_map.py                                                19       0    100%   
+app/schemas/cra_compliance.py                                               79       0    100%   
+app/schemas/device.py                                                       62       0    100%   
+app/schemas/document.py                                                     23       0    100%   
+app/schemas/emulation.py                                                   169       0    100%   
+app/schemas/file_format.py                                                 295      11     96%   631, 652, 677, 680, 682, 685, 764, 821, 823, 856, 1157
+app/schemas/finding.py                                                      71       0    100%   
+app/schemas/firmware.py                                                    135       1     99%   303
+app/schemas/fuzzing.py                                                      53       0    100%   
+app/schemas/ghidra_research.py                                              29       0    100%   
+app/schemas/hardware_firmware.py                                           166       0    100%   
+app/schemas/ics_protocol.py                                                166       6     96%   283, 293, 354-355, 459-460
+app/schemas/kernel.py                                                       11       0    100%   
+app/schemas/pagination.py                                                   12       0    100%   
+app/schemas/project.py                                                      52       3     94%   55-57
+app/schemas/report.py                                                       85       0    100%   
+app/schemas/sbom.py                                                        113       0    100%   
+app/schemas/security_audit.py                                               64       0    100%   
+app/schemas/tools.py                                                        17       0    100%   
+app/schemas/uart.py                                                         48       0    100%   
+app/services/__init__.py                                                     0       0    100%   
+app/services/_cache.py                                                      36       1     97%   72
+app/services/abusech_service.py                                            171       2     99%   302, 309
+app/services/analysis_service.py                                            45       2     96%   76-77
+app/services/androguard_service.py                                         241      39     84%   45-46, 59-60, 166, 433, 552-553, 556-557, 560-561, 564-565, 569-570, 575-576, 659-672, 712-713, 751-757, 837, 866
+app/services/android_posture_walker.py                                     285      49     83%   274-275, 310-311, 315, 345-346, 429, 451-452, 457, 465-466, 471, 476-498, 524-533, 536, 603, 631, 755-758, 833-840
+app/services/appcompat_walker.py                                           381      80     79%   345, 360-364, 370-374, 378-382, 397-400, 412-413, 422-423, 435-438, 464, 467-468, 482-483, 491-492, 494, 511-512, 571-574, 606-611, 618-620, 641-642, 645-646, 657-706, 734-735, 739-740, 814, 841-861, 873, 876, 878
+app/services/assessment_service.py                                         329      24     93%   124-125, 150-151, 227-228, 238-239, 471, 724, 728, 751-752, 783-816
+app/services/attack_surface_service.py                                     258      38     85%   85-86, 133, 138-139, 169-171, 181, 216-217, 225-226, 294, 298, 300, 304, 341, 357, 372, 386, 400, 438-440, 455, 457, 463-464, 476-477, 488-489, 505-508, 537
+app/services/authenticode_chain_runner.py                                  128       7     95%   145-146, 248, 309, 462, 506-509
+app/services/authenticode_service.py                                       110       4     96%   156, 217-219
+app/services/bare_metal_walker.py                                          243      16     93%   303-304, 318-320, 325, 334, 451, 522-526, 575-577, 618-619
+app/services/bcd_walker.py                                                 517      85     84%   178-179, 219-220, 233-234, 236, 239-241, 296-297, 302-303, 323-324, 326, 347-348, 359-360, 363-366, 382, 400, 405, 408-409, 415, 424, 426, 438-439, 444-445, 451-452, 454-457, 609-610, 612, 615-617, 623, 626, 629-630, 632, 636-647, 653-654, 659-662, 683-684, 691, 705, 713-714, 779-782, 884, 914-915, 919-920, 1019-1036
+app/services/binary_analysis_service.py                                    263      51     81%   104, 107, 109-113, 128, 259, 270-275, 285-289, 361, 486-492, 501-545
+app/services/bytecode_analysis_service.py                                  279      22     92%   777, 793, 834, 838, 886-892, 909, 972-973, 989, 1043-1044, 1149, 1199, 1209-1210, 1253, 1260, 1264-1265, 1269
+app/services/carving_service.py                                            190      31     84%   152-153, 268, 273, 294-295, 306-307, 353-354, 358-360, 376-398
+app/services/clamav_service.py                                             102       4     96%   107-108, 155-156
+app/services/comparison_service.py                                         435      42     90%   105-106, 135-136, 145-146, 155-156, 244, 251, 374-375, 530, 535, 541-544, 551-552, 555, 561-562, 581-582, 586-590, 668, 674-677, 684, 689, 691, 697, 745-749, 805-807
+app/services/compliance_service.py                                         100       0    100%   
+app/services/component_map_service.py                                      378      50     87%   120, 193-194, 196, 301-302, 344-362, 376-379, 387-390, 398-402, 422-424, 439, 446-453, 476-477, 481-483, 549-550, 569-570, 590-591, 616-617
+app/services/container_walker.py                                           554      32     94%   265, 516, 861-862, 864, 866, 879-880, 889-890, 909-910, 1087-1088, 1127-1129, 1131-1132, 1136-1137, 1154-1155, 1177-1178, 1215, 1228-1229, 1306-1307, 1311, 1319
+app/services/cpe_dictionary_service.py                                     193       5     97%   100, 129, 165, 202-203
+app/services/cra_compliance_service.py                                     219      22     90%   409, 427-428, 436-443, 477, 649-653, 789, 797, 810, 817, 828, 830
+app/services/cwe_checker_service.py                                        113       1     99%   251
+app/services/dbx_service.py                                                122      10     92%   211, 214-215, 264, 295-296, 330-334, 344-345
+app/services/dependency_track_service.py                                    24      13     46%   18-20, 24, 37-61
+app/services/device_service.py                                             303      35     88%   250-253, 292-293, 370, 381-382, 396-397, 416, 430-431, 446, 517, 548, 558-580, 623-624, 641-645
+app/services/document_service.py                                           169       3     98%   234, 326-327
+app/services/dotnet_decompile_service.py                                   165      40     76%   111-116, 135-156, 202-235, 267-269, 393, 408-418
+app/services/dpapi_walker.py                                               290      50     83%   243-245, 289, 293, 393-394, 402-403, 405, 427-428, 442-443, 445, 484-486, 489, 492-493, 496, 502-503, 509-511, 514, 525-526, 540, 587-588, 592-593, 695-696, 706-707, 711-712, 718, 721-722, 725-726, 730, 732, 734, 739
+app/services/driver_extractor.py                                           276      61     78%   107-108, 120-121, 241-242, 247, 251-253, 258-260, 263-269, 274-279, 282-286, 288-289, 336-337, 365-367, 424-425, 542, 546-547, 551, 560-561, 565-568, 578-579, 601-602, 606, 618-619, 627-628, 642-643
+app/services/driver_inf_parser.py                                          169      15     91%   117, 133-135, 142, 239, 291-293, 316-320, 392, 396-397
+app/services/ds1qrsetup_callgraph_walker.py                                344      85     75%   211-212, 225, 264-265, 278-279, 281, 328, 423-485, 524, 558-559, 566-567, 580-581, 592-593, 603-604, 607-608, 613-614, 617-618, 630-631, 633, 639, 641, 648, 650, 670-671, 812-813, 817-818, 839-852, 865-881, 892, 907-924
+app/services/efs_walker.py                                                 448      77     83%   174-175, 208, 219, 332-335, 341-345, 369-371, 375-379, 423-426, 484-486, 492, 572-573, 580, 584, 587-588, 602-603, 611, 618-619, 630, 632-635, 662-663, 669, 676-678, 685-686, 699-702, 763-766, 783-784, 806-810, 819-823, 833, 835, 837, 839, 841, 850, 882, 917-918, 922-923, 999, 1030-1052, 1068
+app/services/emulation/__init__.py                                           2       0    100%   
+app/services/emulation/docker_ops.py                                       121       2     98%   371, 424
+app/services/emulation/kernel_selection.py                                  39       0    100%   
+app/services/emulation/service.py                                          414      59     86%   246-249, 281-289, 330, 332, 350-358, 393, 415-418, 596-598, 705-706, 722, 743, 755, 890-891, 906, 908, 916, 921-925, 947-948, 957, 992-993, 999-1000, 1026, 1032, 1042-1046, 1070-1071
+app/services/emulation/sysroot_mount.py                                     44       0    100%   
+app/services/emulation/system_mode.py                                       64       3     95%   196, 204-205
+app/services/emulation/user_mode.py                                         60       2     97%   129-130
+app/services/emulation_constants.py                                         44      18     59%   105-106, 109, 114-115, 118, 123-133, 143, 147, 151
+app/services/emulation_preset_service.py                                    32       0    100%   
+app/services/esp_walker.py                                                 323      51     84%   176-177, 216-217, 236-237, 239, 242-244, 412-415, 494-499, 502-508, 511-513, 517-519, 529-535, 606-607, 611-612, 704-705, 714-731, 745, 750-751, 756, 764
+app/services/etl_walker.py                                                 441      70     84%   297-298, 377, 400, 458-459, 476-477, 479, 481, 494-495, 497, 509-510, 514-515, 546-548, 555-556, 559-560, 587-588, 610-611, 661-663, 691-692, 696-697, 699, 714-720, 722-731, 733, 735, 740, 742-745, 835, 959-960, 990-991, 995-996, 1010, 1013, 1032
+app/services/event_service.py                                               58      13     78%   114-131
+app/services/evtx_service.py                                               240      61     75%   137-138, 279-280, 297-298, 306-308, 356-357, 361-362, 370-371, 380-381, 392-393, 397-398, 537-541, 549, 553, 581, 583-584, 633-635, 640-642, 644-646, 648-654, 661-663, 666-667, 672-679, 715
+app/services/export_service.py                                             180      18     90%   94, 152-155, 409-415, 465-472, 477-478, 504-506, 516-518
+app/services/extraction_pipeline.py                                         24       0    100%   
+app/services/file_format_catalog/__init__.py                                 6       0    100%   
+app/services/file_format_catalog/catalog.py                                295      32     89%   116, 118, 184, 191, 231, 236, 239, 247-249, 354-360, 373-377, 385, 411, 424, 446, 453, 484-487, 504, 511-518, 535-541, 591
+app/services/file_format_catalog/plugins/__init__.py                        13       0    100%   
+app/services/file_format_catalog/plugins/rtos_detection_default.py          39      14     64%   73, 76-81, 84-89, 92-98
+app/services/file_format_catalog/resolver.py                               411      65     84%   230-231, 233, 239-242, 246, 251, 255-256, 258, 260, 262, 269, 273, 275, 293-295, 303, 306, 311-314, 320-321, 335, 338-339, 345-351, 374-375, 437, 500, 518-522, 608, 650-654, 733, 805-810, 832, 840-842, 854, 925, 944, 948, 955-959, 963-967
+app/services/file_format_catalog/snapshot.py                                27       3     89%   75, 78, 81
+app/services/file_service.py                                               449      72     84%   97, 191, 209, 242-243, 254, 263, 266, 272-273, 292, 311-312, 357-358, 385-386, 390-392, 429, 435, 467-468, 480-481, 504-505, 509-510, 522-523, 534-535, 542-543, 549, 551, 565-566, 576-577, 598-609, 635-636, 646-647, 658-659, 674-675, 685-686, 709-710, 718-719, 760, 766, 779-780, 790, 837, 841-842, 844
+app/services/finding_service.py                                           1494      33     98%   804, 809, 818, 1154, 1391, 1479, 1483-1484, 1486, 1979, 2209, 3682, 3691, 5446, 5451, 7194, 7199-7201, 7215-7220, 7222-7227, 7267-7272, 7841-7842, 7845, 7876
+app/services/firmware_metadata_service.py                                  241      14     94%   216, 219-220, 267-269, 350, 357-359, 397-398, 408, 414
+app/services/firmware_paths.py                                             392      42     89%   141, 153-154, 159-160, 172-173, 186, 207, 213-214, 220-221, 245-246, 268, 303-304, 317, 351-352, 359, 365-366, 374, 476, 478, 530, 546, 576, 587-588, 626, 628, 767-768, 774-776, 779, 781, 879
+app/services/firmware_service.py                                           451      71     84%   193, 198, 211, 217, 248, 268-278, 351, 355-356, 368-369, 379-380, 386, 408-413, 417-419, 488-492, 508-516, 531-548, 780-817, 845-846, 851-852, 857-858, 870-871, 910, 930-931, 973-974
+app/services/format_detection.py                                           222      48     78%   128-130, 141-142, 237-238, 244-246, 297-298, 334, 336, 338, 340, 342, 346, 349, 351, 353, 355-358, 365, 369, 377-382, 395, 397, 440, 448, 456, 464, 486-487, 496-497, 508-509, 525-527
+app/services/fuzzing_service.py                                            572      69     88%   164, 174, 215-217, 308, 561, 574-575, 594, 673-674, 683-684, 719-720, 739, 769-772, 777, 807, 828-831, 873, 882, 889-890, 912, 966, 978-1006, 1018, 1025-1027, 1091-1092, 1167, 1184-1188
+app/services/ghidra_research_service.py                                    213      63     70%   216-221, 226, 245-260, 293, 307, 311-312, 330-358, 370, 372-396
+app/services/ghidra_service.py                                             563      50     91%   201-203, 316-319, 368, 399-400, 446-448, 640-642, 651-653, 711-724, 739, 964, 997, 1006, 1015-1016, 1237, 1276, 1290, 1347, 1418, 1468-1479, 1504, 1507, 1519-1520, 1526, 1598
+app/services/grype_service.py                                              129       6     95%   150, 235-238, 250
+app/services/hardware_firmware/__init__.py                                   3       0    100%   
+app/services/hardware_firmware/chip_catalog.py                             115       7     94%   83, 91, 104, 145-147, 220
+app/services/hardware_firmware/classifier.py                               145      24     83%   182, 186, 188, 190, 192, 194, 201, 204, 219, 228, 259, 317-320, 395, 397-398, 401, 409, 411, 413, 434, 438-439
+app/services/hardware_firmware/cve_matcher.py                              360      25     93%   99, 109, 193, 208, 214-215, 224-225, 532, 574-577, 621-628, 686, 863-865, 875, 883-891, 1068
+app/services/hardware_firmware/detector.py                                 235      51     78%   107-108, 110, 113, 125-133, 143, 147-148, 166-167, 172, 176-177, 182, 186, 190-191, 195, 200, 208, 212-219, 233-235, 266-267, 271, 276, 336, 377-382, 472-473, 507-514
+app/services/hardware_firmware/graph.py                                    154      18     88%   153, 168, 205-217, 288-289, 295, 312-319, 347
+app/services/hardware_firmware/hbom_export.py                              147       6     96%   185-188, 238, 334
+app/services/hardware_firmware/kernel_vulns_index.py                       273      53     81%   154, 210, 232-233, 235, 237, 268-271, 287, 303, 344, 349, 377-379, 421-422, 426-427, 449-450, 457-458, 475, 485-490, 492, 497-498, 503-518, 525, 534-536, 540-541
+app/services/hardware_firmware/matchers/__init__.py                          4       0    100%   
+app/services/hardware_firmware/matchers/base.py                             62      10     84%   74, 76, 82, 119, 123, 126, 130, 150-151, 156
+app/services/hardware_firmware/matchers/yaml_driven.py                     174       5     97%   353, 357, 360-361, 365
+app/services/hardware_firmware/parsers/__init__.py                           4       0    100%   
+app/services/hardware_firmware/parsers/_kernel_ikconfig.py                  72      10     86%   80, 84, 98-101, 123, 158-159, 166-167
+app/services/hardware_firmware/parsers/android_boot_image.py                77      14     82%   106, 110-111, 136-137, 144-145, 151, 156-157, 160-165, 169-174
+app/services/hardware_firmware/parsers/android_ota_payload.py              148      30     80%   116, 118, 124, 129-140, 154, 179, 181, 194, 198-199, 203-204, 206-209, 216-221, 239-241, 298
+app/services/hardware_firmware/parsers/awinic_acf.py                        81      24     70%   44-45, 54-55, 81-85, 100-101, 113-120, 129-134
+app/services/hardware_firmware/parsers/base.py                              27       1     96%   66
+app/services/hardware_firmware/parsers/broadcom_wl.py                       83      12     86%   53-54, 68, 77-78, 82, 84, 108-109, 135-137
+app/services/hardware_firmware/parsers/bt_firmware_banner.py               450      39     91%   369-370, 385-386, 410, 439, 462, 542, 546, 557, 569, 571, 626-627, 631, 651-652, 685-686, 700, 707, 709, 741-742, 759-760, 823, 829, 832-834, 931-933, 958, 1273-1274, 1292-1294
+app/services/hardware_firmware/parsers/dtb.py                              171      48     72%   51-52, 65-66, 87-88, 106-107, 115-141, 148, 162-163, 196-197, 209-211, 222, 225-226, 279-281
+app/services/hardware_firmware/parsers/elf_tee.py                           89      23     74%   42, 47-48, 57-58, 81-82, 86-87, 89, 99-100, 104-105, 122-123, 134-141
+app/services/hardware_firmware/parsers/kernel_image.py                      78      15     81%   81, 117-118, 127-129, 142-144, 149-151, 158-160
+app/services/hardware_firmware/parsers/kmod.py                             131      14     89%   67-68, 70, 83, 87, 98-99, 117-118, 176-178, 256, 261
+app/services/hardware_firmware/parsers/mediatek_atf.py                      59       6     90%   60-61, 74-75, 87-88
+app/services/hardware_firmware/parsers/mediatek_geniezone.py                84       8     90%   70-71, 88-89, 116-117, 128-129
+app/services/hardware_firmware/parsers/mediatek_gfh.py                     109      11     90%   68-69, 141-142, 158, 169-170, 364, 375-377
+app/services/hardware_firmware/parsers/mediatek_lk.py                       82      14     83%   69-70, 77-80, 151, 156-160, 187-188, 190
+app/services/hardware_firmware/parsers/mediatek_modem.py                   112      20     82%   55, 60-61, 71-72, 98, 102-103, 109, 112-113, 116-117, 184-185, 192-193, 196-198
+app/services/hardware_firmware/parsers/mediatek_preloader.py                89      16     82%   57-58, 68-69, 76, 79-80, 82, 86-87, 90, 117-118, 168-170
+app/services/hardware_firmware/parsers/mediatek_tinysys.py                  91      14     85%   65-66, 75, 78, 80, 95-96, 110-111, 163-164, 173-176
+app/services/hardware_firmware/parsers/mediatek_wifi.py                    101      18     82%   68-71, 77, 82-83, 94-95, 130-132, 143, 160-165
+app/services/hardware_firmware/parsers/qualcomm_mbn.py                     283      65     77%   112-116, 124, 142-143, 163, 167, 177-178, 181-182, 187-188, 195-198, 200-202, 220-221, 229-230, 270, 290-291, 325, 340, 389-390, 398-399, 401, 405-406, 413-414, 418-423, 428, 437-441, 444, 449-450, 453-459, 489-490
+app/services/hardware_firmware/parsers/raw_bin.py                           74      12     84%   58-59, 68-69, 71, 92-95, 110-112
+app/services/hardware_firmware/parsers/tegra_blob.py                       164       9     95%   329, 380, 569, 642, 649, 677-681, 715
+app/services/hardware_firmware/patterns_loader.py                          512      78     85%   155, 163, 166, 204, 210-211, 220-226, 229-237, 241, 279, 300, 306-307, 316-322, 325-334, 340-346, 349-358, 362, 367-368, 403, 495, 536, 540, 543-544, 682, 688-698, 708, 714, 719, 726, 730, 737, 761, 888, 897, 912, 925, 938, 956-962, 971, 994, 1055, 1061, 1068, 1072, 1076, 1092, 1126, 1132, 1386, 1400
+app/services/hashlookup_service.py                                          62      15     76%   54-55, 89-91, 117-132, 137, 140
+app/services/ics_protocol_catalog/__init__.py                                7       1     86%   52
+app/services/ics_protocol_catalog/catalog.py                               203      34     83%   91-92, 95, 100, 102, 117-118, 121, 126, 187, 199-200, 214-215, 224, 237-239, 242-244, 246-247, 250-255, 260-263, 296, 336, 377-378, 434-435
+app/services/ics_protocol_catalog/plugins/__init__.py                       11       0    100%   
+app/services/ics_protocol_catalog/plugins/string_scanner.py                 15       0    100%   
+app/services/ics_protocol_catalog/resolver.py                              202      49     76%   127, 130-131, 134, 139-140, 142, 166, 169-170, 173, 177, 209, 214-215, 217, 226, 257, 286-298, 330, 364-368, 371-376, 385, 387, 389-392, 396, 535, 538, 566, 581-582
+app/services/ics_protocol_catalog/snapshot.py                               27       0    100%   
+app/services/ics_protocol_walker.py                                        170      33     81%   153, 157-158, 233, 264-268, 280-281, 286-288, 291-311, 326-354, 408-411
+app/services/import_service.py                                             279      60     78%   53, 153, 185-186, 265-268, 275, 279, 283-305, 311-312, 322-329, 413, 475-476, 503-504, 532-533, 539, 558, 575-576, 609-634
+app/services/jadx_service.py                                               174      25     86%   105, 150, 196-197, 208-209, 276, 322, 429, 436-437, 477-484, 497-504, 527-534
+app/services/journald_walker.py                                            425      70     84%   275-276, 307-308, 346, 349, 354-355, 376, 382-383, 388, 390, 400-402, 405-407, 417-418, 443, 446, 449, 453, 546, 552, 555, 564-565, 586, 604, 611, 650-651, 663-664, 666, 669-671, 683-684, 688-689, 760-762, 766-772, 775-777, 790, 803, 814, 818, 822, 961-962, 966-967, 982, 985, 1000
+app/services/jsonb_normalizers.py                                          886       6     99%   1055, 1101, 1155, 1217, 1609, 2093
+app/services/kernel_config_walker.py                                       349      65     81%   192, 196, 198-199, 241, 250, 252, 260, 262-263, 276, 292-294, 343-345, 349-350, 378, 405-406, 419-423, 433, 438, 444-446, 499-500, 548, 554, 561, 570, 576, 588, 594, 600, 622, 625, 658, 663, 669-670, 692, 694, 714, 717, 741-751, 773, 812-815, 883-890
+app/services/kernel_decompress.py                                           88      28     68%   73, 117-119, 127-129, 140-142, 155-162, 176-188
+app/services/kernel_service.py                                             216       4     98%   94, 298-299, 372
+app/services/linux_kernel_hardening_walker.py                              143      12     92%   376, 384-386, 421-426, 479-482, 540-542
+app/services/linux_persistence_walker.py                                   463      77     83%   282, 286-287, 330-331, 333, 337-338, 375, 378-379, 395-397, 430, 432, 436-437, 471-472, 488-489, 491, 498-499, 523-524, 528, 535-536, 550-551, 563-569, 571-573, 592-593, 600-601, 611-612, 617-627, 757, 760-761, 764, 771, 780, 815, 820-821, 824, 831, 844, 883, 886-887, 890, 897, 904
+app/services/lnk_walker.py                                                 305      50     84%   216-217, 248, 251, 253-256, 258, 264, 279, 285, 297, 300, 305, 308, 310-312, 315, 343, 347-348, 385, 390, 398, 410, 412, 470-471, 491-492, 494, 497-499, 540-541, 545-546, 570, 656, 663, 681-682, 686-688, 697, 724
+app/services/loldrivers_lookup_service.py                                  171      11     94%   82, 251, 254, 258, 312-318, 321-326, 429, 448
+app/services/manifest_checks/__init__.py                                     4       0    100%   
+app/services/manifest_checks/_base.py                                       44       5     89%   112-113, 126-128
+app/services/manifest_checks/backup_and_debug.py                            95      11     88%   60-61, 77, 96, 124, 166-167, 175, 201, 214, 344
+app/services/manifest_checks/checker.py                                     36       0    100%   
+app/services/manifest_checks/components.py                                 306      38     88%   109-111, 120-121, 272-274, 303, 325, 329, 408-410, 421-422, 427-428, 460, 463, 468, 494-496, 554-556, 732-733, 772, 836-837, 864, 925-926, 956, 965, 967
+app/services/manifest_checks/misc.py                                        20       2     90%   37-38
+app/services/manifest_checks/network_security.py                           152      39     74%   60-61, 127-143, 147-163, 192-198, 214-236, 248, 331, 447, 471, 512-528, 535, 538, 560
+app/services/manifest_checks/permissions.py                                 59       6     90%   124-126, 170, 213-214
+app/services/manifest_checks/signing.py                                     83      23     72%   105-106, 109, 114, 118-119, 127-128, 131, 140-141, 149, 174-175, 178-179, 182-183, 240-241, 265-266, 292
+app/services/mbr_vbr_walker.py                                             336      36     89%   317-320, 332, 377, 492-493, 508-509, 511, 514-515, 534-535, 537, 613-615, 642, 645, 655, 682-683, 687-688, 695, 776-777, 786-802, 808, 839
+app/services/memory_image_enumerator.py                                     89       3     97%   194, 228-229
+app/services/memory_image_paths.py                                          49       2     96%   159-160
+app/services/mft_walker.py                                                 386      43     89%   153-154, 190-191, 204-205, 207, 210-212, 257-258, 298-299, 342-343, 361-362, 478-479, 492-495, 558-561, 575-576, 598-600, 671, 700-701, 705-706, 804-820
+app/services/mobsf_runner.py                                               281      68     76%   302-304, 309-311, 313-314, 318-320, 327-328, 331-333, 341-343, 351-352, 354, 363-365, 415, 417-418, 420-421, 428-434, 443-445, 452-458, 466-468, 470-476, 600-601, 707, 774, 858, 882-887
+app/services/mobsfscan/__init__.py                                           3       0    100%   
+app/services/mobsfscan/normalization.py                                    158       1     99%   383
+app/services/mobsfscan/parser.py                                           133       2     98%   195-196
+app/services/mobsfscan/pipeline.py                                         146      34     77%   385-399, 473, 489, 574, 606-636, 647-670
+app/services/mobsfscan/service.py                                            5       0    100%   
+app/services/module_reachability_walker.py                                 291      51     82%   167, 178, 184-185, 196-197, 214-215, 228, 266-281, 286-287, 292-299, 368, 397-401, 434-436, 440, 459, 598-601, 676-683
+app/services/network_exposure_walker.py                                    447      61     86%   171, 181-182, 237, 262, 390, 397, 401, 407, 418, 424, 446-447, 453, 456, 459, 474-479, 510, 524, 571-572, 575, 607-613, 619, 635, 645, 672-673, 681, 693, 740, 765-766, 772, 775, 856, 875-879, 887-892, 949-952, 1026-1033
+app/services/pcap_analysis_service.py                                      289      33     89%   22-23, 188, 194-196, 201-203, 329, 333, 341-349, 366, 372, 376, 384, 390, 396, 489, 498-501, 555-556, 574-575
+app/services/prefetch_walker.py                                            223      65     71%   100-101, 125-126, 141-171, 194, 205, 209-238, 275-276, 286-287, 293-294, 331-332, 336-337, 352, 418-431, 437-446
+app/services/python_ast_walker.py                                          369      56     85%   162-163, 176-177, 183-184, 202-203, 207-208, 319, 333, 367-377, 399-403, 446-447, 453-466, 491-492, 496-502, 514-518, 528-529, 537-538, 573-574, 590, 640, 646, 675-676
+app/services/qiling_service.py                                              97       0    100%   
+app/services/r2r_stomping.py                                                86       8     91%   218, 223-224, 238, 241-242, 291-292
+app/services/registry_hive_walker.py                                       257      59     77%   185-186, 202-203, 213-214, 298-300, 303, 348-350, 377-378, 432-434, 472, 545-546, 550-551, 562-563, 578-579, 583-584, 591, 636-638, 643-644, 647, 649-651, 653-657, 660-661, 667-669, 672-673, 678-680, 683-685, 688-689
+app/services/report_authoring_service.py                                   102       2     98%   219-224
+app/services/report_render_service.py                                       77       3     96%   169-180
+app/services/report_service.py                                             160       1     99%   28
+app/services/report_template_service.py                                     67       9     87%   47-50, 63, 67, 94, 101, 104
+app/services/rich_header_service.py                                         48       3     94%   121-123
+app/services/rtos_detection_service.py                                     481      66     86%   27-28, 102, 123-124, 168, 192, 195, 200-202, 272, 276, 327, 338, 358, 363, 371, 373-374, 392, 401, 406, 488, 492, 498-501, 509, 517, 524-526, 578-581, 594-600, 605, 608, 696, 712, 716-717, 721, 723-725, 773-776, 780-784, 787, 834
+app/services/sbom/__init__.py                                                4       0    100%   
+app/services/sbom/constants.py                                              26       0    100%   
+app/services/sbom/enrichment.py                                            135      37     73%   59, 186-189, 195-199, 207-213, 217-224, 230-242, 250-252
+app/services/sbom/normalization.py                                          48       6     88%   42-45, 72, 80, 120
+app/services/sbom/purl.py                                                   23       8     65%   35, 42-45, 65-74
+app/services/sbom/service.py                                               115      35     70%   110-122, 126, 150-156, 161, 164-170, 215, 218, 237-241, 252-266, 322
+app/services/sbom/service_risks.py                                          26      10     62%   41-42, 50-74
+app/services/sbom/strategies/__init__.py                                     3       0    100%   
+app/services/sbom/strategies/android_strategy.py                           130      11     92%   67-68, 168, 186-187, 199, 202-203, 247, 261-262
+app/services/sbom/strategies/base.py                                        16       0    100%   
+app/services/sbom/strategies/binary_strings_strategy.py                    114      36     68%   53, 73-74, 78, 85, 91-93, 109-110, 130-150, 182, 186, 188, 191, 204-240
+app/services/sbom/strategies/busybox_strategy.py                            64      10     84%   64, 75-76, 79, 83, 89-91, 100-101
+app/services/sbom/strategies/c_library_strategy.py                          92      11     88%   45-47, 55-56, 58, 62, 71-72, 115-116
+app/services/sbom/strategies/dpkg_strategy.py                               53       5     91%   33, 62-63, 74, 77
+app/services/sbom/strategies/firmware_markers_strategy.py                   26      12     54%   32-63
+app/services/sbom/strategies/gcc_strategy.py                                42      15     64%   42-43, 45, 49, 55, 58-59, 63-83
+app/services/sbom/strategies/kernel_strategy.py                             88      24     73%   54-55, 66, 88-89, 133-134, 145-179
+app/services/sbom/strategies/loose_deb_strategy.py                         116      26     78%   100-103, 119-121, 145-146, 149-152, 156-157, 185, 187-190, 200-220, 238, 260, 264-266
+app/services/sbom/strategies/opkg_strategy.py                               36       3     92%   44-45, 55
+app/services/sbom/strategies/python_packages_strategy.py                    70       9     87%   41, 44-45, 59, 62-63, 96-98
+app/services/sbom/strategies/so_files_strategy.py                          101       6     94%   100, 126, 130, 157, 164, 174
+app/services/sbom/strategies/standalone_apk_strategy.py                     66       7     89%   88-89, 108-109, 121, 157-158
+app/services/sbom/strategies/syft_strategy.py                               51      13     75%   50, 63-72, 84, 87-88, 98, 102
+app/services/sbom/version_normalize.py                                      26       0    100%   
+app/services/scheduled_task_walker.py                                      340      48     86%   179-180, 212, 219, 239, 261, 296, 314-316, 345, 357, 363, 389, 396-397, 401-404, 432, 463, 465-469, 545-546, 561-562, 568-569, 576-577, 630-631, 635-636, 655, 671, 752-759, 777-793
+app/services/sdb_walker.py                                                 301      48     84%   223-225, 305-306, 321-322, 327-328, 414-441, 489-491, 523, 525-534, 539-552, 555-564, 567, 597-598, 602-603, 705-723, 729, 736, 745, 747, 749
+app/services/security_audit/__init__.py                                      4       0    100%   
+app/services/security_audit/_base.py                                        40       4     90%   59, 75-77
+app/services/security_audit/credentials.py                                 111      19     83%   39, 42, 45, 49-50, 58, 67, 101-102, 116, 121-128, 151-152, 163, 167, 174, 178-179
+app/services/security_audit/external_scanners.py                           229      51     78%   74, 163-165, 174-176, 181-190, 213, 220, 232-236, 251, 257-258, 261, 266-267, 270-288, 312, 327-328, 338-340, 343, 347-348, 356
+app/services/security_audit/hash_lookups.py                                 73       0    100%   
+app/services/security_audit/network.py                                     109      37     66%   53, 56, 69-70, 79, 82, 95-96, 101, 104, 107, 110-112, 114, 120, 128-138, 143-153, 158-178, 195, 199, 207-208
+app/services/security_audit/orchestrator.py                                 50      23     54%   97-102, 118-120, 149-170
+app/services/security_audit/permissions.py                                  66      12     82%   37, 42-43, 45, 75-76, 84-85, 108, 113-114, 116
+app/services/selinux_service.py                                            165      24     85%   128-129, 175, 208-209, 212, 220, 224, 256-258, 269-276, 279-281, 319-320
+app/services/srum_walker.py                                                353      77     78%   106-107, 128-129, 139-140, 146-147, 195-198, 204, 209-210, 219-220, 222, 232-233, 238-239, 254-255, 279-280, 282, 289-292, 300-301, 303, 321-323, 328-333, 337, 339-340, 397-408, 473-486, 546-547, 555-556, 560, 563-564, 579-585, 615-616, 620-621
+app/services/sysroot_service.py                                             70       0    100%   
+app/services/system_emulation_service.py                                   382      40     90%   59, 70, 106-114, 279-281, 317, 328, 333, 340-341, 343, 345, 347-348, 355-356, 374, 384, 430-431, 457-458, 468-471, 494, 509-510, 598-599, 706
+app/services/systemd_walker.py                                             435      55     87%   285, 296, 354-355, 522-523, 546-547, 550-551, 553, 578-579, 597-598, 607-608, 616, 619-620, 636-637, 639, 711, 715, 718, 721, 724, 727, 737-739, 749-752, 755-758, 833, 837-840, 846-848, 861-868, 932, 948-959
+app/services/uart_service.py                                               108       3     97%   128, 253-254
+app/services/unpack_audit_service.py                                       140      36     74%   62-69, 130, 154-204, 241-242, 244, 364
+app/services/update_mechanism_service.py                                   594      76     87%   89, 122-126, 178-179, 188, 240, 245, 332, 347-348, 413, 456, 458, 534, 551-552, 579-580, 587-593, 598, 621-627, 635, 756-757, 760, 899, 922-936, 939-940, 964, 978, 989, 992, 996-1011
+app/services/usnjrnl_walker.py                                             404      68     83%   191-192, 223-224, 237-238, 240, 243-245, 379-380, 392-396, 405-407, 425-426, 436, 442-443, 446, 450-451, 467-468, 532-535, 567, 571, 579-580, 586-587, 602-603, 608-609, 616-617, 701, 715, 721, 726, 729-735, 777-778, 782-783, 882-883, 887-888, 899, 916, 918
+app/services/virustotal_service.py                                         127       7     94%   188-189, 191, 199-200, 221-222
+app/services/vol3_runner.py                                                124       3     98%   176-177, 400
+app/services/vulnerability_service.py                                      339      63     81%   136-159, 189, 254-261, 273, 284-285, 346-353, 381-386, 420, 498-514, 521-562, 614-627, 699
+app/services/wairz_runner.py                                               102       4     96%   270, 299-302
+app/services/windows_info_walker.py                                        193      14     93%   185-190, 192, 253, 278, 376-377, 499-500, 504
+app/services/windows_injection_walker.py                                   235      23     90%   187-195, 203, 279, 329, 342, 344, 386, 426, 505, 521, 569-570, 682-683, 687
+app/services/windows_processes_walker.py                                   231      17     93%   162, 164, 176, 196, 229, 240, 301, 317, 360-361, 403, 407, 454-455, 558-559, 563
+app/services/windows_update_diff_service.py                                138      38     72%   81-137, 197-201, 250-251, 266-267, 385-386
+app/services/wmi_walker.py                                                 274      41     85%   170-171, 218-219, 231-232, 234, 237-239, 379-384, 387-393, 399-404, 411-417, 440, 444, 471, 551-552, 556-557, 656-673, 684
+app/services/yara_service.py                                               154      31     80%   80-81, 108, 131, 141, 152-154, 160-168, 178-179, 202-203, 257-260, 301-304, 307-308, 314-315, 324
+app/utils/__init__.py                                                        0       0    100%   
+app/utils/background.py                                                     11       0    100%   
+app/utils/credential_patterns.py                                             4       0    100%   
+app/utils/docker_client.py                                                   7       1     86%   31
+app/utils/firmware_context.py                                              168      14     92%   88, 144, 256, 325-332, 346-347, 368
+app/utils/getprop.py                                                        39       0    100%   
+app/utils/hashing.py                                                         7       0    100%   
+app/utils/pagination.py                                                     19       4     79%   58-61
+app/utils/sandbox.py                                                        49       6     88%   26, 70, 76, 104-106
+app/utils/truncation.py                                                     17       0    100%   
+app/utils/yaml_cache.py                                                    136       9     93%   135, 162-170, 243-254
+app/workers/__init__.py                                                      0       0    100%   
+app/workers/arq_worker.py                                                  343      73     79%   74-75, 78-95, 109-110, 131-132, 211-217, 232-233, 236-248, 250-252, 308-311, 398-401, 491-496, 609-614, 622-623, 639-640, 646, 660, 710, 714-729, 746, 788-794
+app/workers/extraction_strategies.py                                        25       0    100%   
+app/workers/run_function_decompile.py                                       57       1     98%   156
+app/workers/run_ghidra_analysis.py                                          62       1     98%   166
+app/workers/safe_extract.py                                                 55       7     87%   139, 157-158, 177-179, 189
+app/workers/unpack.py                                                      563     102     82%   149-150, 236, 313, 322-323, 440, 504, 605-606, 638-639, 755, 780-783, 785-787, 802-804, 816, 821-826, 859-860, 870-878, 902, 928-929, 945-990, 1010, 1043, 1049-1052, 1057-1058, 1112-1115
+app/workers/unpack_android.py                                              631      89     86%   90-91, 104-105, 137-138, 210-212, 216-217, 263, 311-315, 321-334, 383-387, 392, 448-449, 472, 515, 548-549, 640, 643-644, 670-672, 683-687, 707-708, 718, 756-757, 894-899, 943-945, 948, 981-986, 1005-1009, 1048-1049, 1052-1053, 1069-1070, 1077, 1111-1112, 1124-1125, 1127-1129, 1160-1161, 1168-1174, 1227-1228, 1259-1260
+app/workers/unpack_apex.py                                                 124      38     69%   111-114, 134-141, 184-188, 201-215, 218-223, 233-238, 250-251, 255, 264, 271-272, 303-309
+app/workers/unpack_cab.py                                                  107      29     73%   94-95, 111-119, 147-157, 192-201, 211-212, 242-244, 257-259, 269
+app/workers/unpack_common.py                                              1121      66     94%   66-67, 365, 550-551, 560-561, 670, 872-873, 1080-1081, 1163-1164, 1357-1358, 1361-1362, 1434, 1443, 1458-1460, 1477-1478, 1483-1484, 1548-1549, 1572-1573, 1633-1634, 1640-1641, 1716-1717, 1720-1725, 1806-1807, 1838-1839, 1861, 1865, 1902-1903, 2036, 2039-2040, 2069, 2071, 2073, 2075-2077, 2119-2120, 2123, 2198-2200
+app/workers/unpack_driver_package.py                                       110      25     77%   75-76, 90-97, 122-132, 199, 211-212, 248-250, 257-258, 264
+app/workers/unpack_iso9660.py                                               85      13     85%   92-93, 108-116, 150-151, 178-180, 214
+app/workers/unpack_linux.py                                                220      60     73%   39, 43, 55, 88-89, 158, 163-164, 177-179, 182-183, 198, 212, 214, 217, 221-222, 227-264, 269-270, 343
+app/workers/unpack_msi.py                                                  107      26     76%   96-97, 112-119, 146-156, 190-198, 208-209, 239-241, 267
+app/workers/unpack_msix.py                                                 117      29     75%   100-101, 116-123, 149-159, 209-215, 225-226, 264-266, 274-276, 288
+app/workers/unpack_msu.py                                                  141      22     84%   91-92, 129-130, 138, 150-157, 224-229, 299, 307-309, 316-318, 331
+app/workers/unpack_no_handler.py                                            46       7     85%   56, 66-67, 70, 77, 123-124
+app/workers/unpack_psf.py                                                   52       4     92%   75-76, 120-121
+app/workers/unpack_qnx_ifs.py                                              116      19     84%   147-148, 165-173, 206-207, 252-262, 272-273, 311-313, 348
+app/workers/unpack_vhdx.py                                                 124      30     76%   71, 104-105, 124-127, 162-172, 204-211, 230-237, 248-249, 279-280, 297
+app/workers/unpack_wim.py                                                  114      26     77%   118-119, 136-144, 171-181, 218-227, 237-238, 270-272, 306
+app/workers/unpack_windows_installer_iso.py                                125      11     91%   105-106, 182, 189-190, 201-205, 330-331, 339-343
+app/workers/walker_registry.py                                              68       0    100%   
+--------------------------------------------------------------------------------------------------------------
+TOTAL                                                                     67743   8001    88.19%
