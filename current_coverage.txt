@@ -23,7 +23,7 @@ app/ai/tools/file_formats.py                                            204     
 app/ai/tools/filesystem.py                                              320     27    92%   (remeasured wave4)
 app/ai/tools/fuzzing.py                                                 480     20    96%   366, 401-402, 418-419, 429, 656, 952-953, 989-990, 998-999, 1054-1055, 1057-1069, 1084
 app/ai/tools/ghidra_research.py                                         561    173    69%   (remeasured wave3)
-app/ai/tools/hardware_firmware.py                                       309    153    50%   31-70, 75-123, 128-190, 233-234, 242-243, 247-248, 252-253, 267-283, 314, 328, 336-339, 610-660
+app/ai/tools/hardware_firmware.py                                       309    122    61%   (remeasured wave4c)
 app/ai/tools/ics_protocol.py                                            136     24    82%   95, 117, 172-185, 212, 221, 281, 293, 312, 334-335, 384, 410, 418, 421, 456, 467
 app/ai/tools/linux_container.py                                         185     26    86%   88-90, 178, 180, 182, 216, 316, 318, 320, 437-448, 511, 514, 516, 528, 534, 608, 610
 app/ai/tools/linux_journald.py                                          173     59    66%   73-75, 147, 149, 151, 163-164, 166, 243, 268, 270, 272, 365, 440-579
@@ -76,7 +76,7 @@ app/config.py                                                            89     
 app/database.py                                                          19      0   100%
 app/logging_config.py                                                    19      0   100%
 app/main.py                                                             196    122    38%   62-390, 494
-app/mcp_server.py                                                       373    264    29%   111-137, 145-151, 162-185, 190-227, 257, 299-306, 321-395, 408-895, 905-916, 921-981, 985
+app/mcp_server.py                                                       373    263    29%   (remeasured wave4c)
 app/middleware/__init__.py                                                0      0   100%
 app/middleware/asgi_auth.py                                              56      7    88%   73-74, 76-77, 89, 117-122
 app/models/__init__.py                                                   41      0   100%
@@ -212,7 +212,7 @@ app/services/cra_compliance_service.py                                  219     
 app/services/cwe_checker_service.py                                     113      1    99%   251
 app/services/dbx_service.py                                             122     10    92%   211, 214-215, 264, 295-296, 330-334, 344-345
 app/services/dependency_track_service.py                                 24     13    46%   18-20, 24, 37-61
-app/services/device_service.py                                          303    210    31%   58, 69-74, 119-129, 138-139, 143-153, 250-253, 277-334, 340, 345-382, 387-431, 440-452, 464-580, 589-598, 608-645
+app/services/device_service.py                                          303    203    33%   (remeasured wave4c)
 app/services/document_service.py                                        169      3    98%   234, 326-327
 app/services/dotnet_decompile_service.py                                165     87    47%   103-156, 173-237, 263-273, 368-419
 app/services/dpapi_walker.py                                            290     86    70%   243-245, 289-293, 393-394, 398, 402-403, 405, 427-428, 442-443, 445, 484-489, 492-496, 502-503, 509-514, 525-526, 540, 587-588, 592-593, 600, 676, 695-696, 706-718, 721-722, 725-726, 730, 732, 734, 739, 775-836, 858-861, 871-872
@@ -427,4 +427,4 @@ app/workers/unpack_wim.py                                               114     
 app/workers/unpack_windows_installer_iso.py                             125     11    91%   105-106, 182, 189-190, 201-205, 330-331, 339-343
 app/workers/walker_registry.py                                           68      0   100%
 --------------------------------------------------------------------------------------------------
-TOTAL                                                                 67743  16462    76%
+TOTAL                                                                 67743  16423    76%
