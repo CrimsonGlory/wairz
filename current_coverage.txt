@@ -134,7 +134,7 @@ app/routers/__init__.py                                                         
 app/routers/analysis.py                                                        164       9    95%   139-140, 155, 168, 183-186, 191
 app/routers/apk_scan.py                                                        315      51    84%   266-267, 285-286, 298-306, 323-324, 331-332, 336-342, 357-358, 502, 521, 537-544, 561-569, 583-584, 599-602
 app/routers/attack_surface.py                                                   79      14    82%   130-175, 198, 215, 219
-app/routers/bare_metal.py                                                       68      32    53%   126-222
+app/routers/bare_metal.py                                                       68       0   100%
 app/routers/comparison.py                                                       96      25    74%   100-110, 161-166, 190-200, 224-236, 240, 253
 app/routers/compliance.py                                                       25       0   100%
 app/routers/component_map.py                                                    28       0   100%
@@ -427,4 +427,4 @@ app/workers/unpack_wim.py                                                      1
 app/workers/unpack_windows_installer_iso.py                                    125      11    91%   105-106, 182, 189-190, 201-205, 330-331, 339-343
 app/workers/walker_registry.py                                                  68       0   100%
 --------------------------------------------------------------------------------------------------------------
-TOTAL                                                                        67743    7038  89.61%
+TOTAL                                                                        67743    7006  89.66%
