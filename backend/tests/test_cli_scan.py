@@ -10,7 +10,7 @@ import json
 import os
 import uuid
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -340,3 +340,184 @@ def test_main_help_exits_zero():
         with pytest.raises(SystemExit) as ei:
             scan_mod.main()
         assert ei.value.code == 0
+
+# ---------------------------------------------------------------------------
+# main threshold resolution + _run with heavy mocks
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_json_success(tmp_path):
+    fw = tmp_path / "fw.bin"
+    fw.write_bytes(b"\x00" * 32)
+    out = tmp_path / "report.json"
+    args = argparse.Namespace(
+        firmware_path=str(fw),
+        output_format="json",
+        output=str(out),
+        skip_phases="",
+        fail_threshold={"mode": "none"},
+        timeout=60,
+        verbose=False,
+    )
+    fake_summary = {
+        "firmware": "fw.bin",
+        "status": "completed",
+        "total_findings": 0,
+        "by_severity": {},
+        "phases_run": [],
+        "duration_seconds": 0.1,
+    }
+
+    class FakeAssessment:
+        def __init__(self, **kwargs):
+            pass
+
+        async def run_full_assessment(self, skip_phases=None):
+            return fake_summary
+
+    mock_engine = MagicMock()
+    mock_engine.dispose = AsyncMock()
+
+    class _Sess:
+        def __init__(self):
+            self._adds = []
+
+        def add(self, obj):
+            self._adds.append(obj)
+
+        async def commit(self):
+            return None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return None
+
+    def session_factory():
+        return _Sess()
+
+    with (
+        patch.object(scan_mod, "_extract_firmware", return_value=str(tmp_path / "extracted")),
+        patch.object(scan_mod, "_create_temp_db", new=AsyncMock(return_value=(mock_engine, session_factory))),
+        patch.object(scan_mod, "_collect_findings", new=AsyncMock(return_value=[])),
+        patch("app.services.assessment_service.AssessmentService", FakeAssessment),
+    ):
+        (tmp_path / "extracted").mkdir(exist_ok=True)
+        code = await scan_mod._run(args)
+    assert code == 0
+    assert out.is_file()
+    data = json.loads(out.read_text())
+    assert "summary" in data or "findings" in data
+
+
+@pytest.mark.asyncio
+async def test_run_fail_on_threshold(tmp_path):
+    fw = tmp_path / "fw.bin"
+    fw.write_bytes(b"\x00" * 8)
+    args = argparse.Namespace(
+        firmware_path=str(fw),
+        output_format="json",
+        output=None,
+        skip_phases="android",
+        fail_threshold={"mode": "severity", "level": "critical"},
+        timeout=60,
+        verbose=False,
+    )
+    findings = [{"severity": "critical", "title": "bad", "description": "x"}]
+    fake_summary = {"status": "completed", "total_findings": 1, "by_severity": {"critical": 1}}
+
+    class FakeAssessment:
+        def __init__(self, **kwargs):
+            pass
+
+        async def run_full_assessment(self, skip_phases=None):
+            return fake_summary
+
+    mock_engine = MagicMock()
+    mock_engine.dispose = AsyncMock()
+
+    class _Sess:
+        def add(self, obj):
+            pass
+
+        async def commit(self):
+            return None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return None
+
+    with (
+        patch.object(scan_mod, "_extract_firmware", return_value=str(tmp_path)),
+        patch.object(scan_mod, "_create_temp_db", new=AsyncMock(return_value=(mock_engine, lambda: _Sess()))),
+        patch.object(scan_mod, "_collect_findings", new=AsyncMock(return_value=findings)),
+        patch("app.services.assessment_service.AssessmentService", FakeAssessment),
+    ):
+        code = await scan_mod._run(args)
+    assert code == 1
+
+
+def test_main_fail_on_critical_flag(tmp_path, monkeypatch):
+    fw = tmp_path / "fw.bin"
+    fw.write_bytes(b"\x00")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["wairz-scan", str(fw), "--fail-on-critical", "--format=json"],
+    )
+    with patch.object(scan_mod, "_run", new=AsyncMock(return_value=0)):
+        with pytest.raises(SystemExit) as ei:
+            scan_mod.main()
+        assert ei.value.code == 0
+
+
+def test_main_timeout(tmp_path, monkeypatch):
+    fw = tmp_path / "fw.bin"
+    fw.write_bytes(b"\x00")
+    monkeypatch.setattr("sys.argv", ["wairz-scan", str(fw), "--timeout", "1"])
+
+    async def slow(*a, **k):
+        import asyncio
+        await asyncio.sleep(10)
+        return 0
+
+    with patch.object(scan_mod, "_run", side_effect=slow):
+        with pytest.raises(SystemExit) as ei:
+            scan_mod.main()
+        assert ei.value.code == 2
+
+
+def test_main_keyboard_interrupt(tmp_path, monkeypatch):
+    fw = tmp_path / "fw.bin"
+    fw.write_bytes(b"\x00")
+    monkeypatch.setattr("sys.argv", ["wairz-scan", str(fw)])
+    with patch.object(scan_mod, "_run", side_effect=KeyboardInterrupt):
+        with pytest.raises(SystemExit) as ei:
+            scan_mod.main()
+        assert ei.value.code == 130
+
+
+def test_main_generic_exception(tmp_path, monkeypatch):
+    fw = tmp_path / "fw.bin"
+    fw.write_bytes(b"\x00")
+    monkeypatch.setattr("sys.argv", ["wairz-scan", str(fw)])
+    with patch.object(scan_mod, "_run", side_effect=RuntimeError("boom")):
+        with pytest.raises(SystemExit) as ei:
+            scan_mod.main()
+        assert ei.value.code == 2
+
+
+def test_main_fail_on_none(tmp_path, monkeypatch):
+    fw = tmp_path / "fw.bin"
+    fw.write_bytes(b"\x00")
+    monkeypatch.setattr("sys.argv", ["wairz-scan", str(fw), "--fail-on", "none"])
+    with patch.object(scan_mod, "_run", new=AsyncMock(return_value=0)) as run:
+        with pytest.raises(SystemExit) as ei:
+            scan_mod.main()
+        assert ei.value.code == 0
+        # threshold should be mode none
+        args = run.await_args.args[0]
+        assert args.fail_threshold == {"mode": "none"}
