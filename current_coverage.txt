@@ -163,7 +163,7 @@ app/routers/uart.py                                                             
 app/schemas/__init__.py                                                          0       0   100%
 app/schemas/apk_scan.py                                                        133       0   100%
 app/schemas/attack_surface.py                                                   36       0   100%
-app/schemas/chat.py                                                             16      16     0%   1-26
+app/schemas/chat.py                                                             16       0   100%
 app/schemas/chip_family.py                                                     159       7    96%   282-283, 361-365
 app/schemas/comparison.py                                                       93       0   100%
 app/schemas/component_map.py                                                    19       0   100%
@@ -227,7 +227,7 @@ app/services/emulation/service.py                                              4
 app/services/emulation/sysroot_mount.py                                         44       0   100%
 app/services/emulation/system_mode.py                                           64       3    95%   196, 204-205
 app/services/emulation/user_mode.py                                             60       2    97%   129-130
-app/services/emulation_constants.py                                             44      18    59%   105-106, 109, 114-115, 118, 123-133, 143, 147, 151
+app/services/emulation_constants.py                                             44      17    61%   114-115, 118, 123-133, 143, 147, 151
 app/services/emulation_preset_service.py                                        32       0   100%
 app/services/esp_walker.py                                                     323      51    84%   176-177, 216-217, 236-237, 239, 242-244, 412-415, 494-499, 502-508, 511-513, 517-519, 529-535, 606-607, 611-612, 704-705, 714-731, 745, 750-751, 756, 764
 app/services/etl_walker.py                                                     441      61    86%   297-298, 377, 400, 458-459, 476-477, 479, 481, 494-495, 497, 509-510, 514-515, 546-548, 555-556, 559-560, 587-588, 610-611, 661-663, 691-692, 697, 699, 719-720, 722-731, 733, 735, 740, 744-745, 835, 959-960, 990-991, 995-996, 1010, 1013
@@ -341,24 +341,24 @@ app/services/rtos_detection_service.py                                         4
 app/services/sbom/__init__.py                                                    4       0   100%
 app/services/sbom/constants.py                                                  26       0   100%
 app/services/sbom/enrichment.py                                                135      37    73%   59, 186-189, 195-199, 207-213, 217-224, 230-242, 250-252
-app/services/sbom/normalization.py                                              48       6    88%   42-45, 72, 80, 120
+app/services/sbom/normalization.py                                              48       4    92%   43, 72, 80, 120
 app/services/sbom/purl.py                                                       23       8    65%   35, 42-45, 65-74
 app/services/sbom/service.py                                                   115      35    70%   110-122, 126, 150-156, 161, 164-170, 215, 218, 237-241, 252-266, 322
 app/services/sbom/service_risks.py                                              26      10    62%   41-42, 50-74
 app/services/sbom/strategies/__init__.py                                         3       0   100%
 app/services/sbom/strategies/android_strategy.py                               130      11    92%   67-68, 168, 186-187, 199, 202-203, 247, 261-262
 app/services/sbom/strategies/base.py                                            16       0   100%
-app/services/sbom/strategies/binary_strings_strategy.py                        114      36    68%   53, 73-74, 78, 85, 91-93, 109-110, 130-150, 182, 186, 188, 191, 204-240
+app/services/sbom/strategies/binary_strings_strategy.py                        114       9    92%   73-74, 92-93, 182, 188, 208, 214, 219
 app/services/sbom/strategies/busybox_strategy.py                                64      10    84%   64, 75-76, 79, 83, 89-91, 100-101
 app/services/sbom/strategies/c_library_strategy.py                              92      11    88%   45-47, 55-56, 58, 62, 71-72, 115-116
 app/services/sbom/strategies/dpkg_strategy.py                                   53       5    91%   33, 62-63, 74, 77
-app/services/sbom/strategies/firmware_markers_strategy.py                       26      12    54%   32-63
-app/services/sbom/strategies/gcc_strategy.py                                    42      15    64%   42-43, 45, 49, 55, 58-59, 63-83
-app/services/sbom/strategies/kernel_strategy.py                                 88      24    73%   54-55, 66, 88-89, 133-134, 145-179
+app/services/sbom/strategies/firmware_markers_strategy.py                       26       2    92%   35-36
+app/services/sbom/strategies/gcc_strategy.py                                    42       5    88%   45, 49, 55, 58-59
+app/services/sbom/strategies/kernel_strategy.py                                 88      21    76%   54-55, 88-89, 133-134, 148-149, 167-179
 app/services/sbom/strategies/loose_deb_strategy.py                             116      26    78%   100-103, 119-121, 145-146, 149-152, 156-157, 185, 187-190, 200-220, 238, 260, 264-266
 app/services/sbom/strategies/opkg_strategy.py                                   36       3    92%   44-45, 55
 app/services/sbom/strategies/python_packages_strategy.py                        70       9    87%   41, 44-45, 59, 62-63, 96-98
-app/services/sbom/strategies/so_files_strategy.py                              101       6    94%   100, 126, 130, 157, 164, 174
+app/services/sbom/strategies/so_files_strategy.py                              101       5    95%   100, 126, 130, 157, 164
 app/services/sbom/strategies/standalone_apk_strategy.py                         66       7    89%   88-89, 108-109, 121, 157-158
 app/services/sbom/strategies/syft_strategy.py                                   51      13    75%   50, 63-72, 84, 87-88, 98, 102
 app/services/sbom/version_normalize.py                                          26       0   100%
@@ -427,4 +427,4 @@ app/workers/unpack_wim.py                                                      1
 app/workers/unpack_windows_installer_iso.py                                    125      11    91%   105-106, 182, 189-190, 201-205, 330-331, 339-343
 app/workers/walker_registry.py                                                  68       0   100%
 --------------------------------------------------------------------------------------------------------------
-TOTAL                                                                        67743    7108  89.51%
+TOTAL                                                                        67743    7038  89.61%
