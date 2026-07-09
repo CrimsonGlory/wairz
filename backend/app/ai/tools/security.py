@@ -688,7 +688,8 @@ def _audit_certificate(cert_data: bytes, file_path: str, rel_path: str) -> dict:
     if cert is None:
         return {"error": f"Failed to parse certificate: {parse_error}"}
 
-    rel_path = "/" + os.path.relpath(file_path, real_root)
+    # rel_path is the virtual display path supplied by the caller
+    # (do not recompute from an unbound real_root — that was a NameError).
     now = datetime.now(UTC)
     # Extract info
     info: dict = {
