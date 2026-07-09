@@ -1,6 +1,7 @@
 """Wave 20r: final ≤19 miss to cross 90% TOTAL."""
 from __future__ import annotations
 
+import asyncio
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
