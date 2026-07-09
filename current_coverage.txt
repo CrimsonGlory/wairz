@@ -427,4 +427,4 @@ app/workers/unpack_wim.py                                               114     
 app/workers/unpack_windows_installer_iso.py                             125     11    91%   105-106, 182, 189-190, 201-205, 330-331, 339-343
 app/workers/walker_registry.py                                           68      0   100%
 --------------------------------------------------------------------------------------------------
-TOTAL                                                                67744  19728    71%
+TOTAL                                                                67743  18019    73%
