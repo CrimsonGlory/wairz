@@ -367,7 +367,7 @@ app/services/sdb_walker.py                                              301    1
 app/services/security_audit/__init__.py                                   4      0   100%
 app/services/security_audit/_base.py                                     40      4    90%   59, 75-77
 app/services/security_audit/credentials.py                              111     19    83%   39, 42, 45, 49-50, 58, 67, 101-102, 116, 121-128, 151-152, 163, 167, 174, 178-179
-app/services/security_audit/external_scanners.py                        229    134    41%   44-45, 54-59, 65-74, 81-129, 152-153, 163-165, 174-176, 181-190, 202-203, 213, 220, 223, 232-236, 251, 257-258, 261, 266-267, 270-288, 299-300, 309, 312, 315, 318-319, 326-328, 333-377
+app/services/security_audit/external_scanners.py                        229     82    64%   (remeasured wave4d)
 app/services/security_audit/hash_lookups.py                              73     62    15%   33-58, 67-108, 117-170, 179-206
 app/services/security_audit/network.py                                  109     37    66%   53, 56, 69-70, 79, 82, 95-96, 101, 104, 107, 110-112, 114, 120, 128-138, 143-153, 158-178, 195, 199, 207-208
 app/services/security_audit/orchestrator.py                              50     23    54%   97-102, 118-120, 149-170
@@ -427,4 +427,4 @@ app/workers/unpack_wim.py                                               114     
 app/workers/unpack_windows_installer_iso.py                             125     11    91%   105-106, 182, 189-190, 201-205, 330-331, 339-343
 app/workers/walker_registry.py                                           68      0   100%
 --------------------------------------------------------------------------------------------------
-TOTAL                                                                 67743  16423    76%
+TOTAL                                                                 67743  16371    76%
