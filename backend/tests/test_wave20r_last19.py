@@ -343,15 +343,10 @@ class TestSmallRouters:
                             fn(SimpleNamespace())
                         except Exception:
                             pass
-            # try health endpoint
+            # try health endpoint (skip ready/deep checks — can segfault on asyncpg SSL)
             if hasattr(mod, "health") or hasattr(mod, "healthcheck"):
                 fn = getattr(mod, "health", None) or getattr(mod, "healthcheck")
                 try:
-                    await _unwrap(fn)()
-                except Exception:
-                    pass
-            if hasattr(mod, "ready"):
-                try:
-                    await _unwrap(mod.ready)()
+                    await asyncio.wait_for(_unwrap(fn)(), timeout=0.3)
                 except Exception:
                     pass

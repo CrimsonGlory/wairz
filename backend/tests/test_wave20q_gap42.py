@@ -242,13 +242,13 @@ class TestFirmware404s:
         svc = MagicMock()
         svc.get_by_id = AsyncMock(return_value=None)
 
-        # upload status 404
+        # upload status 404 — signature is (project_id, firmware_id, service)
         with pytest.raises(HTTPException):
-            await fr.get_firmware_upload_status(pid, fid, db, svc)
+            await fr.get_firmware_upload_status(pid, fid, svc)
 
         # get single 404
         with pytest.raises(HTTPException):
-            await fr.get_single_firmware(pid, fid, db, svc)
+            await fr.get_single_firmware(pid, fid, svc)
 
         # update 404
         try:
