@@ -195,16 +195,24 @@ async def _create_temp_db(db_path: str):
     from app.database import Base  # noqa: E402
 
     # SQLite cannot execute server_default=func.gen_random_uuid() or
-    # other PG-specific server defaults. Strip them all before
-    # create_all -- the Python-side ``default=uuid.uuid4`` still fires
-    # and supplies the value.
+    # other PG-specific server defaults. Strip them only for create_all
+    # DDL generation -- the Python-side ``default=uuid.uuid4`` still fires
+    # and supplies the value. MUST restore afterwards: Base.metadata is
+    # process-global, and leaving server_default=None poisons every later
+    # ORM insert in the same process (CI: wave16 TestCliScanResidual →
+    # wave17 Project.created_at NOT NULL under make_live_db SQLite).
+    saved_defaults: list[tuple[object, object]] = []
     for table in Base.metadata.sorted_tables:
         for col in table.columns:
             if col.server_default is not None:
+                saved_defaults.append((col, col.server_default))
                 col.server_default = None
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    finally:
+        for col, server_default in saved_defaults:
+            col.server_default = server_default
 
     session_factory = async_sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False,

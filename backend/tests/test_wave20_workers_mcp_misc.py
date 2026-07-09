@@ -54,6 +54,33 @@ class TestUnpackAndroidResidual:
 
 class TestUnpackCommonResidual:
     def test_helpers(self, tmp_path: Path):
+        # Brute-force residual calls can hit helpers that redirect/close
+        # stdio (lz4 stdout pipes, subprocess wiring). Preserve FDs 0-2 so
+        # pytest capture teardown does not raise OSError EBADF (CI run
+        # 29054511024: ERROR at teardown of this test after the body passed).
+        saved_fds: list[int | None] = []
+        for i in range(3):
+            try:
+                saved_fds.append(os.dup(i))
+            except OSError:
+                saved_fds.append(None)
+        try:
+            self._exercise_unpack_common_helpers(tmp_path)
+        finally:
+            for i, fd in enumerate(saved_fds):
+                if fd is None:
+                    continue
+                try:
+                    os.dup2(fd, i)
+                except OSError:
+                    pass
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _exercise_unpack_common_helpers(tmp_path: Path) -> None:
         from app.workers import unpack_common as uc
 
         (tmp_path / "bin").mkdir()

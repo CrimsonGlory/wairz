@@ -28,7 +28,18 @@ async def live_db():
 
 
 async def _seed(db: AsyncSession, **extra) -> tuple[Project, Firmware]:
-    p = Project(id=uuid.uuid4(), name="w17", status="ready")
+    # Explicit timestamps: Project/Firmware only declare server_default=func.now()
+    # (no Python-side default). Under full-suite SQLite + aiosqlite RETURNING,
+    # relying on the server default has produced NOT NULL on projects.created_at
+    # in CI even though isolated runs pass (CI run 29054511024).
+    now = datetime.now(UTC)
+    p = Project(
+        id=uuid.uuid4(),
+        name="w17",
+        status="ready",
+        created_at=now,
+        updated_at=now,
+    )
     db.add(p)
     await db.flush()
     fields = dict(
@@ -41,6 +52,7 @@ async def _seed(db: AsyncSession, **extra) -> tuple[Project, Firmware]:
         storage_path="/tmp/w17.bin",
         file_size=1024,
         architecture="arm",
+        created_at=now,
     )
     fields.update(extra)
     fw = Firmware(**fields)

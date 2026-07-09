@@ -521,3 +521,58 @@ def test_main_fail_on_none(tmp_path, monkeypatch):
         # threshold should be mode none
         args = run.await_args.args[0]
         assert args.fail_threshold == {"mode": "none"}
+
+
+# ---------------------------------------------------------------------------
+# _create_temp_db must not poison global ORM metadata
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_temp_db_restores_server_defaults(tmp_path: Path):
+    """Regression: stripping PG server_defaults for SQLite DDL must be temporary.
+
+    CI 29054511024: TestCliScanResidual called _create_temp_db which set
+    ``col.server_default = None`` on every Base.metadata column permanently.
+    Later make_live_db Project inserts then failed with NOT NULL on created_at.
+
+    create_all may still raise (duplicate indexes, missing FK targets) — the
+    contract under test is that server_defaults are restored even on failure.
+    """
+    # Register FK targets so Base.metadata.sorted_tables can complete the
+    # strip/restore loop (volatility_injection_records → memory_dump_image).
+    import app.models  # noqa: F401
+    import app.models.memory_dump_image  # noqa: F401
+    import app.models.volatility_injection_record  # noqa: F401
+    import app.models.volatility_process_record  # noqa: F401
+    from app.models.project import Project
+
+    before = {
+        col.name: col.server_default
+        for col in Project.__table__.columns
+        if col.server_default is not None
+    }
+    assert "created_at" in before, "precondition: Project.created_at has server_default"
+
+    db_path = str(tmp_path / "cli_scan_temp.db")
+    engine = None
+    try:
+        engine, _factory = await scan_mod._create_temp_db(db_path)
+    except Exception:
+        # DDL may fail (duplicate index names, etc.) — restore path still runs
+        # inside _create_temp_db's finally. Assert metadata is intact below.
+        pass
+    finally:
+        if engine is not None:
+            await engine.dispose()
+
+    after = {
+        col.name: col.server_default
+        for col in Project.__table__.columns
+        if col.server_default is not None
+    }
+    assert after.keys() == before.keys()
+    for name in before:
+        assert after[name] is not None
+        # Same DefaultClause object restored (identity), not merely a lookalike
+        assert after[name] is before[name]
