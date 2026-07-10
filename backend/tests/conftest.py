@@ -1,11 +1,67 @@
 """Shared test fixtures for the Wairz backend test suite."""
 
 import asyncio
+import errno
+import os
 from pathlib import Path
 from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Tolerate EBADF when pytest restores stdio capture at session end.
+
+    Some residual/coverage-wave tests still exercise code paths that close or
+    redirect process FDs. When that happens, pytest's global capture teardown
+    (`FDCapture.done` → `os.dup2(targetfd_save, …)`) raises OSError EBADF
+    *after* every test has already passed, turning a green suite into exit 1
+    (CI: 9203 passed then SystemExit from capture cleanup). Swallow only
+    EBADF on capture restore; all other failures still surface.
+    """
+    from _pytest.capture import FDCapture
+
+    _orig_done = FDCapture.done
+
+    def _done_ignore_ebadf(self) -> None:  # type: ignore[no-untyped-def]
+        try:
+            _orig_done(self)
+        except OSError as exc:
+            if exc.errno != errno.EBADF:
+                raise
+
+    FDCapture.done = _done_ignore_ebadf  # type: ignore[method-assign]
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _preserve_stdio_fds():
+    """Keep working copies of FDs 0-2 so a mid-suite close can be repaired."""
+    saved: list[int | None] = []
+    for i in range(3):
+        try:
+            saved.append(os.dup(i))
+        except OSError:
+            saved.append(None)
+    yield
+    for i, fd in enumerate(saved):
+        if fd is None:
+            continue
+        try:
+            os.dup2(fd, i)
+        except OSError:
+            try:
+                devnull = os.open(os.devnull, os.O_RDWR)
+                try:
+                    os.dup2(devnull, i)
+                finally:
+                    os.close(devnull)
+            except OSError:
+                pass
+        try:
+            os.close(fd)
+        except OSError:
+            pass
 
 
 @pytest.fixture(autouse=True)
