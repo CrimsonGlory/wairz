@@ -212,6 +212,37 @@ class TestUnpackAndroidDense:
 
 
 class TestUnpackCommonDense:
+    # Mirror TestUnpackCommonResidual: pure helpers only (no extract/unblob spawn).
+    _PURE_HELPERS = (
+        "reset_extraction_dir_sync",
+        "widen_read_perms",
+        "_is_sidecar_filename",
+        "_looks_like_archive_filename",
+        "_is_archive_dense_layout",
+        "_probe_subdirs_for_archive_density",
+        "_read_magic_hex",
+        "_read_magic",
+        "diagnose_failed_archives",
+        "cleanup_unblob_artifacts",
+        "check_extraction_limits",
+        "remove_extraction_escape_symlinks",
+        "_identify_vendor_container",
+        "_detect_openssl_key_triples",
+        "_archive_ext_for",
+        "_file_head_matches_magic",
+        "_file_looks_like_fs_image",
+        "_dir_has_filesystem_image",
+        "_has_linux_markers",
+        "_etc_entry_count",
+        "find_filesystem_root_strict",
+        "find_filesystem_root",
+        "classify_firmware",
+        "_is_uefi_content",
+        "_is_uefi_firmware",
+        "_is_partition_dump_tar",
+        "_is_rootfs_tar",
+    )
+
     def test_dense_helpers(self, tmp_path: Path):
         from app.workers import unpack_common as uc
 
@@ -230,10 +261,8 @@ class TestUnpackCommonDense:
         # encrypted-looking
         (root / "secret.enc").write_bytes(b"Salted__" + b"\x00" * 100)
 
-        for name in dir(uc):
-            if name.startswith("__"):
-                continue
-            fn = getattr(uc, name)
+        for name in self._PURE_HELPERS:
+            fn = getattr(uc, name, None)
             if not callable(fn) or asyncio.iscoroutinefunction(fn):
                 continue
             for args in (
@@ -241,11 +270,11 @@ class TestUnpackCommonDense:
                 (str(root), 3),
                 (str(root), 4),
                 (str(root), []),
-                (str(root), {}, []),
-                (str(tmp_path / "nested.tar.gz"), str(root / "out")),
+                (str(tmp_path / "nested.tar.gz"),),
                 (str(root / "big.bin"),),
                 (b"\x00" * 32,),
-                (str(root), str(root)),
+                ("secret.enc",),
+                ("nested.tar.gz",),
             ):
                 try:
                     fn(*args)
@@ -524,10 +553,11 @@ class TestRtosSectionsDense:
 class TestImportServiceDense:
     @pytest.mark.asyncio
     async def test_import_sections(self, tmp_path: Path):
-        from app.services import import_service as ims
-        import zipfile
         import io
         import json
+        import zipfile
+
+        from app.services import import_service as ims
 
         fw_id = str(uuid.uuid4())
         zbuf = io.BytesIO()

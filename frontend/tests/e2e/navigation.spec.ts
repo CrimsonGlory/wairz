@@ -11,7 +11,10 @@ test.describe('Navigation', () => {
   test('projects page loads and shows heading', async ({ page }) => {
     await page.goto('/projects');
     await dismissDisclaimer(page);
-    await expect(page.locator('h1')).toContainText('Projects');
+    // Banner + page both render an h1 "Projects"; assert the main content heading.
+    await expect(
+      page.getByRole('main').getByRole('heading', { name: 'Projects', exact: true }),
+    ).toBeVisible();
   });
 
   test('sidebar shows Projects link', async ({ page }) => {
@@ -27,7 +30,7 @@ test.describe('Navigation', () => {
     await page.goto('/help');
     await dismissDisclaimer(page);
     // The page should load without errors
-    await expect(page.locator('main, [class*="content"], body')).toBeVisible();
+    await expect(page.getByRole('main')).toBeVisible();
   });
 
   test('404 page shows for unknown routes', async ({ page }) => {

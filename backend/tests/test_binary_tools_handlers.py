@@ -61,7 +61,6 @@ from app.ai.tools.binary import (
     register_binary_tools,
 )
 
-
 # ---------------------------------------------------------------------------
 # Minimal ELF fixture (mirrors test_binary_tools.py helper shape)
 # ---------------------------------------------------------------------------

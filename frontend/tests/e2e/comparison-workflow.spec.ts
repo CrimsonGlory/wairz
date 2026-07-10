@@ -29,7 +29,10 @@ test.describe('Comparison Workflow', () => {
     await dismissDisclaimer(page);
 
     // The page heading should indicate firmware comparison
-    const heading = page.locator('h1').filter({ hasText: /compare/i });
+    const heading = page
+      .getByRole('main')
+      .getByRole('heading', { level: 1 })
+      .filter({ hasText: /compare/i });
     await expect(heading).toBeVisible({ timeout: 10000 });
   });
 

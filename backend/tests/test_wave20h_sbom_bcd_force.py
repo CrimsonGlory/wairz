@@ -11,12 +11,12 @@ import pytest
 
 class TestBinaryStringsStrategyProper:
     def test_run_with_real_ctx(self, tmp_path: Path):
+        from app.services.sbom.normalization import ComponentStore
+        from app.services.sbom.strategies.base import StrategyContext
         from app.services.sbom.strategies.binary_strings_strategy import (
             BinaryStringsStrategy,
             extract_printable_strings,
         )
-        from app.services.sbom.strategies.base import StrategyContext
-        from app.services.sbom.normalization import ComponentStore
 
         # trailing string without null → line 53
         data = b"helloWORLD"
@@ -172,9 +172,9 @@ class TestBcdImportError:
 class TestSoFilesStrategy:
     def test_so_files(self, tmp_path: Path):
         try:
-            from app.services.sbom.strategies.so_files_strategy import SoFilesStrategy
-            from app.services.sbom.strategies.base import StrategyContext
             from app.services.sbom.normalization import ComponentStore
+            from app.services.sbom.strategies.base import StrategyContext
+            from app.services.sbom.strategies.so_files_strategy import SoFilesStrategy
         except Exception:
             return
 

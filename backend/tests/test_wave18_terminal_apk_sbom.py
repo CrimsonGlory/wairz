@@ -10,15 +10,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── Terminal ─────────────────────────────────────────────────────────────────
 
 
 class TestTerminalWave18Residual:
     @pytest.mark.asyncio
     async def test_terminal_lifecycle_exception_matrix(self, tmp_path: Path):
-        from app.routers import terminal as term
         from starlette.websockets import WebSocketDisconnect
+
+        from app.routers import terminal as term
 
         root = tmp_path / "fs"
         root.mkdir()
@@ -251,9 +251,10 @@ class TestTerminalWave18Residual:
 
     @pytest.mark.asyncio
     async def test_tcp_proxy_full_socket_happy_and_errors(self, tmp_path: Path):
-        from app.routers import terminal as term
-        from starlette.websockets import WebSocketDisconnect
         import docker.errors
+        from starlette.websockets import WebSocketDisconnect
+
+        from app.routers import terminal as term
 
         pid = uuid.uuid4()
         sid = uuid.uuid4()
@@ -499,9 +500,10 @@ class TestTerminalWave18Residual:
 class TestApkScanWave18:
     @pytest.mark.asyncio
     async def test_sast_and_bytecode_endpoint_matrix(self, tmp_path: Path):
-        from app.routers import apk_scan as apk
         from fastapi import HTTPException
         from starlette.requests import Request
+
+        from app.routers import apk_scan as apk
 
         root = tmp_path / "fw"
         (root / "app").mkdir(parents=True)

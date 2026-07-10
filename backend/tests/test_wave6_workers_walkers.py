@@ -19,7 +19,6 @@ from app.workers import unpack_android as ua
 from app.workers import unpack_common as uc
 from app.workers.unpack_common import UnpackResult
 
-
 # ── arq residual jobs ───────────────────────────────────────────────────────
 
 
@@ -613,9 +612,9 @@ class TestWalkerHelpersResidual:
     @pytest.mark.asyncio
     async def test_walker_safe_runners_no_row(self):
         """Outer/safe runners with missing firmware row — exercise error paths."""
+        from app.services import appcompat_walker as aw
         from app.services import srum_walker as sw
         from app.services import usnjrnl_walker as uw
-        from app.services import appcompat_walker as aw
 
         for mod, fn_names in [
             (sw, ("run_srum_walk_background", "auto_walk_firmware_safe")),

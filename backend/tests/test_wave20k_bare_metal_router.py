@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -30,9 +30,10 @@ def _make_request() -> Request:
 
 @pytest.mark.asyncio
 async def test_push_bare_metal_hint_all_branches():
+    from starlette.responses import Response
+
     from app.routers import bare_metal as bm
     from app.services.hardware_firmware.chip_catalog import get_chip_catalog
-    from starlette.responses import Response
 
     catalog = get_chip_catalog()
     family = "ti/tms320f28066"
@@ -116,7 +117,7 @@ async def test_push_bare_metal_hint_all_branches():
 
     async def refresh(obj):
         obj.id = uuid.uuid4()
-        obj.received_at = datetime.now(timezone.utc)
+        obj.received_at = datetime.now(UTC)
         obj.descriptor_hash = getattr(obj, "descriptor_hash", "abc")
 
     db.refresh = AsyncMock(side_effect=refresh)
@@ -136,7 +137,7 @@ async def test_push_bare_metal_hint_all_branches():
     prior = SimpleNamespace(
         id=uuid.uuid4(),
         descriptor_hash=created.descriptor_hash,
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
     )
     prior_scalars = MagicMock()
     prior_scalars.scalars = MagicMock(return_value=[prior])
@@ -150,7 +151,7 @@ async def test_push_bare_metal_hint_all_branches():
     conflict_prior = SimpleNamespace(
         id=uuid.uuid4(),
         descriptor_hash="different_hash_value_xxx",
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
     )
     conflict_scalars = MagicMock()
     conflict_scalars.scalars = MagicMock(return_value=[conflict_prior])

@@ -11,10 +11,10 @@ from app.services.sbom.strategies.base import StrategyContext
 
 class TestFirmwareMarkersFull:
     def test_all_markers(self, tmp_path: Path):
+        from app.services.sbom.constants import FIRMWARE_MARKERS
         from app.services.sbom.strategies.firmware_markers_strategy import (
             FirmwareMarkersStrategy,
         )
-        from app.services.sbom.constants import FIRMWARE_MARKERS
 
         root = tmp_path / "r"
         for distro, paths in FIRMWARE_MARKERS.items():
@@ -152,7 +152,7 @@ class TestEmulationConstantsFull:
 
 class TestBusyboxCLibStrategies:
     def test_busybox_and_clib(self, tmp_path: Path):
-        from app.services.sbom.strategies.busybox_strategy import BusyboxStrategy
+        from app.services.sbom.strategies.busybox_strategy import BusyBoxStrategy
         from app.services.sbom.strategies.c_library_strategy import CLibraryStrategy
 
         root = tmp_path / "r"
@@ -178,6 +178,6 @@ class TestBusyboxCLibStrategies:
 
         store = ComponentStore()
         ctx = StrategyContext(extracted_root=str(root), store=store)
-        BusyboxStrategy().run(ctx)
+        BusyBoxStrategy().run(ctx)
         CLibraryStrategy().run(ctx)
         assert len(store._components) >= 0

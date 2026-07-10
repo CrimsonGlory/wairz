@@ -12,7 +12,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── bare_metal policy evaluators ─────────────────────────────────────────────
 
 
@@ -694,9 +693,10 @@ class TestDs1qrsetupDeep:
         assert isinstance(flags, (dict, list, set, type(None))) or flags is not None
 
     def test_build_aggregates(self):
-        from app.services import ds1qrsetup_callgraph_walker as dw
         import time
         import uuid as _uuid
+
+        from app.services import ds1qrsetup_callgraph_walker as dw
 
         fid = _uuid.uuid4()
         started = time.monotonic()

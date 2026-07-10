@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── MCP run_server: capture + invoke registered handlers ─────────────────────
 
 
@@ -434,7 +433,7 @@ class TestTerminalHappyPath:
         ), patch.object(term, "_resolve_host_path", return_value=str(root)):
             try:
                 await asyncio.wait_for(term.websocket_terminal(ws, pid), timeout=3)
-            except (asyncio.TimeoutError, StopAsyncIteration, Exception):
+            except (TimeoutError, StopAsyncIteration, Exception):
                 pass
 
         # fallback path without host_path (copy dir)
@@ -451,7 +450,7 @@ class TestTerminalHappyPath:
         ):
             try:
                 await asyncio.wait_for(term.websocket_terminal(ws2, pid), timeout=2)
-            except (asyncio.TimeoutError, StopAsyncIteration, Exception):
+            except (TimeoutError, StopAsyncIteration, Exception):
                 pass
 
         # docker run fails

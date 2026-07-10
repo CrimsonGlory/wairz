@@ -20,10 +20,11 @@ from app.mcp_server import (
     _resolve_storage_root,
     _select_firmware,
     _translate_path,
+)
+from app.mcp_server import (
     main as mcp_main,
 )
 from app.services.carving_service import CarvingError, CarvingService, ShellResult
-
 
 # ── MCP helpers ─────────────────────────────────────────────────────────────
 

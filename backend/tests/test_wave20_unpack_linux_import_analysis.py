@@ -9,6 +9,7 @@ import struct
 import tarfile
 import uuid
 import zipfile
+from datetime import UTC
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -159,13 +160,14 @@ class TestUnpackLinuxDeep:
 
 class TestImportServiceDeep:
     def test_parse_and_stream(self, tmp_path: Path):
-        from app.services import import_service as ims
         from datetime import datetime, timezone
+
+        from app.services import import_service as ims
 
         ims._parse_dt(None)
         ims._parse_dt("2020-01-01T00:00:00Z")
         ims._parse_dt("2020-01-01T00:00:00+00:00")
-        ims._parse_dt(datetime.now(timezone.utc))
+        ims._parse_dt(datetime.now(UTC))
         ims._parse_dt("not-a-date")
         ims._parse_dt(12345)
 

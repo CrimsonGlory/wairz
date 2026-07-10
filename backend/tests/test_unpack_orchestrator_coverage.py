@@ -23,7 +23,6 @@ from app.workers.unpack import (
 )
 from app.workers.unpack_common import UnpackResult
 
-
 # ---------------------------------------------------------------------------
 # _pick_detection_root
 # ---------------------------------------------------------------------------

@@ -63,7 +63,6 @@ from app.models.emulation_session import EmulationSession
 from app.services.qiling_service import QilingResult
 from tests._live_db import make_live_db
 
-
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
@@ -261,10 +260,10 @@ def test_parse_proc_net_tcp_ipv4_listen():
         "   4: BADHEX:ZZZZ 00000000:0000 0A 00000000:00000000\n"
     )
     listeners = _parse_proc_net_tcp(content)
-    ports = {l["port"] for l in listeners}
+    ports = {listener["port"] for listener in listeners}
     assert "80" in ports
     assert "443" in ports
-    assert all(l["protocol"] == "tcp" for l in listeners)
+    assert all(listener["protocol"] == "tcp" for listener in listeners)
     # Non-LISTEN filtered
     assert "8080" not in ports
 

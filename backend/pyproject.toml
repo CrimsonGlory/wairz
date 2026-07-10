@@ -322,7 +322,11 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S", "F541", "F841"]
+# ASYNC109/230/240: flake8-async targets production event-loop hygiene. Test
+# fixtures routinely mirror production `timeout=` signatures, use pathlib for
+# tmp_path setup, and open fixtures with sync `open` — all safe under pytest.
+# Production `app/**` still enforces the full ASYNC set (Rule #43 / #5).
+"tests/**" = ["S", "F541", "F841", "ASYNC109", "ASYNC230", "ASYNC240"]
 # alembic migrations are auto-generated boilerplate — ignore style/import rules.
 # S608 (SQL injection): downgrade() builds `WHERE source IN (...)` from module-
 # local constants (the just-removed FindingSource Literal values), not user

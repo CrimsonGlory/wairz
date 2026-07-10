@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -524,7 +524,7 @@ class TestSbomPureN:
             path=None,
             confidence="high",
             source="detect",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         try:
             out = sb._rows_to_component_responses([(comp, 3)])
@@ -628,7 +628,7 @@ class TestHardwareFirmwarePureN:
             metadata_={"k": "v"},
             detection_source="magic",
             detection_confidence="high",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         try:
             resp = hw._blob_to_response(blob, cve_count=2, advisory_count=1, max_severity="high")
@@ -685,7 +685,7 @@ class TestHardwareFirmwarePureN:
             dbx_revoked=False,
             error=None,
             thumbprint="aa",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         if hasattr(hw, "_signature_to_summary"):
             try:
@@ -734,7 +734,7 @@ class TestFirmwareRouterPureN:
             upload_error=None,
             original_filename="x.bin",
             status="ready",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             size_bytes=10,
             sha256="a" * 64,
         )

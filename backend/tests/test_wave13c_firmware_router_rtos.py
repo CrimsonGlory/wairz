@@ -15,8 +15,9 @@ import pytest
 class TestFirmwareRouterHelpers:
     @pytest.mark.asyncio
     async def test_check_upload_size_and_arq_pool(self):
-        from app.routers import firmware as fr
         from fastapi import HTTPException
+
+        from app.routers import firmware as fr
 
         class BigFile:
             filename = "big.bin"
