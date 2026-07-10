@@ -36,7 +36,7 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # docker-compose.yml has :?required on POSTGRES_PASSWORD and FIRMAE_DB_PASSWORD
       # (infra-secrets closure, commit 83e31c8) — seed CI-only values so
@@ -137,7 +137,7 @@ jobs:
       cancel-in-progress: false
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Write CI .env
         run: |
