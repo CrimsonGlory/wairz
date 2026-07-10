@@ -6,6 +6,14 @@ import { type Page, expect } from '@playwright/test';
  * before interacting with the app.
  */
 export async function dismissDisclaimer(page: Page): Promise<void> {
+  // Defense in depth: ensure the API key is present even if storageState
+  // was not applied (local playwright runs without the config seed).
+  const key =
+    process.env.E2E_API_KEY || process.env.API_KEY || 'ci-only-api-key';
+  await page.evaluate((apiKey) => {
+    window.localStorage.setItem('wairz.apiKey', apiKey);
+  }, key);
+
   const button = page.getByRole('button', { name: 'I Understand' });
   // The dialog may or may not appear depending on session state.
   // Wait briefly for it; if it doesn't show, move on.
