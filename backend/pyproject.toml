@@ -61,7 +61,7 @@ dependencies = [
     # discipline applies — regipy parses the hive AS DATA; nothing in
     # wairz invokes regedit, .reg apply, or any scriptable
     # registry-modification action.
-    "regipy>=4.0,<5",
+    "regipy>=4.0,<7",
     # ── Phase δ: .NET single-file bundle decompile + R2R-stomping ──
     # dnfile — read-only PE-table walker for .NET assemblies. Phase δ.4
     # worker uses dnfile to detect single-file bundles + walk the embedded
