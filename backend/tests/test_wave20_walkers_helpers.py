@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -273,7 +273,7 @@ class TestSrumUsnHelpers:
             except Exception:
                 pass
             try:
-                fn(datetime.now(timezone.utc))
+                fn(datetime.now(UTC))
             except Exception:
                 pass
             try:

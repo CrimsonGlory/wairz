@@ -23,7 +23,6 @@ from app.services import ghidra_service as gs
 from app.services import vulnerability_service as vs
 from app.workers import unpack_common as uc
 
-
 # ── vulnerability_service ───────────────────────────────────────────────────
 
 
@@ -584,8 +583,9 @@ class TestHardwareFirmwareRouterExtras:
         limiter.enabled = False
         limiter.reset()
         try:
-            from app.middleware import asgi_auth as _auth_mod
             from unittest.mock import MagicMock as MM
+
+            from app.middleware import asgi_auth as _auth_mod
             fake = MM()
             fake.api_key = ""
             with patch.object(_auth_mod, "get_settings", lambda: fake):

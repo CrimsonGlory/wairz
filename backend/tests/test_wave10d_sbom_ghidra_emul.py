@@ -22,7 +22,8 @@ from app.routers.deps import resolve_firmware as resolve_firmware_dep
 @pytest.fixture(autouse=True)
 def _auth_off(monkeypatch):
     from app.middleware import asgi_auth as m
-    fake = MagicMock(); fake.api_key = ""
+    fake = MagicMock()
+    fake.api_key = ""
     monkeypatch.setattr(m, "get_settings", lambda: fake)
 
 

@@ -649,8 +649,9 @@ class TestMainLifespan:
                 pass
 
     def test_origin_host_guard_and_path_traversal(self):
-        from app import main as main_mod
         from fastapi import HTTPException
+
+        from app import main as main_mod
 
         # path traversal handler
         try:

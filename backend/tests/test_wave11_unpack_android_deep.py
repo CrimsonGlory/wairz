@@ -354,8 +354,9 @@ class TestExtractAndroidOtaSimgSuper:
 
     @pytest.mark.asyncio
     async def test_ota_simg_verify_fail_keeps_sparse(self, tmp_path: Path):
-        from app.workers import unpack_android as ua
         import zipfile
+
+        from app.workers import unpack_android as ua
 
         ota = tmp_path / "o.zip"
         with zipfile.ZipFile(ota, "w") as z:
@@ -392,8 +393,9 @@ class TestExtractAndroidOtaSimgSuper:
 
     @pytest.mark.asyncio
     async def test_ota_simg_exception_continues(self, tmp_path: Path):
-        from app.workers import unpack_android as ua
         import zipfile
+
+        from app.workers import unpack_android as ua
 
         ota = tmp_path / "o.zip"
         with zipfile.ZipFile(ota, "w") as z:

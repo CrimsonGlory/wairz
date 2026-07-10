@@ -1127,9 +1127,10 @@ class TestUnpackAndroidWave18:
 
     @pytest.mark.asyncio
     async def test_async_android_paths(self, tmp_path: Path):
-        from app.workers import unpack_android as ua
         import asyncio as _aio
         import inspect
+
+        from app.workers import unpack_android as ua
 
         out = tmp_path / "o"
         out.mkdir()

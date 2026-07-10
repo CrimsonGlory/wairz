@@ -6,6 +6,14 @@ import { type Page, expect } from '@playwright/test';
  * before interacting with the app.
  */
 export async function dismissDisclaimer(page: Page): Promise<void> {
+  // Defense in depth: ensure the API key is present even if storageState
+  // was not applied (local playwright runs without the config seed).
+  const key =
+    process.env.E2E_API_KEY || process.env.API_KEY || 'ci-only-api-key';
+  await page.evaluate((apiKey) => {
+    window.localStorage.setItem('wairz.apiKey', apiKey);
+  }, key);
+
   const button = page.getByRole('button', { name: 'I Understand' });
   // The dialog may or may not appear depending on session state.
   // Wait briefly for it; if it doesn't show, move on.
@@ -32,21 +40,31 @@ export async function createProject(
 
   // Click "New Project" button
   await page.getByRole('button', { name: 'New Project' }).click();
+  await expect(page.getByRole('heading', { name: 'New Project' })).toBeVisible();
 
   // Fill in the project name in the dialog
   await page.getByLabel('Name').fill(name);
 
-  // Click "Create Project"
+  // Click "Create Project" and wait for the API-backed step advance
   await page.getByRole('button', { name: 'Create Project' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Upload Firmware' }),
+  ).toBeVisible({ timeout: 15000 });
 
   // The dialog moves to the firmware upload step. Skip it.
   await page.getByRole('button', { name: 'Skip' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Project Created' }),
+  ).toBeVisible({ timeout: 10000 });
 
   // Now we're on the "Project Created" step. Click "Go to Project".
   await page.getByRole('button', { name: 'Go to Project' }).click();
+  await page.waitForURL(/\/projects\/[a-f0-9-]+$/, { timeout: 10000 });
 
-  // Wait for the project detail page to load
-  await expect(page.locator('h1')).toContainText(name, { timeout: 10000 });
+  // Banner also has an h1 "Projects" — assert the main content heading only.
+  await expect(
+    page.getByRole('main').getByRole('heading', { level: 1 }),
+  ).toContainText(name, { timeout: 10000 });
 
   return page.url();
 }
@@ -60,8 +78,10 @@ export async function ensureProjectExists(page: Page): Promise<string> {
   await page.goto('/projects');
   await dismissDisclaimer(page);
 
-  // Wait for either a project card or the empty-state text
-  const projectHeading = page.locator('h1').filter({ hasText: 'Projects' });
+  // Wait for the page heading (banner also has an h1 "Projects" — scope to main)
+  const projectHeading = page
+    .getByRole('main')
+    .getByRole('heading', { name: 'Projects', exact: true });
   await expect(projectHeading).toBeVisible({ timeout: 10000 });
 
   // Check if there are any project cards (links to /projects/<uuid>)

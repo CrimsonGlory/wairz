@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -203,7 +203,7 @@ class TestHwAggregateAndBackground:
                     dbx_revoked=False,
                     error=None,
                     thumbprint="aa",
-                    created_at=datetime.now(timezone.utc),
+                    created_at=datetime.now(UTC),
                 ),
                 "/x.sys",
             )
@@ -444,7 +444,7 @@ class TestSbomListFilters:
                 path="/lib/libssl.so",
                 confidence="high",
                 source="detect",
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
             )
             sb._rows_to_component_responses([(comp, 5), (comp, None)])
         except Exception:

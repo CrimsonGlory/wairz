@@ -17,7 +17,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── ds1qrsetup callgraph pure + ghidra path ──────────────────────────────────
 
 
@@ -464,11 +463,12 @@ class TestArqWorkerResidual:
 
 class TestUnpackCommonResidual:
     def test_error_branches(self, tmp_path: Path):
-        from app.workers import unpack_common as uc
+        import io
 
         # tar safe extract edge
         import tarfile
-        import io
+
+        from app.workers import unpack_common as uc
 
         tar_path = tmp_path / "t.tar"
         with tarfile.open(tar_path, "w") as tf:

@@ -1,11 +1,79 @@
 """Shared test fixtures for the Wairz backend test suite."""
 
 import asyncio
+import errno
+import os
 from pathlib import Path
 from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """CI harness tweaks + tolerate EBADF on session capture teardown.
+
+    1. Under CI (``CI=true``), force quiet reporting and drop pytest-cov.
+       The PR job's pytest step is hard-capped at 20 minutes; the 9k+ suite
+       already finishes in ~19:50 on a slow runner, then the step is killed
+       during post-run cleanup even after a full green pass. Coverage stays
+       available locally and on the nightly must-complete job (Rule #41).
+    2. Some residual/coverage-wave tests close/redirect process FDs. Pytest's
+       global capture teardown then raises OSError EBADF *after* every test
+       passed. Swallow only EBADF on capture restore.
+    """
+    from _pytest.capture import FDCapture
+
+    if os.environ.get("CI", "").lower() in ("1", "true", "yes"):
+        # Quiet progress: CLI still passes -v, but silence per-test chatter.
+        config.option.verbose = 0
+        # Drop coverage plugin — collection + report push us over the 20m budget.
+        cov = config.pluginmanager.get_plugin("_cov")
+        if cov is not None:
+            config.pluginmanager.unregister(cov)
+        # Avoid multi-page warnings summary I/O at session end.
+        config.option.disable_warnings = True
+
+    _orig_done = FDCapture.done
+
+    def _done_ignore_ebadf(self) -> None:  # type: ignore[no-untyped-def]
+        try:
+            _orig_done(self)
+        except OSError as exc:
+            if exc.errno != errno.EBADF:
+                raise
+
+    FDCapture.done = _done_ignore_ebadf  # type: ignore[method-assign]
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _preserve_stdio_fds():
+    """Keep working copies of FDs 0-2 so a mid-suite close can be repaired."""
+    saved: list[int | None] = []
+    for i in range(3):
+        try:
+            saved.append(os.dup(i))
+        except OSError:
+            saved.append(None)
+    yield
+    for i, fd in enumerate(saved):
+        if fd is None:
+            continue
+        try:
+            os.dup2(fd, i)
+        except OSError:
+            try:
+                devnull = os.open(os.devnull, os.O_RDWR)
+                try:
+                    os.dup2(devnull, i)
+                finally:
+                    os.close(devnull)
+            except OSError:
+                pass
+        try:
+            os.close(fd)
+        except OSError:
+            pass
 
 
 @pytest.fixture(autouse=True)

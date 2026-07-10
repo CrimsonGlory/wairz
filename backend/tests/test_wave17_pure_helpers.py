@@ -16,7 +16,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ── yaml_driven signal evaluators (full matrix, no xfail) ────────────────────
 
 

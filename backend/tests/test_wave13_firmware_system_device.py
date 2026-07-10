@@ -16,7 +16,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── firmware_service ─────────────────────────────────────────────────────────
 
 
@@ -555,7 +554,7 @@ class TestDeviceServiceDeep:
 
         class FakeReader:
             def __init__(self, lines):
-                self.lines = [l if l.endswith(b"\n") else l + b"\n" for l in lines]
+                self.lines = [line if line.endswith(b"\n") else line + b"\n" for line in lines]
                 self.i = 0
 
             async def readline(self):

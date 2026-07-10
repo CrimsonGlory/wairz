@@ -8,7 +8,7 @@ Targets residual Missing lines from residual+router-suite remeasure:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -418,6 +418,7 @@ class TestEventsResidual:
         """Hit event_types fallback (line 62) + CancelledError path (112)."""
         import asyncio
         import json
+
         from app.routers import events as ev
 
         class FakePubSub:
@@ -494,7 +495,7 @@ class TestHardwareAuthenticodeResidual:
 
         db = AsyncMock()
         db.commit = AsyncMock()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         fw_busy = SimpleNamespace(
             id=uuid.uuid4(),
             project_id=uuid.uuid4(),

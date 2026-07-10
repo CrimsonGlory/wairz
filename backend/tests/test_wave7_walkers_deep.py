@@ -15,7 +15,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── SRUM ─────────────────────────────────────────────────────────────────────
 
 
@@ -515,7 +514,7 @@ class TestBcdWalkerDeep:
 
         assert bw._coerce_str("x") == "x"
         assert bw._coerce_str(None) is None
-        assert bw._coerce_str(b"hi") in ("hi", "hi".encode().decode(), None) or True
+        assert bw._coerce_str(b"hi") in ("hi", b"hi".decode(), None) or True
         assert bw._coerce_bool(True) is True
         assert bw._coerce_bool(1) is True
         assert bw._coerce_bool(0) is False

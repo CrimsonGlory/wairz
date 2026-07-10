@@ -128,8 +128,9 @@ class TestEmulationWebsocketTerminal:
 
     @pytest.mark.asyncio
     async def test_ws_docker_not_found(self):
-        from app.routers import emulation as em
         import docker
+
+        from app.routers import emulation as em
 
         pid = uuid.uuid4()
         sess = _session(project_id=pid, status="running")
@@ -241,7 +242,7 @@ class TestEmulationWebsocketTerminal:
                 await asyncio.wait_for(
                     em.websocket_emulation_terminal(ws, pid, sess.id), timeout=3
                 )
-            except (asyncio.TimeoutError, Exception):
+            except (TimeoutError, Exception):
                 pass
 
         assert client.api.exec_create.called
@@ -298,7 +299,7 @@ class TestEmulationWebsocketTerminal:
                 await asyncio.wait_for(
                     em.websocket_emulation_terminal(ws, pid, sess.id), timeout=3
                 )
-            except (asyncio.TimeoutError, Exception):
+            except (TimeoutError, Exception):
                 pass
         assert client.api.exec_create.called
 
@@ -347,7 +348,7 @@ class TestEmulationWebsocketTerminal:
                 await asyncio.wait_for(
                     em.websocket_emulation_terminal(ws, pid, sess.id), timeout=3
                 )
-            except (asyncio.TimeoutError, Exception):
+            except (TimeoutError, Exception):
                 pass
         # system mode builds the long shell_cmd with socat
         args, kwargs = client.api.exec_create.call_args

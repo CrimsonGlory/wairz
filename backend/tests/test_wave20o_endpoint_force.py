@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -387,7 +387,7 @@ class TestHardwareFirmwareEndpointResidual:
             metadata_={},
             detection_source="magic",
             detection_confidence="high",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
 
         # list_blobs with filters + rollup
@@ -409,7 +409,7 @@ class TestHardwareFirmwareEndpointResidual:
             pass
 
         # get_cve_aggregate with mixed rows
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         rows = [
             ("ADVISORY-FRAG", "curated", "low", now),
             ("CVE-2020-1", "kernel_cpe", "high", now),
@@ -577,8 +577,8 @@ class TestSbomEndpointResidual:
         fw = SimpleNamespace(
             id=fid,
             sbom_generate_status="completed",
-            sbom_generate_started_at=datetime.now(timezone.utc),
-            sbom_generate_finished_at=datetime.now(timezone.utc),
+            sbom_generate_started_at=datetime.now(UTC),
+            sbom_generate_finished_at=datetime.now(UTC),
             sbom_generate_error=None,
             sbom_generate_result={"components": 1},
             vuln_scan_status="failed",

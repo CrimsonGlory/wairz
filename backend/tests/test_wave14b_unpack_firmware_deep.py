@@ -229,7 +229,7 @@ class TestUnpackCommonDeepHelpers:
         # ext4 magic path
         ext = bytearray(b"\x00" * 2048)
         off = getattr(uc, "_EXT4_MAGIC_OFFSET", 0x438)
-        # superblock magic at 0x438 is 0xEF53 little endian at offset 0x438 within first 1k+ 
+        # superblock magic at 0x438 is 0xEF53 little endian at offset 0x438 within first 1k+
         # code seeks _EXT4_MAGIC_OFFSET - 2
         if off >= 2:
             # place EF53
@@ -501,8 +501,9 @@ class TestUpdateMechanismAnalyze:
 class TestUnpackInnerMoreTypes:
     @pytest.mark.asyncio
     async def test_more_classify_paths(self, tmp_path: Path):
-        from app.workers import unpack as up
         from unittest.mock import AsyncMock
+
+        from app.workers import unpack as up
 
         async def cb(s, p):
             pass

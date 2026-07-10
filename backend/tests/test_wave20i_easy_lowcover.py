@@ -72,8 +72,8 @@ class TestEmulationConstants:
 
 class TestSbomStrategiesBulk:
     def test_all_strategies(self, tmp_path: Path):
-        from app.services.sbom.strategies.base import StrategyContext
         from app.services.sbom.normalization import ComponentStore
+        from app.services.sbom.strategies.base import StrategyContext
 
         root = tmp_path / "r"
         for d in (
@@ -204,8 +204,8 @@ class TestSbomStrategiesBulk:
 class TestBareMetalRouterDense:
     @pytest.mark.asyncio
     async def test_full_validation_tree(self):
-        from app.routers import bare_metal as bm
         from app.rate_limit import limiter
+        from app.routers import bare_metal as bm
 
         pid = uuid.uuid4()
         fid = uuid.uuid4()

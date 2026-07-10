@@ -12,10 +12,10 @@ import pytest
 class TestOrchestratorCorrect:
     def test_run_security_audit_apis(self, tmp_path: Path):
         from app.services.security_audit.orchestrator import (
+            SCANNERS,
+            run_scan_subset,
             run_security_audit,
             run_security_audit_multi,
-            run_scan_subset,
-            SCANNERS,
         )
 
         root = tmp_path / "r"
@@ -225,6 +225,7 @@ class TestKernelDecompressCorrect:
     def test_codecs(self):
         import gzip
         import zlib
+
         from app.services.kernel_decompress import decompress_kernel
 
         raw = b"LINUX_KERNEL" + b"\x00" * 5000

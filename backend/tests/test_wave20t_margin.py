@@ -18,7 +18,7 @@ class TestBcdWalkResidual:
         from app.services import bcd_walker as bw
 
         # Missing root → OSError / not-dir continue
-        walk = getattr(bw, "walk_bcd_stores", None) or getattr(bw, "walk_bcd_files")
+        walk = getattr(bw, "walk_bcd_stores", None) or bw.walk_bcd_files
         hits = walk(["/no/such/root-xyz", str(tmp_path)])
         assert hits == [] or isinstance(hits, list)
 
@@ -327,14 +327,15 @@ class TestRateLimitAndTinyMargin:
                         pass
 
     def test_truncation_and_hashing(self):
-        from app.utils import truncation, hashing
+        from app.utils import hashing, truncation
         try:
             truncation.truncate_output("x" * 100000)
         except Exception:
             pass
         try:
             hashing.sha256_file  # noqa: B018
-            import tempfile, os
+            import os
+            import tempfile
             with tempfile.NamedTemporaryFile(delete=False) as f:
                 f.write(b"abc")
                 path=f.name

@@ -12,7 +12,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── bytecode ─────────────────────────────────────────────────────────────────
 
 
@@ -200,8 +199,8 @@ class TestBytecodeScanPaths:
 
     def test_compute_confidence_and_helpers(self):
         from app.services.bytecode_analysis_service import (
-            BytecodeFinding,
             BytecodeAnalysisService,
+            BytecodeFinding,
         )
 
         svc = self._svc()

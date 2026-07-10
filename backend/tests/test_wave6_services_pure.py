@@ -21,19 +21,18 @@ from app.routers import sbom as sbom_router
 from app.services import abusech_service as abusech
 from app.services.mobsfscan.normalization import (
     MOBSFSCAN_SOURCE,
-    format_mobsfscan_text,
-    normalize_mobsfscan_findings,
-    persist_mobsfscan_findings,
     _apply_severity_override,
     _bump_severity,
     _dedup_key,
     _is_priv_app,
     _is_suppressed_path,
     _parse_cwe_ids,
+    format_mobsfscan_text,
+    normalize_mobsfscan_findings,
+    persist_mobsfscan_findings,
 )
 from app.services.mobsfscan.parser import MobsfScanFinding, MobsfScanResult
 from app.utils.sandbox import PathTraversalError
-
 
 # ── fixtures ───────────────────────────────────────────────────────────────
 

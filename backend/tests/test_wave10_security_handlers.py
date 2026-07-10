@@ -403,8 +403,8 @@ class TestSecurityHandlersResidual:
             assert isinstance(out, str)
 
     def test_register_security_tools(self):
-        from app.ai.tools import security as sec
         from app.ai.tool_registry import ToolRegistry
+        from app.ai.tools import security as sec
 
         reg = ToolRegistry()
         sec.register_security_tools(reg)
