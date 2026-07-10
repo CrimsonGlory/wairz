@@ -40,21 +40,31 @@ export async function createProject(
 
   // Click "New Project" button
   await page.getByRole('button', { name: 'New Project' }).click();
+  await expect(page.getByRole('heading', { name: 'New Project' })).toBeVisible();
 
   // Fill in the project name in the dialog
   await page.getByLabel('Name').fill(name);
 
-  // Click "Create Project"
+  // Click "Create Project" and wait for the API-backed step advance
   await page.getByRole('button', { name: 'Create Project' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Upload Firmware' }),
+  ).toBeVisible({ timeout: 15000 });
 
   // The dialog moves to the firmware upload step. Skip it.
   await page.getByRole('button', { name: 'Skip' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Project Created' }),
+  ).toBeVisible({ timeout: 10000 });
 
   // Now we're on the "Project Created" step. Click "Go to Project".
   await page.getByRole('button', { name: 'Go to Project' }).click();
+  await page.waitForURL(/\/projects\/[a-f0-9-]+$/, { timeout: 10000 });
 
-  // Wait for the project detail page to load
-  await expect(page.locator('h1')).toContainText(name, { timeout: 10000 });
+  // Banner also has an h1 "Projects" — assert the main content heading only.
+  await expect(
+    page.getByRole('main').getByRole('heading', { level: 1 }),
+  ).toContainText(name, { timeout: 10000 });
 
   return page.url();
 }

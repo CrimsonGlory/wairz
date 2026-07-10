@@ -41,7 +41,9 @@ test.describe('Project CRUD', () => {
 
     // Should navigate to the project detail page
     await expect(page).toHaveURL(/\/projects\/[a-f0-9-]+$/);
-    await expect(page.locator('h1')).toContainText(projectName);
+    await expect(
+      page.getByRole('main').getByRole('heading', { level: 1 }),
+    ).toContainText(projectName);
   });
 
   test('project appears in the projects list', async ({ page }) => {
@@ -65,8 +67,10 @@ test.describe('Project CRUD', () => {
     await page.getByText(projectName).first().click();
     await expect(page).toHaveURL(/\/projects\/[a-f0-9-]+$/);
 
-    // Verify key elements are present
-    await expect(page.locator('h1')).toContainText(projectName);
+    // Verify key elements are present (banner also has h1 "Projects")
+    await expect(
+      page.getByRole('main').getByRole('heading', { level: 1 }),
+    ).toContainText(projectName);
 
     // Status badge should be visible (created, ready, etc.)
     const statusBadge = page.locator('[class*="badge"], [class*="Badge"]').first();

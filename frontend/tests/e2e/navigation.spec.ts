@@ -30,7 +30,7 @@ test.describe('Navigation', () => {
     await page.goto('/help');
     await dismissDisclaimer(page);
     // The page should load without errors
-    await expect(page.locator('main, [class*="content"], body')).toBeVisible();
+    await expect(page.getByRole('main')).toBeVisible();
   });
 
   test('404 page shows for unknown routes', async ({ page }) => {
