@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------
 # Builder stage: UEFIExtract + UEFIFind (cmake + qt6 only needed at build time)
 # ---------------------------------------------------------------------------
-FROM python:3.12-slim AS uefi-builder
+FROM python:3.14-slim AS uefi-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake qt6-base-dev git ca-certificates build-essential \
@@ -18,7 +18,7 @@ RUN git clone --depth 1 https://github.com/LongSoft/UEFITool.git /tmp/UEFITool &
 # ---------------------------------------------------------------------------
 # Main image
 # ---------------------------------------------------------------------------
-FROM python:3.12-slim AS base
+FROM python:3.14-slim AS base
 
 # Install system dependencies for firmware analysis
 RUN apt-get update && apt-get install -y --no-install-recommends \

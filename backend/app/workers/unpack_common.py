@@ -672,6 +672,12 @@ def _extract_tar_safe(tar_path: str, out_dir: str) -> None:
                 # Skip symlinks entirely — can escape even with relative targets
                 continue
             try:
+                # Python 3.14 defaults extract filter to "data" (PEP 706). After
+                # manual path sanitization above, use fully_trusted so a broken
+                # data_filter (or the default) does not block the fallback path.
+                tf.extract(member, out_dir, set_attrs=False, filter="fully_trusted")
+            except TypeError:
+                # Pre-3.12 / filter kwarg unsupported
                 tf.extract(member, out_dir, set_attrs=False)
             except Exception:
                 continue
