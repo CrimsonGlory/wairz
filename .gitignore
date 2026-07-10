@@ -1,5 +1,6 @@
 # Environment
 .env
+.envrc
 
 # Python
 __pycache__/

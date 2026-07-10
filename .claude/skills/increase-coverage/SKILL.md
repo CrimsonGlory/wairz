@@ -90,18 +90,53 @@ percentage in this fresh report increased versus the value recorded in
 `current_coverage.txt` before you started. If it didn't move, the tests
 aren't exercising the intended lines — go back to step 3.
 
-### 5. Update `current_coverage.txt`
+### 5. Update `current_coverage.txt` via `scripts/update_current_coverage.py`
 
-Using the freshly measured `coverage report -m` output:
+Do not hand-edit `current_coverage.txt`. Use
+`scripts/update_current_coverage.py` — it derives statement counts from
+`coverage.parser.PythonParser` (matching what `coverage.py` itself
+reports) instead of trusting hand-typed numbers, and enforces a lock so
+concurrent runs don't corrupt the file.
 
-- Replace the picked file's row (`Stmts`, `Miss`, `Cover`, `Missing`)
-  with the new measured values — copy the exact numbers, don't
-  hand-compute them.
-- Replace the `TOTAL` row (`Stmts`, `Miss`, `Cover`) with the new
-  suite-wide totals from the same report.
-- Leave every other row untouched — don't regenerate the whole file
-  from this run, since other files' Missing lines may shift slightly on
-  a single run and this skill's job is scoped to the one file it changed.
+From the freshly measured `coverage report -m` output, find the picked
+file's row and its `Missing` column (a line-range spec like
+`12-14, 40, 88-91`, or empty if fully covered). Then run:
+
+```bash
+python3 scripts/update_current_coverage.py \
+  --replace-file-missing backend/app/<path>.py "<missing-spec-from-report>" \
+  --write
+```
+
+`--replace-file-missing` recomputes that row's `Miss` and `Cover` from the
+given line spec (empty string clears Missing entirely, i.e. fully
+covered) — the script computes `Miss`/`Cover`, never type them by hand.
+
+The `TOTAL` row is recomputed automatically from the sum of all
+non-outdated rows in the file, so no separate TOTAL edit is needed unless
+the freshly measured suite-wide `coverage report -m` TOTAL diverges from
+that sum (e.g. files outside the scanned set changed). If it diverges,
+pass the report's real totals explicitly:
+
+```bash
+python3 scripts/update_current_coverage.py \
+  --replace-file-missing backend/app/<path>.py "<missing-spec>" \
+  --baseline-stmts <TOTAL Stmts from report> \
+  --baseline-miss <TOTAL Miss from report> \
+  --write
+```
+
+If this run added a brand-new test file that isn't yet a row in
+`current_coverage.txt`, add it in the same invocation with
+`--add-test-file backend/tests/test_<module>.py` (statement count is
+derived automatically; miss defaults to 0 since test files are expected
+to be fully exercised by their own execution).
+
+Run without `--write` first to preview the diff (it prints the full
+table to stdout), confirm the picked file's row and TOTAL look right,
+then re-run with `--write` to persist. Leave every other row untouched —
+this skill's job is scoped to the one file it changed; the script does
+not regenerate rows it wasn't told to touch.
 
 ### 6. Lint
 
