@@ -254,7 +254,7 @@ class TestUnpackAndroidBootWave19c:
             with patch.object(
                 ua,
                 "recover_sparsechunk_extracts_async",
-                wraps=getattr(ua, "recover_sparsechunk_extracts_async"),
+                wraps=ua.recover_sparsechunk_extracts_async,
             ):
                 try:
                     await asyncio.wait_for(

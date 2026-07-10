@@ -524,10 +524,11 @@ class TestRtosSectionsDense:
 class TestImportServiceDense:
     @pytest.mark.asyncio
     async def test_import_sections(self, tmp_path: Path):
-        from app.services import import_service as ims
-        import zipfile
         import io
         import json
+        import zipfile
+
+        from app.services import import_service as ims
 
         fw_id = str(uuid.uuid4())
         zbuf = io.BytesIO()

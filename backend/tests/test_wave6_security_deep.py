@@ -13,8 +13,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.ai.tools import security as sec
 from app.ai.tool_registry import ToolRegistry
+from app.ai.tools import security as sec
 
 
 def _make_ctx(root: str, db=None):

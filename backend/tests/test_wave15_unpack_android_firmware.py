@@ -77,10 +77,10 @@ class TestUnpackAndroidHelpers:
             pass
 
     def test_extract_ramdisk(self, tmp_path: Path):
-        from app.workers import unpack_android as ua
-
         # gzip cpio-ish
         import gzip
+
+        from app.workers import unpack_android as ua
 
         data = gzip.compress(b"070701" + b"0" * 100)
         out = tmp_path / "rd"

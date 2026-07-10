@@ -16,7 +16,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── yaml_driven signal evaluators ────────────────────────────────────────────
 
 
@@ -478,8 +477,8 @@ class TestPcapTlsResidual:
 
         # Build with real scapy classes if available
         try:
-            from scapy.layers.tls.handshake import TLSClientHello
             from scapy.layers.inet import TCP
+            from scapy.layers.tls.handshake import TLSClientHello
         except Exception:
             TLSClientHello = type("TLSClientHello", (), {})
             TCP = type("TCP", (), {})

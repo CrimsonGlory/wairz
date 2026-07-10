@@ -603,8 +603,9 @@ class TestBinaryAnalysisDeep:
 
 class TestBcdExtractFields:
     def test_extract_and_anomaly(self):
-        from app.services import bcd_walker as bw
         import inspect
+
+        from app.services import bcd_walker as bw
 
         sig = inspect.signature(bw.build_anomaly_flags)
         # Only call with kwargs that exist — avoid infinite MagicMock iteration

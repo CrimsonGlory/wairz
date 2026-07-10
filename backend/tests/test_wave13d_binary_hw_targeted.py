@@ -13,8 +13,9 @@ import pytest
 
 class TestBinaryAnalysisTargeted:
     def test_analyze_elf_lief_full(self):
-        from app.services import binary_analysis_service as bas
         import lief
+
+        from app.services import binary_analysis_service as bas
 
         bas._ensure_lief()
         binary = MagicMock()
@@ -68,8 +69,9 @@ class TestBinaryAnalysisTargeted:
         assert out3["endianness"] == "big"
 
     def test_analyze_pe_and_macho_lief(self):
-        from app.services import binary_analysis_service as bas
         import lief
+
+        from app.services import binary_analysis_service as bas
 
         bas._ensure_lief()
         pe = MagicMock()

@@ -5,7 +5,7 @@ import asyncio
 import os
 import struct
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -16,8 +16,9 @@ import pytest
 class TestFuzzingTriagePrecision:
     @pytest.mark.asyncio
     async def test_triage_signal_matrix(self):
-        from app.services import fuzzing_service as fs
         import docker
+
+        from app.services import fuzzing_service as fs
 
         svc = fs.FuzzingService(AsyncMock())
         svc.db.flush = AsyncMock()
@@ -368,7 +369,7 @@ class TestUsnSrumJournalPrecision:
                 fn = getattr(m, name)
                 if callable(fn) and not asyncio.iscoroutinefunction(fn):
                     try:
-                        fn(datetime.now(timezone.utc))
+                        fn(datetime.now(UTC))
                     except Exception:
                         pass
                     try:

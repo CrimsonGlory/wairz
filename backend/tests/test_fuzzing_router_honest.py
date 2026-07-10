@@ -6,7 +6,7 @@ Targets every statement skeptic flagged as still-missing plus crash_input_hex
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -45,7 +45,7 @@ def _req() -> Request:
 
 
 def _campaign(cid: uuid.UUID, pid: uuid.UUID, status: str = "queued"):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return SimpleNamespace(
         id=cid,
         project_id=pid,
@@ -64,7 +64,7 @@ def _campaign(cid: uuid.UUID, pid: uuid.UUID, status: str = "queued"):
 
 
 def _crash(crid: uuid.UUID, cid: uuid.UUID, with_input: bool = True):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return SimpleNamespace(
         id=crid,
         campaign_id=cid,

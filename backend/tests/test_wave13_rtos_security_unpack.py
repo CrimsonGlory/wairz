@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── rtos_detection ───────────────────────────────────────────────────────────
 
 
@@ -180,8 +179,8 @@ class TestRtosDetectionResidual:
             assert endian == "little"
 
     def test_freertos_heap_and_tier_symbols(self):
-        from app.services.rtos_detection_service import _detect_freertos_heap
         from app.services import rtos_detection_service as rds
+        from app.services.rtos_detection_service import _detect_freertos_heap
 
         assert _detect_freertos_heap({"vPortDefineHeapRegions"}, []) == "heap_5"
         assert (
@@ -249,11 +248,12 @@ class TestSecurityResidualDeep:
             pass
         # PEM cert
         try:
+            import datetime as dt
+
             from cryptography import x509
             from cryptography.hazmat.primitives import hashes, serialization
             from cryptography.hazmat.primitives.asymmetric import rsa
             from cryptography.x509.oid import NameOID
-            import datetime as dt
 
             key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
             subject = issuer = x509.Name(

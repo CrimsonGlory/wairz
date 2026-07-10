@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── RTOS detection pure ──────────────────────────────────────────────────────
 
 
@@ -492,9 +491,10 @@ class TestGhidraResearchHelpers:
 
 class TestAppcompatParseMore:
     def test_parse_multi_entries(self):
-        from app.services import appcompat_walker as aw
         import struct
         from datetime import UTC, datetime
+
+        from app.services import appcompat_walker as aw
 
         blob = bytearray(b"\x00" * 0x400)
         blob[0x30:0x34] = b"10ts"

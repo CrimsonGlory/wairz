@@ -11,7 +11,7 @@ hooks (prefetch, journald).
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -35,7 +35,6 @@ from app.services.finding_service import (
     classify_systemd_findings,
     classify_usnjrnl_findings,
 )
-
 
 # ── defensive / small helpers ────────────────────────────────────────────────
 
@@ -421,7 +420,7 @@ def test_classify_appcompat_suspicious_and_temp():
 
 
 def test_classify_appcompat_recent_baseline_mru():
-    recent = datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=2)
+    recent = datetime.utcnow().replace(tzinfo=UTC) - timedelta(days=2)
     drafts = classify_appcompat_findings(
         file_path=r"C:\Windows\System32\cmd.exe",
         insertion_position=3,
@@ -435,7 +434,7 @@ def test_classify_appcompat_recent_baseline_mru():
 
 
 def test_classify_appcompat_old_mru_skips_baseline():
-    old = datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=90)
+    old = datetime.utcnow().replace(tzinfo=UTC) - timedelta(days=90)
     drafts = classify_appcompat_findings(
         file_path=r"C:\Windows\System32\cmd.exe",
         insertion_position=1,
@@ -469,7 +468,7 @@ def test_classify_dpapi_all_three_flags():
         file_size_bytes=4096,
         hmac_iterations=8000,
         salt_size=16,
-        last_modified_ts=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        last_modified_ts=datetime(2024, 1, 1, tzinfo=UTC),
         source_file_path=r"C:\Users\x\AppData\Roaming\Microsoft\Protect\S-1-5\guid",
         anomaly_flags={
             "orphaned_masterkey": True,
@@ -509,7 +508,7 @@ def test_classify_usnjrnl_temp_create_delete_pair():
         usn=100,
         file_name="payload.exe",
         parent_path=r"C:\Users\x\AppData\Local\Temp",
-        timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2024, 1, 1, tzinfo=UTC),
         reason_flags={"file_create": True, "file_delete": True, "_raw": 1},
         source_file_path=r"\\.\C:",
         in_temp_path=True,
@@ -1179,7 +1178,7 @@ async def test_emit_dpapi_findings_from_walk_with_mock_rows():
 
 @pytest.mark.asyncio
 async def test_emit_usnjrnl_findings_from_walk_deletion():
-    ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    ts = datetime(2024, 1, 1, tzinfo=UTC)
     record = SimpleNamespace(
         usn=1,
         file_name="x.exe",

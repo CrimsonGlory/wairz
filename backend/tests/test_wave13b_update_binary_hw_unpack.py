@@ -16,7 +16,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── update_mechanism ─────────────────────────────────────────────────────────
 
 
@@ -236,8 +235,9 @@ class TestBinaryAnalysisDeep:
         assert isinstance(r3, dict)
 
     def test_analyze_elf_lief_mocked(self):
-        from app.services import binary_analysis_service as bas
         import lief
+
+        from app.services import binary_analysis_service as bas
 
         binary = MagicMock()
         binary.header.machine_type = lief.ELF.ARCH.ARM

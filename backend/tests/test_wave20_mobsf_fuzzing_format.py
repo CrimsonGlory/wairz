@@ -15,7 +15,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── MobSF runner ─────────────────────────────────────────────────────────────
 
 
@@ -186,8 +185,9 @@ class TestMobsfRunnerDeep:
 
     @pytest.mark.asyncio
     async def test_upload_scan_report_direct(self, tmp_path: Path):
-        from app.services import mobsf_runner as mr
         import sys
+
+        from app.services import mobsf_runner as mr
 
         apk = tmp_path / "b.apk"
         apk.write_bytes(b"PK" + b"\x00" * 20)
@@ -626,8 +626,9 @@ class TestFuzzingResidual:
 
     @pytest.mark.asyncio
     async def test_stop_sync_cleanup_paths(self):
-        from app.services import fuzzing_service as fs
         import docker
+
+        from app.services import fuzzing_service as fs
 
         svc = fs.FuzzingService(AsyncMock())
         svc.db.flush = AsyncMock()

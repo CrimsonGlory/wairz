@@ -52,7 +52,10 @@ class TestSecurityAuditOrchestrator:
 
         # force scanner exception path
         if hasattr(orch, "SCANNERS") and isinstance(orch.SCANNERS, dict):
-            boom = lambda root, findings: (_ for _ in ()).throw(RuntimeError("x"))
+
+            def boom(root, findings):
+                raise RuntimeError("x")
+
             with patch.dict(orch.SCANNERS, {"boom": boom}):
                 for name in ("run_security_audit", "run_scan", "scan_firmware", "run", "run_security_scan"):
                     fn = getattr(orch, name, None)

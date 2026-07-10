@@ -15,7 +15,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── file_format resolver ─────────────────────────────────────────────────────
 
 
@@ -254,11 +253,12 @@ class TestQualcommMbnResidual:
 
         # try real cert if cryptography present
         try:
+            from datetime import UTC, datetime, timedelta
+
             from cryptography import x509
             from cryptography.hazmat.primitives import hashes, serialization
             from cryptography.hazmat.primitives.asymmetric import rsa
             from cryptography.x509.oid import NameOID
-            from datetime import UTC, datetime, timedelta
 
             key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
             name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "mbn-test")])

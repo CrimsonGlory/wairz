@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import stat
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -360,7 +360,7 @@ class TestSbomFilterRows:
             path=None,
             confidence="high",
             source="x",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         result = MagicMock()
         result.all.return_value = [(comp, 2)]

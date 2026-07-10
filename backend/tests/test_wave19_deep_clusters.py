@@ -18,7 +18,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 
@@ -1928,14 +1927,14 @@ class TestBcdWave19:
 class TestToolsResidualWave19:
     @pytest.mark.asyncio
     async def test_strings_and_security(self, tmp_path: Path):
-        from app.ai.tools import strings as st
         from app.ai.tools import security as sec
+        from app.ai.tools import strings as st
 
         # subprocess timeout path
         if hasattr(st, "_run_subprocess"):
             with patch("asyncio.create_subprocess_exec") as cpe:
                 proc = AsyncMock()
-                proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+                proc.communicate = AsyncMock(side_effect=TimeoutError())
                 proc.kill = MagicMock()
                 cpe.return_value = proc
                 try:

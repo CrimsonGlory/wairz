@@ -1,10 +1,18 @@
+# Dense coverage-wave helpers intentionally use compact one-liners (try: …; except: …).
+# ruff: noqa: E701, E702
 
 from __future__ import annotations
-import asyncio, os, uuid, struct
+
+import asyncio
+import os
+import struct
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
+
 
 class TestFileServiceBlob:
     def test_blob_and_virtual(self, tmp_path: Path):

@@ -369,8 +369,9 @@ class TestUnpackApex:
                 pass
 
     def test_run_seven_z_helper(self, tmp_path: Path):
-        from app.workers import unpack_apex as ua
         import asyncio
+
+        from app.workers import unpack_apex as ua
 
         if not hasattr(ua, "_run_seven_z"):
             return

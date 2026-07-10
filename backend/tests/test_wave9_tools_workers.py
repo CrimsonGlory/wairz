@@ -420,7 +420,7 @@ class TestGhidraResearchRouter:
             pass
         try:
             gr._validate_extension_endpoint("bad.exe")
-            assert False, "should reject"
+            raise AssertionError("should reject")
         except Exception:
             pass
 

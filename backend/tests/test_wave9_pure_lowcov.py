@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── version_normalize (0%) ───────────────────────────────────────────────────
 
 
@@ -84,7 +83,7 @@ class TestSystemPrompt:
 
 class TestKernelSelection:
     def test_find_kernel_paths(self, tmp_path: Path):
-        from app.services.emulation.kernel_selection import find_kernel, find_initrd
+        from app.services.emulation.kernel_selection import find_initrd, find_kernel
 
         kdir = tmp_path / "kernels"
         kdir.mkdir()

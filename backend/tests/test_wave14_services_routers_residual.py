@@ -15,7 +15,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── update_mechanism residual ────────────────────────────────────────────────
 
 
@@ -233,8 +232,9 @@ class TestFirmwareRouterResidual:
 
     @pytest.mark.asyncio
     async def test_endpoints_mocked(self, tmp_path: Path):
-        from app.routers import firmware as fr
         from fastapi import HTTPException
+
+        from app.routers import firmware as fr
 
         pid = uuid.uuid4()
         fid = uuid.uuid4()

@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.tool_registry import ToolRegistry
 from app.ai.tools import ghidra_research as gr
 from app.ai.tools.ghidra_research import (
     _handle_export_ghidra_archive,
@@ -24,7 +25,6 @@ from app.ai.tools.ghidra_research import (
     _handle_save_ghidra_script,
     register_ghidra_research_tools,
 )
-from app.ai.tool_registry import ToolRegistry
 from app.models import Firmware, Project
 from app.routers import terminal as term
 from tests._live_db import make_live_db

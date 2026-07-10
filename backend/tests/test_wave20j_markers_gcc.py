@@ -11,10 +11,10 @@ from app.services.sbom.strategies.base import StrategyContext
 
 class TestFirmwareMarkersFull:
     def test_all_markers(self, tmp_path: Path):
+        from app.services.sbom.constants import FIRMWARE_MARKERS
         from app.services.sbom.strategies.firmware_markers_strategy import (
             FirmwareMarkersStrategy,
         )
-        from app.services.sbom.constants import FIRMWARE_MARKERS
 
         root = tmp_path / "r"
         for distro, paths in FIRMWARE_MARKERS.items():

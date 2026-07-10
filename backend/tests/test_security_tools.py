@@ -10,6 +10,7 @@ import os
 import stat
 import uuid
 from dataclasses import dataclass, field
+from datetime import UTC
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -21,7 +22,6 @@ from app.ai.tool_registry import ToolRegistry
 from app.ai.tools import security as sec
 from app.ai.tools.security import (
     _get_limit,
-    _rel,
     _handle_analyze_certificate,
     _handle_analyze_config_security,
     _handle_analyze_init_scripts,
@@ -58,6 +58,7 @@ from app.ai.tools.security import (
     _handle_shellcheck_scan,
     _handle_update_cra_requirement,
     _handle_update_yara_rules,
+    _rel,
     register_security_tools,
 )
 from app.models import Firmware, Project
@@ -811,7 +812,7 @@ def _make_weak_pem() -> bytes:
         x509.NameAttribute(NameOID.COMMON_NAME, "*.test.local"),
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Android Debug"),
     ])
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cert = (
         x509.CertificateBuilder()
         .subject_name(subject)
