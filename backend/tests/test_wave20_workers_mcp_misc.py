@@ -89,34 +89,49 @@ class TestUnpackCommonResidual:
         nested = tmp_path / "nested.tar.gz"
         nested.write_bytes(b"\x1f\x8b" + b"\x00" * 40)
 
-        for name in dir(uc):
-            if name.startswith("__"):
-                continue
-            fn = getattr(uc, name)
-            if not callable(fn) or asyncio.iscoroutinefunction(fn):
-                continue
-            for args in (
-                (str(tmp_path),),
-                (str(tmp_path), 3),
-                (str(tmp_path), []),
-                (str(nested), str(tmp_path / "out")),
-                (b"\x00" * 16,),
-                (str(tmp_path / "bin" / "busybox"),),
-            ):
-                try:
-                    fn(*args)
-                    break
-                except TypeError:
-                    continue
-                except Exception:
-                    break
+        # Residual calls exercise real extractors that redirect stdio / spawn
+        # CLI tools. Mock subprocess so CI teardown does not hit OSError EBADF
+        # on pytest-asyncio's event-loop self-pipe (seen on main after body pass).
+        fake_proc = MagicMock(returncode=1, stdout=b"", stderr=b"mock")
+        with (
+            patch.object(uc, "_subprocess") as mock_sp,
+            patch("subprocess.run", return_value=fake_proc),
+            patch("subprocess.Popen", side_effect=OSError("no spawn in residual test")),
+        ):
+            mock_sp.run.return_value = fake_proc
+            mock_sp.Popen.side_effect = OSError("no spawn in residual test")
+            mock_sp.PIPE = -1
+            mock_sp.STDOUT = -2
+            mock_sp.DEVNULL = -3
 
-        # reset extraction dir helper
-        if hasattr(uc, "reset_extraction_dir_sync"):
-            ed = tmp_path / "extract"
-            ed.mkdir()
-            (ed / "x").write_text("y")
-            uc.reset_extraction_dir_sync(str(ed))
+            for name in dir(uc):
+                if name.startswith("__"):
+                    continue
+                fn = getattr(uc, name)
+                if not callable(fn) or asyncio.iscoroutinefunction(fn):
+                    continue
+                for args in (
+                    (str(tmp_path),),
+                    (str(tmp_path), 3),
+                    (str(tmp_path), []),
+                    (str(nested), str(tmp_path / "out")),
+                    (b"\x00" * 16,),
+                    (str(tmp_path / "bin" / "busybox"),),
+                ):
+                    try:
+                        fn(*args)
+                        break
+                    except TypeError:
+                        continue
+                    except Exception:
+                        break
+
+            # reset extraction dir helper
+            if hasattr(uc, "reset_extraction_dir_sync"):
+                ed = tmp_path / "extract"
+                ed.mkdir()
+                (ed / "x").write_text("y")
+                uc.reset_extraction_dir_sync(str(ed))
 
 
 class TestMcpServerResidual:

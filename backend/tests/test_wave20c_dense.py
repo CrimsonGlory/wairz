@@ -230,30 +230,67 @@ class TestUnpackCommonDense:
         # encrypted-looking
         (root / "secret.enc").write_bytes(b"Salted__" + b"\x00" * 100)
 
-        for name in dir(uc):
-            if name.startswith("__"):
-                continue
-            fn = getattr(uc, name)
-            if not callable(fn) or asyncio.iscoroutinefunction(fn):
-                continue
-            for args in (
-                (str(root),),
-                (str(root), 3),
-                (str(root), 4),
-                (str(root), []),
-                (str(root), {}, []),
-                (str(tmp_path / "nested.tar.gz"), str(root / "out")),
-                (str(root / "big.bin"),),
-                (b"\x00" * 32,),
-                (str(root), str(root)),
+        # Same FD / subprocess hardening as TestUnpackCommonResidual.test_helpers —
+        # residual brute-force can close stdio or event-loop pipes and leave
+        # pytest-asyncio teardown with OSError EBADF.
+        saved_fds: list[int | None] = []
+        for i in range(3):
+            try:
+                saved_fds.append(os.dup(i))
+            except OSError:
+                saved_fds.append(None)
+        fake_proc = MagicMock(returncode=1, stdout=b"", stderr=b"mock")
+        try:
+            with (
+                patch.object(uc, "_subprocess") as mock_sp,
+                patch("subprocess.run", return_value=fake_proc),
+                patch(
+                    "subprocess.Popen",
+                    side_effect=OSError("no spawn in dense residual test"),
+                ),
             ):
-                try:
-                    fn(*args)
-                    break
-                except TypeError:
+                mock_sp.run.return_value = fake_proc
+                mock_sp.Popen.side_effect = OSError("no spawn in dense residual test")
+                mock_sp.PIPE = -1
+                mock_sp.STDOUT = -2
+                mock_sp.DEVNULL = -3
+
+                for name in dir(uc):
+                    if name.startswith("__"):
+                        continue
+                    fn = getattr(uc, name)
+                    if not callable(fn) or asyncio.iscoroutinefunction(fn):
+                        continue
+                    for args in (
+                        (str(root),),
+                        (str(root), 3),
+                        (str(root), 4),
+                        (str(root), []),
+                        (str(root), {}, []),
+                        (str(tmp_path / "nested.tar.gz"), str(root / "out")),
+                        (str(root / "big.bin"),),
+                        (b"\x00" * 32,),
+                        (str(root), str(root)),
+                    ):
+                        try:
+                            fn(*args)
+                            break
+                        except TypeError:
+                            continue
+                        except Exception:
+                            break
+        finally:
+            for i, fd in enumerate(saved_fds):
+                if fd is None:
                     continue
-                except Exception:
-                    break
+                try:
+                    os.dup2(fd, i)
+                except OSError:
+                    pass
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
 
 
 class TestSrumUsnDense:
