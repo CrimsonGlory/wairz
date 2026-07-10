@@ -14,7 +14,7 @@
 # ---------------------------------------------------------------------------
 # Builder stage: cross-compile libnvram for all target architectures
 # ---------------------------------------------------------------------------
-FROM ubuntu:22.04 AS libnvram-builder
+FROM ubuntu:26.04 AS libnvram-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -47,7 +47,7 @@ RUN mkdir -p /out && \
 # ---------------------------------------------------------------------------
 # Runtime stage
 # ---------------------------------------------------------------------------
-FROM ubuntu:22.04
+FROM ubuntu:26.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV FIRMAE_DIR=/opt/FirmAE
