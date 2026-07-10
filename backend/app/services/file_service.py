@@ -238,6 +238,20 @@ class FileService:
                 f"{self.firmware_basename} is exposed for this project"
             )
 
+        # Carving sandbox outputs live outside the extraction tree but are
+        # surfaced at /_carved/... so the agent's carved files are visible
+        # to read_file, extract_strings, decompile_function, etc. This must
+        # be checked BEFORE the blob-only branch below: RTOS/bare-metal
+        # projects have no rootfs (is_blob_only=True) but still carve blobs
+        # (e.g. a Cortex-M segment) into the carved dir, and those artifacts
+        # need to reach the binary-analysis tools just like on Linux.
+        if self.carved_path and (
+            clean == self.CARVED_VNAME
+            or clean.startswith(self.CARVED_VNAME + "/")
+        ):
+            sub = clean[len(self.CARVED_VNAME):]
+            return validate_path(self.carved_path, sub or "/")
+
         # Blob-only mode (RTOS without a rootfs): be forgiving about how
         # callers spell the firmware path. "/", "" and the bare basename
         # all resolve to the firmware blob — same effect as
@@ -252,18 +266,9 @@ class FileService:
             raise PathTraversalError(
                 f"Path traversal detected: this project has no rootfs — "
                 f"use /{self.FIRMWARE_VNAME}/{self.firmware_basename} or "
-                f"/{self.firmware_basename}"
+                f"/{self.firmware_basename} (or /{self.CARVED_VNAME}/... "
+                f"for carved artifacts)"
             )
-
-        # Carving sandbox outputs live outside the extraction tree but are
-        # surfaced at /_carved/... so the agent's carved files are visible
-        # to read_file, extract_strings, decompile_function, etc.
-        if self.carved_path and (
-            clean == self.CARVED_VNAME
-            or clean.startswith(self.CARVED_VNAME + "/")
-        ):
-            sub = clean[len(self.CARVED_VNAME):]
-            return validate_path(self.carved_path, sub or "/")
 
         if self.extraction_dir is None:
             return validate_path(self.extracted_root, path)
