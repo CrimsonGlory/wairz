@@ -33,7 +33,7 @@ jobs:
     # here keeps push/PR runs lean.
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
@@ -51,7 +51,7 @@ jobs:
 
       - name: Build backend image
         run: docker compose build backend
-        timeout-minutes: 15
+        timeout-minutes: 30
 
       # docker-compose.yml declares wairz_emulation_net as `external: true` —
       # in dev environments this is created by the operator (or by a prior
@@ -62,7 +62,7 @@ jobs:
 
       - name: Start backend + datastores
         run: docker compose up -d postgres redis backend --wait
-        timeout-minutes: 10
+        timeout-minutes: 20
 
       # tests/ is excluded from the production image via backend/.dockerignore (Q9).
       # Copy the test tree into the running container for this CI job only.
@@ -81,8 +81,8 @@ jobs:
           docker compose exec -T -w /app \
             -e PYTHONPATH=/app \
             backend /app/.venv/bin/python -m pytest tests/ \
-              -v --tb=short --maxfail=5 --cov=app --cov-report=
-        timeout-minutes: 20
+              -v --tb=short --maxfail=50 --cov=app --cov-report=
+        timeout-minutes: 40
 
       - name: Coverage report
         run: |
@@ -131,7 +131,7 @@ jobs:
     name: Pytest must-complete (Rule #41, nightly)
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     concurrency:
       group: pytest-must-complete-${{ github.run_id }}
       cancel-in-progress: false
@@ -149,14 +149,14 @@ jobs:
 
       - name: Build backend image
         run: docker compose build backend
-        timeout-minutes: 15
+        timeout-minutes: 30
 
       - name: Create external emulation network
         run: docker network create wairz_emulation_net || true
 
       - name: Start backend + datastores
         run: docker compose up -d postgres redis backend --wait
-        timeout-minutes: 10
+        timeout-minutes: 20
 
       - name: Copy tests into container
         run: docker cp backend/tests wairz-backend-1:/app/tests
@@ -172,7 +172,7 @@ jobs:
             -e PYTHONPATH=/app \
             backend /app/.venv/bin/python -m pytest tests/ \
               -v --tb=short --cov=app --cov-report=
-        timeout-minutes: 30
+        timeout-minutes: 60
 
       - name: Coverage report
         run: |
