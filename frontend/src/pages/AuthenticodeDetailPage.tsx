@@ -166,7 +166,7 @@ function CollapsibleSection({
 }
 
 function JsonBlock({ value }: { value: unknown }) {
-  let pretty = '—'
+  let pretty: string
   try {
     pretty = JSON.stringify(value, null, 2)
   } catch {
