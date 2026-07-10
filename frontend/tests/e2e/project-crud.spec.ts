@@ -63,9 +63,17 @@ test.describe('Project CRUD', () => {
     await page.goto('/projects');
     await dismissDisclaimer(page);
 
-    // Click into the project
-    await page.getByText(projectName).first().click();
-    await expect(page).toHaveURL(/\/projects\/[a-f0-9-]+$/);
+    // Open the project via its list card/link (avoid matching sidebar text)
+    const projectLink = page
+      .getByRole('main')
+      .getByRole('link', { name: new RegExp(projectName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) })
+      .first();
+    if (await projectLink.isVisible().catch(() => false)) {
+      await projectLink.click();
+    } else {
+      await page.getByRole('main').getByText(projectName).first().click();
+    }
+    await expect(page).toHaveURL(/\/projects\/[a-f0-9-]+$/, { timeout: 15000 });
 
     // Verify key elements are present (banner also has h1 "Projects")
     await expect(
@@ -81,9 +89,12 @@ test.describe('Project CRUD', () => {
       page.getByText('Upload Firmware').first(),
     ).toBeVisible();
 
-    // Back button should work
-    await page.getByRole('link', { name: 'Back' }).click();
-    await expect(page).toHaveURL('/projects');
+    // Back control should return to the projects list (link or button)
+    const back = page.getByRole('link', { name: /back/i }).or(
+      page.getByRole('button', { name: /back/i }),
+    );
+    await back.first().click();
+    await expect(page).toHaveURL(/\/projects\/?$/, { timeout: 10000 });
   });
 
   test('create project with empty name is prevented', async ({ page }) => {

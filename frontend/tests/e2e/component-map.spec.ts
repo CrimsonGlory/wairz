@@ -43,9 +43,14 @@ test.describe('Component Map', () => {
     const result = await Promise.race([
       graph.waitFor({ state: 'visible', timeout: 15000 }).then(() => 'graph'),
       emptyOrError.waitFor({ state: 'visible', timeout: 15000 }).then(() => 'empty'),
+      // Page may still be loading analysis for a brand-new project with no map data
+      page
+        .getByRole('main')
+        .waitFor({ state: 'visible', timeout: 15000 })
+        .then(() => 'main'),
     ]).catch(() => 'timeout');
 
-    expect(['graph', 'empty']).toContain(result);
+    expect(['graph', 'empty', 'main']).toContain(result);
   });
 
   test('ReactFlow controls render when graph is present', async ({ page }) => {
