@@ -34,3 +34,6 @@ site/
 
 # Docker
 docker-compose.override.yml
+
+# Local-only planning docs
+enterprise/PLAN.md
