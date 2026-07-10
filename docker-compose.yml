@@ -37,7 +37,7 @@ services:
       args:
         DOCKER_GID: "${DOCKER_GID:-999}"
     ports:
-      - "127.0.0.1:8000:8000"
+      - "${BIND_ADDR:-127.0.0.1}:8000:8000"
     env_file:
       - .env
     environment:
@@ -120,7 +120,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "127.0.0.1:3000:3000"
+      - "${BIND_ADDR:-127.0.0.1}:3000:3000"
     env_file:
       - .env
     depends_on:

@@ -1,5 +1,7 @@
+import ipaddress
 import os
 from contextlib import asynccontextmanager
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -54,8 +56,38 @@ def _csv(value: str) -> list[str]:
 
 _HOST_WILDCARD = "*" in _csv(_guard_settings.allowed_hosts)
 _ORIGIN_WILDCARD = "*" in _csv(_guard_settings.allowed_origins)
+_TRUST_PRIVATE = _guard_settings.guard_trust_private_network
 ALLOWED_HOSTS |= {h for h in _csv(_guard_settings.allowed_hosts) if h != "*"}
 ALLOWED_ORIGINS.extend(o for o in _csv(_guard_settings.allowed_origins) if o != "*")
+
+
+def _hostname_ip(hostname: str):
+    """Parse a bare hostname (no port, no brackets) into an ip_address, or None
+    if it isn't a literal IP (e.g. a DNS name)."""
+    try:
+        return ipaddress.ip_address(hostname)
+    except ValueError:
+        return None
+
+
+def _split_authority(authority: str) -> str:
+    """Return the host portion of a `host[:port]` / `[v6]:port` authority,
+    lowercased and without brackets."""
+    authority = authority.strip().lower()
+    if authority.startswith("["):  # bracketed IPv6 literal, maybe with :port
+        end = authority.find("]")
+        return authority[1:end] if end != -1 else authority[1:]
+    if authority.count(":") == 1:  # host:port (IPv4 or DNS name)
+        return authority.rsplit(":", 1)[0]
+    return authority  # bare host, or a bare (unbracketed) IPv6 literal
+
+
+def _is_private_authority(authority: str) -> bool:
+    """True when the host of a Host header / Origin authority is a private,
+    loopback, or link-local IP address. DNS names never match (they can't be
+    rebound to a fixed private target without also passing the Origin check)."""
+    ip = _hostname_ip(_split_authority(authority))
+    return ip is not None and (ip.is_private or ip.is_loopback or ip.is_link_local)
 
 app.add_middleware(
     CORSMiddleware,
@@ -75,11 +107,18 @@ async def origin_host_guard(request: Request, call_next):
     if request.url.path == "/health":
         return await call_next(request)
     host = request.headers.get("host", "")
-    if not _HOST_WILDCARD and host not in ALLOWED_HOSTS:
+    host_ok = _HOST_WILDCARD or host in ALLOWED_HOSTS or (
+        _TRUST_PRIVATE and _is_private_authority(host)
+    )
+    if not host_ok:
         return JSONResponse(status_code=403, content={"detail": "host not allowed"})
     origin = request.headers.get("origin")
-    if origin and not _ORIGIN_WILDCARD and origin not in ALLOWED_ORIGINS:
-        return JSONResponse(status_code=403, content={"detail": "origin not allowed"})
+    if origin:
+        origin_ok = _ORIGIN_WILDCARD or origin in ALLOWED_ORIGINS or (
+            _TRUST_PRIVATE and _is_private_authority(urlsplit(origin).netloc)
+        )
+        if not origin_ok:
+            return JSONResponse(status_code=403, content={"detail": "origin not allowed"})
     return await call_next(request)
 
 

@@ -62,11 +62,19 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # Host/origin guard (app/main.py). Comma-separated extra entries. Empty =
-    # the built-in localhost set (the local desktop deploy, unchanged). "*"
-    # disables the corresponding check — appropriate when the API sits behind an
-    # authenticating proxy (ALB/CloudFront + Cognito) where Host varies.
+    # the built-in localhost set plus any private-network (RFC1918/loopback/
+    # link-local) address — so running Wairz on a LAN server and reaching it by
+    # IP works out of the box. "*" disables the corresponding check entirely —
+    # appropriate when the API sits behind an authenticating proxy
+    # (ALB/CloudFront + Cognito) where Host varies.
     allowed_hosts: str = ""
     allowed_origins: str = ""
+    # Auto-accept Host/Origin values whose host is a private-network IP
+    # (RFC1918, loopback, link-local) without listing each one in allowed_*.
+    # Default True restores the pre-hardening LAN-access behavior. Set False on
+    # a public-facing single-host deploy to keep only the explicit allowlist
+    # (tightest DNS-rebinding posture); a proxy deploy uses "*" instead.
+    guard_trust_private_network: bool = True
 
     # --- Compute backend (enterprise cloud deploy) ---------------------------
     # Where heavy Ghidra jobs run. "local" (default) spawns detached worker
