@@ -23,7 +23,7 @@ jobs:
     permissions:
       security-events: write  # Required for SARIF upload
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download firmware
         run: wget -q -O firmware.bin "${{ github.event.inputs.firmware-url }}"
