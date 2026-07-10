@@ -60,8 +60,10 @@ export async function ensureProjectExists(page: Page): Promise<string> {
   await page.goto('/projects');
   await dismissDisclaimer(page);
 
-  // Wait for either a project card or the empty-state text
-  const projectHeading = page.locator('h1').filter({ hasText: 'Projects' });
+  // Wait for the page heading (banner also has an h1 "Projects" — scope to main)
+  const projectHeading = page
+    .getByRole('main')
+    .getByRole('heading', { name: 'Projects', exact: true });
   await expect(projectHeading).toBeVisible({ timeout: 10000 });
 
   // Check if there are any project cards (links to /projects/<uuid>)
