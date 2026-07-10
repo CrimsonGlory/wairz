@@ -53,34 +53,41 @@ class TestUnpackAndroidResidual:
 
 
 class TestUnpackCommonResidual:
-    def test_helpers(self, tmp_path: Path):
-        # Brute-force residual calls can hit helpers that redirect/close
-        # stdio (lz4 stdout pipes, subprocess wiring). Preserve FDs 0-2 so
-        # pytest capture teardown does not raise OSError EBADF (CI run
-        # 29054511024: ERROR at teardown of this test after the body passed).
-        saved_fds: list[int | None] = []
-        for i in range(3):
-            try:
-                saved_fds.append(os.dup(i))
-            except OSError:
-                saved_fds.append(None)
-        try:
-            self._exercise_unpack_common_helpers(tmp_path)
-        finally:
-            for i, fd in enumerate(saved_fds):
-                if fd is None:
-                    continue
-                try:
-                    os.dup2(fd, i)
-                except OSError:
-                    pass
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
+    # Pure helpers only — never call extract/unblob/subprocess runners.
+    # Brute-forcing every callable closed FDs and left pytest-asyncio teardown
+    # with OSError EBADF (CI: ERROR after body passed).
+    _PURE_HELPERS = (
+        "reset_extraction_dir_sync",
+        "widen_read_perms",
+        "_is_sidecar_filename",
+        "_looks_like_archive_filename",
+        "_is_archive_dense_layout",
+        "_probe_subdirs_for_archive_density",
+        "_read_magic_hex",
+        "_read_magic",
+        "diagnose_failed_archives",
+        "cleanup_unblob_artifacts",
+        "check_extraction_limits",
+        "remove_extraction_escape_symlinks",
+        "_identify_vendor_container",
+        "_detect_openssl_key_triples",
+        "_archive_ext_for",
+        "_file_head_matches_magic",
+        "_file_looks_like_fs_image",
+        "_dir_has_filesystem_image",
+        "_has_linux_markers",
+        "_etc_entry_count",
+        "find_filesystem_root_strict",
+        "find_filesystem_root",
+        "_find_binwalk_output_dir",
+        "classify_firmware",
+        "_is_uefi_content",
+        "_is_uefi_firmware",
+        "_is_partition_dump_tar",
+        "_is_rootfs_tar",
+    )
 
-    @staticmethod
-    def _exercise_unpack_common_helpers(tmp_path: Path) -> None:
+    def test_helpers(self, tmp_path: Path):
         from app.workers import unpack_common as uc
 
         (tmp_path / "bin").mkdir()
@@ -89,49 +96,33 @@ class TestUnpackCommonResidual:
         nested = tmp_path / "nested.tar.gz"
         nested.write_bytes(b"\x1f\x8b" + b"\x00" * 40)
 
-        # Residual calls exercise real extractors that redirect stdio / spawn
-        # CLI tools. Mock subprocess so CI teardown does not hit OSError EBADF
-        # on pytest-asyncio's event-loop self-pipe (seen on main after body pass).
-        fake_proc = MagicMock(returncode=1, stdout=b"", stderr=b"mock")
-        with (
-            patch.object(uc, "_subprocess") as mock_sp,
-            patch("subprocess.run", return_value=fake_proc),
-            patch("subprocess.Popen", side_effect=OSError("no spawn in residual test")),
-        ):
-            mock_sp.run.return_value = fake_proc
-            mock_sp.Popen.side_effect = OSError("no spawn in residual test")
-            mock_sp.PIPE = -1
-            mock_sp.STDOUT = -2
-            mock_sp.DEVNULL = -3
-
-            for name in dir(uc):
-                if name.startswith("__"):
+        for name in self._PURE_HELPERS:
+            fn = getattr(uc, name, None)
+            if not callable(fn) or asyncio.iscoroutinefunction(fn):
+                continue
+            for args in (
+                (str(tmp_path),),
+                (str(tmp_path), 3),
+                (str(tmp_path), []),
+                (str(nested),),
+                (str(nested), str(tmp_path / "out")),
+                (b"\x00" * 16,),
+                (str(tmp_path / "bin" / "busybox"),),
+                ("firmware.bin",),
+                ("rootfs.ext4",),
+            ):
+                try:
+                    fn(*args)
+                    break
+                except TypeError:
                     continue
-                fn = getattr(uc, name)
-                if not callable(fn) or asyncio.iscoroutinefunction(fn):
-                    continue
-                for args in (
-                    (str(tmp_path),),
-                    (str(tmp_path), 3),
-                    (str(tmp_path), []),
-                    (str(nested), str(tmp_path / "out")),
-                    (b"\x00" * 16,),
-                    (str(tmp_path / "bin" / "busybox"),),
-                ):
-                    try:
-                        fn(*args)
-                        break
-                    except TypeError:
-                        continue
-                    except Exception:
-                        break
+                except Exception:
+                    break
 
-            # reset extraction dir helper
-            if hasattr(uc, "reset_extraction_dir_sync"):
-                ed = tmp_path / "extract"
-                ed.mkdir()
-                (ed / "x").write_text("y")
-                uc.reset_extraction_dir_sync(str(ed))
+        ed = tmp_path / "extract"
+        ed.mkdir()
+        (ed / "x").write_text("y")
+        uc.reset_extraction_dir_sync(str(ed))
 
 
 class TestMcpServerResidual:

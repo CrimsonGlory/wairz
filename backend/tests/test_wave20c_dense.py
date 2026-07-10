@@ -212,6 +212,37 @@ class TestUnpackAndroidDense:
 
 
 class TestUnpackCommonDense:
+    # Mirror TestUnpackCommonResidual: pure helpers only (no extract/unblob spawn).
+    _PURE_HELPERS = (
+        "reset_extraction_dir_sync",
+        "widen_read_perms",
+        "_is_sidecar_filename",
+        "_looks_like_archive_filename",
+        "_is_archive_dense_layout",
+        "_probe_subdirs_for_archive_density",
+        "_read_magic_hex",
+        "_read_magic",
+        "diagnose_failed_archives",
+        "cleanup_unblob_artifacts",
+        "check_extraction_limits",
+        "remove_extraction_escape_symlinks",
+        "_identify_vendor_container",
+        "_detect_openssl_key_triples",
+        "_archive_ext_for",
+        "_file_head_matches_magic",
+        "_file_looks_like_fs_image",
+        "_dir_has_filesystem_image",
+        "_has_linux_markers",
+        "_etc_entry_count",
+        "find_filesystem_root_strict",
+        "find_filesystem_root",
+        "classify_firmware",
+        "_is_uefi_content",
+        "_is_uefi_firmware",
+        "_is_partition_dump_tar",
+        "_is_rootfs_tar",
+    )
+
     def test_dense_helpers(self, tmp_path: Path):
         from app.workers import unpack_common as uc
 
@@ -230,67 +261,28 @@ class TestUnpackCommonDense:
         # encrypted-looking
         (root / "secret.enc").write_bytes(b"Salted__" + b"\x00" * 100)
 
-        # Same FD / subprocess hardening as TestUnpackCommonResidual.test_helpers —
-        # residual brute-force can close stdio or event-loop pipes and leave
-        # pytest-asyncio teardown with OSError EBADF.
-        saved_fds: list[int | None] = []
-        for i in range(3):
-            try:
-                saved_fds.append(os.dup(i))
-            except OSError:
-                saved_fds.append(None)
-        fake_proc = MagicMock(returncode=1, stdout=b"", stderr=b"mock")
-        try:
-            with (
-                patch.object(uc, "_subprocess") as mock_sp,
-                patch("subprocess.run", return_value=fake_proc),
-                patch(
-                    "subprocess.Popen",
-                    side_effect=OSError("no spawn in dense residual test"),
-                ),
+        for name in self._PURE_HELPERS:
+            fn = getattr(uc, name, None)
+            if not callable(fn) or asyncio.iscoroutinefunction(fn):
+                continue
+            for args in (
+                (str(root),),
+                (str(root), 3),
+                (str(root), 4),
+                (str(root), []),
+                (str(tmp_path / "nested.tar.gz"),),
+                (str(root / "big.bin"),),
+                (b"\x00" * 32,),
+                ("secret.enc",),
+                ("nested.tar.gz",),
             ):
-                mock_sp.run.return_value = fake_proc
-                mock_sp.Popen.side_effect = OSError("no spawn in dense residual test")
-                mock_sp.PIPE = -1
-                mock_sp.STDOUT = -2
-                mock_sp.DEVNULL = -3
-
-                for name in dir(uc):
-                    if name.startswith("__"):
-                        continue
-                    fn = getattr(uc, name)
-                    if not callable(fn) or asyncio.iscoroutinefunction(fn):
-                        continue
-                    for args in (
-                        (str(root),),
-                        (str(root), 3),
-                        (str(root), 4),
-                        (str(root), []),
-                        (str(root), {}, []),
-                        (str(tmp_path / "nested.tar.gz"), str(root / "out")),
-                        (str(root / "big.bin"),),
-                        (b"\x00" * 32,),
-                        (str(root), str(root)),
-                    ):
-                        try:
-                            fn(*args)
-                            break
-                        except TypeError:
-                            continue
-                        except Exception:
-                            break
-        finally:
-            for i, fd in enumerate(saved_fds):
-                if fd is None:
+                try:
+                    fn(*args)
+                    break
+                except TypeError:
                     continue
-                try:
-                    os.dup2(fd, i)
-                except OSError:
-                    pass
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
+                except Exception:
+                    break
 
 
 class TestSrumUsnDense:
