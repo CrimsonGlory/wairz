@@ -55,10 +55,6 @@ _ARCH_ALIASES = {
 
 _VALID_ENDIAN = frozenset({"little", "big"})
 
-# Must match Settings.storage_root default (config.py). Plain string literal so
-# CodeQL path-injection can treat it as a trusted prefix at isdir/isfile sinks.
-_STORAGE_ROOT = "/data/firmware"
-
 
 class UnpackControlError(ValueError):
     """Raised for invalid manual unpack-control input (bad arch, path, etc.)."""
@@ -162,16 +158,10 @@ class UnpackControlService:
 
     async def set_rootfs(self, firmware: Firmware, path: str) -> Firmware:
         candidate = _resolve_within_tree(firmware, path)
-        # Re-assert sandbox barrier at the sink so path-injection analysis
-        # sees realpath + prefix check in the same function as isdir.
-        # Literal _STORAGE_ROOT is for CodeQL; firmware root is defense-in-depth.
+        # Re-assert sandbox barrier at the sink: realpath + prefix check
+        # against this firmware's storage tree (same function as isdir).
         root = os.path.realpath(_firmware_root(firmware))  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         real = os.path.realpath(candidate)  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
-        if real != _STORAGE_ROOT and not real.startswith(_STORAGE_ROOT + os.sep):
-            raise UnpackControlError(
-                f"path '{path}' resolves outside the firmware storage root "
-                f"and was rejected"
-            )
         if real != root and not real.startswith(root + os.sep):
             raise UnpackControlError(
                 f"path '{path}' resolves outside the firmware's storage "
@@ -195,16 +185,10 @@ class UnpackControlService:
 
     async def set_kernel(self, firmware: Firmware, path: str) -> Firmware:
         candidate = _resolve_within_tree(firmware, path)
-        # Re-assert sandbox barrier at the sink so path-injection analysis
-        # sees realpath + prefix check in the same function as isfile.
-        # Literal _STORAGE_ROOT is for CodeQL; firmware root is defense-in-depth.
+        # Re-assert sandbox barrier at the sink: realpath + prefix check
+        # against this firmware's storage tree (same function as isfile).
         root = os.path.realpath(_firmware_root(firmware))  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         real = os.path.realpath(candidate)  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
-        if real != _STORAGE_ROOT and not real.startswith(_STORAGE_ROOT + os.sep):
-            raise UnpackControlError(
-                f"path '{path}' resolves outside the firmware storage root "
-                f"and was rejected"
-            )
         if real != root and not real.startswith(root + os.sep):
             raise UnpackControlError(
                 f"path '{path}' resolves outside the firmware's storage "
