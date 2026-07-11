@@ -3,12 +3,8 @@
 Hits OSError / skip branches in walk_* helpers and pure predicates that
 remain on the Missing list after earlier waves.
 """
-from __future__ import annotations
 
 import os
-from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import patch
 
 import pytest
 
@@ -19,6 +15,16 @@ if os.environ.get("CI", "").lower() in ("1", "true", "yes"):
         "wave residual suites skip under CI full-suite (event-loop cascade)",
         allow_module_level=True,
     )
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import pytest
+
 
 class TestBcdWalkResidual:
     def test_walk_bcd_skip_branches(self, tmp_path: Path):

@@ -1,10 +1,6 @@
 """Wave 20h: BinaryStringsStrategy + BCD ImportError + so_files residual."""
-from __future__ import annotations
 
 import os
-from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import patch
 
 import pytest
 
@@ -15,6 +11,16 @@ if os.environ.get("CI", "").lower() in ("1", "true", "yes"):
         "wave residual suites skip under CI full-suite (event-loop cascade)",
         allow_module_level=True,
     )
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import pytest
+
 
 class TestBinaryStringsStrategyProper:
     def test_run_with_real_ctx(self, tmp_path: Path):

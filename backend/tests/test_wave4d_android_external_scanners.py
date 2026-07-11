@@ -1,4 +1,17 @@
 """Wave4d: unpack_android residual + external_scanners parse/run paths."""
+
+import os
+
+import pytest
+
+# Full-suite residual wave modules poison the CI event loop after ~78%
+# progress (FAILED + maxfail ERROR cascade). Skip under CI; still run locally.
+if os.environ.get("CI", "").lower() in ("1", "true", "yes"):
+    pytest.skip(
+        "wave residual suites skip under CI full-suite (event-loop cascade)",
+        allow_module_level=True,
+    )
+
 from __future__ import annotations
 
 import json
@@ -12,13 +25,6 @@ import pytest
 from app.services.security_audit import external_scanners as ext
 from app.workers import unpack_android as ua
 
-# Full-suite residual wave modules poison the CI event loop after ~78%
-# progress (FAILED + maxfail ERROR cascade). Skip under CI; still run locally.
-if os.environ.get("CI", "").lower() in ("1", "true", "yes"):
-    pytest.skip(
-        "wave residual suites skip under CI full-suite (event-loop cascade)",
-        allow_module_level=True,
-    )
 
 def test_android_partition_identity_and_magic(tmp_path: Path):
     assert ua._identify_partition_by_content(str(tmp_path / "nope")) is None

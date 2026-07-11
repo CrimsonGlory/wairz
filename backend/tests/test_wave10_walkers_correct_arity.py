@@ -4,6 +4,19 @@ Prior waves called keyword-only helpers with positional args and swallowed
 TypeError, leaving ~150 miss lines each in the walk bodies. This module
 invokes the real production signatures with full mocks of regipy / dissect.
 """
+
+import os
+
+import pytest
+
+# Full-suite residual wave modules poison the CI event loop after ~78%
+# progress (FAILED + maxfail ERROR cascade). Skip under CI; still run locally.
+if os.environ.get("CI", "").lower() in ("1", "true", "yes"):
+    pytest.skip(
+        "wave residual suites skip under CI full-suite (event-loop cascade)",
+        allow_module_level=True,
+    )
+
 from __future__ import annotations
 
 import os
@@ -20,13 +33,6 @@ import pytest
 
 
 
-# Full-suite residual wave10 modules poison the CI event loop after ~78%
-# progress (FAILED + maxfail ERROR cascade). Skip under CI; still run locally.
-if os.environ.get("CI", "").lower() in ("1", "true", "yes"):
-    pytest.skip(
-        "wave10 residual suites skip under CI full-suite (event-loop cascade)",
-        allow_module_level=True,
-    )
 
 class TestAppcompatWalkOneCorrect:
     def test_stat_error_and_oversize(self, tmp_path: Path):

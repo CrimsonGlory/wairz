@@ -1,10 +1,6 @@
 """Wave 20g: correct API signatures for remaining low-cover residual."""
-from __future__ import annotations
 
 import os
-from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -15,6 +11,16 @@ if os.environ.get("CI", "").lower() in ("1", "true", "yes"):
         "wave residual suites skip under CI full-suite (event-loop cascade)",
         allow_module_level=True,
     )
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 
 class TestOrchestratorCorrect:
     def test_run_security_audit_apis(self, tmp_path: Path):

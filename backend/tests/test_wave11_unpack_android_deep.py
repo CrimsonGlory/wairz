@@ -1,10 +1,6 @@
 """Wave 11: unpack_android super-scan loop, sparsechunk recovery, OTA simg2img paths."""
-from __future__ import annotations
 
 import os
-import struct
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -15,6 +11,16 @@ if os.environ.get("CI", "").lower() in ("1", "true", "yes"):
         "wave residual suites skip under CI full-suite (event-loop cascade)",
         allow_module_level=True,
     )
+
+from __future__ import annotations
+
+import os
+import struct
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 
 EXT4_MAGIC = b"\x53\xef"
 EROFS_MAGIC = b"\xe2\xe1\xf5\xe0"

@@ -3,6 +3,19 @@
 Targets vulnerability_service helpers, ghidra_service pure parsers/builders,
 device_service partition helpers, and residual unpack_common extract helpers.
 """
+
+import os
+
+import pytest
+
+# Full-suite residual wave modules poison the CI event loop after ~78%
+# progress (FAILED + maxfail ERROR cascade). Skip under CI; still run locally.
+if os.environ.get("CI", "").lower() in ("1", "true", "yes"):
+    pytest.skip(
+        "wave residual suites skip under CI full-suite (event-loop cascade)",
+        allow_module_level=True,
+    )
+
 from __future__ import annotations
 
 import io
@@ -27,13 +40,6 @@ from app.workers import unpack_common as uc
 
 
 
-# Full-suite residual wave modules poison the CI event loop after ~78%
-# progress (FAILED + maxfail ERROR cascade). Skip under CI; still run locally.
-if os.environ.get("CI", "").lower() in ("1", "true", "yes"):
-    pytest.skip(
-        "wave residual suites skip under CI full-suite (event-loop cascade)",
-        allow_module_level=True,
-    )
 
 class TestVulnerabilityHelpers:
     def test_cvss_to_severity_bands(self):

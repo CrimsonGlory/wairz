@@ -1,11 +1,6 @@
 """Wave 20i: easy low-cover modules for bulk miss reduction."""
-from __future__ import annotations
 
 import os
-import uuid
-from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -16,6 +11,17 @@ if os.environ.get("CI", "").lower() in ("1", "true", "yes"):
         "wave residual suites skip under CI full-suite (event-loop cascade)",
         allow_module_level=True,
     )
+
+from __future__ import annotations
+
+import os
+import uuid
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 
 class TestChatSchema:
     def test_all_models(self):
