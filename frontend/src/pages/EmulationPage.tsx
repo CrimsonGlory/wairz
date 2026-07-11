@@ -48,6 +48,7 @@ type PageTab = 'user' | 'system-firmae'
 
 export default function EmulationPage() {
   const { projectId } = useParams<{ projectId: string }>()
+  const activeFirmwareId = useProjectStore((s) => s.activeFirmwareId)
   const [searchParams, setSearchParams] = useSearchParams()
   const selectedFirmwareId = useProjectStore((s) => s.selectedFirmwareId)
   const { firmwareList } = useFirmwareList(projectId)

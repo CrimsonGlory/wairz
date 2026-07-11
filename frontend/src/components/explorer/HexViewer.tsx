@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { readFile } from '@/api/files'
+import { useExplorerStore } from '@/stores/explorerStore'
 
 const CHUNK_SIZE = 4096
 const BYTES_PER_ROW = 16
@@ -55,6 +56,7 @@ function interpretValues(bytes: Uint8Array): string[] {
 }
 
 export default function HexViewer({ projectId, filePath, fileSize }: HexViewerProps) {
+  const firmwareId = useExplorerStore((s) => s.firmwareId)
   const [data, setData] = useState<Uint8Array | null>(null)
   const [currentPage, setCurrentPage] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -75,7 +77,7 @@ export default function HexViewer({ projectId, filePath, fileSize }: HexViewerPr
     setSelEnd(null)
 
     const offset = currentPage * CHUNK_SIZE
-    readFile(projectId, filePath, offset, CHUNK_SIZE, 'base64')
+    readFile(projectId, filePath, offset, CHUNK_SIZE, 'base64', firmwareId ?? undefined)
       .then((result) => {
         if (!cancelled) {
           setData(decodeBase64(result.content))
@@ -92,7 +94,7 @@ export default function HexViewer({ projectId, filePath, fileSize }: HexViewerPr
     return () => {
       cancelled = true
     }
-  }, [projectId, filePath, currentPage, fileSize])
+  }, [projectId, filePath, currentPage, fileSize, firmwareId])
 
   // End selection on global mouseup
   useEffect(() => {

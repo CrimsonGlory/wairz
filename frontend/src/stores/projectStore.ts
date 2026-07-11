@@ -122,7 +122,12 @@ export const useProjectStore = create<ProjectState & ProjectActions>((set, get) 
       await apiFirmwareUpload(projectId, file, versionLabel, (pct) => set({ uploadProgress: pct }))
       // Refresh project to get firmware info
       const project = await getProject(projectId)
-      set({ uploading: false, uploadProgress: 100, currentProject: project })
+      set({
+        uploading: false,
+        uploadProgress: 100,
+        currentProject: project,
+        activeFirmwareId: resolveActiveFirmwareId(get().activeFirmwareId, project.firmware),
+      })
       // Sync into projects list
       syncProjectInList(set, get, project)
       // Invalidate firmware list cache — new upload must appear on
@@ -140,7 +145,11 @@ export const useProjectStore = create<ProjectState & ProjectActions>((set, get) 
       await apiUnpackFirmware(projectId, firmwareId)
       // Endpoint returns 202 immediately; refresh project to show "unpacking" status
       const project = await getProject(projectId)
-      set({ unpacking: false, currentProject: project })
+      set({
+        unpacking: false,
+        currentProject: project,
+        activeFirmwareId: resolveActiveFirmwareId(get().activeFirmwareId, project.firmware),
+      })
       syncProjectInList(set, get, project)
     } catch (e) {
       set({ unpacking: false, error: extractError(e) })

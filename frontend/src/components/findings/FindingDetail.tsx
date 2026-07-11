@@ -26,17 +26,38 @@ import { SEVERITY_CONFIG, FINDING_STATUS_OPTIONS, FINDING_SOURCE_CONFIG } from '
 
 interface FindingDetailProps {
   finding: Finding
+  firmwareVersions: FirmwareDetail[]
   onUpdate: (findingId: string, updates: FindingUpdate) => Promise<void>
   onDelete: (findingId: string) => Promise<void>
 }
 
-export default function FindingDetail({ finding, onUpdate, onDelete }: FindingDetailProps) {
+export default function FindingDetail({ finding, firmwareVersions, onUpdate, onDelete }: FindingDetailProps) {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
   const [editDesc, setEditDesc] = useState(finding.description ?? '')
   const [editEvidence, setEditEvidence] = useState(finding.evidence ?? '')
   const [copied, setCopied] = useState(false)
+  const [editingVersions, setEditingVersions] = useState(false)
+  const [selectedVersionIds, setSelectedVersionIds] = useState<string[]>(
+    finding.firmware_versions.map((fw) => fw.id),
+  )
+
+  const toggleVersion = (id: string) => {
+    setSelectedVersionIds((prev) =>
+      prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id],
+    )
+  }
+
+  const handleSaveVersions = async () => {
+    await onUpdate(finding.id, { firmware_ids: selectedVersionIds })
+    setEditingVersions(false)
+  }
+
+  const handleCancelVersions = () => {
+    setSelectedVersionIds(finding.firmware_versions.map((fw) => fw.id))
+    setEditingVersions(false)
+  }
 
   const handleCopyId = async () => {
     await navigator.clipboard.writeText(finding.id)
@@ -262,6 +283,74 @@ export default function FindingDetail({ finding, onUpdate, onDelete }: FindingDe
           </TooltipProvider>
         </div>
       )}
+
+      {/* Affected firmware versions */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-sm text-muted-foreground">Affected versions:</span>
+        {!editingVersions ? (
+          <>
+            {finding.firmware_versions.length > 0 ? (
+              finding.firmware_versions.map((fw) => (
+                <Badge
+                  key={fw.id}
+                  variant="outline"
+                  className="border-indigo-500/40 text-xs text-indigo-600 dark:text-indigo-400"
+                >
+                  {firmwareLabel(fw)}
+                </Badge>
+              ))
+            ) : (
+              <span className="text-xs text-muted-foreground">None tagged</span>
+            )}
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => {
+                setSelectedVersionIds(finding.firmware_versions.map((fw) => fw.id))
+                setEditingVersions(true)
+              }}
+              title="Edit affected versions"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+          </>
+        ) : (
+          <div className="mt-1 w-full space-y-2">
+            <div className="flex flex-wrap gap-1.5">
+              {firmwareVersions.length === 0 && (
+                <span className="text-xs text-muted-foreground">
+                  No firmware versions in this project.
+                </span>
+              )}
+              {firmwareVersions.map((fw) => {
+                const active = selectedVersionIds.includes(fw.id)
+                return (
+                  <button
+                    key={fw.id}
+                    type="button"
+                    onClick={() => toggleVersion(fw.id)}
+                    className={`rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors ${
+                      active
+                        ? 'border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'
+                        : 'border-border text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {firmwareLabel(fw)}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={handleSaveVersions}>
+                <Check className="mr-1 h-3 w-3" /> Save
+              </Button>
+              <Button size="sm" variant="outline" onClick={handleCancelVersions}>
+                <X className="mr-1 h-3 w-3" /> Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Description */}
       <div>

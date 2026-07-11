@@ -325,7 +325,11 @@ async def _handle_extract_strings(input: dict, context: ToolContext) -> str:
 
 async def _handle_search_strings(input: dict, context: ToolContext) -> str:
     """Search for a regex pattern across firmware filesystem files."""
-    pattern = input["pattern"]
+    # Accept `query` as an alias for `pattern` — the other string-search tools
+    # use different param names, so callers reasonably try either.
+    pattern = input.get("pattern") or input.get("query")
+    if not pattern:
+        return "Error: 'pattern' (or its alias 'query') is required."
     input_path = input.get("path", "/")
     search_path = context.resolve_path(input_path)
     real_root = context.real_root_for(input_path)
@@ -1209,7 +1213,11 @@ def register_string_tools(registry: ToolRegistry) -> None:
             "properties": {
                 "pattern": {
                     "type": "string",
-                    "description": "Regex pattern to search for (extended regex syntax)",
+                    "description": "Regex pattern to search for (extended regex syntax). Alias: 'query'.",
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Alias for 'pattern'.",
                 },
                 "path": {
                     "type": "string",
@@ -1220,7 +1228,6 @@ def register_string_tools(registry: ToolRegistry) -> None:
                     "description": "Maximum results to return (default: 100, set to 0 for all)",
                 },
             },
-            "required": ["pattern"],
         },
         handler=_handle_search_strings,
     )

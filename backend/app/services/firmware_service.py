@@ -547,6 +547,14 @@ class FirmwareService:
                         sha256_hash.update(chunk)
                         file_size += len(chunk)
 
+        # When no version label is supplied, auto-assign "V{n}" so every upload is
+        # trackable. n = highest existing V-number in the project + 1 (manually
+        # named uploads are ignored when computing the number).
+        if not version_label or not version_label.strip():
+            version_label = await self._next_auto_version_label(project_id)
+        else:
+            version_label = version_label.strip()
+
         firmware = Firmware(
             id=firmware_id,
             project_id=project_id,
@@ -664,6 +672,25 @@ class FirmwareService:
             .order_by(Firmware.created_at)
         )
         return list(result.scalars().all())
+
+    async def _next_auto_version_label(self, project_id: uuid.UUID) -> str:
+        """Compute the next auto version label ("V1", "V2", ...) for a project.
+
+        The number is one greater than the highest existing label matching
+        ``V<n>`` (case-insensitive). Manually named uploads (e.g. "1.0.3-rc")
+        are ignored. First auto-versioned upload in a project gets "V1".
+        """
+        result = await self.db.execute(
+            select(Firmware.version_label).where(Firmware.project_id == project_id)
+        )
+        highest = 0
+        for (label,) in result.all():
+            if not label:
+                continue
+            match = re.fullmatch(r"[Vv](\d+)", label.strip())
+            if match:
+                highest = max(highest, int(match.group(1)))
+        return f"V{highest + 1}"
 
     async def delete(self, firmware: Firmware) -> None:
         """Delete a firmware record and its files on disk."""

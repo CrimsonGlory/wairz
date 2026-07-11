@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { useProjectStore } from '@/stores/projectStore'
 import {
   Package,
   ShieldAlert,

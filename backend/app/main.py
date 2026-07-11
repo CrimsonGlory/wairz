@@ -1,5 +1,7 @@
+import ipaddress
 import os
 from contextlib import asynccontextmanager
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +11,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.requests import Request
 
+from app.auth.oidc import auth_guard
 from app.config import get_settings
 from app.logging_config import configure_logging
 from app.middleware.asgi_auth import APIKeyASGIMiddleware
@@ -439,12 +442,24 @@ app.add_middleware(
 # proxy endpoints unauthenticated.
 app.add_middleware(APIKeyASGIMiddleware)
 
+# Bearer-token auth on the HTTP API. No-op when settings.auth_enabled is false
+# (local docker-compose / default). Enterprise Cognito deployments flip the flag.
+app.middleware("http")(auth_guard)
+
 
 @app.middleware("http")
 async def origin_host_guard(request: Request, call_next):
-    # CSRF + DNS-rebinding guard for the localhost-bound backend.
+    # CSRF + DNS-rebinding guard for the localhost-bound backend. Behind a proxy
+    # the Host/Origin vary; a "*" in allowed_hosts/allowed_origins disables the
+    # respective check. /health is always exempt so load-balancer probes (which
+    # send the target IP as Host) pass regardless of configuration.
+    if request.url.path == "/health":
+        return await call_next(request)
     host = request.headers.get("host", "")
-    if host not in ALLOWED_HOSTS:
+    host_ok = _HOST_WILDCARD or host in ALLOWED_HOSTS or (
+        _TRUST_PRIVATE and _is_private_authority(host)
+    )
+    if not host_ok:
         return JSONResponse(status_code=403, content={"detail": "host not allowed"})
     origin = request.headers.get("origin")
     if origin and origin not in _cors_origins:

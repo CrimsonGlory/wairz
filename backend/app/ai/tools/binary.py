@@ -193,6 +193,191 @@ def _extract_ghidra_error(raw_output: str, script_name: str) -> str:
     return result
 
 
+# --- Shared helpers: cold-cache async routing + import/PLT-stub detection -----
+
+
+async def _ensure_analyzed_or_route(path: str, context: ToolContext) -> str | None:
+    """Cold-cache guard for the synchronous RE tools.
+
+    In cloud mode full Ghidra analysis runs on Batch and can take minutes; the
+    synchronous tools (list_functions/decompile/disassemble) would block and
+    504 at the gateway. When analysis isn't cached yet, kick off (or find an
+    in-flight) background job and return an ``analyzing - poll …`` handle — the
+    same async contract as start_binary_analysis — instead of blocking. Returns
+    None when analysis is already complete (caller proceeds normally).
+
+    No-op in local mode (returns None): there's no gateway timeout, so the
+    existing synchronous behavior is preserved.
+    """
+    if get_settings().compute_backend == "local":
+        return None
+    cache = get_analysis_cache()
+    sha256 = await cache.get_binary_sha256(path)
+    if await cache._is_analysis_complete(context.firmware_id, sha256, context.db):
+        return None
+    base = os.path.basename(path)
+    status_row = await cache.get_run_status(context.firmware_id, sha256, context.db)
+    if status_row and status_row.get("status") == "running":
+        job_ref = status_row.get("job_ref")
+        if (await asyncio.to_thread(describe_batch_job_state, job_ref)) in ("queued", "starting", "running"):
+            elapsed = int(time.time() - status_row.get("started_at", 0))
+            return (
+                f"analyzing - {base} is being analyzed in the background "
+                f"({elapsed}s elapsed, job={job_ref}). Poll "
+                f"check_binary_analysis_status until 'complete', then retry."
+            )
+    try:
+        handle = await asyncio.to_thread(
+            get_dispatcher().dispatch_analysis, context.firmware_id, path, sha256,
+        )
+    except ConcurrencyLimitError as exc:
+        return f"rejected - {exc}"
+    await cache.mark_run_started(
+        context.firmware_id, path, sha256, handle.pid, context.db, job_ref=handle.ref,
+    )
+    await context.db.commit()
+    return (
+        f"analyzing - {base} isn't analyzed yet; kicked off Ghidra analysis "
+        f"(job {handle.ref}). Poll check_binary_analysis_status until "
+        f"'complete', then retry this call. Cold-cache analysis of a large "
+        f"binary takes minutes and runs server-side, independent of this session."
+    )
+
+
+def _needed_libs(elf_path: str) -> list[str]:
+    """DT_NEEDED (dynamic dependency) names of an ELF; [] if none/unreadable."""
+    try:
+        with open(elf_path, "rb") as f:
+            elf = ELFFile(f)
+            for seg in elf.iter_segments():
+                if seg.header.p_type == "PT_DYNAMIC":
+                    return [
+                        tag.needed for tag in seg.iter_tags()
+                        if tag.entry.d_tag == "DT_NEEDED"
+                    ]
+    except Exception:
+        pass
+    return []
+
+
+def _locate_libs(real_root: str, lib_names: list[str]) -> dict[str, str]:
+    """Map each lib basename → its real path. Checks the standard lib dirs first,
+    then (for any still missing) does ONE rootfs walk — firmware routinely puts
+    shared objects outside /lib,/usr/lib, which is the usual cause of a false
+    'not found in any linked library'."""
+    found: dict[str, str] = {}
+    missing: list[str] = []
+    for name in lib_names:
+        hit = None
+        for lib_dir in _STANDARD_LIB_PATHS:
+            cand = os.path.join(real_root, lib_dir.lstrip("/"), name)
+            if os.path.isfile(cand):
+                hit = cand
+                break
+        if hit:
+            found[name] = hit
+        else:
+            missing.append(name)
+    if missing:
+        wanted = set(missing)
+        for dirpath, _dirs, files in safe_walk(real_root):
+            for name in wanted.intersection(files):
+                found.setdefault(name, os.path.join(dirpath, name))
+            if wanted.issubset(found):
+                break
+    return found
+
+
+def _dynsym_func_state(lib_path: str, function_name: str) -> str:
+    """'found' if function_name is a defined function export in lib_path's
+    .dynsym; 'absent' if readable but not exported; 'unreadable' on error."""
+    try:
+        with open(lib_path, "rb") as f:
+            elf = ELFFile(f)
+            dynsym = elf.get_section_by_name(".dynsym")
+            if not (dynsym and isinstance(dynsym, SymbolTableSection)):
+                return "absent"
+            for sym in dynsym.iter_symbols():
+                if (sym.name == function_name
+                        and sym.entry.st_shndx != "SHN_UNDEF"
+                        and sym.entry.st_info.type in ("STT_FUNC", "STT_GNU_IFUNC")):
+                    return "found"
+            return "absent"
+    except Exception:
+        return "unreadable"
+
+
+def _resolve_export_library(real_root: str, needed_libs: list[str], function_name: str):
+    """Find the linked library exporting function_name (defined .dynsym FUNC).
+    Returns (found_real_path | None, report) where report buckets each lib into
+    with_symbol / found_no_symbol / missing_on_disk / unreadable so callers can
+    say *why* a lookup failed (lib absent vs symbol genuinely not exported)."""
+    located = _locate_libs(real_root, needed_libs)
+    found: str | None = None
+    report: dict[str, list[str]] = {
+        "with_symbol": [], "found_no_symbol": [], "missing_on_disk": [], "unreadable": [],
+    }
+    for name in needed_libs:
+        lib_path = located.get(name)
+        if not lib_path:
+            report["missing_on_disk"].append(name)
+            continue
+        state = _dynsym_func_state(lib_path, function_name)
+        if state == "found":
+            report["with_symbol"].append(name)
+            if found is None:
+                found = lib_path
+        elif state == "unreadable":
+            report["unreadable"].append(name)
+        else:
+            report["found_no_symbol"].append(name)
+    return found, report
+
+
+async def _stub_resolution_hint(
+    path: str, display_path: str, function_name: str, context: ToolContext,
+) -> str | None:
+    """If function_name is an import/PLT thunk (no local body), return a hint
+    routing to resolve_import (naming the implementing library when it can be
+    found cheaply). None for a real local function. Assumes analysis is complete
+    — call _ensure_analyzed_or_route first."""
+    cache = get_analysis_cache()
+    # Determining stub-ness must never break the underlying tool — if the
+    # function/import metadata can't be read, skip the hint and proceed.
+    try:
+        functions = await cache.get_functions(path, context.firmware_id, context.db)
+        is_thunk = any(
+            fn.get("name") == function_name and fn.get("is_thunk") for fn in functions
+        )
+        is_import = False
+        if not is_thunk:
+            imports = await cache.get_imports(path, context.firmware_id, context.db)
+            is_import = any(imp.get("name") == function_name for imp in imports)
+    except Exception:
+        logger.debug("stub-detection lookup failed for %s", function_name, exc_info=True)
+        return None
+    if not (is_thunk or is_import):
+        return None
+    kind = "a PLT/import thunk" if is_thunk else "an imported symbol"
+    base = os.path.basename(path)
+    where = "its implementation lives in a linked library. "
+    try:
+        found_lib, _report = _resolve_export_library(
+            context.real_root_for(display_path), _needed_libs(path), function_name,
+        )
+        if found_lib:
+            rel = "/" + os.path.relpath(found_lib, context.real_root_for(display_path))
+            where = f"its implementation is in {rel}. "
+    except Exception:
+        pass
+    return (
+        f"'{function_name}' is {kind} in {base} — it has no local body to "
+        f"decompile/disassemble. {where}Call resolve_import(binary_path="
+        f"'{display_path}', function_name='{function_name}') to decompile the "
+        f"real implementation (or run decompile_function directly on that library)."
+    )
+
+
 async def _handle_list_functions(input: dict, context: ToolContext) -> str:
     """List functions found in a binary, sorted by size (largest first)."""
     path = await _resolve_binary_path(input["binary_path"], context)
@@ -672,6 +857,31 @@ async def _handle_decompile_function(input: dict, context: ToolContext) -> str:
     path = await _resolve_binary_path(input["binary_path"], context)
     function_name = input["function_name"]
 
+    gate = await _ensure_analyzed_or_route(path, context)
+    if gate is not None:
+        return gate
+    hint = await _stub_resolution_hint(
+        path, input["binary_path"], function_name, context,
+    )
+    if hint is not None:
+        return hint
+
+    # In cloud mode a per-function decompile CACHE MISS spawns a fresh Ghidra
+    # subprocess whose startup alone exceeds the gateway's ~60s edge (so any
+    # uncached function — or a by-address lookup, which can't hit the name-keyed
+    # cache — would 504). Serve a cache hit directly; otherwise route to the
+    # async decompile worker and return a poll handle. Local mode keeps the
+    # synchronous behavior (no gateway timeout).
+    if get_settings().compute_backend != "local":
+        cache = get_analysis_cache()
+        sha256 = await cache.get_binary_sha256(path)
+        cached = await cache._get_cached(
+            context.firmware_id, sha256, f"decompile:{function_name}", context.db,
+        )
+        if cached and cached.get("decompiled_code"):
+            return f"Decompiled output for {function_name}:\n\n{cached['decompiled_code']}"
+        return await _handle_start_function_decompile(input, context)
+
     try:
         result = await decompile_function(
             binary_path=path,
@@ -852,32 +1062,12 @@ def _resolve_import_sync(
     if not needed_libs:
         return {"status": "static", "needed_libs": []}
 
-    # Step 2: Search each library's exports for the function
-    found_lib_path: str | None = None
-
-    for lib_name in needed_libs:
-        for lib_dir in _STANDARD_LIB_PATHS:
-            candidate = os.path.join(real_root, lib_dir.lstrip("/"), lib_name)
-            if not os.path.isfile(candidate):
-                continue
-            try:
-                with open(candidate, "rb") as f:
-                    lib_elf = ELFFile(f)
-                    dynsym = lib_elf.get_section_by_name(".dynsym")
-                    if dynsym and isinstance(dynsym, SymbolTableSection):
-                        for sym in dynsym.iter_symbols():
-                            if (sym.name == function_name
-                                    and sym.entry.st_shndx != "SHN_UNDEF"
-                                    and sym.entry.st_info.type in (
-                                        "STT_FUNC", "STT_GNU_IFUNC")):
-                                found_lib_path = candidate
-                                break
-                if found_lib_path:
-                    break
-            except Exception:
-                continue
-        if found_lib_path:
-            break
+    # Step 2: Locate each linked library across the whole rootfs (not just the
+    # standard dirs) and scan its .dynsym for a defined export — no pre-analysis
+    # needed. The report lets us say *why* a lookup failed.
+    found_lib_path, report = _resolve_export_library(
+        real_root, needed_libs, function_name,
+    )
 
     if not found_lib_path:
         return {"status": "not_found", "needed_libs": needed_libs}
@@ -916,6 +1106,7 @@ async def _handle_resolve_import(input: dict, context: ToolContext) -> str:
             f"Searched libraries: {', '.join(needed_libs)}\n"
             f"Search paths: {', '.join(_STANDARD_LIB_PATHS)}"
         )
+        return "\n".join(lines)
 
     # status == "found"
     found_lib_path = resolution["lib_path"]
@@ -2278,6 +2469,23 @@ async def _handle_check_binary_analysis_status(
     status = status_row.get("status", "unknown")
     if status == "running":
         elapsed = int(time.time() - status_row.get("started_at", 0))
+        job_ref = status_row.get("job_ref")
+        if get_settings().compute_backend != "local":
+            # Distributed worker (e.g. AWS Batch): there's no local pid to probe;
+            # ask the dispatch backend for the job's state instead. The cache
+            # completion check above remains the source of truth for "done".
+            state = (await asyncio.to_thread(describe_batch_job_state, job_ref))
+            if state == "failed":
+                return (
+                    f"failed - analysis job {job_ref} failed. Call "
+                    f"start_binary_analysis again to retry."
+                )
+            if state in ("queued", "starting"):
+                return (
+                    f"{state} - analysis job {job_ref} {state} "
+                    f"({elapsed}s since submit; cold start ~1-3 min)."
+                )
+            return f"running - {elapsed}s elapsed (job {job_ref}, {state})"
         pid = status_row.get("pid")
         # Check whether the worker is still alive — a stale "running" row
         # from a worker that crashed without writing the cache is the
@@ -2367,9 +2575,10 @@ async def _handle_start_function_decompile(
     )
     await context.db.flush()  # Rule #3: outer MCP dispatch owns the transaction
 
+    worker_id = handle.ref or f"pid={handle.pid}"
     return (
         f"started - decompile kicked off for '{function_name}' in "
-        f"{os.path.basename(path)} (pid={proc.pid}). Poll "
+        f"{os.path.basename(path)} ({worker_id}). Poll "
         f"check_function_decompile_status until complete. Large handler "
         f"functions in firmware daemons typically take 1-15 min. The "
         f"worker has a 30-minute budget; if it fails with a timeout, "
@@ -2411,6 +2620,20 @@ async def _handle_check_function_decompile_status(
     status = status_row.get("status", "unknown")
     if status == "running":
         elapsed = int(time.time() - status_row.get("started_at", 0))
+        job_ref = status_row.get("job_ref")
+        if get_settings().compute_backend != "local":
+            state = (await asyncio.to_thread(describe_batch_job_state, job_ref))
+            if state == "failed":
+                return (
+                    f"failed - decompile job {job_ref} failed. Call "
+                    f"start_function_decompile again to retry."
+                )
+            if state in ("queued", "starting"):
+                return (
+                    f"{state} - decompile job {job_ref} {state} "
+                    f"({elapsed}s since submit; cold start ~1-3 min)."
+                )
+            return f"running - {elapsed}s elapsed (job {job_ref}, {state})"
         pid = status_row.get("pid")
         alive = pid is not None and _pid_is_alive(int(pid))
         if not alive and elapsed > 30:
@@ -2465,8 +2688,111 @@ async def _handle_get_ghidra_analysis_logs(input: dict, context: ToolContext) ->
     return f"Ghidra {script_name} log (exit code {rc}):\n\n{log}"
 
 
+async def _handle_warm_analysis_worker(input: dict, context: ToolContext) -> str:
+    """Pre-start the cloud reuse worker so interactive Ghidra queries are fast."""
+    settings = get_settings()
+    if settings.compute_backend == "local":
+        return (
+            "not_applicable - the warm analysis worker only applies in cloud "
+            "mode (compute_backend != local); locally Ghidra runs in-process."
+        )
+
+    import redis.asyncio as aioredis
+
+    from app.services.ghidra_service import _REUSE_WORKER_HB, ensure_reuse_worker
+
+    ttl_minutes = int(
+        input.get("ttl_minutes", settings.re_worker_idle_ttl_minutes),
+    )
+    client = aioredis.from_url(settings.redis_url)
+    try:
+        already = bool(await client.exists(_REUSE_WORKER_HB))
+        ref = await ensure_reuse_worker(client, ttl_minutes * 60)
+    finally:
+        await client.aclose()
+
+    if already:
+        return (
+            f"warm - a reuse analysis worker is already running. decompile / "
+            f"find_string_refs / layout / dataflow calls run on it in seconds. "
+            f"Idle timeout ~{ttl_minutes}m, extended by activity."
+        )
+    return (
+        f"starting - reuse analysis worker dispatched (job {ref}); cold start "
+        f"~1-3 min, then queries run in seconds. Idle timeout ~{ttl_minutes}m, "
+        f"extended by activity. Poll a quick query or just proceed."
+    )
+
+
+def _format_hexdump(data: bytes, base_offset: int = 0) -> str:
+    """Classic `hexdump -C` style: offset | 16 hex bytes | ASCII gutter."""
+    lines = []
+    for i in range(0, len(data), 16):
+        chunk = data[i:i + 16]
+        hex_part = " ".join(f"{b:02x}" for b in chunk)
+        hex_part = f"{hex_part:<47}"  # pad to a fixed width (16*3-1)
+        ascii_part = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+        lines.append(f"{base_offset + i:08x}  {hex_part}  |{ascii_part}|")
+    return "\n".join(lines)
+
+
+async def _handle_hexdump_data(input: dict, context: ToolContext) -> str:
+    """Raw hex dump of bytes from a file at an offset (no analysis needed)."""
+    path = context.resolve_path(input["binary_path"])
+    try:
+        offset = int(input.get("offset", 0))
+        length = max(0, min(int(input.get("length", 256)), 4096))
+    except (TypeError, ValueError):
+        return "Error: offset and length must be integers."
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as f:
+            f.seek(offset)
+            data = f.read(length)
+    except OSError as exc:
+        return f"Error reading '{input['binary_path']}': {exc}"
+    if not data:
+        return (
+            f"No bytes at offset {offset} — file is {size} bytes "
+            f"({os.path.basename(path)})."
+        )
+    return (
+        f"Hex dump of {os.path.basename(path)} @ offset {offset} "
+        f"({len(data)} of {size} bytes):\n\n{_format_hexdump(data, offset)}"
+    )
+
+
 def register_binary_tools(registry: ToolRegistry) -> None:
     """Register all binary analysis tools with the given registry."""
+
+    registry.register(
+        name="hexdump_data",
+        description=(
+            "Raw hex dump of bytes from a file at a byte offset (hexdump -C "
+            "style: offset, hex, ASCII). No Ghidra analysis required — works on "
+            "any file. Use to inspect headers, magic bytes, embedded data, or "
+            "raw regions. Capped at 4096 bytes per call; page with offset."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "binary_path": {
+                    "type": "string",
+                    "description": "Path to the file within the firmware filesystem.",
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Byte offset to start at (default 0).",
+                },
+                "length": {
+                    "type": "integer",
+                    "description": "Bytes to dump (default 256, max 4096).",
+                },
+            },
+            "required": ["binary_path"],
+        },
+        handler=_handle_hexdump_data,
+    )
 
     registry.register(
         name="start_binary_analysis",
@@ -2624,6 +2950,33 @@ def register_binary_tools(registry: ToolRegistry) -> None:
     )
 
     registry.register(
+        name="warm_analysis_worker",
+        description=(
+            "(Cloud only) Pre-start a warm Ghidra worker so interactive query "
+            "tools — decompile_function, find_string_refs, get_stack_layout, "
+            "get_global_layout, trace_dataflow — return in seconds instead of "
+            "paying a ~1-3 min cold start each. Call this when you're about to "
+            "do a burst of binary RE on a project that's already been analyzed "
+            "(start_binary_analysis). The worker stays warm while you keep "
+            "querying and shuts down automatically when idle. No-op locally."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "ttl_minutes": {
+                    "type": "integer",
+                    "description": (
+                        "Idle minutes before the worker shuts down (extended by "
+                        "activity). Defaults to the server setting (~20)."
+                    ),
+                },
+            },
+            "required": [],
+        },
+        handler=_handle_warm_analysis_worker,
+    )
+
+    registry.register(
         name="list_functions",
         description=(
             "List all functions found in an ELF binary, sorted by size "
@@ -2701,7 +3054,7 @@ def register_binary_tools(registry: ToolRegistry) -> None:
                 },
                 "function_name": {
                     "type": "string",
-                    "description": "Function name to decompile (e.g. 'main', 'auth_check'). Use list_functions to find available names.",
+                    "description": "Function name to decompile (e.g. 'main', 'auth_check'), OR a hex address like '0x401000' to decompile the function at/containing that address (useful for stripped or unnamed functions). Use list_functions to find names. If this resolves to an import/PLT thunk, use resolve_import instead.",
                 },
             },
             "required": ["binary_path", "function_name"],

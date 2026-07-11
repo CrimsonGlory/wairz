@@ -233,9 +233,12 @@ class TestMountSemantics:
         assert "hello-extracted" in result.stdout
 
     @pytest.mark.asyncio
-    async def test_extracted_tree_is_readonly(
+    async def test_extracted_tree_is_writable(
         self, service: CarvingService, fw_blob
     ):
+        # /extracted is mounted rw so the agent can fix the unpacked rootfs in
+        # place (repair perms, drop in a loader, overlay /app onto a base root).
+        # The extraction is owned by uid 1000, the sandbox's own uid.
         fw, _ = fw_blob
 
         async def _stub(_pid, _fid):
@@ -246,11 +249,11 @@ class TestMountSemantics:
         result = await service.run_command(
             project_id=fw.project_id,
             firmware_id=fw.id,
-            command="touch /extracted/should-fail 2>&1; echo exit=$?",
+            command="echo fixed > /extracted/agent-fix && cat /extracted/agent-fix",
             timeout=10,
         )
-        # touch reports the error to stderr but the trailing echo runs.
-        assert "Read-only" in result.stdout or "Read-only" in result.stderr or "Permission denied" in result.stdout
+        assert result.exit_code == 0
+        assert "fixed" in result.stdout
 
     @pytest.mark.asyncio
     async def test_carved_dir_is_writable_and_persists(

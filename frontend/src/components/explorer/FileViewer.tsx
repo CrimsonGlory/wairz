@@ -105,7 +105,7 @@ export default function FileViewer() {
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : fileContent ? (
-          <div className="flex-1">
+          <div className="min-h-0 flex-1">
             <Editor
               language={getDocumentLanguage(filename)}
               value={displayContent}

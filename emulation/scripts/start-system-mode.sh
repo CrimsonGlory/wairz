@@ -18,6 +18,10 @@ INIT_PATH="$6"      # optional init binary override (e.g., /bin/sh)
 LOG="/tmp/qemu-system.log"
 SERIAL_SOCK="/tmp/qemu-serial.sock"
 SERIAL_LOG="/tmp/qemu-serial.log"
+# Dedicated command channel (feedback #6): an isolated serial/virtio-console
+# device carries run_command_in_emulation I/O, separate from the kernel
+# console. Wired up only when WAIRZ_CMD_CHANNEL is set by the backend.
+CMD_SOCK="/tmp/qemu-cmd.sock"
 ROOTFS_IMG="/tmp/rootfs.ext4"
 
 # Always create the log file immediately so diagnostics are available
@@ -112,7 +116,7 @@ case "$KERNEL_MAGIC" in
 esac
 
 # Clean up stale files from previous runs
-rm -f "$SERIAL_SOCK" "$SERIAL_LOG" "$ROOTFS_IMG"
+rm -f "$SERIAL_SOCK" "$SERIAL_LOG" "$CMD_SOCK" "$ROOTFS_IMG"
 
 # Create a temporary ext4 image sized to fit the rootfs (2x content + 256MB headroom)
 ROOTFS_MB=$(du -sm "$ROOTFS" 2>/dev/null | cut -f1)
@@ -142,7 +146,8 @@ case "$ARCH" in
         ROOT_DEV="/dev/sda"
         CPU_ARGS=""
         GUEST_RAM="256"  # versatilepb max is 256MB
-        NIC_DEVICE="smc91c111"  # built into versatilepb machine
+        NIC_DEVICE="smc91c111"  # on-board SysBus NIC of versatilepb
+        NIC_ONBOARD="1"  # not a pluggable -device; must use unified -nic syntax
         ;;
     aarch64|arm64)
         QEMU_BIN="qemu-system-aarch64"
@@ -200,13 +205,74 @@ case "$ARCH" in
         ;;
 esac
 
-# Build networking with explicit NIC device per architecture.
-# Uses modern -device/-netdev syntax instead of legacy -net nic/-net user.
+# ── Agent-supplied overrides (optional) ───────────────────────────────────────
+# Every per-arch default selected above is overridable via an environment
+# variable set by the emulation harness (start_emulation's cpu/machine/mem/...
+# parameters). This makes system-mode bring-up iterable without code changes:
+# the agent can sweep machine/CPU/console/root-device/initrd/cmdline the same
+# way a human turns the qemu-system-* knobs. An unset variable keeps the
+# auto-selected default.
+[ -n "$WAIRZ_MACHINE" ]  && { echo "Override: machine -> $WAIRZ_MACHINE"; MACHINE="$WAIRZ_MACHINE"; }
+[ -n "$WAIRZ_CPU" ]      && { echo "Override: cpu -> $WAIRZ_CPU"; CPU_ARGS="-cpu $WAIRZ_CPU"; }
+[ -n "$WAIRZ_MEM" ]      && { echo "Override: mem -> ${WAIRZ_MEM} MB"; GUEST_RAM="$WAIRZ_MEM"; }
+[ -n "$WAIRZ_ROOT_DEV" ] && { echo "Override: root device -> $WAIRZ_ROOT_DEV"; ROOT_DEV="$WAIRZ_ROOT_DEV"; }
+if [ -n "$WAIRZ_DRIVE_IF" ]; then
+    echo "Override: drive interface -> $WAIRZ_DRIVE_IF"
+    case "$WAIRZ_DRIVE_IF" in
+        ide|default) DRIVE_IF="" ;;          # bare -drive defaults to IDE
+        *)           DRIVE_IF=",if=$WAIRZ_DRIVE_IF" ;;
+    esac
+fi
+SMP_ARGS=""
+[ -n "$WAIRZ_SMP" ] && { echo "Override: smp -> $WAIRZ_SMP"; SMP_ARGS="-smp $WAIRZ_SMP"; }
+# Raw passthrough — anything not modeled above. Word-split intentionally so
+# multiple args ("-foo bar -baz") reach QEMU as separate tokens.
+QEMU_EXTRA_ARGS="$WAIRZ_QEMU_EXTRA"
+[ -n "$QEMU_EXTRA_ARGS" ] && echo "Extra QEMU args: $QEMU_EXTRA_ARGS"
+
+# ── NIC model is a property of the MACHINE, not the CPU arch ───────────────────
+# The per-arch defaults above picked a NIC for each arch's DEFAULT machine, but
+# the agent can override `machine` (e.g. arm -> virt). The NIC controller lives
+# on the machine: versatilepb has an on-board smc91c111, virt expects a
+# pluggable virtio-net, malta a pcnet, pc an e1000. Re-derive it from the
+# EFFECTIVE machine so overriding `machine` doesn't leave a NIC the board can't
+# host (e.g. "Unsupported NIC model: smc91c111" on virt). Unknown/custom
+# machines keep the arch-derived guess. NIC_ONBOARD marks the on-board SysBus
+# NICs that must use the unified `-nic` syntax instead of `-device`.
+case "$MACHINE" in
+    versatilepb) NIC_DEVICE="smc91c111";        NIC_ONBOARD="1" ;;
+    virt)        NIC_DEVICE="virtio-net-device"; NIC_ONBOARD="0" ;;
+    malta)       NIC_DEVICE="pcnet";             NIC_ONBOARD="0" ;;
+    pc|q35)      NIC_DEVICE="e1000";             NIC_ONBOARD="0" ;;
+    *) : ;;  # keep the arch-derived NIC_DEVICE/NIC_ONBOARD as a best guess
+esac
+# Explicit agent override always wins. smc91c111/lan9118 are the on-board
+# SysBus models; everything else is treated as a pluggable -device.
+if [ -n "$WAIRZ_NIC_MODEL" ]; then
+    echo "Override: nic model -> $WAIRZ_NIC_MODEL"
+    NIC_DEVICE="$WAIRZ_NIC_MODEL"
+    case "$WAIRZ_NIC_MODEL" in
+        smc91c111|lan9118) NIC_ONBOARD="1" ;;
+        *)                 NIC_ONBOARD="0" ;;
+    esac
+fi
+
+# Build networking. The NIC attachment syntax depends on whether the machine's
+# NIC is an on-board (SysBus) controller or a pluggable (PCI) device:
+#   - versatilepb's smc91c111 is auto-instantiated by the machine and is NOT a
+#     user-creatable -device — `-device smc91c111` fails with "Parameter
+#     'driver' expects a pluggable device type" and QEMU exits before boot. It
+#     must be wired up via the unified `-nic user,model=smc91c111,...` syntax.
+#   - virt/malta/pc NICs (virtio-net-pci, pcnet, e1000) are pluggable PCI
+#     devices, so the split `-netdev`/`-device` form works.
+# We accumulate the SLiRP user-net options (incl. hostfwd port-forwards) once
+# and attach them via whichever syntax the machine requires.
+#
 # Port forwarding: QEMU SLiRP hostfwd only reliably handles connections from
 # 127.0.0.1, but Docker port proxies forward from the container's bridge IP.
 # Workaround: QEMU hostfwd listens on 127.0.0.1 with offset ports (+10000),
 # and socat relays on the original ports forward via localhost to QEMU.
-NETDEV_ARGS="user,id=net0"
+USERNET_OPTS=""
 RELAY_PIDS=""
 if [ -n "$PORT_FORWARDS" ]; then
     IFS=',' read -ra PAIRS <<< "$PORT_FORWARDS"
@@ -214,7 +280,7 @@ if [ -n "$PORT_FORWARDS" ]; then
         host_port="${pair%%:*}"
         guest_port="${pair##*:}"
         relay_port=$((host_port + 10000))
-        NETDEV_ARGS="${NETDEV_ARGS},hostfwd=tcp:127.0.0.1:${relay_port}-:${guest_port}"
+        USERNET_OPTS="${USERNET_OPTS},hostfwd=tcp:127.0.0.1:${relay_port}-:${guest_port}"
         # Start socat relay: listens on all interfaces, forwards to QEMU via localhost
         socat TCP-LISTEN:${host_port},bind=0.0.0.0,fork,reuseaddr \
               TCP:127.0.0.1:${relay_port} &
@@ -247,11 +313,65 @@ else
     echo "Initrd: none"
 fi
 
+# Build optional device-tree argument (WAIRZ_DTB points at a dtb copied into the
+# container). DT-only kernels (e.g. the bundled buster RPi kernel) fail with
+# "invalid dtb and unrecognized/unsupported machine ID" without it.
+DTB_ARGS=""
+if [ -n "$WAIRZ_DTB" ] && [ -f "$WAIRZ_DTB" ]; then
+    echo "DTB: $WAIRZ_DTB ($(wc -c < "$WAIRZ_DTB") bytes)"
+    DTB_ARGS="-dtb $WAIRZ_DTB"
+else
+    echo "DTB: none"
+fi
+
+# Extra drives (WAIRZ_EXTRA_DRIVES = comma-separated container image paths).
+# Attached after the root disk on the same bus, so the guest sees them as the
+# next device letters (virtio: vdb,vdc…; ide: sdb,sdc…). Used for devices whose
+# config/data lives on a separate flash/MMC partition carved from the raw image.
+EXTRA_DRIVE_ARGS=""
+if [ -n "$WAIRZ_EXTRA_DRIVES" ]; then
+    IFS=',' read -ra _XDRIVES <<< "$WAIRZ_EXTRA_DRIVES"
+    for _xd in "${_XDRIVES[@]}"; do
+        if [ -f "$_xd" ]; then
+            EXTRA_DRIVE_ARGS="$EXTRA_DRIVE_ARGS -drive file=$_xd,format=raw${DRIVE_IF}"
+            echo "Extra drive: $_xd ($(wc -c < "$_xd") bytes, if=${DRIVE_IF:-ide})"
+        else
+            echo "WARNING: extra drive not found, skipping: $_xd"
+        fi
+    done
+fi
+
+# Dedicated command channel (feedback #6). The backend sets WAIRZ_CMD_CHANNEL
+# to the transport for this machine: "virtio" (virtio-console → /dev/hvc0, used
+# on -M virt) or "serial" (a 2nd UART → /dev/ttyAMA1 or /dev/ttyS1). Both back
+# onto $CMD_SOCK, which serial-exec.sh prefers over the noisy console socket.
+CMD_CHANNEL_ARGS=""
+case "${WAIRZ_CMD_CHANNEL:-}" in
+    virtio)
+        CMD_CHANNEL_ARGS="-chardev socket,id=charcmd0,server=on,wait=off,path=${CMD_SOCK} -device virtio-serial-device -device virtconsole,chardev=charcmd0"
+        echo "Command channel: virtio-console (/dev/hvc0) on $CMD_SOCK"
+        ;;
+    serial)
+        # Second -serial → guest's second UART (serial1). Console stays serial0.
+        CMD_CHANNEL_ARGS="-chardev socket,id=charcmd0,server=on,wait=off,path=${CMD_SOCK} -serial chardev:charcmd0"
+        echo "Command channel: 2nd UART on $CMD_SOCK"
+        ;;
+    *)
+        echo "Command channel: none (run_command_in_emulation uses the console)"
+        ;;
+esac
+
 # Build kernel append string
 APPEND_ARGS="root=$ROOT_DEV rw console=$CONSOLE panic=0"
 if [ -n "$INIT_PATH" ]; then
     APPEND_ARGS="$APPEND_ARGS init=$INIT_PATH"
     echo "Init override: $INIT_PATH"
+fi
+# Agent-supplied extra kernel cmdline (rootwait, custom console=, panic=N, etc.)
+# is appended last so it wins where the kernel takes the final value.
+if [ -n "$WAIRZ_KERNEL_APPEND" ]; then
+    APPEND_ARGS="$APPEND_ARGS $WAIRZ_KERNEL_APPEND"
+    echo "Extra kernel append: $WAIRZ_KERNEL_APPEND"
 fi
 echo "Kernel append: $APPEND_ARGS"
 
@@ -268,16 +388,21 @@ SERIAL_CHARDEV="socket,id=charserial0,server=on,wait=off,path=${SERIAL_SOCK},log
 exec "$QEMU_BIN" \
     -M "$MACHINE" \
     $CPU_ARGS \
+    $SMP_ARGS \
     -m "${GUEST_RAM:-256}" \
     -nographic \
     -nodefaults \
     -no-reboot \
     -chardev "$SERIAL_CHARDEV" \
     -serial chardev:charserial0 \
+    $CMD_CHANNEL_ARGS \
     -monitor none \
     -gdb tcp::1234 \
     -kernel "$KERNEL" \
     $INITRD_ARGS \
+    $DTB_ARGS \
     -drive "file=$ROOTFS_IMG,format=raw${DRIVE_IF}" \
+    $EXTRA_DRIVE_ARGS \
     -append "$APPEND_ARGS" \
-    $NET_ARGS
+    $NET_ARGS \
+    $QEMU_EXTRA_ARGS

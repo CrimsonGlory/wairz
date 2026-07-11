@@ -1,0 +1,11 @@
+{
+  "architecture": "arm",
+  "description": "OpenWrt 22.03.5 armvirt/32 zImage (ARMv7, VFP; virtio-blk/net + ext4 builtin) for QEMU -M virt",
+  "uploaded_at": "2026-06-02T18:26:17.193288+00:00",
+  "source_url": "https://archive.openwrt.org/releases/22.03.5/targets/armvirt/32/openwrt-22.03.5-armvirt-32-zImage",
+  "machine": "virt",
+  "cpu": "cortex-a15",
+  "drive_interface": "virtio",
+  "root_dev": "/dev/vda",
+  "mem": 512
+}

@@ -1,6 +1,8 @@
 import axios, { AxiosError } from 'axios'
 import { toast } from 'sonner'
 
+import { getAccessToken, login } from '@/auth/userManager'
+
 const apiClient = axios.create({
   baseURL: '/api/v1',
   timeout: 30_000,

@@ -123,15 +123,21 @@ async def delete_finding(
 async def export_findings(
     project_id: uuid.UUID,
     format: str = Query("markdown", pattern="^(markdown|pdf)$"),
+    firmware_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     project = await _get_project_or_404(project_id, db)
 
-    # Load firmware
+    # Load firmware for the report header: the selected version, else the newest
+    # loadable one (a project may have several versions).
     fw_result = await db.execute(
         select(Firmware).where(Firmware.project_id == project_id)
     )
-    firmware = fw_result.scalar_one_or_none()
+    firmware_list = list(fw_result.scalars().all())
+    if firmware_id is not None:
+        firmware = next((f for f in firmware_list if f.id == firmware_id), None)
+    else:
+        firmware = pick_active_firmware(firmware_list)
 
     # Load findings
     svc = FindingService(db)

@@ -9,8 +9,9 @@
 #   - network_mode=none
 #   - cap_drop=ALL, no-new-privileges
 #   - non-root user (uid 1000)
-#   - read-only root FS, writable bind only at /carved/, tmpfs at /tmp
-#   - bind mounts: /image/firmware.bin (RO), /extracted/ (RO), /carved/ (RW)
+#   - read-only root FS, tmpfs at /tmp
+#   - bind mounts: /image/firmware.bin (RO), /extracted/ (RW), /carved/ (RW)
+#     (/extracted is writable so the agent can fix the unpacked rootfs in place)
 #
 # The agent invokes commands via `docker exec`, so the container ENTRYPOINT
 # just keeps the process alive.
@@ -30,6 +31,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 #   python3 + crypto libs  — AES/XXTEA/XOR decryption, scripting
 #   lz4 / xz / zstd        — common firmware compression formats
 #   squashfs-tools         — unsquashfs
+#   yaffshiv               — yaffs/yaffs2 (installed via pip below; auto-detects
+#                            page/spare size, ECC, endianness — handles the
+#                            per-chunk OOB tags a magic-carve corrupts)
 #   jefferson              — jffs2 (installed via pip below)
 #   ubi_reader             — UBIFS (installed via pip below; CLI commands
 #                            are ubireader_extract_images / _extract_files /
@@ -77,6 +81,15 @@ RUN pip3 install --no-cache-dir --break-system-packages \
         jefferson \
         lz4 \
         ubi_reader
+
+# yaffshiv (devttys0) — the binwalk-ecosystem YAFFS/YAFFS2 extractor. Not on
+# PyPI, so install from the GitHub source tarball (avoids needing git in this
+# image; the build has network, the runtime does not). Pure-Python, no compiled
+# deps. Soft-fail so a transient network error doesn't break the whole image,
+# but the build log surfaces it.
+RUN pip3 install --no-cache-dir --break-system-packages \
+        https://github.com/devttys0/yaffshiv/archive/refs/heads/master.tar.gz \
+    || echo "WARN: yaffshiv install failed — YAFFS extraction unavailable in sandbox"
 
 # Non-root user. Permissions on /carved/ are set by the backend before the
 # bind mount is attached; uid/gid 1000 matches the typical host user so

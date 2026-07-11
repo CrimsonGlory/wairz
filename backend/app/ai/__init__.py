@@ -6,6 +6,7 @@ from app.ai.tools.android_sast import register_android_sast_tools
 from app.ai.tools.attack_surface import register_attack_surface_tools
 from app.ai.tools.bare_metal import register_bare_metal_tools
 from app.ai.tools.binary import register_binary_tools
+from app.config import get_settings
 from app.ai.tools.carving import register_carving_tools
 from app.ai.tools.comparison import register_comparison_tools
 from app.ai.tools.cwe_checker import register_cwe_checker_tools
@@ -40,6 +41,7 @@ from app.ai.tools.strings import register_string_tools
 from app.ai.tools.taint_llm import register_taint_llm_tools
 from app.ai.tools.uart import register_uart_tools
 from app.ai.tools.uefi import register_uefi_tools
+from app.ai.tools.unpack_control import register_unpack_control_tools
 from app.ai.tools.vulhunt import register_vulhunt_tools
 from app.ai.tools.windows_appcompat import register_windows_appcompat_tools
 from app.ai.tools.windows_archive import register_windows_archive_tools
@@ -164,6 +166,7 @@ def create_tool_registry() -> ToolRegistry:
     # silent-overwrite gap.
     register_network_exposure_tools(registry)
     register_carving_tools(registry)
+    register_unpack_control_tools(registry)
     register_rtos_tools(registry)
     register_ghidra_research_tools(registry)
     return registry

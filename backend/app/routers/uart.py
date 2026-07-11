@@ -3,11 +3,12 @@
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.firmware import Firmware
+from app.utils.firmware_selection import pick_active_firmware
 from app.schemas.uart import (
     UARTCommandResponse,
     UARTConnectRequest,
@@ -33,11 +34,17 @@ router = APIRouter(
 
 async def _resolve_firmware(
     project_id: uuid.UUID,
+    firmware_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> Firmware:
-    """Resolve project -> firmware."""
+    """Resolve project -> firmware (specific id, else newest loadable)."""
     svc = FirmwareService(db)
-    firmware = await svc.get_by_project(project_id)
+    if firmware_id is not None:
+        firmware = await svc.get_by_id(firmware_id)
+        if not firmware or firmware.project_id != project_id:
+            raise HTTPException(404, "Firmware not found for this project")
+        return firmware
+    firmware = pick_active_firmware(await svc.list_by_project(project_id))
     if not firmware:
         raise HTTPException(404, "No firmware uploaded for this project")
     return firmware

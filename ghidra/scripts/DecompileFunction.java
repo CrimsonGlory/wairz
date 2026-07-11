@@ -205,13 +205,22 @@ public class DecompileFunction extends GhidraScript {
             }
         }
 
-        // Try address match (e.g., "0x08048000")
+        // Try address match (e.g., "0x08048000"): the function starting at the
+        // address, or — for an address in the middle of a function — the one
+        // containing it. Lets callers decompile stripped/unnamed functions.
         if (target.startsWith("0x") || target.startsWith("0X")) {
             try {
                 Address addr = currentProgram.getAddressFactory()
                     .getDefaultAddressSpace()
                     .getAddress(target);
-                return funcManager.getFunctionAt(addr);
+                Function at = funcManager.getFunctionAt(addr);
+                if (at != null) {
+                    return at;
+                }
+                Function containing = funcManager.getFunctionContaining(addr);
+                if (containing != null) {
+                    return containing;
+                }
             } catch (Exception e) {
                 // Not a valid address
             }

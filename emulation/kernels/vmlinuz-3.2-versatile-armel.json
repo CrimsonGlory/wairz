@@ -1,0 +1,8 @@
+{
+  "architecture": "arm",
+  "description": "Debian 3.2.0-4 versatile QEMU-ARM kernel (arm926/ARMv5, ttyAMA0, smc91c111, sym53c8xx) for -M versatilepb",
+  "uploaded_at": "2026-06-02T13:21:00.418394+00:00",
+  "source_url": "https://people.debian.org/~aurel32/qemu/armel/vmlinuz-3.2.0-4-versatile",
+  "machine": "versatilepb",
+  "cpu": "arm926"
+}

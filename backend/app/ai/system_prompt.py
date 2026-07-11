@@ -276,6 +276,32 @@ as they apply to your analysis.
 You have access to the tools defined in this conversation. Use them \
 to investigate as needed for the user's request."""
 
+    unpack_control = """\
+Fixing incomplete unpacking (manual unpack control):
+- Some firmware can't be auto-unpacked into an emulation-ready state. The most \
+common case is an app-only OTA: it ships a kernel + an application partition \
+(e.g. /app) but NO base rootfs — busybox/init/loader/etc live on a separate \
+flash partition that simply isn't in the image. Don't try to "find" a rootfs \
+that isn't there; confirm it (no cpio/initramfs in the kernel, kernel strings \
+like "append a correct root= boot option") and then assemble what emulation needs.
+- If the architecture shows 'unknown' but file_info/get_binary_info on an \
+extracted ELF (or the uImage header via get_firmware_metadata) clearly shows it: \
+call set_firmware_arch to set it. This alone unblocks the emulation arch gate. \
+Or call redetect to re-run detection (it now fingerprints ELFs anywhere in the \
+tree and falls back to the uImage header).
+- The carving sandbox (run_shell) is your workbench: /image/firmware.bin is the \
+raw blob (RO), /extracted is the unpacked tree (RW — you can fix it in place), \
+and anything you write to /carved appears at /_carved/... in the file tools. It \
+has binwalk, unsquashfs, jefferson, ubireader_*, cpio, dd, mkimage, and \
+python3+crypto.
+- To make a manually-prepared filesystem authoritative, call set_rootfs with its \
+virtual path (e.g. '/_carved/root' or '/squashfs-root-0'); emulation and the \
+file tools will use it as /rootfs. Use set_kernel to point system-mode emulation \
+at a specific kernel image you extracted.
+- Example app-only-OTA recipe: run_shell `cp -a /extracted/squashfs-root \
+/carved/root`, drop in/symlink a busybox+init and the ELF loader, fix perms, then \
+set_rootfs '/_carved/root' and set_firmware_arch."""
+
     sections = [
         header,
         knowledge_block,
@@ -284,6 +310,10 @@ to investigate as needed for the user's request."""
     ]
     if emulation_block:
         sections.append(emulation_block)
+    # Manual unpack control is Linux/unknown-relevant (RTOS images have no rootfs
+    # to assemble); skip it for RTOS to keep the prompt focused.
+    if firmware_kind != "rtos":
+        sections.append(unpack_control)
     sections.extend([uart, fuzzing, output_format, report_writer, scratchpad])
 
     return "\n\n".join(sections)

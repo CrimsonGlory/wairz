@@ -84,10 +84,10 @@ export async function getSessionLogs(
   return data.logs
 }
 
-export function buildEmulationTerminalURL(
+export async function buildEmulationTerminalURL(
   projectId: string,
   sessionId: string,
-): string {
+): Promise<string> {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const host = window.location.host
   return appendApiKey(

@@ -20,6 +20,7 @@ import docker
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
+from app.auth.oidc import authorize_websocket
 from app.database import async_session_factory
 from app.models.emulation_session import EmulationSession
 from app.models.firmware import Firmware
@@ -90,8 +91,14 @@ def _copy_dir_to_container(
 async def websocket_terminal(
     websocket: WebSocket,
     project_id: uuid.UUID,
+    firmware_id: uuid.UUID | None = Query(None),
 ):
     await websocket.accept()
+
+    # Auth: the http middleware can't gate WebSockets, and this endpoint spawns a
+    # shell, so authorize the connection explicitly (no-op when auth is disabled).
+    if await authorize_websocket(websocket) is None:
+        return
 
     # Look up project and firmware extracted_path
     async with async_session_factory() as db:
@@ -102,10 +109,19 @@ async def websocket_terminal(
             await websocket.close(code=4004)
             return
 
+        # Resolve the firmware to chroot into: the explicitly-requested version,
+        # else the newest loadable one. (A bare project query would raise
+        # MultipleResultsFound once a project has more than one firmware.)
         fw_result = await db.execute(
             select(Firmware).where(Firmware.project_id == project_id)
         )
-        firmware = fw_result.scalar_one_or_none()
+        firmware_list = list(fw_result.scalars().all())
+        if firmware_id is not None:
+            firmware = next(
+                (f for f in firmware_list if f.id == firmware_id), None
+            )
+        else:
+            firmware = pick_active_firmware(firmware_list)
         if not firmware or not firmware.extracted_path:
             await websocket.send_json(
                 {"type": "error", "data": "No unpacked firmware found"}

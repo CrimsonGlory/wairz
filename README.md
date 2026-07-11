@@ -139,6 +139,24 @@ Or use the helper script:
 ./launch.sh
 ```
 
+### Enterprise / Cloud Deployment
+
+The default `docker compose` stack above is the standard single-host install and
+is unchanged. For teams that want an elastic, multi-user AWS deployment, the
+[`enterprise/`](enterprise/) directory contains a self-contained Terraform
+target: a static SPA on S3/CloudFront, FastAPI on Fargate, Aurora Serverless v2,
+ElastiCache, and shared firmware storage on EFS, with heavy Ghidra
+decompilation bursting onto **scale-to-zero AWS Batch** workers (`$0` compute at
+rest). It supports an optional custom domain and Cognito/OIDC login (SSO-ready —
+federate JumpCloud/Okta) and a remote (Streamable-HTTP) MCP transport.
+
+All cloud behavior is **off by default and config-gated**, so the local
+docker-compose workflow is never affected. Start at
+[`enterprise/README.md`](enterprise/README.md); the phased build/operations
+detail is in [`enterprise/PLAN.md`](enterprise/PLAN.md),
+[`enterprise/docs/RUNBOOK.md`](enterprise/docs/RUNBOOK.md), and
+[`enterprise/docs/COST.md`](enterprise/docs/COST.md).
+
 ## Connecting AI via MCP
 
 Wairz uses MCP to give AI agents access to firmware analysis tools. After starting the backend, register the MCP server with your preferred client:

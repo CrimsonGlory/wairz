@@ -21,6 +21,7 @@ export default function FindingsPage() {
   const { firmwareList } = useFirmwareList(projectId)
 
   const [findings, setFindings] = useState<Finding[]>([])
+  const [firmwareVersions, setFirmwareVersions] = useState<FirmwareDetail[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(
     (location.state as { findingId?: string } | null)?.findingId ?? null,
@@ -69,6 +70,19 @@ export default function FindingsPage() {
   useEffect(() => {
     fetchFindings()
   }, [fetchFindings])
+
+  useEffect(() => {
+    if (!projectId) return
+    listFirmware(projectId)
+      .then(setFirmwareVersions)
+      .catch((err) => console.error('Failed to load firmware versions:', err))
+  }, [projectId])
+
+  // Default the findings view to the globally-selected firmware version. Users
+  // can still widen to "All versions" via the in-list filter afterward.
+  useEffect(() => {
+    setFirmwareFilter(activeFirmwareId)
+  }, [activeFirmwareId])
 
   const handleSelect = useCallback((finding: Finding) => {
     setSelectedId((prev) => (prev === finding.id ? null : finding.id))
@@ -138,9 +152,12 @@ export default function FindingsPage() {
             severityFilter={severityFilter}
             statusFilter={statusFilter}
             sourceFilter={sourceFilter}
+            firmwareVersions={firmwareVersions}
+            firmwareFilter={firmwareFilter}
             onSeverityFilter={setSeverityFilter}
             onStatusFilter={setStatusFilter}
             onSourceFilter={setSourceFilter}
+            onFirmwareFilter={setFirmwareFilter}
           />
         </div>
       </div>
@@ -152,6 +169,7 @@ export default function FindingsPage() {
             <FindingDetail
               key={selectedFinding.id}
               finding={selectedFinding}
+              firmwareVersions={firmwareVersions}
               onUpdate={handleUpdate}
               onDelete={handleDelete}
             />

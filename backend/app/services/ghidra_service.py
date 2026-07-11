@@ -213,8 +213,8 @@ def _release_analysis_flock(fd: int) -> None:
 
 
 @contextlib.asynccontextmanager
-async def _cross_process_analysis_lock(binary_sha256: str):
-    """Host-wide exclusive lock keyed by binary sha256.
+async def _flock_analysis_lock(lock_key: str):
+    """Host-wide exclusive lock via fcntl.flock (local / shared-filesystem).
 
     The asyncio.Event guard only dedupes coroutines within a single Python
     process. Each MCP client connection spawns its own wairz-mcp process, so
@@ -225,7 +225,7 @@ async def _cross_process_analysis_lock(binary_sha256: str):
     if a process crashes, so failed analyses don't leave the binary blocked.
     """
     _ANALYSIS_LOCK_DIR.mkdir(parents=True, exist_ok=True)
-    lock_path = str(_ANALYSIS_LOCK_DIR / f"{binary_sha256}.lock")
+    lock_path = str(_ANALYSIS_LOCK_DIR / f"{lock_key}.lock")
     fd = await asyncio.to_thread(_acquire_analysis_flock, lock_path)
     try:
         yield
@@ -449,6 +449,24 @@ def _parse_analysis_output(raw_output: str) -> dict | None:
         return None
 
 
+# Ghidra's headless logger wraps each script println() as
+#   "INFO  DecompileFunction.java> <text> (GhidraScript)"
+# (only the first physical line of a multi-line println is wrapped). Strip the
+# leading level+script prefix and the trailing " (GhidraScript)" marker so the
+# decompiled C comes back clean, the same way _parse_analysis_output pulls the
+# bare JSON out from between its markers.
+_GHIDRA_LOG_PREFIX = re.compile(r"^(?:INFO|WARN|WARNING|ERROR|DEBUG)\s+\S+\.java>\s?")
+_GHIDRA_LOG_SUFFIX = re.compile(r"\s*\(GhidraScript\)\s*$")
+
+
+def _strip_ghidra_log_wrapper(content: str) -> str:
+    cleaned = [
+        _GHIDRA_LOG_SUFFIX.sub("", _GHIDRA_LOG_PREFIX.sub("", line))
+        for line in content.splitlines()
+    ]
+    return "\n".join(cleaned).strip()
+
+
 def _parse_decompile_output(raw_output: str) -> str | None:
     """Extract decompiled code from DecompileFunction.java output between markers."""
     start = raw_output.find(_DECOMPILE_START)
@@ -458,13 +476,71 @@ def _parse_decompile_output(raw_output: str) -> str | None:
         return None
 
     content = raw_output[start + len(_DECOMPILE_START):end].strip()
+    content = _strip_ghidra_log_wrapper(content)
     return content if content else None
 
 
-def _build_analyze_command(
+# Name of the single Ghidra project created per binary. The program inside is
+# named after the imported file's basename, but every reuse run uses bare
+# "-process" (which targets all programs in the project, of which there is
+# exactly one), so the program name never has to be threaded through.
+_PROJECT_NAME = "wairz"
+_ANALYZED_MARKER = ".wairz_analyzed"
+
+# --- Reuse-worker queue (cloud mode) ----------------------------------------
+# In cloud mode the backend is a small Fargate task that must NOT run Ghidra
+# itself. Query scripts (decompile/string-refs/layouts/dataflow) are delegated
+# over Redis to a warm "reuse worker" Batch job that runs -process against the
+# shared EFS project. See enterprise/PLAN.md §3.2 (C8).
+_REUSE_QUEUE = "wairz:ghidra:reuse:q"
+_REUSE_RESULT_PREFIX = "wairz:ghidra:reuse:res:"
+_REUSE_WORKER_HB = "wairz:ghidra:reuse:worker:hb"      # worker liveness (TTL)
+_REUSE_WORKER_SUBMIT = "wairz:ghidra:reuse:worker:submit"  # de-dupe submits
+_REUSE_RESULT_TTL = 120          # seconds a result waits to be collected
+_REUSE_DISPATCH_GRACE = 240      # extra wait budget for a cold worker (boot)
+_REUSE_SUBMIT_TTL = 300          # how long a "submitting" marker holds
+
+
+@lru_cache(maxsize=1)
+def _ghidra_version() -> str:
+    """Installed Ghidra version, read from application.properties.
+
+    Used to namespace the persistent project store so a Ghidra upgrade never
+    tries to open a project written by an older (incompatible) version.
+    """
+    props = os.path.join(
+        get_settings().ghidra_path, "Ghidra", "application.properties",
+    )
+    try:
+        with open(props, encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("application.version="):
+                    return line.split("=", 1)[1].strip() or "unknown"
+    except OSError:
+        pass
+    return "unknown"
+
+
+def _project_dir(binary_sha256: str) -> str:
+    """Persistent Ghidra project directory for a binary, keyed by content hash.
+
+    Layout: <GHIDRA_PROJECT_ROOT>/<ghidra_version>/<sha256>/. Keying by sha256
+    means a binary shipped in many firmwares (e.g. busybox) is analyzed once
+    and reused everywhere, across sessions/agents/users.
+    """
+    return os.path.join(
+        get_settings().ghidra_project_root, _ghidra_version(), binary_sha256,
+    )
+
+
+def _analyze_headless_path() -> str:
+    return os.path.join(get_settings().ghidra_path, "support", "analyzeHeadless")
+
+
+def _build_import_command(
     binary_path: str,
-    script_name: str,
     project_dir: str,
+    script_name: str,
     script_args: list[str] | None = None,
     *,
     ghidra_import_params: dict | None = None,
@@ -545,10 +621,12 @@ def _build_analyze_command(
     analyze_headless = os.path.join(ghidra_path, "support", "analyzeHeadless")
     project_name = f"wairz_{uuid.uuid4().hex[:8]}"
 
+    Note: NO -deleteProject — the analyzed project is kept on disk for reuse.
+    """
     cmd = [
-        analyze_headless,
+        _analyze_headless_path(),
         project_dir,
-        project_name,
+        _PROJECT_NAME,
         "-import",
         binary_path,
     ]
@@ -601,9 +679,280 @@ def _build_analyze_command(
 
     if script_args:
         cmd.extend(script_args)
-
-    cmd.append("-deleteProject")
     return cmd
+
+
+def _build_process_command(
+    project_dir: str,
+    script_name: str,
+    script_args: list[str] | None = None,
+) -> list[str]:
+    """Run a script against an already-analyzed persistent project (reuse).
+
+    -noanalysis skips re-running auto-analysis (the expensive part — already
+    done at import); -readOnly never writes back, so the saved project is
+    untouched. Bare -process targets the project's single program.
+    """
+    cmd = [
+        _analyze_headless_path(),
+        project_dir,
+        _PROJECT_NAME,
+        "-process",
+        "-noanalysis",
+        "-readOnly",
+        "-scriptPath",
+        get_settings().ghidra_scripts_path,
+        "-postScript",
+        script_name,
+    ]
+    if script_args:
+        cmd.extend(script_args)
+    return cmd
+
+
+async def _exec_headless(cmd: list[str], effective_timeout: int) -> str:
+    """Run an analyzeHeadless command and return raw stdout.
+
+    Captures stdout/stderr to tempfiles rather than asyncio PIPEs.
+    AnalyzeBinary.java for a multi-MB binary can emit hundreds of MB of
+    println output; with PIPE + communicate(), the kernel 64 KB pipe buffer
+    fills before asyncio drains it and Ghidra deadlocks blocked in a
+    FileOutputStream.write syscall. Tempfiles let the kernel buffer arbitrary
+    output with no possibility of deadlock; we read them once Ghidra exits.
+    """
+    with tempfile.TemporaryFile(prefix="ghidra-stdout-") as stdout_f, \
+         tempfile.TemporaryFile(prefix="ghidra-stderr-") as stderr_f:
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=stdout_f,
+                stderr=stderr_f,
+            )
+        except FileNotFoundError:
+            raise RuntimeError(
+                f"Ghidra not found at {cmd[0]}. "
+                "Install Ghidra or set GHIDRA_PATH in .env."
+            )
+
+        try:
+            await asyncio.wait_for(process.wait(), timeout=effective_timeout)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+            raise TimeoutError(
+                f"Ghidra analysis timed out after {effective_timeout}s"
+            )
+
+        stdout_f.seek(0)
+        stderr_f.seek(0)
+        stdout = stdout_f.read()
+        stderr = stderr_f.read()
+
+    stdout_text = stdout.decode("utf-8", errors="replace")
+    stderr_text = stderr.decode("utf-8", errors="replace")
+
+    if process.returncode != 0:
+        # Ghidra often returns non-zero but still produces output.
+        known_markers = (
+            _START_MARKER, _DECOMPILE_START,
+            "===STRING_REFS_START===", "===TAINT_START===",
+            "===STACK_LAYOUT_START===", "===GLOBAL_LAYOUT_START===",
+        )
+        if not any(m in stdout_text for m in known_markers):
+            logger.error(
+                "Ghidra failed (rc=%d): %s",
+                process.returncode,
+                stderr_text[-500:],
+            )
+            raise RuntimeError(
+                f"Ghidra analysis failed (exit code {process.returncode})"
+            )
+
+    return stdout_text
+
+
+async def _ensure_project_imported(
+    binary_path: str, binary_sha256: str, effective_timeout: int,
+) -> str | None:
+    """Import + analyze the binary into its persistent project if not already.
+
+    Returns AnalyzeBinary.java's raw output when it performs the import (so the
+    caller can reuse it instead of a redundant -process run), or None if the
+    project already existed. UNLOCKED — callers must hold
+    _cross_process_analysis_lock(binary_sha256) so only one import runs and no
+    two headless processes touch the same project concurrently.
+    """
+    project_dir = _project_dir(binary_sha256)
+    marker = os.path.join(project_dir, _ANALYZED_MARKER)
+
+    if os.path.exists(marker):
+        return None
+
+    # A project dir without the marker is a crashed/partial import — discard it
+    # so the retry starts clean (avoids a stale Ghidra project lock).
+    if os.path.isdir(project_dir):
+        shutil.rmtree(project_dir, ignore_errors=True)
+    os.makedirs(project_dir, exist_ok=True)
+
+    logger.info(
+        "Importing + analyzing %s into persistent project %s",
+        os.path.basename(binary_path), binary_sha256[:12],
+    )
+    try:
+        raw_output = await _exec_headless(
+            _build_import_command(binary_path, project_dir, "AnalyzeBinary.java"),
+            effective_timeout,
+        )
+    except BaseException:
+        # Don't leave a half-imported project that future runs would treat as
+        # reusable (the marker is only written on success, but the dir itself
+        # could confuse a -process run, so clear it).
+        shutil.rmtree(project_dir, ignore_errors=True)
+        raise
+
+    Path(marker).write_text(f"{binary_sha256}\n", encoding="utf-8")
+    # A new project just landed — prune the store back to the cap if needed.
+    await _gc_project_store()
+    return raw_output
+
+
+async def _run_process_script(
+    binary_sha256: str,
+    script_name: str,
+    script_args: list[str] | None,
+    effective_timeout: int,
+) -> str:
+    """Run a read-only script against the already-analyzed persistent project.
+
+    UNLOCKED — callers hold _cross_process_analysis_lock(binary_sha256).
+    """
+    logger.info(
+        "Reusing project %s for %s (-process, no re-analysis)",
+        binary_sha256[:12], script_name,
+    )
+    _touch_project(binary_sha256)
+    return await _exec_headless(
+        _build_process_command(_project_dir(binary_sha256), script_name, script_args),
+        effective_timeout,
+    )
+
+
+def _touch_project(binary_sha256: str) -> None:
+    """Bump the project's access time so the LRU GC keeps hot projects."""
+    marker = os.path.join(_project_dir(binary_sha256), _ANALYZED_MARKER)
+    try:
+        os.utime(marker, None)
+    except OSError:
+        pass
+
+
+def _try_evict_project(sha256: str, project_dir: str) -> bool:
+    """Evict a project iff no one holds its per-binary lock (non-blocking).
+
+    Returns True if evicted. Skips projects currently being imported/reused so
+    GC never rmtree's files out from under an in-flight Ghidra run.
+    """
+    lock_path = str(_ANALYSIS_LOCK_DIR / f"{sha256}.lock")
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+    except OSError:
+        return False
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (BlockingIOError, OSError):
+            return False  # in use — leave it
+        shutil.rmtree(project_dir, ignore_errors=True)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return True
+    finally:
+        os.close(fd)
+
+
+def _gc_project_store_sync() -> None:
+    """Evict least-recently-used projects once the store exceeds the cap.
+
+    'Recently used' = marker mtime, bumped on every import and reuse
+    (_touch_project). Only fully-analyzed projects (marker present) are counted
+    and evicted. Evictions are logged — never silent.
+    """
+    settings = get_settings()
+    cap = settings.ghidra_project_cache_max
+    if cap <= 0:
+        return
+    # Eviction takes the per-binary flock under this dir; ensure it exists even
+    # when GC runs before any lock has been acquired this process.
+    _ANALYSIS_LOCK_DIR.mkdir(parents=True, exist_ok=True)
+    version_root = os.path.join(settings.ghidra_project_root, _ghidra_version())
+    try:
+        names = os.listdir(version_root)
+    except OSError:
+        return
+
+    projects = []
+    for name in names:
+        d = os.path.join(version_root, name)
+        marker = os.path.join(d, _ANALYZED_MARKER)
+        try:
+            if os.path.isdir(d) and os.path.exists(marker):
+                projects.append((os.path.getmtime(marker), d, name))
+        except OSError:
+            continue
+
+    if len(projects) <= cap:
+        return
+
+    projects.sort(key=lambda p: p[0])  # oldest access first
+    evicted = 0
+    for _, d, name in projects[: len(projects) - cap]:
+        if _try_evict_project(name, d):
+            evicted += 1
+            logger.info(
+                "GC: evicted LRU Ghidra project %s (store cap=%d)", name[:12], cap,
+            )
+    if evicted:
+        logger.info(
+            "GC: evicted %d project(s); store now ~%d (cap=%d)",
+            evicted, len(projects) - evicted, cap,
+        )
+
+
+async def _gc_project_store() -> None:
+    """Run the project-store GC off the event loop; never raises."""
+    try:
+        await asyncio.to_thread(_gc_project_store_sync)
+    except Exception:
+        logger.warning("Project-store GC failed (non-fatal)", exc_info=True)
+
+
+async def _run_ghidra_local(
+    binary_path: str,
+    script_name: str,
+    script_args: list[str] | None,
+    effective_timeout: int,
+    binary_sha256: str,
+) -> str:
+    """Actually run Ghidra on THIS host against the persistent project.
+
+    On first touch the binary is imported + auto-analyzed once; the script then
+    runs against that project, and every later call reuses it via
+    -process -readOnly -noanalysis. This is the executor for local mode AND for
+    the cloud reuse worker (which calls it directly on its Batch instance).
+    """
+    # Serialize all headless access to this binary's project (import or reuse):
+    # a local Ghidra project allows only one headless process at a time, and
+    # this also dedupes concurrent first-touch imports. The lock is flock
+    # locally and Redis-backed in cloud (see _cross_process_analysis_lock).
+    async with _cross_process_analysis_lock(binary_sha256):
+        imported = await _ensure_project_imported(
+            binary_path, binary_sha256, effective_timeout,
+        )
+        if script_name == "AnalyzeBinary.java" and imported is not None:
+            # We just analyzed; reuse that output instead of a redundant pass.
+            return imported
+        return await _run_process_script(
+            binary_sha256, script_name, script_args, effective_timeout,
+        )
 
 
 async def run_ghidra_subprocess(
@@ -616,7 +965,7 @@ async def run_ghidra_subprocess(
     binary_sha256: str | None = None,
     is_gzf_process_mode: bool = False,
 ) -> str:
-    """Run a Ghidra headless script and return the raw stdout.
+    """Run a Ghidra headless script against the persistent per-binary project.
 
     timeout: optional override (seconds). Defaults to settings.ghidra_timeout,
     which is appropriate for synchronous tool calls bounded by the MCP
@@ -631,8 +980,9 @@ async def run_ghidra_subprocess(
     reference (format: "PROJECT_PROCESS_MODE:proj_base:proj_name") and the
     script should be run in -process mode against that project.
     """
-    settings = get_settings()
-    effective_timeout = timeout if timeout is not None else settings.ghidra_timeout
+    effective_timeout = timeout if timeout is not None else get_settings().ghidra_timeout
+    if binary_sha256 is None:
+        binary_sha256 = await asyncio.to_thread(_compute_sha256, binary_path)
 
     # Build the command — either process mode (for persistent GZF projects)
     # or import mode (for fresh analysis)
@@ -663,6 +1013,9 @@ async def run_ghidra_subprocess(
             script_name,
             log_target,
         )
+    return await _run_ghidra_remote(
+        binary_path, script_name, script_args, effective_timeout, binary_sha256,
+    )
 
         # Capture stdout/stderr to tempfiles rather than asyncio PIPEs.
         # AnalyzeBinary.java for a multi-MB binary can emit hundreds of MB

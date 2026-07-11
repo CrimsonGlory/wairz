@@ -1,0 +1,27 @@
+# Cognito user seeding (optional).
+#
+# Copy this file to `users.yaml` in the same directory and list the people who
+# should get accounts. On `terraform apply` (with auth_enabled = true) each user
+# is created in the standard invite flow: Cognito generates a temporary password
+# and emails an invite; the user sets their own password (min 12 chars, mixed
+# case + number + symbol) on first login. Terraform never holds a password.
+#
+# This file is declarative:
+#   - add an entry + re-apply        -> account created, invite emailed
+#   - remove an entry + re-apply     -> account deleted
+#   - already-present users          -> left untouched
+#
+# Notes:
+#   - Only used when auth_enabled = true. When federating an external IdP
+#     (JumpCloud/Okta/...) for SSO, leave this empty — users come from the IdP.
+#   - Cognito's default email sender is capped at ~50/day and sends from a
+#     generic address. For a real rollout wire SES into the pool.
+#
+# `users.yaml` is gitignored so your real roster isn't committed.
+
+- email: alice@example.com
+  name: Alice Example          # optional; maps to the Cognito `name` attribute
+
+- email: bob@example.com        # name is optional
+
+- email: carol@example.com
