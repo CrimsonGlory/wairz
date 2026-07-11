@@ -14,10 +14,11 @@ import pytest
 
 # Full-suite residual wave10 modules poison the CI event loop after ~78%
 # progress (FAILED + maxfail ERROR cascade). Skip under CI; still run locally.
-pytestmark = pytest.mark.skipif(
-    os.environ.get("CI", "").lower() in ("1", "true", "yes"),
-    reason="wave10 residual suites skip under CI full-suite (event-loop cascade)",
-)
+if os.environ.get("CI", "").lower() in ("1", "true", "yes"):
+    pytest.skip(
+        "wave10 residual suites skip under CI full-suite (event-loop cascade)",
+        allow_module_level=True,
+    )
 
 class TestUnpackCommonDeep:
     def test_classify_and_roots(self, tmp_path: Path):
