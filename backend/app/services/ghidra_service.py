@@ -805,7 +805,9 @@ async def _ensure_project_imported(
         shutil.rmtree(project_dir, ignore_errors=True)
         raise
 
-    Path(marker).write_text(f"{binary_sha256}\n", encoding="utf-8")
+    Path(marker).write_text(  # noqa: ASYNC240 — single marker write after import
+        f"{binary_sha256}\n", encoding="utf-8",
+    )
     # A new project just landed — prune the store back to the cap if needed.
     await _gc_project_store()
     return raw_output

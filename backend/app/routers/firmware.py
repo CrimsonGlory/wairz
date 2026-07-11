@@ -16,6 +16,7 @@ from app.schemas.firmware import (
     FirmwareArchUpdate,
     FirmwareDetailResponse,
     FirmwareDetectionAuditResponse,
+    FirmwareKernelUpdate,
     FirmwareKindUpdate,
     FirmwareMetadataResponse,
     FirmwareRedetectRequest,
