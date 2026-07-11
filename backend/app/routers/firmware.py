@@ -31,10 +31,6 @@ from app.services.firmware_service import (
     FirmwareService,
     _run_upload_post_processing_background,
 )
-from app.services.unpack_control_service import (
-    UnpackControlError,
-    UnpackControlService,
-)
 from app.services.format_detection import (
     CAPABILITY_NOTES,
     EXTRACTION_CAPABILITY,
@@ -44,6 +40,10 @@ from app.services.jsonb_normalizers import (
     _normalize_firmware_device_metadata,
     _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
+)
+from app.services.unpack_control_service import (
+    UnpackControlError,
+    UnpackControlService,
 )
 from app.utils.log_sanitize import sanitize_for_log
 from app.workers.unpack import detect_kernel
