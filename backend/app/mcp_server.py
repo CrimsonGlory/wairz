@@ -27,6 +27,7 @@ specific one. Without it, the earliest-uploaded unpacked firmware is used.
 
 import argparse
 import asyncio
+import contextlib
 import logging
 import os
 import sys

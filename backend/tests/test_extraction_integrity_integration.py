@@ -391,10 +391,19 @@ def test_no_new_direct_extracted_path_reads():
         "carving_service.py",  # mounts a single firmware's extracted tree read-only
         # Export is a single-archive bundling step, not a detection walk
         "export_service.py",
+        # Upstream merge: single-firmware rootfs for harness build / patch / unpack control
+        "binary_patch_service.py",
+        "harness_build_service.py",
+        "unpack_control_service.py",
     }
     # MCP tools: per-binary flows (emulation, fuzzing, comparison of
     # single-firmware extraction status) still need extracted_path.
-    mcp_allowlist = {"emulation.py", "fuzzing.py", "comparison.py"}
+    mcp_allowlist = {
+        "emulation.py",
+        "fuzzing.py",
+        "comparison.py",
+        "unpack_control.py",  # manual rootfs/kernel override tools (upstream merge)
+    }
 
     from pathlib import Path as _P
 

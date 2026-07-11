@@ -32,6 +32,7 @@ finding_firmware = Table(
         "firmware_id",
         ForeignKey("firmware.id", ondelete="CASCADE"),
         primary_key=True,
+        index=True,  # ix_finding_firmware_firmware_id (migration g5e6f7a8b9c0)
     ),
 )
 

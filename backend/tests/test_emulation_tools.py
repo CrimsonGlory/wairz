@@ -241,8 +241,10 @@ def test_register_emulation_tools_registers_all_twenty_five():
         "capture_network_traffic",
         "get_nvram_state",
         "interact_web_endpoint",
+        "attach_kernel_companion",
+        "inject_file_to_emulation",
     }
-    assert len(names) == 25
+    assert len(names) == 27
 
 
 # ---------------------------------------------------------------------------

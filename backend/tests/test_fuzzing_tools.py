@@ -104,7 +104,7 @@ def _campaign(project_id, firmware_id, **overrides) -> FuzzingCampaign:
 # ---------------------------------------------------------------------------
 
 
-def test_register_fuzzing_tools_registers_all_nine():
+def test_register_fuzzing_tools_registers_all_eleven():
     registry = ToolRegistry()
     register_fuzzing_tools(registry)
     names = set(registry._tools.keys())
@@ -113,6 +113,8 @@ def test_register_fuzzing_tools_registers_all_nine():
         "generate_fuzzing_dictionary",
         "generate_seed_corpus",
         "start_fuzzing_campaign",
+        "build_fuzz_harness",
+        "patch_function_return",
         "check_fuzzing_status",
         "stop_fuzzing_campaign",
         "generate_fuzzing_harness",

@@ -451,9 +451,6 @@ app.middleware("http")(auth_guard)
 async def origin_host_guard(request: Request, call_next):
     # CSRF + DNS-rebinding guard for the localhost-bound backend.
     # Hosts may be extended via EXTRA_ALLOWED_HOSTS / Settings.extra_allowed_hosts.
-    # /health is always exempt so load-balancer probes pass.
-    if request.url.path == "/health":
-        return await call_next(request)
     host = request.headers.get("host", "")
     if host not in ALLOWED_HOSTS:
         return JSONResponse(status_code=403, content={"detail": "host not allowed"})

@@ -3168,18 +3168,24 @@ async def _handle_list_presets(input: dict, context: ToolContext) -> str:
 def _preset_overrides_summary(p: EmulationPreset) -> str:
     """One-line summary of a preset's non-empty system-mode QEMU/boot overrides."""
     fields = [
-        ("cpu", p.cpu), ("machine", p.machine), ("nic_model", p.nic_model),
-        ("mem", p.mem), ("smp", p.smp),
-        ("kernel_append", p.kernel_append), ("initrd", p.initrd_path),
-        ("dtb", p.dtb_path),
-        ("drive_interface", p.drive_interface), ("root_dev", p.root_dev),
-        ("qemu_extra_args", p.qemu_extra_args),
+        ("cpu", getattr(p, "cpu", None)),
+        ("machine", getattr(p, "machine", None)),
+        ("nic_model", getattr(p, "nic_model", None)),
+        ("mem", getattr(p, "mem", None)),
+        ("smp", getattr(p, "smp", None)),
+        ("kernel_append", getattr(p, "kernel_append", None)),
+        ("initrd", getattr(p, "initrd_path", None)),
+        ("dtb", getattr(p, "dtb_path", None)),
+        ("drive_interface", getattr(p, "drive_interface", None)),
+        ("root_dev", getattr(p, "root_dev", None)),
+        ("qemu_extra_args", getattr(p, "qemu_extra_args", None)),
     ]
     summary = ", ".join(f"{k}={v}" for k, v in fields if v)
-    if p.extra_drives:
+    extra_drives = getattr(p, "extra_drives", None) or []
+    if extra_drives:
         drives = ", ".join(
             f"{d.get('path')}{'→' + d['mount'] if d.get('mount') else ''}"
-            for d in p.extra_drives
+            for d in extra_drives
         )
         summary = f"{summary}, extra_drives=[{drives}]" if summary else f"extra_drives=[{drives}]"
     return summary
@@ -3226,19 +3232,19 @@ async def _handle_start_from_preset(input: dict, context: ToolContext) -> str:
         "init_path": preset.init_path,
         "pre_init_script": preset.pre_init_script,
         "stub_profile": preset.stub_profile,
-        # System-mode QEMU/boot overrides (column name initrd_path → input "initrd")
-        "cpu": preset.cpu,
-        "machine": preset.machine,
-        "nic_model": preset.nic_model,
-        "mem": preset.mem,
-        "smp": preset.smp,
-        "kernel_append": preset.kernel_append,
-        "initrd": preset.initrd_path,
-        "dtb": preset.dtb_path,
-        "drive_interface": preset.drive_interface,
-        "root_dev": preset.root_dev,
-        "qemu_extra_args": preset.qemu_extra_args,
-        "extra_drives": preset.extra_drives or None,
+        # System-mode QEMU/boot overrides (optional columns; getattr for legacy rows/tests)
+        "cpu": getattr(preset, "cpu", None),
+        "machine": getattr(preset, "machine", None),
+        "nic_model": getattr(preset, "nic_model", None),
+        "mem": getattr(preset, "mem", None),
+        "smp": getattr(preset, "smp", None),
+        "kernel_append": getattr(preset, "kernel_append", None),
+        "initrd": getattr(preset, "initrd_path", None),
+        "dtb": getattr(preset, "dtb_path", None),
+        "drive_interface": getattr(preset, "drive_interface", None),
+        "root_dev": getattr(preset, "root_dev", None),
+        "qemu_extra_args": getattr(preset, "qemu_extra_args", None),
+        "extra_drives": getattr(preset, "extra_drives", None) or None,
     }
 
     result = await _handle_start_emulation(start_input, context)

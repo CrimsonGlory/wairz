@@ -18,11 +18,27 @@ from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.config import get_settings
 from app.services import ghidra_service
 from app.services.analysis_service import check_binary_protections
+from app.services.compute_dispatch import (
+    ConcurrencyLimitError,
+    describe_batch_job_state,
+    get_dispatcher,
+)
 from app.services.ghidra_research_service import GhidraResearchService
 from app.services.ghidra_service import batch_decompile_functions, decompile_function, run_ghidra_subprocess
 from app.utils.sandbox import safe_walk
 
 logger = logging.getLogger(__name__)
+
+
+def get_analysis_cache():
+    """Shim for upstream/tests that expect a cache object.
+
+    Our ghidra service is module-level functions (not a singleton class).
+    This returns the module itself so ``cache.get_binary_sha256`` etc. resolve
+    to the module-level API (including the public ``get_binary_sha256`` wrapper
+    and the ``_is_analysis_complete`` / ``_get_cached`` helpers).
+    """
+    return ghidra_service
 
 # Standard library search paths in firmware filesystems
 _STANDARD_LIB_PATHS = ["/lib", "/usr/lib", "/lib32", "/usr/lib32"]
@@ -2575,7 +2591,7 @@ async def _handle_start_function_decompile(
     )
     await context.db.flush()  # Rule #3: outer MCP dispatch owns the transaction
 
-    worker_id = handle.ref or f"pid={handle.pid}"
+    worker_id = f"pid={proc.pid}"
     return (
         f"started - decompile kicked off for '{function_name}' in "
         f"{os.path.basename(path)} ({worker_id}). Poll "

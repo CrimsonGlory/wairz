@@ -39,6 +39,11 @@ from app.services.ghidra_service import (
 
 logger = logging.getLogger(__name__)
 
+def get_analysis_cache():
+    """Shim for tests/upstream patches that expect a cache object."""
+    return ghidra_service
+
+
 
 def _lock_key(binary_sha256: str, function_name: str) -> str:
     """Stable, path-safe lock key per (binary, function).
