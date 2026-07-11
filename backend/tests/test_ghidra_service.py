@@ -42,6 +42,8 @@ from app.models.project import Project
 from app.services import ghidra_service
 from app.services.ghidra_service import (
     _build_analyze_command,
+    _exec_headless,
+    _make_ghidra_preexec_fn,
     _map_architecture,
     _parse_analysis_output,
     _parse_decompile_output,
@@ -251,6 +253,34 @@ class TestBuildAnalyzeCommand:
         assert "main" in cmd[post_idx + 2 :]
         assert "-deleteProject" not in cmd
 
+    def test_script_args_precede_import_param_flags(self):
+        """Regression for the 'Bad argument' breakage with baremetal import params.
+
+        analyzeHeadless collects post-script arguments only until the next
+        recognised option flag. When ghidra_import_params populates loader/
+        processor flags, those flags MUST come AFTER the script_args —
+        otherwise an interposed -processor stops arg collection and the
+        script arg lands in option position.
+        """
+        cmd = _build_analyze_command(
+            binary_path="/bin/foo",
+            script_name="DecompileAddr.java",
+            project_dir="/tmp/p",
+            script_args=["0x8004bfb0"],
+            ghidra_import_params={
+                "processor": "MIPS:LE:32:default",
+                "loader": "BinaryLoader",
+                "base_addr": 0x80040000,
+            },
+        )
+        post_idx = cmd.index("-postScript")
+        proc_idx = cmd.index("-processor")
+        arg_idx = cmd.index("0x8004bfb0")
+        # script arg sits immediately after -postScript <target> ...
+        assert arg_idx == post_idx + 2
+        # ... and BEFORE any loader/processor flag.
+        assert arg_idx < proc_idx
+
     def test_extra_script_path_uses_single_combined_scriptpath_flag(self):
         """Regression for the 2026-06-22 stale-script bug, corrected same day.
 
@@ -384,6 +414,122 @@ class TestRunGhidraSubprocess:
             "before raising TimeoutError so the orphan analyzeHeadless does "
             "not pin a CPU after the timeout"
         )
+
+    @pytest.mark.asyncio
+    async def test_exec_headless_passes_preexec_fn(self, tmp_path: Path):
+        """_exec_headless must forward preexec_fn= to create_subprocess_exec.
+
+        The kwarg must be PRESENT (even when None from a non-root caller) so
+        root callers' privilege-drop callable is always wired through for
+        NotOwnerException mitigation on the shared Ghidra projects volume.
+        """
+        captured_kwargs: dict = {}
+
+        async def _capture(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            raise FileNotFoundError("test — ghidra not present in CI")
+
+        with patch.object(
+            ghidra_service.asyncio,
+            "create_subprocess_exec",
+            new=AsyncMock(side_effect=_capture),
+        ):
+            with pytest.raises(RuntimeError, match="Ghidra not found"):
+                await _exec_headless(
+                    ["/opt/ghidra/support/analyzeHeadless", "proj", "wairz"],
+                    effective_timeout=5,
+                )
+
+        assert "preexec_fn" in captured_kwargs, (
+            "_exec_headless must pass preexec_fn= to create_subprocess_exec "
+            "for NotOwnerException mitigation"
+        )
+
+
+# ---------------------------------------------------------------------------
+# _make_ghidra_preexec_fn — privilege-drop helper
+# ---------------------------------------------------------------------------
+
+class TestMakeGhidraPreexecFn:
+    """Unit tests for the analyzeHeadless privilege-drop helper.
+
+    Rule #46 canary: the _drop callable is invoked synthetically and its
+    side-effects (os.setgid / os.setuid) are asserted so the gate
+    demonstrably fires rather than silently passing.
+    """
+
+    def test_returns_none_when_not_root(self):
+        with patch.object(ghidra_service.os, "geteuid", return_value=1000):
+            result = _make_ghidra_preexec_fn()
+        assert result is None
+
+    def test_returns_callable_when_root_and_user_exists(self):
+        mock_pw = MagicMock()
+        mock_pw.pw_uid = 1000
+        mock_pw.pw_gid = 1000
+        with (
+            patch.object(ghidra_service.os, "geteuid", return_value=0),
+            patch.object(ghidra_service.pwd, "getpwnam", return_value=mock_pw),
+        ):
+            result = _make_ghidra_preexec_fn()
+        assert callable(result)
+
+    def test_drop_fn_calls_setgid_before_setuid(self):
+        """Rule #46 canary: invokes the _drop callable and verifies the
+        setgid-then-setuid ordering — root required to change GID so the
+        order is load-bearing."""
+        mock_pw = MagicMock()
+        mock_pw.pw_uid = 1000
+        mock_pw.pw_gid = 1000
+        call_order: list[str] = []
+        with (
+            patch.object(ghidra_service.os, "geteuid", return_value=0),
+            patch.object(ghidra_service.pwd, "getpwnam", return_value=mock_pw),
+            patch.object(
+                ghidra_service.os, "setgid",
+                side_effect=lambda gid: call_order.append(f"setgid({gid})"),
+            ),
+            patch.object(
+                ghidra_service.os, "setuid",
+                side_effect=lambda uid: call_order.append(f"setuid({uid})"),
+            ),
+        ):
+            drop_fn = _make_ghidra_preexec_fn()
+            assert callable(drop_fn)
+            drop_fn()
+
+        assert call_order == ["setgid(1000)", "setuid(1000)"], (
+            "_drop must call setgid before setuid — changing GID requires root, "
+            "which is lost after setuid"
+        )
+
+    def test_returns_none_when_wairz_user_missing(self):
+        with (
+            patch.object(ghidra_service.os, "geteuid", return_value=0),
+            patch.object(
+                ghidra_service.pwd, "getpwnam", side_effect=KeyError("wairz"),
+            ),
+        ):
+            result = _make_ghidra_preexec_fn()
+        assert result is None
+
+    def test_drop_fn_uses_uid_and_gid_from_passwd(self):
+        """The callable captures the pw_uid / pw_gid values at creation time."""
+        mock_pw = MagicMock()
+        mock_pw.pw_uid = 1234
+        mock_pw.pw_gid = 5678
+        with (
+            patch.object(ghidra_service.os, "geteuid", return_value=0),
+            patch.object(ghidra_service.pwd, "getpwnam", return_value=mock_pw),
+            patch.object(ghidra_service.os, "setgid") as mock_setgid,
+            patch.object(ghidra_service.os, "setuid") as mock_setuid,
+        ):
+            drop_fn = _make_ghidra_preexec_fn()
+            assert callable(drop_fn)
+            drop_fn()
+
+        mock_setgid.assert_called_once_with(5678)
+        mock_setuid.assert_called_once_with(1234)
 
 
 # ---------------------------------------------------------------------------
