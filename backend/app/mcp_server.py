@@ -451,7 +451,7 @@ def build_mcp_server(
     # Per-session ProjectState for the HTTP transport. WeakKeyDictionary so a
     # session's state is dropped automatically when the session ends and its
     # ServerSession is garbage-collected — no manual cleanup, no leak.
-    _session_states: "weakref.WeakKeyDictionary[object, ProjectState]" = (
+    _session_states: weakref.WeakKeyDictionary[object, ProjectState] = (
         weakref.WeakKeyDictionary()
     )
     # Exposed for observability/tests: maps live ServerSession → its ProjectState
@@ -1429,10 +1429,10 @@ def build_http_app(path: str = "/mcp", health_path: str = "/healthz"):
     buffers and would stall SSE), and lets it run as a sidecar that shares the
     backend task's EFS mount, database, and OIDC env.
     """
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
     from starlette.applications import Starlette
     from starlette.concurrency import run_in_threadpool
     from starlette.routing import Mount
-    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
     from app.auth.oidc import AuthError, get_verifier
 

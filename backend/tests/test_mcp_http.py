@@ -20,9 +20,9 @@ from app.auth import oidc
 from app.auth.oidc import AuthError
 from app.mcp_server import (
     ProjectState,
+    _make_session_factory,
     build_http_app,
     build_mcp_server,
-    _make_session_factory,
 )
 
 

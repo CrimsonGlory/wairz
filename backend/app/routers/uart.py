@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.firmware import Firmware
-from app.utils.firmware_selection import pick_active_firmware
 from app.schemas.uart import (
     UARTCommandResponse,
     UARTConnectRequest,
@@ -23,6 +22,7 @@ from app.schemas.uart import (
 )
 from app.services.firmware_service import FirmwareService
 from app.services.uart_service import UARTService
+from app.utils.firmware_selection import pick_active_firmware
 
 logger = logging.getLogger(__name__)
 
