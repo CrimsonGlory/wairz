@@ -12,7 +12,6 @@ from app.workers.unpack_common import (
     _read_magic,
 )
 
-
 _UIMAGE_ARCH_MAP = {
     2: ("arm", "little"),
     21: ("aarch64", "little"),

@@ -1275,7 +1275,7 @@ async def _handle_run_ghidra_headless(input: dict, context: ToolContext) -> str:
         # For RTOS blob-only projects resolve_path returns the parent directory for bare
         # basenames. Fall back to context.storage_path when the resolved path isn't a file.
         if (
-            not os.path.isfile(resolved_binary)
+            not os.path.isfile(resolved_binary)  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
             and context.storage_path
             and os.path.isfile(context.storage_path)  # noqa: ASYNC240 -- single bounded stat/open call, not a hot loop
             and os.path.basename(binary_path_rel) == os.path.basename(context.storage_path)
