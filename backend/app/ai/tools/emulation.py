@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from app.ai.tool_registry import ToolContext, ToolRegistry
 from app.config import get_settings
+from app.models.emulation_preset import EmulationPreset
 from app.models.emulation_session import EmulationSession
 from app.models.firmware import Firmware
 from app.services.emulation import EmulationService
