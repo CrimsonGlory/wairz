@@ -78,18 +78,20 @@ jobs:
 
       - name: Run pytest
         run: |
-          # CI=true must reach the container so conftest.pytest_configure can
-          # drop pytest-cov and quiet verbosity (coverage + -v push the 9k+
-          # suite past runner memory/time after large merges; nightly
-          # must-complete still collects coverage outside this path).
+          # No --cov on the PR/push job: conftest drops cov under CI=true, but
+          # CLI --cov re-enables the plugin and the 9k+ suite + coverage OOMs
+          # or dies mid-suite (~78%) after large merges. Nightly must-complete
+          # still collects coverage. Forward CI=true for quiet reporting.
           docker compose exec -T -w /app \
             -e PYTHONPATH=/app \
             -e CI=true \
             backend /app/.venv/bin/python -m pytest tests/ \
-              -v --tb=short --maxfail=50 --cov=app --cov-report=
+              -v --tb=short --maxfail=50
         timeout-minutes: 40
 
       - name: Coverage report
+        # Only meaningful when coverage was collected (nightly / local).
+        if: false
         run: |
           docker compose exec -T -w /app \
             backend /app/.venv/bin/python -m coverage report -m
