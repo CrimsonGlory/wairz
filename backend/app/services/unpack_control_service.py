@@ -157,8 +157,16 @@ class UnpackControlService:
     # ── rootfs ──────────────────────────────────────────────────────────
 
     async def set_rootfs(self, firmware: Firmware, path: str) -> Firmware:
-        # codeql[py/path-injection]  # path re-validated inside _resolve_within_tree (sandbox)
-        real = _resolve_within_tree(firmware, path)
+        candidate = _resolve_within_tree(firmware, path)
+        # Re-assert sandbox barrier at the sink so path-injection analysis
+        # sees realpath + prefix check in the same function as isdir.
+        root = os.path.realpath(_firmware_root(firmware))  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
+        real = os.path.realpath(candidate)  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
+        if real != root and not real.startswith(root + os.sep):
+            raise UnpackControlError(
+                f"path '{path}' resolves outside the firmware's storage "
+                f"tree and was rejected"
+            )
         if not os.path.isdir(real):  # noqa: ASYNC240 — pre-flight stat before bounded sync work
             raise UnpackControlError(
                 f"path '{path}' is not a directory; the rootfs must be a "
@@ -176,8 +184,16 @@ class UnpackControlService:
     # ── kernel ──────────────────────────────────────────────────────────
 
     async def set_kernel(self, firmware: Firmware, path: str) -> Firmware:
-        # codeql[py/path-injection]  # path re-validated inside _resolve_within_tree (sandbox)
-        real = _resolve_within_tree(firmware, path)
+        candidate = _resolve_within_tree(firmware, path)
+        # Re-assert sandbox barrier at the sink so path-injection analysis
+        # sees realpath + prefix check in the same function as isfile.
+        root = os.path.realpath(_firmware_root(firmware))  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
+        real = os.path.realpath(candidate)  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
+        if real != root and not real.startswith(root + os.sep):
+            raise UnpackControlError(
+                f"path '{path}' resolves outside the firmware's storage "
+                f"tree and was rejected"
+            )
         if not os.path.isfile(real):  # noqa: ASYNC240 — pre-flight stat before bounded sync work
             raise UnpackControlError(
                 f"path '{path}' is not a file; the kernel must be a single "

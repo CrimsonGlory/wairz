@@ -108,7 +108,7 @@ def _is_libc_lib(name: str) -> bool:
     return any(n.startswith(p) for p in _LIBC_PREFIXES)
 
 
-def _elf_lib_backed(elf_path: str) -> dict:
+def _elf_lib_backed(elf_path: str, sandbox_root: str | None = None) -> dict:
     """Decide whether a binary's real logic lives in shared libraries.
 
     AFL++ QEMU mode instruments only the main object's code range by default,
@@ -117,6 +117,10 @@ def _elf_lib_backed(elf_path: str) -> dict:
     text_size}``; ``lib_backed`` is True when the binary has a non-libc shared
     dependency AND a small ``.text`` (i.e. it delegates the work). Best-effort;
     never raises.
+
+    When ``sandbox_root`` is provided, the path is re-validated with realpath +
+    prefix check in this function so path-injection analysis sees the barrier
+    at the open sink (caller already used ``validate_path``).
     """
     info: dict = {
         "lib_backed": False, "needed": [], "non_libc_needed": [],
@@ -126,8 +130,12 @@ def _elf_lib_backed(elf_path: str) -> dict:
         from elftools.elf.dynamic import DynamicSection
         from elftools.elf.elffile import ELFFile
 
-        # codeql[py/path-injection]  # caller passes resolved firmware-tree paths only
-        with open(elf_path, "rb") as f:  # noqa: ASYNC230 — bounded file I/O
+        path = os.path.realpath(elf_path)
+        if sandbox_root:
+            root = os.path.realpath(sandbox_root)
+            if path != root and not path.startswith(root + os.sep):
+                return info
+        with open(path, "rb") as f:  # noqa: ASYNC230 — bounded file I/O
             elf = ELFFile(f)
             needed: list[str] = []
             dyn = elf.get_section_by_name(".dynamic")
@@ -395,7 +403,7 @@ class FuzzingService:
 
         # Whether the binary's real logic lives in shared libraries — drives
         # the AFL_INST_LIBS default (feedback #3).
-        libinfo = _elf_lib_backed(full_path)
+        libinfo = _elf_lib_backed(full_path, firmware.extracted_path)
 
         return {
             "binary_path": binary_path,
