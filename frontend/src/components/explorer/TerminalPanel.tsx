@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { X, TerminalSquare } from 'lucide-react'
 import { useTerminalWebSocket } from '@/hooks/useTerminalWebSocket'
+import { useExplorerStore } from '@/stores/explorerStore'
 import '@xterm/xterm/css/xterm.css'
 
 interface TerminalPanelProps {
@@ -15,8 +16,9 @@ export default function TerminalPanel({ projectId, isOpen, onClose }: TerminalPa
   const containerRef = useRef<HTMLDivElement>(null)
   const [terminal, setTerminal] = useState<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
+  const firmwareId = useExplorerStore((s) => s.firmwareId)
 
-  const { sendResize } = useTerminalWebSocket({ projectId, terminal, isOpen })
+  const { sendResize } = useTerminalWebSocket({ projectId, firmwareId, terminal, isOpen })
 
   // Initialize xterm.js
   useEffect(() => {

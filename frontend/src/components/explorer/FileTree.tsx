@@ -80,6 +80,7 @@ export default function FileTree() {
   const {
     treeData,
     treeError,
+    setFirmwareId,
     loadRootDirectory,
     loadDirectory,
     selectFile,
@@ -99,13 +100,19 @@ export default function FileTree() {
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchTruncated, setSearchTruncated] = useState(false)
 
-  // Documents-only mode: skip the firmware filesystem pane when the
-  // project doesn't have a Linux rootfs to walk (RTOS / unknown / no
+  // Documents-only mode: skip the firmware filesystem pane when the active
+  // firmware version doesn't have a Linux rootfs to walk (RTOS / unknown / no
   // firmware uploaded yet).
   const project = useProjectStore((s) =>
     projectId ? s.projects.find((p) => p.id === projectId) : undefined,
   )
-  const hasFirmwareFs = project?.firmware_kind === 'linux'
+  const currentProject = useProjectStore((s) => s.currentProject)
+  const activeFirmwareId = useProjectStore((s) => s.activeFirmwareId)
+  const activeFirmware =
+    currentProject && currentProject.id === projectId
+      ? currentProject.firmware.find((f) => f.id === activeFirmwareId)
+      : undefined
+  const hasFirmwareFs = (activeFirmware?.firmware_kind ?? project?.firmware_kind) === 'linux'
 
   const containerRef = useRef<HTMLDivElement>(null)
   const treeRef = useRef<TreeApi<TreeNode>>(null)
@@ -126,12 +133,13 @@ export default function FileTree() {
     return () => observer.disconnect()
   }, [])
 
-  // Load firmware filesystem root on mount — only when there is one to
-  // load. RTOS / unknown projects skip this so listDirectory doesn't
-  // error out against an empty extracted_path.
+  // Load the firmware filesystem root, and reload when the active version
+  // changes. Only when there is a rootfs to load — RTOS / unknown projects
+  // skip this so listDirectory doesn't error against an empty extracted_path.
   useEffect(() => {
+    setFirmwareId(activeFirmwareId ?? null)
     if (projectId && hasFirmwareFs) loadRootDirectory(projectId)
-  }, [projectId, hasFirmwareFs, loadRootDirectory])
+  }, [projectId, hasFirmwareFs, activeFirmwareId, setFirmwareId, loadRootDirectory])
 
   // Update visible node count for dynamic tree height
   useEffect(() => {

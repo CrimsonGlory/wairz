@@ -1,0 +1,18 @@
+# Remote state backend (recommended for shared/team deployments).
+#
+# Local state is used until you opt in. To enable remote state:
+#   1. Create an S3 bucket + DynamoDB lock table (one-time, out of band).
+#   2. cp backend.tf.example backend.tf  and fill in the values below.
+#   3. terraform init -migrate-state
+#
+# Note: backend.tf is gitignored (it can reference account-specific names).
+
+# terraform {
+#   backend "s3" {
+#     bucket         = "my-wairz-tfstate"
+#     key            = "enterprise/prod/terraform.tfstate"
+#     region         = "us-east-1"
+#     dynamodb_table = "my-wairz-tflock"
+#     encrypt        = true
+#   }
+# }

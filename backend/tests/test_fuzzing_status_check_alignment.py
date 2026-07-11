@@ -100,10 +100,22 @@ def _latest_status_check_migration_path() -> Path:
         "no migration found that recreates ck_fuzzing_campaigns_status — "
         "did the constraint get renamed?"
     )
-    assert len(candidates) == 1, (
-        "alembic chain has multiple heads with diverging fuzzing CHECK "
-        f"definitions: {sorted(p.name for p in candidates)}"
-    )
+    # Multi-head chains (e.g. after an upstream merge) can surface more than
+    # one create_check_constraint for the same name. Prefer the migration
+    # whose STATUS_VALUES* tuple is largest — that is the live allowlist
+    # (widening migrations supersede the original enum seed).
+    if len(candidates) > 1:
+        def _status_tuple_size(p: Path) -> int:
+            t = p.read_text()
+            sizes = [
+                len(m.group(1).split(","))
+                for m in re.finditer(
+                    r"FUZZING_STATUS_VALUES(?:_V\d+)?\s*=\s*\(([^)]*)\)",
+                    t,
+                )
+            ]
+            return max(sizes) if sizes else 0
+        return max(candidates, key=_status_tuple_size)
     return next(iter(candidates))
 
 

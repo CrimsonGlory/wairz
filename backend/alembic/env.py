@@ -3,7 +3,7 @@ import os
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import pool
+from sqlalchemy import pool, text
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.database import Base
@@ -22,6 +22,16 @@ if config.config_file_name is not None:
     # logs. Harmless for the CLI-invoked case (migrator container running
     # `alembic upgrade head` in its own dedicated process).
     fileConfig(config.config_file_name, disable_existing_loggers=False)
+
+# Fixed key for the schema-migration advisory lock. Any process running
+# `alembic upgrade` grabs this PostgreSQL session lock before touching the
+# schema, so concurrent migrators serialize instead of racing on
+# alembic_version. This matters in the cloud deploy where several Fargate
+# tasks can boot (or autoscale up) at the same time and each runs
+# `alembic upgrade head`: the first migrates, the rest block then run a no-op
+# upgrade. A single local migrator (docker-compose) acquires it instantly, so
+# this is transparent there. 64-bit signed key; value is arbitrary but stable.
+MIGRATION_LOCK_KEY = 0x7761697A4D4947  # "waizMIG"
 
 # Override sqlalchemy.url from DATABASE_URL env var if set (e.g., in Docker).
 # This avoids hardcoding the hostname in alembic.ini (localhost vs postgres).
@@ -45,9 +55,21 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection):
-    context.configure(connection=connection, target_metadata=target_metadata)
-    with context.begin_transaction():
-        context.run_migrations()
+    # Serialize concurrent migrators with a session-level advisory lock (see
+    # MIGRATION_LOCK_KEY). Held across the whole migration transaction and
+    # released in finally; also auto-released when the connection closes, so a
+    # crashed migrator never wedges the lock.
+    connection.execute(text("SELECT pg_advisory_lock(:key)"), {"key": MIGRATION_LOCK_KEY})
+    # Commit the implicit txn the lock acquire opened so alembic can begin its
+    # own transaction cleanly; the session-level lock survives the commit.
+    connection.commit()
+    try:
+        context.configure(connection=connection, target_metadata=target_metadata)
+        with context.begin_transaction():
+            context.run_migrations()
+    finally:
+        connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": MIGRATION_LOCK_KEY})
+        connection.commit()
 
 
 async def run_async_migrations() -> None:

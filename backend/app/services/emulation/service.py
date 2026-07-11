@@ -1146,3 +1146,79 @@ class EmulationService:
     async def delete_preset(self, preset_id: UUID) -> None:
         """Delete an emulation preset."""
         await EmulationPresetService(self.db).delete_preset(preset_id)
+
+    # ── ARM userland ISA probe (upstream merge — harness + agent advice) ──
+
+    # ARM ELF e_flags bit set by hard-float (armhf / ARMv7+VFP) toolchains.
+    _EF_ARM_ABI_FLOAT_HARD = 0x400
+    # Representative rootfs binaries to sniff for the userland ISA, in order.
+    _ISA_PROBE_BINARIES = (
+        "bin/busybox", "bin/sh", "bin/ash", "sbin/init",
+        "usr/bin/busybox", "lib/libc.so.0", "lib/libc.so.6",
+    )
+
+    @classmethod
+    def _detect_arm_isa(cls, extracted_path: str | None) -> str | None:
+        """Classify the ARM userland ISA from a representative rootfs ELF.
+
+        Returns ``"armv7-hf"`` when the binaries are ARMv7/hard-float (VFP) —
+        which need an ARMv7-class board (``-M virt`` + cortex-a15). The default
+        ARM board (versatilepb) is an ARMv5/v6 machine whose CPU SIGILLs a VFP
+        userland the instant init runs. Returns ``None`` when the userland is
+        not ARMv7-hf (or is unreadable). Best-effort and never raises.
+        """
+        import os
+
+        if not extracted_path or not os.path.isdir(extracted_path):
+            return None
+        try:
+            from elftools.elf.elffile import ELFFile
+        except Exception:
+            return None
+
+        candidates = [
+            os.path.join(extracted_path, p) for p in cls._ISA_PROBE_BINARIES
+        ]
+        for d in ("bin", "sbin", "usr/bin"):
+            dpath = os.path.join(extracted_path, d)
+            if os.path.isdir(dpath):
+                try:
+                    candidates.extend(
+                        os.path.join(dpath, n)
+                        for n in sorted(os.listdir(dpath))[:40]
+                    )
+                except OSError:
+                    pass
+
+        for path in candidates:
+            try:
+                real = os.path.realpath(path)
+                if not os.path.isfile(real):
+                    continue
+                with open(real, "rb") as f:
+                    if f.read(4) != b"\x7fELF":
+                        continue
+                    f.seek(0)
+                    elf = ELFFile(f)
+                    if elf["e_machine"] != "EM_ARM":
+                        return None  # not an ARM userland
+                    flags = elf["e_flags"] or 0
+                    if flags & cls._EF_ARM_ABI_FLOAT_HARD:
+                        return "armv7-hf"
+                    try:
+                        sec = elf.get_section_by_name(".ARM.attributes")
+                        if sec is not None:
+                            for sub in sec.iter_subsections():
+                                for attr in sub.iter_attributes():
+                                    if (
+                                        getattr(attr, "tag", None)
+                                        == "TAG_CPU_ARCH"
+                                        and attr.value == 10
+                                    ):
+                                        return "armv7-hf"
+                    except Exception:
+                        pass
+                    return None  # readable ARM ELF, soft-float / pre-v7
+            except Exception:
+                continue
+        return None

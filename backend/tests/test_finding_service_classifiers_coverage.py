@@ -1235,6 +1235,10 @@ async def test_emit_linux_persistence_findings_from_walk():
     db.execute = AsyncMock(
         side_effect=[_rows([bash]), _rows([cron]), _rows([ld])]
     )
+    async def _fake_create(project_id, data):
+        from types import SimpleNamespace as SN
+        return SN(source=data.source, title=data.title, severity=data.severity)
+
     with patch(
         "app.services.jsonb_normalizers._normalize_linux_bash_history_suspicious_flags",
         side_effect=lambda x: x if isinstance(x, dict) else {},
@@ -1244,12 +1248,14 @@ async def test_emit_linux_persistence_findings_from_walk():
     ), patch(
         "app.services.jsonb_normalizers._normalize_linux_ld_preload_suspicious_flags",
         side_effect=lambda x: x if isinstance(x, dict) else {},
+    ), patch.object(
+        FindingService, "create", side_effect=_fake_create,
     ):
         emitted = await FindingService(db).emit_linux_persistence_findings_from_walk(
             uuid.uuid4(), uuid.uuid4()
         )
     assert len(emitted) == 3
-    sources = {c[0][0].source for c in db.add.call_args_list}
+    sources = {f.source for f in emitted}
     assert "linux_bash_history_clear" in sources
     assert "linux_cron_suspicious_command" in sources
     assert "linux_ld_preload_hijack" in sources

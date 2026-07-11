@@ -3,5 +3,9 @@
   "description": "QEMU ARM kernel 4.19.50 for Raspberry Pi emulation + custom initramfs (firmware symlink fixes, /etc_ro population)",
   "uploaded_at": "2026-02-17T19:07:04.560540+00:00",
   "source_url": "https://github.com/dhruvvyas90/qemu-rpi-kernel/raw/master/kernel-qemu-4.19.50-buster",
-  "initrd": "kernel-qemu-4.19.50-buster-arm.initrd"
+  "initrd": "kernel-qemu-4.19.50-buster-arm.initrd",
+  "dtb": "kernel-qemu-4.19.50-buster-arm.dtb",
+  "dtb_source_url": "https://raw.githubusercontent.com/dhruvvyas90/qemu-rpi-kernel/master/versatile-pb-buster.dtb",
+  "machine": "versatilepb",
+  "cpu": "arm1176"
 }

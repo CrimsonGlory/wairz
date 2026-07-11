@@ -235,20 +235,21 @@ class TestBuildAnalyzeCommand:
         idx = cmd.index("-postScript")
         assert cmd[idx + 1] == "AnalyzeBinary.java"
         # Cleanup flag tail
-        assert cmd[-1] == "-deleteProject"
+        assert "-deleteProject" not in cmd  # persistent project store keeps the project
 
-    def test_script_args_appended_before_delete_project(self):
+    def test_script_args_appended_after_postscript(self):
         cmd = _build_analyze_command(
             binary_path="/bin/foo",
             script_name="DecompileFunction.java",
             project_dir="/tmp/p",
             script_args=["main"],
         )
-        # Script args come AFTER -postScript script_name and BEFORE -deleteProject
+        # Script args come AFTER -postScript script_name (no -deleteProject:
+        # persistent Ghidra project store keeps the project on disk).
         post_idx = cmd.index("-postScript")
-        del_idx = cmd.index("-deleteProject")
-        assert "main" in cmd[post_idx + 2:del_idx]
-        assert cmd[-1] == "-deleteProject"
+        assert cmd[post_idx + 1] == "DecompileFunction.java"
+        assert "main" in cmd[post_idx + 2 :]
+        assert "-deleteProject" not in cmd
 
     def test_extra_script_path_uses_single_combined_scriptpath_flag(self):
         """Regression for the 2026-06-22 stale-script bug, corrected same day.
@@ -363,6 +364,9 @@ class TestRunGhidraSubprocess:
         fake_settings.ghidra_timeout = 0.05
         fake_settings.ghidra_path = "/opt/ghidra"
         fake_settings.ghidra_scripts_path = "/scripts"
+        fake_settings.compute_backend = "local"
+        fake_settings.ghidra_project_root = str(tmp_path / "ghidra_projects")
+        fake_settings.ghidra_project_cache_max = 0
 
         with patch.object(
             ghidra_service.asyncio,

@@ -13,10 +13,14 @@ from app.models.firmware import Firmware
 from app.models.project import Project
 from app.rate_limit import TIER_A_LIGHT_ACK, limiter
 from app.schemas.firmware import (
+    FirmwareArchUpdate,
     FirmwareDetailResponse,
     FirmwareDetectionAuditResponse,
+    FirmwareKernelUpdate,
     FirmwareKindUpdate,
     FirmwareMetadataResponse,
+    FirmwareRedetectRequest,
+    FirmwareRootfsUpdate,
     FirmwareUpdate,
     FirmwareUploadStatusResponse,
 )
@@ -36,6 +40,10 @@ from app.services.jsonb_normalizers import (
     _normalize_firmware_device_metadata,
     _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
+)
+from app.services.unpack_control_service import (
+    UnpackControlError,
+    UnpackControlService,
 )
 from app.utils.log_sanitize import sanitize_for_log
 from app.workers.unpack import detect_kernel
@@ -258,6 +266,91 @@ async def update_firmware_kind(
     firmware.firmware_kind_source = "manual"
     await service.db.flush()
     return firmware
+
+
+# ---------------------------------------------------------------------------
+# Manual unpack control — set authoritative arch / rootfs / kernel and re-detect.
+# These let a researcher (or the agent) fix firmware the auto-unpacker can't
+# handle (e.g. app-only OTAs with no base rootfs in the image).
+# ---------------------------------------------------------------------------
+
+
+def _get_unpack_control_service(
+    db: AsyncSession = Depends(get_db),
+) -> UnpackControlService:
+    return UnpackControlService(db)
+
+
+async def _require_firmware(
+    service: FirmwareService, project_id: uuid.UUID, firmware_id: uuid.UUID
+) -> Firmware:
+    firmware = await service.get_by_id(firmware_id)
+    if not firmware or firmware.project_id != project_id:
+        raise HTTPException(404, "Firmware not found")
+    return firmware
+
+
+@router.patch("/{firmware_id}/architecture", response_model=FirmwareDetailResponse)
+async def set_firmware_architecture(
+    project_id: uuid.UUID,
+    firmware_id: uuid.UUID,
+    data: FirmwareArchUpdate,
+    service: FirmwareService = Depends(get_firmware_service),
+    control: UnpackControlService = Depends(_get_unpack_control_service),
+):
+    firmware = await _require_firmware(service, project_id, firmware_id)
+    try:
+        return await control.set_architecture(
+            firmware, data.architecture, data.endianness
+        )
+    except UnpackControlError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.patch("/{firmware_id}/rootfs", response_model=FirmwareDetailResponse)
+async def set_firmware_rootfs(
+    project_id: uuid.UUID,
+    firmware_id: uuid.UUID,
+    data: FirmwareRootfsUpdate,
+    service: FirmwareService = Depends(get_firmware_service),
+    control: UnpackControlService = Depends(_get_unpack_control_service),
+):
+    firmware = await _require_firmware(service, project_id, firmware_id)
+    try:
+        return await control.set_rootfs(firmware, data.path)
+    except UnpackControlError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.patch("/{firmware_id}/kernel", response_model=FirmwareDetailResponse)
+async def set_firmware_kernel(
+    project_id: uuid.UUID,
+    firmware_id: uuid.UUID,
+    data: FirmwareKernelUpdate,
+    service: FirmwareService = Depends(get_firmware_service),
+    control: UnpackControlService = Depends(_get_unpack_control_service),
+):
+    firmware = await _require_firmware(service, project_id, firmware_id)
+    try:
+        return await control.set_kernel(firmware, data.path)
+    except UnpackControlError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.post("/{firmware_id}/redetect", response_model=FirmwareDetailResponse)
+async def redetect_firmware(
+    project_id: uuid.UUID,
+    firmware_id: uuid.UUID,
+    data: FirmwareRedetectRequest,
+    service: FirmwareService = Depends(get_firmware_service),
+    control: UnpackControlService = Depends(_get_unpack_control_service),
+):
+    firmware = await _require_firmware(service, project_id, firmware_id)
+    try:
+        firmware, _report = await control.redetect(firmware, data.targets)
+        return firmware
+    except UnpackControlError as exc:
+        raise HTTPException(400, str(exc))
 
 
 @router.delete("/{firmware_id}", status_code=204)

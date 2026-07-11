@@ -4,12 +4,15 @@ import { buildTerminalWebSocketURL } from '@/api/terminal'
 
 interface UseTerminalWebSocketOptions {
   projectId: string | undefined
+  /** Reserved for multi-firmware terminal scoping; WS currently keys off projectId. */
+  firmwareId?: string | null
   terminal: Terminal | null
   isOpen: boolean
 }
 
 export function useTerminalWebSocket({
   projectId,
+  firmwareId: _firmwareId,
   terminal,
   isOpen,
 }: UseTerminalWebSocketOptions) {
@@ -26,13 +29,13 @@ export function useTerminalWebSocket({
   useEffect(() => {
     if (!isOpen || !projectId || !terminal) return
 
+    let onData: { dispose: () => void } | null = null
     const url = buildTerminalWebSocketURL(projectId)
     const ws = new WebSocket(url)
     wsRef.current = ws
 
     ws.onopen = () => {
       connectedRef.current = true
-      // Send initial size
       sendResize(terminal.cols, terminal.rows)
     }
 
@@ -45,7 +48,6 @@ export function useTerminalWebSocket({
           terminal.write(`\r\n\x1b[31mError: ${msg.data}\x1b[0m\r\n`)
         }
       } catch {
-        // Non-JSON message, write raw
         terminal.write(event.data)
       }
     }
@@ -59,22 +61,21 @@ export function useTerminalWebSocket({
       connectedRef.current = false
     }
 
-    // Forward keystrokes to backend
-    const onData = terminal.onData((data: string) => {
+    onData = terminal.onData((data: string) => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'input', data }))
       }
     })
 
     return () => {
-      onData.dispose()
+      onData?.dispose()
       connectedRef.current = false
       if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
         ws.close()
       }
       wsRef.current = null
     }
-  }, [isOpen, projectId, terminal, sendResize])
+  }, [isOpen, projectId, _firmwareId, terminal, sendResize])
 
   return { sendResize }
 }

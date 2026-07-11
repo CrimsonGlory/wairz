@@ -65,3 +65,4 @@ test-firmware/
 backend/vol3-symbols/*.zip
 backend/vol3-symbols/SHA256SUMS.tmp
 backend/vol3-symbols/*.zip.tmp
+current_coverage.txt.bak_wave20

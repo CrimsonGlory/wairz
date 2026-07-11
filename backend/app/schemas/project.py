@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, model_validator
 
+from app.utils.firmware_selection import pick_active_firmware
+
 
 class ProjectCreate(BaseModel):
     name: str
@@ -25,6 +27,10 @@ class FirmwareResponse(BaseModel):
     architecture: str | None
     endianness: str | None
     os_info: str | None
+    # Surfaced so the frontend can tell which versions are browsable (and
+    # default the active-version picker to a loadable one).
+    extracted_path: str | None = None
+    storage_path: str | None = None
     version_label: str | None = None
     firmware_kind: Literal["linux", "rtos", "unknown"] = "unknown"
     firmware_kind_source: Literal["detected", "manual"] | None = None
@@ -49,12 +55,14 @@ class ProjectResponse(BaseModel):
 
     @model_validator(mode="after")
     def _populate_kind_from_firmware(self) -> "ProjectResponse":
-        # Derive the project-level kind/flavor from the most recently
-        # uploaded firmware so callers don't have to dig into the list.
+        # Derive the project-level kind/flavor from the most recent *loadable*
+        # firmware so a newer upload that failed to unpack doesn't flip the
+        # project's kind (and hide analysis tabs) for a working older version.
         if self.firmware_kind is None and self.firmware:
-            active = max(self.firmware, key=lambda f: f.created_at)
-            self.firmware_kind = active.firmware_kind
-            self.rtos_flavor = active.rtos_flavor
+            active = pick_active_firmware(self.firmware)
+            if active is not None:
+                self.firmware_kind = active.firmware_kind
+                self.rtos_flavor = active.rtos_flavor
         return self
 
 

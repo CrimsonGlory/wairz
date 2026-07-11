@@ -8,7 +8,7 @@ import {
 import { List, type RowComponentProps } from 'react-window'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import type { Finding, Severity, FindingStatus, FindingSource } from '@/types'
+import type { Finding, Severity, FindingStatus, FindingSource, FirmwareDetail } from '@/types'
 import { formatDate } from '@/utils/format'
 import { SEVERITY_CONFIG, FINDING_STATUS_CONFIG, FINDING_SOURCE_CONFIG, CONFIDENCE_CONFIG } from '@/constants/statusConfig'
 
@@ -27,9 +27,16 @@ interface FindingsListProps {
   severityFilter: Severity | null
   statusFilter: FindingStatus | null
   sourceFilter: FindingSource | null
+  firmwareVersions: FirmwareDetail[]
+  firmwareFilter: string | null
   onSeverityFilter: (s: Severity | null) => void
   onStatusFilter: (s: FindingStatus | null) => void
   onSourceFilter: (s: FindingSource | null) => void
+  onFirmwareFilter: (id: string | null) => void
+}
+
+function firmwareLabel(fw: { version_label: string | null; original_filename: string | null; id: string }): string {
+  return fw.version_label || fw.original_filename || fw.id.slice(0, 8)
 }
 
 type SortField = 'severity' | 'created_at'
@@ -42,9 +49,12 @@ export default function FindingsList({
   severityFilter,
   statusFilter,
   sourceFilter,
+  firmwareVersions,
+  firmwareFilter,
   onSeverityFilter,
   onStatusFilter,
   onSourceFilter,
+  onFirmwareFilter,
 }: FindingsListProps) {
   const [sortField, setSortField] = useState<SortField>('severity')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
@@ -152,6 +162,24 @@ export default function FindingsList({
             </button>
           )
         })}
+
+        {firmwareVersions.length > 0 && (
+          <>
+            <span className="ml-2 text-xs text-muted-foreground">Version:</span>
+            <select
+              value={firmwareFilter ?? ''}
+              onChange={(e) => onFirmwareFilter(e.target.value || null)}
+              className="rounded-full border border-border bg-transparent px-2 py-0.5 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <option value="">All versions</option>
+              {firmwareVersions.map((fw) => (
+                <option key={fw.id} value={fw.id}>
+                  {firmwareLabel(fw)}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
       </div>
 
       {/* Sort controls */}

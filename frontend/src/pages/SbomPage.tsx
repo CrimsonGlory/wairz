@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { useProjectStore } from '@/stores/projectStore'
 import {
   Package,
   ShieldAlert,
@@ -33,7 +34,6 @@ import {
 import { useFirmwareList } from '@/hooks/useFirmwareList'
 import { useVulnerabilityStore } from '@/stores/vulnerabilityStore'
 import { useShallow } from 'zustand/react/shallow'
-import { useProjectStore } from '@/stores/projectStore'
 import FirmwareSelector from '@/components/projects/FirmwareSelector'
 import { FormatBanner } from '@/components/firmware/FormatBanner'
 import { usePollingBackoff } from '@/hooks/usePollingBackoff'

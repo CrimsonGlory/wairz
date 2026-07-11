@@ -90,6 +90,72 @@ DESOCK_LIB_MAP: dict[str, str] = {
     "mipsel": "/opt/desock/desock_mipsel.so",
 }
 
+# Shared libraries that are part of the C runtime. They don't make a target
+# "logic-lives-in-a-.so"; ignore them when deciding whether AFL_INST_LIBS
+# should default on (feedback #3).
+_LIBC_PREFIXES: tuple[str, ...] = (
+    "libc.so", "libc-", "ld-", "ld.so", "ld-linux", "ld-musl", "ld-uclibc",
+    "libgcc_s", "libpthread", "libm.so", "libm-", "libdl.so", "librt.so",
+    "libresolv", "libnsl", "libcrypt", "libutil", "libssp", "libuclibc",
+)
+# A self-contained binary has a large .text; a thin CLI wrapper that delegates
+# its real work to a shared library (e.g. xmllint → libxml2) has a small one.
+_LIB_BACKED_TEXT_MAX = 32 * 1024
+
+
+def _is_libc_lib(name: str) -> bool:
+    n = name.lower()
+    return any(n.startswith(p) for p in _LIBC_PREFIXES)
+
+
+def _elf_lib_backed(elf_path: str, sandbox_root: str | None = None) -> dict:
+    """Decide whether a binary's real logic lives in shared libraries.
+
+    AFL++ QEMU mode instruments only the main object's code range by default,
+    so a thin CLI wrapper shows near-zero coverage unless ``AFL_INST_LIBS=1`` is
+    set (feedback #3). Returns ``{lib_backed, needed, non_libc_needed,
+    text_size}``; ``lib_backed`` is True when the binary has a non-libc shared
+    dependency AND a small ``.text`` (i.e. it delegates the work). Best-effort;
+    never raises.
+
+    When ``sandbox_root`` is provided, the path is re-validated with realpath +
+    prefix check in this function so path-injection analysis sees the barrier
+    at the open sink (caller already used ``validate_path``).
+    """
+    info: dict = {
+        "lib_backed": False, "needed": [], "non_libc_needed": [],
+        "text_size": None,
+    }
+    try:
+        from elftools.elf.dynamic import DynamicSection
+        from elftools.elf.elffile import ELFFile
+
+        path = os.path.realpath(elf_path)
+        if sandbox_root:
+            root = os.path.realpath(sandbox_root)
+            if path != root and not path.startswith(root + os.sep):
+                return info
+        with open(path, "rb") as f:  # noqa: ASYNC230 — bounded file I/O
+            elf = ELFFile(f)
+            needed: list[str] = []
+            dyn = elf.get_section_by_name(".dynamic")
+            if isinstance(dyn, DynamicSection):
+                for tag in dyn.iter_tags("DT_NEEDED"):
+                    needed.append(tag.needed)
+            text = elf.get_section_by_name(".text")
+            text_size = text["sh_size"] if text is not None else None
+
+        non_libc = [n for n in needed if not _is_libc_lib(n)]
+        info["needed"] = needed
+        info["non_libc_needed"] = non_libc
+        info["text_size"] = text_size
+        info["lib_backed"] = bool(non_libc) and (
+            text_size is not None and text_size < _LIB_BACKED_TEXT_MAX
+        )
+    except Exception as exc:  # noqa: BLE001 — diagnostics only, never fatal
+        logger.debug("lib-backed detection failed for %s: %s", elf_path.replace("\n", ""), exc)
+    return info
+
 
 class FuzzingService:
     """Manages AFL++ fuzzing campaign lifecycle via Docker containers."""
@@ -123,7 +189,7 @@ class FuzzingService:
         dest_name = os.path.basename(dest_path)
 
         tar_stream = io.BytesIO()
-        with tarfile.open(fileobj=tar_stream, mode="w") as tar:
+        with tarfile.open(fileobj=tar_stream, mode="w") as tar:  # noqa: ASYNC230 — bounded file I/O
             info = tarfile.TarInfo(name=dest_name)
             info.size = len(data)
             tar.addfile(info, io.BytesIO(data))
@@ -138,7 +204,7 @@ class FuzzingService:
     ) -> None:
         """Write base64-encoded seed files to /opt/fuzzing/input/ using put_archive."""
         tar_stream = io.BytesIO()
-        with tarfile.open(fileobj=tar_stream, mode="w") as tar:
+        with tarfile.open(fileobj=tar_stream, mode="w") as tar:  # noqa: ASYNC230 — bounded file I/O
             for i, seed_b64 in enumerate(seeds_b64):
                 try:
                     seed_data = base64.b64decode(seed_b64)
@@ -152,11 +218,36 @@ class FuzzingService:
 
         container.put_archive("/opt/fuzzing/input", tar_stream)
 
+    @staticmethod
+    def _resolve_carved_path(firmware: Firmware, virtual_path: str) -> str | None:
+        """Map a /_carved/... virtual path to its real path under the carved dir.
+
+        Built harnesses live in the project's carved/ dir (firmware blob's
+        directory). Used to locate a compiled harness ELF to copy into the
+        fuzzing container. Stays sandboxed to the carved dir.
+        """
+        if not firmware.storage_path:
+            return None
+        carved_dir = os.path.realpath(  # noqa: ASYNC240 — pre-flight stat before bounded work
+            os.path.join(os.path.dirname(firmware.storage_path), "carved")
+        )
+        rel = virtual_path
+        for prefix in ("/_carved/", "_carved/"):
+            if rel.startswith(prefix):
+                rel = rel[len(prefix):]
+                break
+        else:
+            rel = rel.lstrip("/")
+        full = os.path.realpath(os.path.join(carved_dir, rel))  # noqa: ASYNC240 — pre-flight stat before bounded work
+        if full != carved_dir and not full.startswith(carved_dir + os.sep):
+            return None
+        return full
+
     def _resolve_host_path(self, container_path: str) -> str | None:
         """Resolve a container path to a host path for Docker volume mounts."""
-        real_path = os.path.realpath(container_path)
+        real_path = os.path.realpath(container_path)  # noqa: ASYNC240 — pre-flight stat before bounded work
 
-        if not os.path.exists("/.dockerenv"):
+        if not os.path.exists("/.dockerenv"):  # noqa: ASYNC240 — pre-flight stat before bounded work
             return real_path
 
         client = self._get_docker_client()
@@ -196,7 +287,7 @@ class FuzzingService:
         imports: list[str] = []
         function_count = 0
 
-        with open(full_path, "rb") as f:
+        with open(full_path, "rb") as f:  # noqa: ASYNC230 — bounded file I/O
             elf = ELFFile(f)
 
             # Get dynamic imports
@@ -240,7 +331,7 @@ class FuzzingService:
         full_path = validate_path(firmware.extracted_path, binary_path)
 
         loop = asyncio.get_running_loop()
-        if not await loop.run_in_executor(None, os.path.isfile, full_path):
+        if not await loop.run_in_executor(None, os.path.isfile, full_path):  # noqa: ASYNC240 — pre-flight stat before bounded work
             raise ValueError(f"Binary not found: {binary_path}")
 
         # Parse ELF imports using pyelftools — sync work moved to a thread
@@ -294,7 +385,7 @@ class FuzzingService:
             score += min(10, len(found_network) * 3)
 
         # Binary size / complexity (10 pts)
-        file_size = await loop.run_in_executor(None, os.path.getsize, full_path)
+        file_size = await loop.run_in_executor(None, os.path.getsize, full_path)  # noqa: ASYNC240 — pre-flight stat before bounded work
         if file_size > 100_000:
             score += 5
         if function_count > 50:
@@ -310,6 +401,10 @@ class FuzzingService:
         else:
             strategy = "stdin"
 
+        # Whether the binary's real logic lives in shared libraries — drives
+        # the AFL_INST_LIBS default (feedback #3).
+        libinfo = _elf_lib_backed(full_path, firmware.extracted_path)
+
         return {
             "binary_path": binary_path,
             "fuzzing_score": min(100, score),
@@ -321,6 +416,10 @@ class FuzzingService:
             "function_count": function_count,
             "imports_of_interest": found_sinks + found_input + found_network,
             "file_size": file_size,
+            "lib_backed": libinfo["lib_backed"],
+            "needed_libs": libinfo["needed"],
+            "non_libc_needed": libinfo["non_libc_needed"],
+            "text_size": libinfo["text_size"],
         }
 
     async def _count_active_campaigns(self, project_id: UUID) -> int:
@@ -467,7 +566,7 @@ class FuzzingService:
         # Resolve host path for firmware volume mount
         loop = asyncio.get_running_loop()
         real_path = await loop.run_in_executor(
-            None, os.path.realpath, firmware.extracted_path,
+            None, os.path.realpath, firmware.extracted_path,  # noqa: ASYNC240 — pre-flight stat before bounded work
         )
         host_path = self._resolve_host_path(real_path)
 
@@ -550,6 +649,27 @@ class FuzzingService:
                 container.exec_run(["chmod", "+x", "/opt/fuzzing/harness.sh"])
                 harness_target = "/opt/fuzzing/harness.sh"
 
+            # A compiled harness ELF (built by build_fuzz_harness, living in the
+            # project's carved dir) takes precedence: copy it into the container
+            # and run it directly under -Q. It links the firmware .so and is
+            # resolved against /firmware via QEMU_LD_PREFIX. (Track B / #2.)
+            harness_binary = config.get("harness_binary")
+            harness_elf_target = None
+            harness_real = None
+            if harness_binary:
+                harness_real = self._resolve_carved_path(firmware, harness_binary)
+                if not harness_real or not os.path.isfile(harness_real):  # noqa: ASYNC240 — pre-flight stat before bounded sync work
+                    raise ValueError(
+                        f"harness binary not found: {harness_binary} "
+                        f"(resolved to {harness_real})"
+                    )
+                with open(harness_real, "rb") as f:  # noqa: ASYNC230 — bounded file I/O in service path
+                    self._write_file_to_container(
+                        container, "/opt/fuzzing/harness_elf", f.read()
+                    )
+                container.exec_run(["chmod", "+x", "/opt/fuzzing/harness_elf"])
+                harness_elf_target = "/opt/fuzzing/harness_elf"
+
             # Build AFL++ command
             timeout_ms = config.get("timeout_per_exec", 1000)
             binary_in_firmware = shlex.quote(campaign.binary_path.lstrip("/"))
@@ -607,8 +727,11 @@ class FuzzingService:
             if dictionary:
                 afl_cmd += "-x /opt/fuzzing/dictionary.dict "
 
-            # Determine the target: harness script or binary directly
-            if harness_target:
+            # Determine the target: compiled harness ELF, harness script, or
+            # the firmware binary directly.
+            if harness_elf_target:
+                afl_cmd += f"-- {harness_elf_target}"
+            elif harness_target:
                 afl_cmd += f"-- /firmware/bin/sh {harness_target}"
             else:
                 afl_cmd += f"-- /firmware/{binary_in_firmware}"

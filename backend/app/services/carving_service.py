@@ -11,7 +11,8 @@ Sandbox guarantees (enforced via Docker):
   - cap_drop=ALL + no-new-privileges
   - read-only root filesystem
   - non-root user (uid 1000)
-  - writable bind only at /carved/
+  - writable binds at /carved/ (outputs) and /extracted/ (fix the unpacked
+    rootfs in place); the raw /image blob stays read-only
   - tmpfs at /tmp (256 MiB)
   - mem_limit=1g, cpu=1.0 (configurable)
 
@@ -137,16 +138,28 @@ class CarvingService:
         name = self._container_name(project_id)
 
         def _get_or_create() -> docker.models.containers.Container:
-            # Reuse an existing container if it's already running
+            # Reuse an existing container only if it's running AND already
+            # bound to the firmware we were asked for. The container is named
+            # per-project, but its volume mounts (/image, /extracted) are
+            # bound to a specific firmware at spawn time. After switch_project
+            # changes the active firmware_id, the old container would still
+            # point at the previous firmware's blob and extraction — so we
+            # must tear it down and respawn against the new firmware.
             try:
                 existing = client.containers.get(name)
             except docker.errors.NotFound:
                 existing = None
 
             if existing is not None:
-                if existing.status == "running":
+                bound_firmware = (existing.labels or {}).get(
+                    _CONTAINER_LABEL_FIRMWARE
+                )
+                if (
+                    existing.status == "running"
+                    and bound_firmware == str(firmware.id)
+                ):
                     return existing
-                # Dead container — clear it and respawn
+                # Dead, or bound to a different firmware — clear and respawn.
                 try:
                     existing.remove(force=True)
                 except Exception:
@@ -189,11 +202,16 @@ class CarvingService:
         }
 
         # Optional: mount the extracted tree if available, so the agent can
-        # cross-reference the carved view with the unpacked filesystem.
+        # cross-reference the carved view with the unpacked filesystem AND fix
+        # it in place (rw) — repair perms, drop in a loader/busybox, overlay
+        # /app onto a base root, etc. The extraction is owned by uid 1000, the
+        # same uid the sandbox runs as, so in-place edits succeed. The sandbox
+        # is still network-isolated, non-root, and confined to this firmware's
+        # own volumes, so write access here can only affect this firmware.
         if firmware.extracted_path and os.path.isdir(firmware.extracted_path):
             extracted_host = self._resolve_host_path(firmware.extracted_path)
             if extracted_host is not None:
-                volumes[extracted_host] = {"bind": "/extracted", "mode": "ro"}
+                volumes[extracted_host] = {"bind": "/extracted", "mode": "rw"}
 
         labels = {
             _CONTAINER_LABEL_TYPE: _CONTAINER_TYPE,

@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -21,6 +22,14 @@ class Settings(BaseSettings):
     max_tool_iterations: int = 25
     ghidra_path: str = "/opt/ghidra"
     ghidra_scripts_path: str = "/opt/ghidra_scripts"
+    # Persistent Ghidra project store. A binary is imported + auto-analyzed once
+    # into <ghidra_project_root>/<ghidra_version>/<sha256>/ and kept; subsequent
+    # scripts reuse it via -process (no re-analysis), so analysis done once is
+    # shared across sessions/agents/users. Back this with a durable volume.
+    ghidra_project_root: str = "/data/ghidra_projects"
+    # Project-store GC: evict least-recently-used projects once the store
+    # exceeds this many projects (0 disables GC). Keyed by access time.
+    ghidra_project_cache_max: int = 200
     ghidra_timeout: int = 300
     # Persistent Ghidra project store for GZF process-mode (run_ghidra_headless
     # use_saved_project=True).  Projects are keyed by GZF content SHA256 so the
@@ -58,6 +67,11 @@ class Settings(BaseSettings):
     carving_cpu_limit: float = 1.0
     carving_default_timeout: int = 60
     carving_max_timeout: int = 600
+    # Harness-build sandbox (cross-compiles fuzzing harnesses vs firmware .so).
+    harness_build_image: str = "wairz-harness-build"
+    harness_build_memory_limit_mb: int = 2048
+    harness_build_cpu_limit: float = 2.0
+    harness_build_timeout: int = 180
     uart_bridge_host: str = "host.docker.internal"
     uart_bridge_port: int = 9999
     uart_command_timeout: int = 30
@@ -136,6 +150,38 @@ class Settings(BaseSettings):
     # decompilations and JADX dumps can be multi-megabyte in the JSONB
     # ``result`` column; without a TTL, the table grows unboundedly.
     analysis_cache_retention_days: int = 30
+
+    # --- Compute backend (enterprise cloud deploy) ---------------------------
+    # Where heavy Ghidra jobs run. "local" (default) spawns detached worker
+    # subprocesses on the backend host — the standard docker-compose behavior.
+    # "aws_batch" submits the same worker as an AWS Batch job.
+    compute_backend: Literal["local", "aws_batch"] = "local"
+    aws_region: str = ""
+    batch_job_queue: str = ""
+    batch_job_definition: str = ""
+    # Max in-flight Batch jobs per firmware (aws_batch mode). 0 disables.
+    batch_max_jobs_per_firmware: int = 8
+    # TTL (seconds) for the distributed analysis lock when compute_backend
+    # != "local" (no shared filesystem for flock). Auto-renewed while held.
+    redis_lock_ttl_seconds: int = 120
+    # Idle timeout for the cloud "reuse worker". Stays warm while requests keep
+    # arriving; exits after this long with an empty queue.
+    re_worker_idle_ttl_minutes: int = 20
+
+    # --- Auth (OIDC / JWT bearer) ------------------------------------------
+    # Enforce bearer-token auth on the HTTP API. Default off keeps the local
+    # docker-compose deploy open and unauthenticated. When on, every request
+    # (outside the allowlist) needs a valid OIDC access token; the SPA obtains
+    # one via the Cognito hosted-UI login. IdP-agnostic: point oidc_issuer at
+    # the deployment's Cognito pool, or any OIDC issuer.
+    # Does not affect the MCP server (it calls services directly).
+    auth_enabled: bool = False
+    # e.g. https://cognito-idp.<region>.amazonaws.com/<user-pool-id>
+    oidc_issuer: str = ""
+    # App client id; matched against the token's `aud` or (Cognito) `client_id`.
+    oidc_audience: str = ""
+    # Defaults to "<oidc_issuer>/.well-known/jwks.json" when blank.
+    oidc_jwks_url: str = ""
 
 
 @lru_cache

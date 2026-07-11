@@ -1,6 +1,8 @@
 import axios, { AxiosError } from 'axios'
 import { toast } from 'sonner'
 
+import { getAccessToken, login } from '@/auth/userManager'
+
 const apiClient = axios.create({
   baseURL: '/api/v1',
   timeout: 30_000,
@@ -33,8 +35,14 @@ export function appendApiKey(url: string): string {
 
 // Per-request interceptor so key resolution happens at the latest
 // possible moment (picks up localStorage changes without a page reload,
-// and guarantees no module-load race).
-apiClient.interceptors.request.use((config) => {
+// and guarantees no module-load race). When OIDC is enabled (enterprise),
+// attach the Bearer token; local docker-compose has auth disabled so
+// getAccessToken() is a no-op null.
+apiClient.interceptors.request.use(async (config) => {
+  const token = await getAccessToken()
+  if (token && !config.headers.has('Authorization')) {
+    config.headers.set('Authorization', `Bearer ${token}`)
+  }
   const key = getApiKey()
   if (key && !config.headers.has('X-API-Key')) {
     config.headers.set('X-API-Key', key)
@@ -83,6 +91,10 @@ apiClient.interceptors.response.use(
     } else {
       const status = error.response.status
       if (status === 401) {
+        // Enterprise OIDC path: bounce through hosted login when auth is on.
+        // Local API-key installs keep the toast (login() is a no-op when
+        // authEnabled is false).
+        void login()
         toastOnce(
           'auth',
           'Authentication failed',

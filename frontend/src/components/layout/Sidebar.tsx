@@ -92,7 +92,19 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const navigate = useNavigate()
   const projects = useProjectStore((s) => s.projects)
   const fetchProjects = useProjectStore((s) => s.fetchProjects)
+  const currentProject = useProjectStore((s) => s.currentProject)
+  const activeFirmwareId = useProjectStore((s) => s.activeFirmwareId)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  // Gate tabs on the *selected* firmware's kind for the open project, so a
+  // failed newer upload doesn't hide tabs and the picker drives the tab set.
+  const effectiveKind = (project: { id: string; firmware_kind: FirmwareKind | null }): FirmwareKind | null => {
+    if (currentProject?.id === project.id && activeFirmwareId) {
+      const fw = currentProject.firmware.find((f) => f.id === activeFirmwareId)
+      if (fw) return fw.firmware_kind
+    }
+    return project.firmware_kind
+  }
 
   // Load projects on mount
   useEffect(() => {
@@ -222,7 +234,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
               {/* Sub-pages */}
               {isExpanded && (
                 <div className="ml-3 border-l border-border/50 pl-2">
-                  {subPagesFor(project.firmware_kind).map((page) => (
+                  {subPagesFor(effectiveKind(project)).map((page) => (
                     <NavLink
                       key={page.suffix}
                       to={`/projects/${project.id}${page.suffix}`}

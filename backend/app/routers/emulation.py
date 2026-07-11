@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
+from app.auth.oidc import authorize_websocket
 from app.config import get_settings
 from app.database import async_session_factory, get_db
 from app.models.emulation_preset import EmulationPreset
@@ -762,6 +763,11 @@ async def websocket_emulation_terminal(
     """
     await websocket.accept()
 
+    # Auth: WebSockets bypass the http middleware — authorize explicitly
+    # (no-op when auth is disabled).
+    if await authorize_websocket(websocket) is None:
+        return
+
     async with async_session_factory() as db:
         # Validate session
         result = await db.execute(
@@ -883,6 +889,15 @@ async def websocket_emulation_terminal(
 
     sock = client.api.exec_start(exec_id, socket=True, tty=True)
     raw_sock = sock._sock  # Get underlying socket
+
+    # The docker SDK gives this socket the client's default 60s timeout. With a
+    # timeout set, raw_sock.recv() raises socket.timeout (an OSError) after 60s
+    # of silence on the serial console — which read_container() swallows as if
+    # the stream had ended, closing the websocket. An idle guest then drops the
+    # web terminal every 60s ("disconnected — reconnecting / Waiting for QEMU to
+    # start"), and each reconnect leaks a console socat. Make the socket
+    # blocking so recv() only returns on real data or EOF, never on idle.
+    raw_sock.settimeout(None)
 
     await websocket.send_json({
         "type": "output",

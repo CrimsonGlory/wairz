@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Cpu, Shield, ShieldAlert, ShieldCheck, Loader2 } from 'lucide-react'
 import { useParams } from 'react-router-dom'
 import { getBinaryInfo } from '@/api/analysis'
+import { useExplorerStore } from '@/stores/explorerStore'
 import type { FileInfo, BinaryProtections } from '@/types'
 
 interface BinaryInfoProps {
@@ -77,6 +78,7 @@ function ProtectionsPanel({ protections }: { protections: BinaryProtections }) {
 export default function BinaryInfo({ fileInfo }: BinaryInfoProps) {
   const elf = fileInfo.elf_info as Record<string, string> | null
   const { projectId } = useParams<{ projectId: string }>()
+  const firmwareId = useExplorerStore((s) => s.firmwareId)
   const [protections, setProtections] = useState<BinaryProtections | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -84,11 +86,11 @@ export default function BinaryInfo({ fileInfo }: BinaryInfoProps) {
     if (!projectId || !fileInfo.path || !elf) return
     setLoading(true)
     setProtections(null)
-    getBinaryInfo(projectId, fileInfo.path)
+    getBinaryInfo(projectId, fileInfo.path, firmwareId ?? undefined)
       .then((resp) => setProtections(resp.protections))
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [projectId, fileInfo.path, elf])
+  }, [projectId, fileInfo.path, elf, firmwareId])
 
   if (!elf) return null
 

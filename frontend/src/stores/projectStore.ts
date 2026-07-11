@@ -3,11 +3,19 @@ import type { FirmwareDetail, Project, ProjectDetail } from '@/types'
 import { listProjects, getProject, createProject, deleteProject } from '@/api/projects'
 import { uploadFirmware as apiFirmwareUpload, unpackFirmware as apiUnpackFirmware, listFirmware } from '@/api/firmware'
 import { extractErrorMessage } from '@/utils/error'
+import { resolveActiveFirmwareId } from '@/utils/firmware'
 
 interface ProjectState {
   projects: Project[]
   currentProject: ProjectDetail | null
+  /** Canonical selected firmware version for the open project. */
   selectedFirmwareId: string | null
+  /**
+   * Alias of selectedFirmwareId used by the version-picker surfaces that
+   * landed from upstream (`FirmwareVersionPicker`, Sidebar kind gate, etc.).
+   * Kept in lockstep so both naming conventions work after the merge.
+   */
+  activeFirmwareId: string | null
   loading: boolean
   creating: boolean
   uploading: boolean
@@ -40,16 +48,25 @@ interface ProjectActions {
   uploadFirmware: (projectId: string, file: File, versionLabel?: string) => Promise<void>
   unpackFirmware: (projectId: string, firmwareId: string) => Promise<void>
   setSelectedFirmware: (firmwareId: string | null) => void
+  /** Alias of setSelectedFirmware for upstream version-picker consumers. */
+  setActiveFirmware: (firmwareId: string | null) => void
   clearError: () => void
   clearCurrentProject: () => void
   loadFirmwareList: (projectId: string) => Promise<void>
   invalidateFirmwareList: () => void
 }
 
+function withActiveFirmware(
+  selectedFirmwareId: string | null,
+): Pick<ProjectState, 'selectedFirmwareId' | 'activeFirmwareId'> {
+  return { selectedFirmwareId, activeFirmwareId: selectedFirmwareId }
+}
+
 export const useProjectStore = create<ProjectState & ProjectActions>((set, get) => ({
   projects: [],
   currentProject: null,
   selectedFirmwareId: null,
+  activeFirmwareId: null,
   loading: false,
   creating: false,
   uploading: false,
@@ -80,7 +97,13 @@ export const useProjectStore = create<ProjectState & ProjectActions>((set, get) 
       const project = await getProject(id)
       // Bail if user switched projects while we were fetching.
       if (get().currentProjectId !== id) return
-      set({ currentProject: project, loading: false })
+      const prevActive = isRefresh ? get().selectedFirmwareId : null
+      const selected = resolveActiveFirmwareId(prevActive, project.firmware)
+      set({
+        currentProject: project,
+        loading: false,
+        ...withActiveFirmware(selected),
+      })
     } catch (e) {
       if (get().currentProjectId !== id) return
       if (!isRefresh) set({ loading: false, error: extractError(e) })
@@ -102,14 +125,17 @@ export const useProjectStore = create<ProjectState & ProjectActions>((set, get) 
   removeProject: async (id) => {
     try {
       await deleteProject(id)
-      set((s) => ({
-        projects: s.projects.filter((p) => p.id !== id),
-        currentProject: s.currentProject?.id === id ? null : s.currentProject,
-        selectedFirmwareId: s.currentProject?.id === id ? null : s.selectedFirmwareId,
-        // Drop cache if it belonged to the deleted project.
-        firmwareList: s.firmwareListProjectId === id ? [] : s.firmwareList,
-        firmwareListProjectId: s.firmwareListProjectId === id ? null : s.firmwareListProjectId,
-      }))
+      set((s) => {
+        const clearing = s.currentProject?.id === id
+        return {
+          projects: s.projects.filter((p) => p.id !== id),
+          currentProject: clearing ? null : s.currentProject,
+          ...(clearing ? withActiveFirmware(null) : {}),
+          // Drop cache if it belonged to the deleted project.
+          firmwareList: s.firmwareListProjectId === id ? [] : s.firmwareList,
+          firmwareListProjectId: s.firmwareListProjectId === id ? null : s.firmwareListProjectId,
+        }
+      })
     } catch (e) {
       set({ error: extractError(e) })
       throw e
@@ -122,7 +148,13 @@ export const useProjectStore = create<ProjectState & ProjectActions>((set, get) 
       await apiFirmwareUpload(projectId, file, versionLabel, (pct) => set({ uploadProgress: pct }))
       // Refresh project to get firmware info
       const project = await getProject(projectId)
-      set({ uploading: false, uploadProgress: 100, currentProject: project })
+      const selected = resolveActiveFirmwareId(get().selectedFirmwareId, project.firmware)
+      set({
+        uploading: false,
+        uploadProgress: 100,
+        currentProject: project,
+        ...withActiveFirmware(selected),
+      })
       // Sync into projects list
       syncProjectInList(set, get, project)
       // Invalidate firmware list cache — new upload must appear on
@@ -140,7 +172,12 @@ export const useProjectStore = create<ProjectState & ProjectActions>((set, get) 
       await apiUnpackFirmware(projectId, firmwareId)
       // Endpoint returns 202 immediately; refresh project to show "unpacking" status
       const project = await getProject(projectId)
-      set({ unpacking: false, currentProject: project })
+      const selected = resolveActiveFirmwareId(get().selectedFirmwareId, project.firmware)
+      set({
+        unpacking: false,
+        currentProject: project,
+        ...withActiveFirmware(selected),
+      })
       syncProjectInList(set, get, project)
     } catch (e) {
       set({ unpacking: false, error: extractError(e) })
@@ -148,10 +185,11 @@ export const useProjectStore = create<ProjectState & ProjectActions>((set, get) 
     }
   },
 
-  setSelectedFirmware: (firmwareId) => set({ selectedFirmwareId: firmwareId }),
+  setSelectedFirmware: (firmwareId) => set(withActiveFirmware(firmwareId)),
+  setActiveFirmware: (firmwareId) => set(withActiveFirmware(firmwareId)),
   clearError: () => set({ error: null }),
   clearCurrentProject: () =>
-    set({ currentProject: null, selectedFirmwareId: null, currentProjectId: null }),
+    set({ currentProject: null, currentProjectId: null, ...withActiveFirmware(null) }),
 
   loadFirmwareList: async (projectId) => {
     // Cache hit — same project, list already populated.  Consumers

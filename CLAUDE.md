@@ -79,6 +79,9 @@ wairz/
 │   └── scripts/                 # start-user-mode.sh, start-system-mode.sh, serial-exec.sh
 ├── fuzzing/
 │   └── Dockerfile               # AFL++ with QEMU mode
+├── harness-build/
+│   ├── Dockerfile               # Bootlin old-glibc cross toolchains (armhf/armel/aarch64/mips/mipsel)
+│   └── build-harness.sh         # Cross-compile a harness linked against a firmware .so
 └── scripts/
     ├── wairz-uart-bridge.py     # Host-side UART serial bridge (pyserial)
     └── wairz-device-bridge.py   # Host-side ADB device acquisition bridge

@@ -462,6 +462,7 @@ def _build_mock_streaming_client(chunks: list[bytes], status_code: int = 200):
     """Construct a context-manager AsyncMock that mimics httpx.AsyncClient
     with a streaming response of the supplied chunks."""
     response = AsyncMock()
+    response.is_redirect = False
     response.raise_for_status = MagicMock()
     if status_code != 200:
         import httpx

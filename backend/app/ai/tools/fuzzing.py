@@ -151,6 +151,18 @@ def register_fuzzing_tools(registry: ToolRegistry) -> None:
                         "that need environment variable setup before execution."
                     ),
                 },
+                "harness_binary": {
+                    "type": "string",
+                    "description": (
+                        "Virtual path (e.g. /_carved/harnesses/<name>) to a compiled "
+                        "harness ELF produced by build_fuzz_harness. When set, AFL++ "
+                        "runs this harness (which links a firmware .so and calls a "
+                        "target function on the fuzz input) instead of a firmware "
+                        "binary. Pair with arguments='@@' for file input. binary_path "
+                        "should still point at the target .so (for the campaign record "
+                        "and AFL_INST_LIBS detection)."
+                    ),
+                },
                 "desock": {
                     "type": "boolean",
                     "description": (
@@ -166,6 +178,133 @@ def register_fuzzing_tools(registry: ToolRegistry) -> None:
             "required": ["binary_path"],
         },
         handler=_handle_start_campaign,
+    )
+
+    registry.register(
+        name="build_fuzz_harness",
+        description=(
+            "Cross-compile a fuzzing harness that links a firmware shared "
+            "library and calls a target function on fuzz input, for the "
+            "firmware's architecture. This is how you reach custom (non-CVE) "
+            "memory-safety bugs in library functions that are otherwise only "
+            "reachable behind a daemon/auth.\n"
+            "\n"
+            "You supply `harness_source`: C that declares the target "
+            "function(s) with their REAL signatures (recover these by "
+            "decompiling the .so — e.g. decompile_function) and defines:\n"
+            "    void harness_one(const unsigned char *data, size_t len);\n"
+            "which maps the fuzz input to the function's arguments and calls "
+            "it. Wairz adds a main() that reads the AFL input (file arg or "
+            "stdin) into (data,len) and invokes harness_one once.\n"
+            "\n"
+            "The harness is built in a network-less sandbox against the "
+            "firmware's own libraries (using an old-glibc cross toolchain so it "
+            "runs under qemu-user with the real .so), and the resulting ELF is "
+            "written to /_carved/harnesses/<name>. Then call start_fuzzing_"
+            "campaign with harness_binary=/_carved/harnesses/<name>, "
+            "binary_path=<the .so>, and arguments='@@'.\n"
+            "\n"
+            "Supported arches: armhf, armel, aarch64, mips, mipsel (auto-"
+            "detected from the firmware; override with `arch`)."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "lib_path": {
+                    "type": "string",
+                    "description": (
+                        "Firmware path to the target shared library "
+                        "(e.g. /usr/lib/libsml.so)."
+                    ),
+                },
+                "harness_source": {
+                    "type": "string",
+                    "description": (
+                        "C source defining `void harness_one(const unsigned "
+                        "char *data, size_t len)` and declaring/calling the "
+                        "target function(s). May include headers. Do not define "
+                        "main() (wairz provides it; define WAIRZ_NO_MAIN only if "
+                        "you must supply your own)."
+                    ),
+                },
+                "name": {
+                    "type": "string",
+                    "description": (
+                        "Output harness name (filename-safe). The ELF lands at "
+                        "/_carved/harnesses/<name>."
+                    ),
+                },
+                "arch": {
+                    "type": "string",
+                    "description": (
+                        "Override the cross-compile arch "
+                        "(armhf|armel|aarch64|mips|mipsel). Default: auto from "
+                        "the firmware."
+                    ),
+                },
+            },
+            "required": ["lib_path", "harness_source", "name"],
+        },
+        handler=_handle_build_harness,
+    )
+
+    registry.register(
+        name="patch_function_return",
+        description=(
+            "Force a function in a firmware binary (or .so) to immediately "
+            "return a constant, by overwriting its entry with an arch-specific "
+            "'return <value>' stub. Produces a patched copy in /_carved/patched/.\n"
+            "\n"
+            "Primary use — AUTH BYPASS for daemon fuzzing: web daemons like httpd "
+            "(CivetWeb) embed the auth check in the binary, so an LD_PRELOAD shim "
+            "can't interpose it. Patch the auth function (e.g. CheckAuth, "
+            "mg_check_digest_access_authentication) to return 1 (authenticated), "
+            "then fuzz the patched daemon with start_fuzzing_campaign("
+            "harness_binary=/_carved/patched/<name>, desock=true) to reach "
+            "post-auth request handlers. Also neutralises license/CRC/crypto "
+            "gates.\n"
+            "\n"
+            "Identify the function and its return convention by decompiling first "
+            "(decompile_function / list_functions). Supports ARM (arm+thumb), "
+            "AArch64, MIPS/MIPSel. The function may be a symbol name or a 0x… "
+            "address (for stripped/local targets)."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "binary_path": {
+                    "type": "string",
+                    "description": "Firmware path to the binary/.so to patch (e.g. /sbin/httpd).",
+                },
+                "function": {
+                    "type": "string",
+                    "description": (
+                        "Function symbol name (e.g. CheckAuth) or a hex address "
+                        "(e.g. 0x132e8) to force-return."
+                    ),
+                },
+                "return_value": {
+                    "type": "integer",
+                    "description": "Value the function should return (default 1). 0..65535.",
+                },
+                "name": {
+                    "type": "string",
+                    "description": (
+                        "Output filename under /_carved/patched/ (default "
+                        "<binary>.patched)."
+                    ),
+                },
+                "thumb": {
+                    "type": "boolean",
+                    "description": (
+                        "ARM only: force Thumb (true) or ARM (false) stub. Default: "
+                        "auto from the symbol's Thumb bit."
+                    ),
+                },
+            },
+            "required": ["binary_path", "function"],
+        },
+        handler=_handle_patch_function_return,
     )
 
     registry.register(
@@ -753,6 +892,8 @@ async def _handle_start_campaign(input: dict, context: ToolContext) -> str:
         config["environment"] = input["environment"]
     if "harness_script" in input:
         config["harness_script"] = input["harness_script"]
+    if "harness_binary" in input:
+        config["harness_binary"] = input["harness_binary"]
     if "desock" in input:
         config["desock"] = input["desock"]
 
@@ -786,6 +927,114 @@ async def _handle_start_campaign(input: dict, context: ToolContext) -> str:
         )
 
     return "\n".join(lines)
+
+
+async def _handle_build_harness(input: dict, context: ToolContext) -> str:
+    """Cross-compile a fuzzing harness linked against a firmware .so."""
+    lib_path = input.get("lib_path", "")
+    harness_source = input.get("harness_source", "")
+    name = input.get("name", "")
+    arch = input.get("arch")
+    if not lib_path or not harness_source or not name:
+        return "Error: lib_path, harness_source, and name are required."
+
+    svc = HarnessBuildService(context.db)
+    try:
+        result = await svc.build_harness(
+            project_id=context.project_id,
+            firmware_id=context.firmware_id,
+            lib_path=lib_path,
+            harness_source=harness_source,
+            name=name,
+            arch=arch,
+        )
+    except HarnessBuildError as exc:
+        return f"Error: {exc}"
+    except Exception as exc:
+        return f"Error building harness: {exc}"
+
+    if not result.ok:
+        return (
+            f"Harness build FAILED (arch={result.arch}).\n\n"
+            f"--- build log ---\n{result.log[-6000:]}\n\n"
+            "Fix the harness_source (check the target function signature via "
+            "decompile_function) and rebuild."
+        )
+
+    lines = [
+        f"Harness built: {result.elf_virtual_path}",
+        f"  Arch: {result.arch}",
+    ]
+    if result.glibc_max:
+        lines.append(f"  Max glibc symbol version required: {result.glibc_max}")
+        lines.append(
+            "  (must be <= the firmware libc's version, or it won't run under "
+            "qemu-user; armhf base is GLIBC_2.4.)"
+        )
+    lines.append("")
+    lines.append(
+        "Start fuzzing it with:\n"
+        f"  start_fuzzing_campaign(binary_path=\"{lib_path}\", "
+        f"harness_binary=\"{result.elf_virtual_path}\", arguments=\"@@\")\n"
+        "AFL_INST_LIBS is auto-enabled (the harness is lib-backed) so the .so "
+        "code is instrumented. Seed the corpus with realistic, NON-crashing "
+        "inputs (AFL refuses to start if every seed crashes — a sign the "
+        "harness calls the target wrong)."
+    )
+    if result.harness_one_addr and result.elf_type:
+        lines.append("")
+        lines.append(
+            "Optional — persistent mode (much faster) for the no-global-state "
+            "case: add environment={\"AFL_QEMU_PERSISTENT_ADDR\": \""
+            f"{result.harness_one_addr}\", \"AFL_QEMU_PERSISTENT_GPR\": \"1\"}} "
+            f"(harness_one @ {result.harness_one_addr}, ELF type "
+            f"{result.elf_type}; for ET_DYN/PIE add the load base)."
+        )
+    log_tail = result.log[-1500:]
+    lines.append("")
+    lines.append(f"--- build log (tail) ---\n{log_tail}")
+    return "\n".join(lines)
+
+
+async def _handle_patch_function_return(input: dict, context: ToolContext) -> str:
+    """Patch a firmware function to return a constant (auth bypass etc.)."""
+    binary_path = input.get("binary_path", "")
+    function = input.get("function", "")
+    if not binary_path or not function:
+        return "Error: binary_path and function are required."
+    return_value = input.get("return_value", 1)
+    name = input.get("name")
+    thumb = input.get("thumb")
+
+    svc = BinaryPatchService(context.db)
+    try:
+        r = await svc.patch_function_return(
+            project_id=context.project_id,
+            firmware_id=context.firmware_id,
+            binary_path=binary_path,
+            function=function,
+            return_value=return_value,
+            name=name,
+            thumb=thumb,
+        )
+    except BinaryPatchError as exc:
+        return f"Error: {exc}"
+    except Exception as exc:
+        return f"Error patching binary: {exc}"
+
+    return (
+        f"Patched binary: {r.patched_virtual_path}\n"
+        f"  {r.detail}\n"
+        f"  Stub bytes: {r.stub_hex}\n"
+        "\n"
+        "Fuzz the patched daemon (auth now bypassed) with:\n"
+        f"  start_fuzzing_campaign(binary_path=\"{binary_path}\", "
+        f"harness_binary=\"{r.patched_virtual_path}\", desock=true)\n"
+        "Add environment={\"AFL_INST_LIBS\": \"1\"} if the request handlers live "
+        "in a shared library. If coverage stays flat, the daemon likely forks/"
+        "threads per connection (defeats desock) — consider harnessing the "
+        "specific handler function with build_fuzz_harness instead."
+    )
 
 
 async def _handle_check_status(input: dict, context: ToolContext) -> str:
@@ -1034,26 +1283,47 @@ async def _handle_diagnose_campaign(input: dict, context: ToolContext) -> str:
                 issues.append(
                     f"Very low coverage ({bitmap_cvg}) after {total_execs} executions"
                 )
-                if not config.get("desock"):
-                    # Check if this might be a network binary
-                    fw_result = await context.db.execute(
-                        select(Firmware).where(Firmware.id == campaign.firmware_id)
+                # Pull the target analysis once — both the lib-backed and
+                # network checks below need it.
+                analysis = None
+                fw_result = await context.db.execute(
+                    select(Firmware).where(Firmware.id == campaign.firmware_id)
+                )
+                firmware = fw_result.scalar_one_or_none()
+                if firmware:
+                    try:
+                        analysis = await svc.analyze_target(
+                            firmware, campaign.binary_path
+                        )
+                    except Exception:
+                        analysis = None
+
+                env_cfg = config.get("environment") or {}
+                inst_libs_on = str(env_cfg.get("AFL_INST_LIBS", "")).strip().lower() in (
+                    "1", "true", "yes", "on"
+                )
+                before = len(recommendations)
+
+                # Lib-backed target without AFL_INST_LIBS — the #1 silent
+                # near-zero-coverage cause (feedback #3). Normally auto-enabled
+                # at start, so this catches an explicit disable or a heuristic
+                # miss (.text just over the threshold).
+                if analysis and analysis.get("lib_backed") and not inst_libs_on:
+                    deps = ", ".join(analysis.get("non_libc_needed", [])) or "a shared library"
+                    recommendations.append(
+                        f"Target delegates its real work to {deps} but AFL_INST_LIBS "
+                        "is not set — QEMU mode is only instrumenting the thin wrapper. "
+                        "ACTION: stop and restart with environment: {\"AFL_INST_LIBS\": \"1\"}."
                     )
-                    firmware = fw_result.scalar_one_or_none()
-                    if firmware:
-                        try:
-                            analysis = await svc.analyze_target(
-                                firmware, campaign.binary_path
-                            )
-                            if analysis.get("recommended_strategy") == "network":
-                                recommendations.append(
-                                    "This binary is a NETWORK DAEMON but desock is disabled. "
-                                    "AFL++ fuzz data never reaches the network parsing code. "
-                                    "ACTION: Stop this campaign and restart with desock: true"
-                                )
-                        except Exception:
-                            pass
-                    if not recommendations:
+
+                if not config.get("desock"):
+                    if analysis and analysis.get("recommended_strategy") == "network":
+                        recommendations.append(
+                            "This binary is a NETWORK DAEMON but desock is disabled. "
+                            "AFL++ fuzz data never reaches the network parsing code. "
+                            "ACTION: Stop this campaign and restart with desock: true"
+                        )
+                    if len(recommendations) == before:
                         recommendations.append(
                             "Coverage is very low. The binary may not be processing "
                             "AFL++ input effectively. Consider enabling desock (if it's "

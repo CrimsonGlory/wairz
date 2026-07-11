@@ -14,7 +14,7 @@ import re
 import socket
 import tempfile
 from datetime import UTC, datetime
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import aiofiles
 import httpx
@@ -147,6 +147,27 @@ class KernelService:
 
         return None
 
+    def _dtb_path(self, kernel_name: str) -> str | None:
+        """Return the path to a kernel's companion device-tree blob, if any.
+
+        Checks the sidecar JSON for an explicit 'dtb' field, then falls back to
+        the convention: <kernel_name>.dtb. DT-only kernels (e.g. the bundled
+        dhruvvyas90 buster RPi kernel) need a matching dtb passed via -dtb or
+        they fail with "invalid dtb and unrecognized/unsupported machine ID".
+        """
+        sidecar = self._read_sidecar(kernel_name)
+        if sidecar and sidecar.get("dtb"):
+            path = os.path.join(self._kernel_dir, sidecar["dtb"])
+            if os.path.isfile(path):
+                return path
+
+        # Convention fallback
+        path = os.path.join(self._kernel_dir, f"{kernel_name}.dtb")
+        if os.path.isfile(path):
+            return path
+
+        return None
+
     def _kernel_info(self, name: str) -> dict:
         """Build kernel info dict for a single kernel."""
         kernel_path = self._kernel_path(name)
@@ -169,9 +190,9 @@ class KernelService:
             description = ""
             uploaded_at = mtime
 
-        # Check for companion initrd
-        initrd_path = self._initrd_path(name)
-        has_initrd = initrd_path is not None
+        # Check for companion initrd / device-tree blob
+        has_initrd = self._initrd_path(name) is not None
+        has_dtb = self._dtb_path(name) is not None
 
         return {
             "name": name,
@@ -180,6 +201,10 @@ class KernelService:
             "file_size": file_size,
             "uploaded_at": uploaded_at,
             "has_initrd": has_initrd,
+            "has_dtb": has_dtb,
+            # Optional QEMU board this kernel targets (e.g. "virt",
+            # "versatilepb"); used to steer board selection (feedback #5).
+            "machine": (sidecar or {}).get("machine"),
         }
 
     def list_kernels(self, architecture: str | None = None) -> list[dict]:
@@ -194,7 +219,7 @@ class KernelService:
                 continue
             if entry.name.endswith(".json"):
                 continue
-            if entry.name.endswith(".initrd"):
+            if entry.name.endswith((".initrd", ".dtb")):
                 continue
             if not entry.is_file():
                 continue
@@ -262,10 +287,50 @@ class KernelService:
         if os.path.isfile(sidecar_path):
             os.remove(sidecar_path)
 
-    def find_kernel_for_arch(self, architecture: str) -> dict | None:
-        """Return the first kernel matching the given architecture, or None."""
+    def find_kernel_for_arch(
+        self, architecture: str, prefer_machine: str | None = None
+    ) -> dict | None:
+        """Return a kernel matching the given architecture, or None.
+
+        When ``prefer_machine`` is set (e.g. "virt" for an ARMv7/hard-float
+        userland that can't run on the ARMv5/v6 versatilepb board), a kernel
+        whose sidecar declares that machine wins over the alphabetical first
+        match. This is how an armhf image is steered to the armvirt kernel
+        instead of a Raspberry-Pi/versatile one (feedback #5).
+        """
         kernels = self.list_kernels(architecture=architecture)
-        return kernels[0] if kernels else None
+        if not kernels:
+            return None
+        if prefer_machine:
+            for k in kernels:
+                if (k.get("machine") or "").lower() == prefer_machine.lower():
+                    return k
+        return kernels[0]
+
+    def get_kernel_meta(self, name: str) -> dict:
+        """Return the board/boot hints a kernel's sidecar declares, or {}.
+
+        Recognised keys: ``machine``, ``cpu``, ``drive_interface``,
+        ``root_dev``, ``mem`` (and ``console``). These let a kernel describe
+        the QEMU machine it was built for so the emulation service can pick
+        matching board defaults without the agent specifying them. Unknown
+        kernels (e.g. firmware-extracted) simply return {}.
+        """
+        try:
+            _validate_kernel_name(name)
+        except ValueError:
+            return {}
+        sidecar = self._read_sidecar(name)
+        if not sidecar:
+            return {}
+        meta: dict = {}
+        for key in ("machine", "cpu", "drive_interface", "root_dev", "console"):
+            val = sidecar.get(key)
+            if val:
+                meta[key] = val
+        if isinstance(sidecar.get("mem"), int):
+            meta["mem"] = sidecar["mem"]
+        return meta
 
     async def upload_initrd(
         self,
@@ -331,24 +396,9 @@ class KernelService:
         tmp_fd, tmp_path = tempfile.mkstemp(prefix="kernel_dl_")
         os.close(tmp_fd)
         try:
-            async with httpx.AsyncClient(
-                follow_redirects=True,
-                max_redirects=5,
-                timeout=httpx.Timeout(timeout_seconds, connect=30.0),
-            ) as client:
-                async with client.stream("GET", url) as response:
-                    response.raise_for_status()
-                    downloaded = 0
-                    async with aiofiles.open(tmp_path, "wb") as f:
-                        async for chunk in response.aiter_bytes(chunk_size=65536):
-                            downloaded += len(chunk)
-                            if downloaded > max_size_bytes:
-                                raise ValueError(
-                                    f"Download exceeds maximum size "
-                                    f"({max_size_bytes // (1024*1024)}MB)"
-                                )
-                            await f.write(chunk)
-
+            downloaded = await self._stream_download(
+                url, tmp_path, max_size_bytes, timeout_seconds
+            )
             if downloaded == 0:
                 raise ValueError("Downloaded file is empty")
 
@@ -383,13 +433,6 @@ class KernelService:
                     await f.write(json.dumps(sidecar, indent=2))
 
             return result
-
-        except httpx.HTTPStatusError as exc:
-            raise ValueError(
-                f"HTTP {exc.response.status_code} downloading kernel from {url}"
-            ) from exc
-        except httpx.RequestError as exc:
-            raise ValueError(f"Failed to download kernel: {exc}") from exc
         finally:
             cleanup_loop = asyncio.get_running_loop()
 
@@ -398,3 +441,58 @@ class KernelService:
                     os.unlink(path)
 
             await cleanup_loop.run_in_executor(None, _cleanup_tmp_sync, tmp_path)
+
+    async def _stream_download(
+        self,
+        url: str,
+        dest_path: str,
+        max_size_bytes: int,
+        timeout_seconds: int,
+    ) -> int:
+        """Stream a URL to ``dest_path``, returning bytes written.
+
+        Follows redirects MANUALLY so every hop — including cross-host
+        redirects to regional mirrors (e.g. downloads.openwrt.org → a country
+        mirror) — is re-validated against the SSRF policy before we connect to
+        it. httpx's built-in follow_redirects would skip that re-check, and
+        some mirrors 404 a request without a normal User-Agent.
+        """
+        headers = {"User-Agent": "wairz-kernel-downloader/1.0"}
+        current = url
+        try:
+            async with httpx.AsyncClient(
+                follow_redirects=False,
+                timeout=httpx.Timeout(timeout_seconds, connect=30.0),
+                headers=headers,
+            ) as client:
+                for _hop in range(10):
+                    _validate_download_url(current)
+                    async with client.stream("GET", current) as response:
+                        if response.is_redirect:
+                            location = response.headers.get("location")
+                            if not location:
+                                raise ValueError(
+                                    f"HTTP {response.status_code} redirect with no "
+                                    f"Location header from {current}"
+                                )
+                            current = urljoin(current, location)
+                            continue
+                        response.raise_for_status()
+                        downloaded = 0
+                        async with aiofiles.open(dest_path, "wb") as f:
+                            async for chunk in response.aiter_bytes(chunk_size=65536):
+                                downloaded += len(chunk)
+                                if downloaded > max_size_bytes:
+                                    raise ValueError(
+                                        f"Download exceeds maximum size "
+                                        f"({max_size_bytes // (1024*1024)}MB)"
+                                    )
+                                await f.write(chunk)
+                        return downloaded
+                raise ValueError(f"Too many redirects downloading from {url}")
+        except httpx.HTTPStatusError as exc:
+            raise ValueError(
+                f"HTTP {exc.response.status_code} downloading from {current}"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise ValueError(f"Failed to download kernel: {exc}") from exc

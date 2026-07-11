@@ -1,5 +1,7 @@
+import ipaddress
 import os
 from contextlib import asynccontextmanager
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +11,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.requests import Request
 
+from app.auth.oidc import auth_guard
 from app.config import get_settings
 from app.logging_config import configure_logging
 from app.middleware.asgi_auth import APIKeyASGIMiddleware
@@ -439,10 +442,15 @@ app.add_middleware(
 # proxy endpoints unauthenticated.
 app.add_middleware(APIKeyASGIMiddleware)
 
+# Bearer-token auth on the HTTP API. No-op when settings.auth_enabled is false
+# (local docker-compose / default). Enterprise Cognito deployments flip the flag.
+app.middleware("http")(auth_guard)
+
 
 @app.middleware("http")
 async def origin_host_guard(request: Request, call_next):
     # CSRF + DNS-rebinding guard for the localhost-bound backend.
+    # Hosts may be extended via EXTRA_ALLOWED_HOSTS / Settings.extra_allowed_hosts.
     host = request.headers.get("host", "")
     if host not in ALLOWED_HOSTS:
         return JSONResponse(status_code=403, content={"detail": "host not allowed"})

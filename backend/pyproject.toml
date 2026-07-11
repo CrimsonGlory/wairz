@@ -21,6 +21,8 @@ dependencies = [
     "nvdlib>=0.7.6",
     "docker>=7.0.0",
     "httpx>=0.27.0",
+    # OIDC/JWT bearer validation for enterprise Cognito auth (flag-gated).
+    "pyjwt[crypto]>=2.9.0",
     "mcp[cli]>=1.2.0",
     "cryptography>=48.0.1",
     "yara-python>=4.5.0",

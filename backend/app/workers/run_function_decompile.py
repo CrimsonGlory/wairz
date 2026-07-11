@@ -7,8 +7,8 @@ synchronous 580s budget; this worker gets 30 minutes, which is enough
 for any single function that's still worth waiting on.
 
 Invocation:
-    python -m app.workers.run_function_decompile \\
-        --firmware-id <uuid> --binary-path <path> \\
+    python -m app.workers.run_function_decompile \
+        --firmware-id <uuid> --binary-path <path> \
         --sha256 <hex> --function-name <name>
 
 Exits 0 on success, 1 on failure; status is written to the
@@ -30,14 +30,21 @@ from app.database import async_session_factory
 from app.services import ghidra_service
 from app.services.ghidra_service import (
     _cross_process_analysis_lock,
-    _get_cached,
     _parse_decompile_output,
-    _store_cached,
-    resolve_binary_import_params,
-    run_ghidra_subprocess,
+    _run_ghidra_local,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def get_analysis_cache():
+    """Return the cache object used for decompile result storage.
+
+    Tests monkeypatch this to inject a fake cache; production returns the
+    ghidra_service module (which exposes _get_cached / _store_cached /
+    mark_function_run_* at module scope).
+    """
+    return ghidra_service
 
 
 def _lock_key(binary_sha256: str, function_name: str) -> str:
@@ -59,6 +66,7 @@ async def _run(
     function_name: str,
 ) -> int:
     cache_op = f"decompile:{function_name}"
+    cache = get_analysis_cache()
 
     try:
         async with _cross_process_analysis_lock(
@@ -67,26 +75,26 @@ async def _run(
             # Re-check under lock — a sibling worker may have finished
             # while we waited.
             async with async_session_factory() as recheck_db:
-                cached = await _get_cached(
+                cached = await cache._get_cached(
                     firmware_id, binary_sha256, cache_op, recheck_db,
                 )
                 if cached and cached.get("decompiled_code"):
-                    await ghidra_service.mark_function_run_complete(
+                    await cache.mark_function_run_complete(
                         firmware_id, binary_path, binary_sha256,
                         function_name, recheck_db,
                     )
                     await recheck_db.commit()
                     return 0
 
-            ghidra_import_params = await resolve_binary_import_params(binary_path, firmware_id)
-            raw_output = await run_ghidra_subprocess(
+            # Run Ghidra in-process on this host. Do NOT call
+            # run_ghidra_subprocess — in cloud mode that re-dispatches to
+            # Batch, and this worker is already ON the compute box.
+            raw_output = await _run_ghidra_local(
                 binary_path,
                 "DecompileFunction.java",
-                script_args=[function_name],
-                timeout=get_settings().ghidra_background_decompile_timeout,
-                ghidra_import_params=ghidra_import_params,
-                firmware_id=firmware_id,
-                binary_sha256=binary_sha256,
+                [function_name],
+                get_settings().ghidra_background_decompile_timeout,
+                binary_sha256,
             )
             decompiled = _parse_decompile_output(raw_output)
 
@@ -100,18 +108,18 @@ async def _run(
                             "DecompileFunction.java produced no parseable "
                             "output (function may be a thunk or too small)"
                         )
-                    await ghidra_service.mark_function_run_failed(
+                    await cache.mark_function_run_failed(
                         firmware_id, binary_path, binary_sha256,
                         function_name, msg, result_db,
                     )
                     await result_db.commit()
                     return 1
 
-                await _store_cached(
+                await cache._store_cached(
                     firmware_id, binary_path, binary_sha256, cache_op,
                     {"decompiled_code": decompiled}, result_db,
                 )
-                await ghidra_service.mark_function_run_complete(
+                await cache.mark_function_run_complete(
                     firmware_id, binary_path, binary_sha256,
                     function_name, result_db,
                 )
@@ -122,7 +130,7 @@ async def _run(
             "Function decompile failed for %s:%s", binary_path, function_name,
         )
         async with async_session_factory() as db:
-            await ghidra_service.mark_function_run_failed(
+            await cache.mark_function_run_failed(
                 firmware_id, binary_path, binary_sha256, function_name,
                 str(exc), db,
             )

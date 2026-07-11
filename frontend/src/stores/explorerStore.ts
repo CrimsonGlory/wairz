@@ -55,6 +55,8 @@ function updateNodeInTree(
 }
 
 interface ExplorerState {
+  /** Active firmware version whose rootfs is being browsed (null = backend default). */
+  firmwareId: string | null
   treeData: TreeNode[]
   selectedPath: string | null
   selectedNode: TreeNode | null
@@ -84,6 +86,7 @@ interface ExplorerState {
 }
 
 interface ExplorerActions {
+  setFirmwareId: (firmwareId: string | null) => void
   loadRootDirectory: (projectId: string) => Promise<void>
   loadDirectory: (projectId: string, path: string) => Promise<void>
   selectFile: (projectId: string, node: TreeNode) => Promise<void>
@@ -100,6 +103,7 @@ interface ExplorerActions {
 }
 
 const initialState: ExplorerState = {
+  firmwareId: null,
   treeData: [],
   selectedPath: null,
   selectedNode: null,
@@ -121,6 +125,20 @@ const initialState: ExplorerState = {
 export const useExplorerStore = create<ExplorerState & ExplorerActions>(
   (set, get) => ({
     ...initialState,
+
+    setFirmwareId: (firmwareId) => {
+      if (get().firmwareId === firmwareId) return
+      // Switching versions invalidates the tree + open file (they belong to the
+      // previous rootfs). Documents are project-level, so leave them be.
+      set({
+        firmwareId,
+        treeData: [],
+        selectedPath: null,
+        selectedNode: null,
+        fileContent: null,
+        fileInfo: null,
+      })
+    },
 
     loadRootDirectory: async (projectId) => {
       set({ treeError: null, currentProjectId: projectId })

@@ -157,6 +157,10 @@ class ExportService:
             # Emulation presets
             zf.writestr("emulation_presets.json", _dumps(presets))
 
+            # Kernels referenced by emulation presets (global resource, not in
+            # the firmware) so a system-mode boot is reproducible on import.
+            self._add_kernels(zf, presets)
+
             # Firmware (metadata + files)
             for fw in firmware_list:
                 fw_id_str = str(fw.id)
@@ -175,6 +179,14 @@ class ExportService:
                 extracted_root = self._get_extracted_root(fw)
                 if extracted_root and os.path.isdir(extracted_root):
                     self._add_extracted_fs(zf, extracted_root, f"{fw_prefix}/extracted")
+
+                # Carved outputs (run_shell / build_fuzz_harness / patched
+                # harnesses live here, surfaced at /_carved). Sibling of the
+                # extracted tree, so it isn't covered above — bundle it so a
+                # built harness travels with the project.
+                carved_root = self._get_carved_root(fw)
+                if carved_root and os.path.isdir(carved_root):
+                    self._add_extracted_fs(zf, carved_root, f"{fw_prefix}/carved")
 
                 # Per-firmware DB data
                 fwd = firmware_data[fw.id]
@@ -255,6 +267,7 @@ class ExportService:
                 "cwe_ids": f.cwe_ids,
                 "status": f.status,
                 "source": f.source,
+                "firmware_ids": [str(fw.id) for fw in f.firmware_versions],
                 "created_at": f.created_at,
                 "updated_at": f.updated_at,
             }
@@ -429,6 +442,42 @@ class ExportService:
         ]
 
     # ── Filesystem helpers ─────────────────────────────────────────
+
+    def _get_carved_root(self, fw: Firmware) -> str | None:
+        """The carving/output dir for a firmware (surfaced at /_carved)."""
+        if fw.storage_path:
+            candidate = os.path.join(os.path.dirname(fw.storage_path), "carved")
+            if os.path.isdir(candidate):
+                return candidate
+        return None
+
+    def _add_kernels(self, zf: zipfile.ZipFile, presets: list[dict]) -> None:
+        """Bundle the kernels named by emulation presets + their companions.
+
+        Kernels live in a global directory (not per-project), so without this a
+        system-mode preset can't boot after import. We copy each referenced
+        kernel plus its sidecar files (``<name>.initrd``, ``<name>.dtb``,
+        ``<name>.json``) under ``kernels/`` and record them in a manifest.
+        """
+        kernel_dir = self.settings.emulation_kernel_dir
+        names = sorted({
+            p.get("kernel_name") for p in presets if p.get("kernel_name")
+        })
+        bundled: list[str] = []
+        for name in names:
+            # Guard against path traversal in the stored name.
+            if not name or "/" in name or "\\" in name or ".." in name:
+                continue
+            base = os.path.join(kernel_dir, name)
+            if not os.path.isfile(base):
+                continue
+            _safe_write_file(zf, base, f"kernels/{name}")
+            bundled.append(name)
+            for suffix in (".initrd", ".dtb", ".json"):
+                companion = base + suffix
+                if os.path.isfile(companion):
+                    _safe_write_file(zf, companion, f"kernels/{name}{suffix}")
+        zf.writestr("kernels/manifest.json", _dumps({"kernels": bundled}))
 
     def _get_extracted_root(self, fw: Firmware) -> str | None:
         """Determine the extracted filesystem root directory for a firmware."""

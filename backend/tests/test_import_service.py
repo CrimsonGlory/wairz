@@ -237,7 +237,7 @@ class TestImportProjectLiveCanary:
         from app.services import import_service as svc_mod
         original = svc_mod.get_settings
 
-        fake_settings = type("S", (), {"storage_root": str(tmp_path)})()
+        fake_settings = type("S", (), {"storage_root": str(tmp_path), "emulation_kernel_dir": str(tmp_path / "kernels")})()
 
         def _fake():
             return fake_settings

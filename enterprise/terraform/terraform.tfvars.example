@@ -1,0 +1,93 @@
+# Wairz Enterprise — operator configuration.
+# Copy to terraform.tfvars and edit. This file IS the operator contract:
+# every variable you can set lives here with a safe default.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#   $EDITOR terraform.tfvars
+#   terraform init && terraform apply
+
+# --- General ----------------------------------------------------------------
+aws_region  = "us-east-1"
+name_prefix = "wairz"
+environment = "prod"
+
+# Extra tags merged onto every resource.
+tags = {
+  # Owner = "security-team"
+}
+
+# --- Image & SPA delivery ---------------------------------------------------
+# By default `terraform apply` builds the backend image (pushing it to BOTH the
+# backend and Ghidra ECR repos) and publishes the SPA (S3 sync + CloudFront
+# invalidation). This needs Docker (with buildx), Node/npm, and the AWS CLI on
+# the machine running Terraform. Set false to build/push out-of-band (CI) — then
+# set image_tag to the tag you pushed.
+auto_deploy_images = true
+# Empty = derive the tag from git (commit SHA, +dirty hash for local edits) and
+# build during apply. Pin a tag here when auto_deploy_images = false.
+image_tag = ""
+
+# --- Network ----------------------------------------------------------------
+vpc_cidr = "10.42.0.0/16"
+# false = private egress via VPC endpoints (cheaper at rest); true = NAT gateway.
+create_nat_gateway = false
+
+# --- Cache ------------------------------------------------------------------
+redis_node_type = "cache.t4g.micro"
+
+# --- Serving layer (backend / frontend / auth) ------------------------------
+# ACM cert ARN to add an HTTPS listener on the ALB (needed for ALB-level Cognito
+# auth). Empty = HTTP only; fine because CloudFront terminates TLS at the edge.
+alb_certificate_arn = ""
+# Cognito hosted-UI domain suffix; the full prefix must be globally unique.
+cognito_domain_suffix = "auth"
+
+# --- Observability ----------------------------------------------------------
+# CloudWatch alarms (ECS/ALB/Aurora/Redis health + backend error rate) publish
+# to an SNS topic and a dashboard named after name_prefix-environment is created.
+# Set an email to receive alarm notifications (confirm via the AWS email).
+alarm_email = ""
+
+# --- Custom domain + auth ---------------------------------------------------
+# Serve on your own domain (ACM cert DNS-validated in your Route53 zone +
+# CloudFront alias). Empty = the default *.cloudfront.net domain.
+domain_name     = "" # e.g. "wairz.example.com"
+route53_zone_id = "" # hosted zone that owns domain_name; required if domain_name set
+# Enforce Cognito login: the SPA requires sign-in and the API requires a bearer
+# token. Requires domain_name. IdP-agnostic — to put the pool behind external
+# SSO (JumpCloud/Okta/…), federate it into the Cognito pool and add the provider
+# name to the auth module's identity_providers.
+auth_enabled = false
+
+# Optionally seed Cognito accounts declaratively: copy users.yaml.example to
+# users.yaml (gitignored) and list emails. Created on apply when auth_enabled.
+# Path is relative to the terraform dir unless absolute.
+users_file = "users.yaml"
+
+# Run the Streamable HTTP MCP server as a sidecar and route /mcp to it, so Claude
+# can drive the cloud instance over HTTP (Cognito-gated) instead of stdio.
+mcp_http_enabled = false
+
+# --- Application ------------------------------------------------------------
+# Max firmware upload size (MB). Plumbs to backend + ALB + CloudFront limits.
+max_upload_size_mb = 500
+
+# --- Database (Aurora Serverless v2) ----------------------------------------
+# 0.5 ACU keeps the DB always-warm (~$43/mo). Set to 0 for auto-pause: $0 at
+# rest but ~15s cold resume on first query. See PLAN.md open decision #1.
+aurora_min_capacity = 0.5
+aurora_max_capacity = 4
+
+# --- Heavy compute (AWS Batch — Ghidra) -------------------------------------
+# Ceiling on concurrent Batch vCPUs. Cost guardrail against runaway decompiles.
+batch_max_vcpus = 16
+# Per-firmware in-flight Batch job cap (shared-instance fairness): bounds a
+# runaway agent so one analyst's firmware can't saturate the queue. 0 disables.
+batch_max_jobs_per_firmware = 8
+# Spot is safe here: Ghidra results are cached by binary hash, so an
+# interrupted job simply re-runs. Set false to guarantee completion at higher cost.
+batch_use_spot = true
+
+# --- Secrets ----------------------------------------------------------------
+# Secrets (DB password, NVD API key, etc.) are NOT set here. They live in AWS
+# Secrets Manager; modules reference them by ARN. See PLAN.md §4 and §5.

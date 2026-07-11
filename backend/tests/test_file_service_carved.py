@@ -78,6 +78,55 @@ class TestCarvedResolve:
         assert resolved == str(rootfs / "_carved" / "foo")
 
 
+class TestCarvedBlobOnly:
+    """RTOS / bare-metal projects have no rootfs (is_blob_only=True) but still
+    carve blobs into /_carved/. Those artifacts must reach the binary-analysis
+    tools — the carved branch has to win over the blob-only short-circuit.
+    """
+
+    def _blob_only_svc(self, tmp_path: Path):
+        fw_dir = tmp_path / "fw"
+        fw_dir.mkdir()
+        blob = fw_dir / "firmware.axf"
+        blob.write_bytes(b"\x7fELF" + b"\x00" * 60)
+        carved = fw_dir / "carved"
+        carved.mkdir()
+        svc = FileService(
+            "",  # no rootfs → is_blob_only
+            firmware_path=str(blob),
+            carved_path=str(carved),
+        )
+        assert svc.is_blob_only
+        return svc, blob, carved
+
+    def test_blob_only_resolves_carved_root(self, tmp_path: Path):
+        svc, _blob, carved = self._blob_only_svc(tmp_path)
+        assert svc._resolve("/_carved") == str(carved)
+
+    def test_blob_only_resolves_carved_subpath(self, tmp_path: Path):
+        svc, _blob, carved = self._blob_only_svc(tmp_path)
+        (carved / "km4.bin").write_bytes(b"\x00" * 32)
+        assert svc._resolve("/_carved/km4.bin") == str(carved / "km4.bin")
+
+    def test_blob_only_still_resolves_the_blob(self, tmp_path: Path):
+        # The forgiving blob spellings must keep working alongside /_carved/.
+        svc, blob, _carved = self._blob_only_svc(tmp_path)
+        assert svc._resolve("/firmware/firmware.axf") == str(blob)
+        assert svc._resolve("firmware.axf") == str(blob)
+
+    def test_blob_only_carved_rejects_traversal(self, tmp_path: Path):
+        svc, _blob, _carved = self._blob_only_svc(tmp_path)
+        with pytest.raises(PathTraversalError):
+            svc._resolve("/_carved/../../etc/passwd")
+
+    def test_blob_only_non_carved_non_blob_still_rejected(self, tmp_path: Path):
+        # A random path that is neither the blob nor under /_carved/ still
+        # raises — the fix must not open up the whole filesystem.
+        svc, _blob, _carved = self._blob_only_svc(tmp_path)
+        with pytest.raises(PathTraversalError):
+            svc._resolve("/etc/passwd")
+
+
 class TestCarvedToVirtualPath:
     def test_carved_file_round_trips(self, tmp_path: Path):
         carved = tmp_path / "carved"

@@ -51,6 +51,8 @@ def test_firmware_detail_response_declares_no_invented_fields():
 
 def test_finding_response_declares_no_invented_fields():
     orm = _orm_column_names(Finding)
+    # Relationships are valid response surfaces even though they are not columns.
+    orm |= {"firmware_versions", "project"}
     schema = _pydantic_field_names(FindingResponse)
     invented = schema - orm
     assert not invented, (

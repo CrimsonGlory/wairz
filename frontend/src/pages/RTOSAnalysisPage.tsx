@@ -4,6 +4,7 @@ import { Cpu, Loader2, AlertCircle, FileCode, Hash, Terminal } from 'lucide-reac
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { listFirmware } from '@/api/firmware'
+import { useProjectStore } from '@/stores/projectStore'
 import { formatFileSize } from '@/utils/format'
 import type { FirmwareDetail } from '@/types'
 
@@ -57,6 +58,7 @@ function flavorLabel(flavor: FirmwareDetail['rtos_flavor']): string {
 
 export default function RTOSAnalysisPage() {
   const { projectId } = useParams<{ projectId: string }>()
+  const activeFirmwareId = useProjectStore((s) => s.activeFirmwareId)
   const [firmware, setFirmware] = useState<FirmwareDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -69,10 +71,10 @@ export default function RTOSAnalysisPage() {
     listFirmware(projectId)
       .then((items) => {
         if (cancelled) return
-        // Match the MCP server's "active firmware" rule — most recent upload.
-        const active = items
-          .slice()
-          .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]
+        // Follow the active-version picker; fall back to the most recent upload.
+        const active =
+          items.find((f) => f.id === activeFirmwareId) ??
+          items.slice().sort((a, b) => b.created_at.localeCompare(a.created_at))[0]
         setFirmware(active ?? null)
       })
       .catch((e) => {
@@ -86,7 +88,7 @@ export default function RTOSAnalysisPage() {
     return () => {
       cancelled = true
     }
-  }, [projectId])
+  }, [projectId, activeFirmwareId])
 
   if (loading) {
     return (

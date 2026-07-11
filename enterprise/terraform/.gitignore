@@ -1,0 +1,16 @@
+# Local Terraform state & caches
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+# Operator-supplied values (may contain secret references)
+terraform.tfvars
+*.auto.tfvars
+# Operator's real user roster (PII); ship users.yaml.example instead
+users.yaml
+backend.tf
+override.tf
+override.tf.json
+tfplan
+*.tfplan

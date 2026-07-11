@@ -79,55 +79,57 @@ export function EmulationTerminal({ projectId, session, onClose }: EmulationTerm
     const RECONNECT_BASE_DELAY = 1000
 
     function connectWebSocket() {
-      const url = buildEmulationTerminalURL(projectId, session.id)
-      const ws = new WebSocket(url)
-      wsRef.current = ws
-
-      ws.onopen = () => {
-        reconnectAttemptRef.current = 0
-        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }))
-      }
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data)
-          if (msg.type === 'output' && msg.data) {
-            term.write(msg.data)
-          } else if (msg.type === 'error') {
-            term.write(`\r\n\x1b[31mError: ${msg.data}\x1b[0m\r\n`)
-          }
-          // Ignore ping/pong messages (keepalive)
-        } catch {
-          term.write(event.data)
-        }
-      }
-
-      ws.onclose = () => {
+      void buildEmulationTerminalURL(projectId, session.id).then((url) => {
         if (intentionalCloseRef.current) return
+        const ws = new WebSocket(url)
+        wsRef.current = ws
 
-        const attempt = reconnectAttemptRef.current
-        if (attempt < MAX_RECONNECT_ATTEMPTS) {
-          const delay = Math.min(RECONNECT_BASE_DELAY * Math.pow(1.5, attempt), 10000)
-          term.write(`\r\n\x1b[90m[Disconnected — reconnecting in ${Math.round(delay / 1000)}s...]\x1b[0m\r\n`)
-          reconnectAttemptRef.current = attempt + 1
-          reconnectTimerRef.current = setTimeout(connectWebSocket, delay)
-        } else {
-          term.write('\r\n\x1b[90m[Session disconnected — max reconnect attempts reached]\x1b[0m\r\n')
-          getSessionLogs(projectId, session.id)
-            .then((logText) => {
-              if (logText && logText !== '(no log available)') {
-                term.write('\r\n\x1b[33m--- QEMU Startup Log ---\x1b[0m\r\n')
-                term.write(logText.replace(/\n/g, '\r\n'))
-                term.write('\r\n\x1b[33m--- End Log ---\x1b[0m\r\n')
-              }
-            })
-            .catch(() => {})
+        ws.onopen = () => {
+          reconnectAttemptRef.current = 0
+          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }))
         }
-      }
 
-      ws.onerror = () => {
-        // onclose will fire after onerror, reconnect handled there
-      }
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data)
+            if (msg.type === 'output' && msg.data) {
+              term.write(msg.data)
+            } else if (msg.type === 'error') {
+              term.write(`\r\n\x1b[31mError: ${msg.data}\x1b[0m\r\n`)
+            }
+            // Ignore ping/pong messages (keepalive)
+          } catch {
+            term.write(event.data)
+          }
+        }
+
+        ws.onclose = () => {
+          if (intentionalCloseRef.current) return
+
+          const attempt = reconnectAttemptRef.current
+          if (attempt < MAX_RECONNECT_ATTEMPTS) {
+            const delay = Math.min(RECONNECT_BASE_DELAY * Math.pow(1.5, attempt), 10000)
+            term.write(`\r\n\x1b[90m[Disconnected — reconnecting in ${Math.round(delay / 1000)}s...]\x1b[0m\r\n`)
+            reconnectAttemptRef.current = attempt + 1
+            reconnectTimerRef.current = setTimeout(connectWebSocket, delay)
+          } else {
+            term.write('\r\n\x1b[90m[Session disconnected — max reconnect attempts reached]\x1b[0m\r\n')
+            getSessionLogs(projectId, session.id)
+              .then((logText) => {
+                if (logText && logText !== '(no log available)') {
+                  term.write('\r\n\x1b[33m--- QEMU Startup Log ---\x1b[0m\r\n')
+                  term.write(logText.replace(/\n/g, '\r\n'))
+                  term.write('\r\n\x1b[33m--- End Log ---\x1b[0m\r\n')
+                }
+              })
+              .catch(() => {})
+          }
+        }
+
+        ws.onerror = () => {
+          // onclose will fire after onerror, reconnect handled there
+        }
+      })
     }
 
     connectWebSocket()

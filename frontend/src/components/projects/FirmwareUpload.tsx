@@ -266,7 +266,7 @@ export default function FirmwareUpload({ projectId, onComplete, showVersionLabel
           <Label htmlFor="version-label" className="text-xs">Version Label (optional)</Label>
           <Input
             id="version-label"
-            placeholder="e.g. v1.0, v1.1-patched"
+            placeholder="Leave blank to auto-assign V1, V2, …"
             value={versionLabel}
             onChange={(e) => setVersionLabel(e.target.value)}
             className="h-8 text-sm"

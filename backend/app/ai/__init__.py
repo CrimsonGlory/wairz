@@ -40,6 +40,7 @@ from app.ai.tools.strings import register_string_tools
 from app.ai.tools.taint_llm import register_taint_llm_tools
 from app.ai.tools.uart import register_uart_tools
 from app.ai.tools.uefi import register_uefi_tools
+from app.ai.tools.unpack_control import register_unpack_control_tools
 from app.ai.tools.vulhunt import register_vulhunt_tools
 from app.ai.tools.windows_appcompat import register_windows_appcompat_tools
 from app.ai.tools.windows_archive import register_windows_archive_tools
@@ -68,6 +69,7 @@ from app.ai.tools.windows_storage import register_windows_storage_tools
 from app.ai.tools.windows_update import register_windows_update_tools
 from app.ai.tools.windows_usnjrnl import register_windows_usnjrnl_tools
 from app.ai.tools.windows_wmi import register_windows_wmi_tools
+from app.config import get_settings
 
 
 def create_tool_registry() -> ToolRegistry:
@@ -164,6 +166,7 @@ def create_tool_registry() -> ToolRegistry:
     # silent-overwrite gap.
     register_network_exposure_tools(registry)
     register_carving_tools(registry)
+    register_unpack_control_tools(registry)
     register_rtos_tools(registry)
     register_ghidra_research_tools(registry)
     return registry
