@@ -69,7 +69,7 @@ def _read_magic_sync(path: str, n: int = 4) -> bytes | None:
     one-shot file-magic probes (ELF / PE / etc.).
     """
     try:
-        with open(path, "rb") as f:
+        with open(path, "rb") as f:  # noqa: ASYNC230 — bounded file I/O
             return f.read(n)
     except OSError:
         return None
@@ -247,7 +247,7 @@ async def _ensure_analyzed_or_route(path: str, context: ToolContext) -> str | No
 def _needed_libs(elf_path: str) -> list[str]:
     """DT_NEEDED (dynamic dependency) names of an ELF; [] if none/unreadable."""
     try:
-        with open(elf_path, "rb") as f:
+        with open(elf_path, "rb") as f:  # noqa: ASYNC230 — bounded file I/O
             elf = ELFFile(f)
             for seg in elf.iter_segments():
                 if seg.header.p_type == "PT_DYNAMIC":
@@ -271,7 +271,7 @@ def _locate_libs(real_root: str, lib_names: list[str]) -> dict[str, str]:
         hit = None
         for lib_dir in _STANDARD_LIB_PATHS:
             cand = os.path.join(real_root, lib_dir.lstrip("/"), name)
-            if os.path.isfile(cand):
+            if os.path.isfile(cand):  # noqa: ASYNC240 — pre-flight stat before bounded work
                 hit = cand
                 break
         if hit:
@@ -292,7 +292,7 @@ def _dynsym_func_state(lib_path: str, function_name: str) -> str:
     """'found' if function_name is a defined function export in lib_path's
     .dynsym; 'absent' if readable but not exported; 'unreadable' on error."""
     try:
-        with open(lib_path, "rb") as f:
+        with open(lib_path, "rb") as f:  # noqa: ASYNC230 — bounded file I/O
             elf = ELFFile(f)
             dynsym = elf.get_section_by_name(".dynsym")
             if not (dynsym and isinstance(dynsym, SymbolTableSection)):
@@ -514,7 +514,7 @@ async def _handle_analyze_binary_format(input: dict, context: ToolContext) -> st
     import asyncio
 
     loop = asyncio.get_running_loop()
-    if not await loop.run_in_executor(None, os.path.isfile, path):
+    if not await loop.run_in_executor(None, os.path.isfile, path):  # noqa: ASYNC240 — pre-flight stat before bounded work
         return f"Error: File not found: {input['binary_path']}"
 
     from app.services.binary_analysis_service import analyze_binary
@@ -718,11 +718,11 @@ async def _handle_get_binary_info(input: dict, context: ToolContext) -> str:
     def _read_raw_binary_metadata_sync(p: str) -> tuple[int, bytes, int, int] | None:
         """Read size + first 16 bytes + (sp, reset) words. Returns None on OSError."""
         try:
-            size = os.path.getsize(p)
-            with open(p, "rb") as f:
+            size = os.path.getsize(p)  # noqa: ASYNC240 — pre-flight stat before bounded work
+            with open(p, "rb") as f:  # noqa: ASYNC230 — bounded file I/O
                 hdr = f.read(16)
             if size > 0x100:
-                with open(p, "rb") as f:
+                with open(p, "rb") as f:  # noqa: ASYNC230 — bounded file I/O
                     sp_word = int.from_bytes(f.read(4), "little")
                     reset_word = int.from_bytes(f.read(4), "little")
             else:
@@ -1047,7 +1047,7 @@ def _resolve_import_sync(
     """
     # Step 1: Parse DT_NEEDED from the target binary
     try:
-        with open(target_path, "rb") as f:
+        with open(target_path, "rb") as f:  # noqa: ASYNC230 — bounded file I/O
             elf = ELFFile(f)
             needed_libs: list[str] = []
             for seg in elf.iter_segments():
@@ -1145,7 +1145,7 @@ def _scan_all_binary_protections(search_path: str, real_root: str) -> list[dict]
             if os.path.islink(abs_path):
                 continue
             try:
-                with open(abs_path, "rb") as f:
+                with open(abs_path, "rb") as f:  # noqa: ASYNC230 — bounded file I/O
                     magic = f.read(4)
                 if magic != ELF_MAGIC:
                     continue
@@ -1155,12 +1155,12 @@ def _scan_all_binary_protections(search_path: str, real_root: str) -> list[dict]
                 continue
             rel_path = "/" + os.path.relpath(abs_path, real_root)
             try:
-                size = os.path.getsize(abs_path)
+                size = os.path.getsize(abs_path)  # noqa: ASYNC240 — pre-flight stat before bounded work
             except OSError:
                 size = 0
             elf_type = "unknown"
             try:
-                with open(abs_path, "rb") as f:
+                with open(abs_path, "rb") as f:  # noqa: ASYNC230 — bounded file I/O
                     elf = ELFFile(f)
                     if elf.header.e_type == "ET_EXEC":
                         elf_type = "exe"
@@ -1513,7 +1513,7 @@ async def _handle_search_binary_content(input: dict, context: ToolContext) -> st
         return "Empty search pattern."
 
     loop = asyncio.get_running_loop()
-    file_size = await loop.run_in_executor(None, os.path.getsize, path)
+    file_size = await loop.run_in_executor(None, os.path.getsize, path)  # noqa: ASYNC240 — pre-flight stat before bounded work
     chunk_size = 65536
     overlap = len(search_bytes) - 1
 
@@ -1556,7 +1556,7 @@ async def _handle_search_binary_content(input: dict, context: ToolContext) -> st
     def _scan_binary_chunks_sync() -> list[dict]:
         """Chunked binary scan with cross-boundary match support."""
         local_matches: list[dict] = []
-        with open(path, "rb") as f:
+        with open(path, "rb") as f:  # noqa: ASYNC230 — bounded file I/O
             pos = 0
             prev_tail = b""
             while pos < file_size and len(local_matches) < max_results:
@@ -1801,7 +1801,7 @@ async def _handle_cross_binary_dataflow(input: dict, context: ToolContext) -> st
                 if os.path.islink(abs_path):
                     continue
                 try:
-                    with open(abs_path, "rb") as f:
+                    with open(abs_path, "rb") as f:  # noqa: ASYNC230 — bounded file I/O
                         if f.read(4) != ELF_MAGIC:
                             continue
                 except (OSError, PermissionError):
@@ -1984,7 +1984,7 @@ async def _handle_cross_binary_dataflow(input: dict, context: ToolContext) -> st
 def _detect_elf_machine_sync(path: str) -> str | None:
     """Read the ELF e_machine field. Returns None if not an ELF or unreadable."""
     try:
-        with open(path, "rb") as f:
+        with open(path, "rb") as f:  # noqa: ASYNC230 — bounded file I/O
             return ELFFile(f).header.e_machine
     except Exception:
         return None
@@ -1997,7 +1997,7 @@ async def _handle_detect_capabilities(
     path = context.resolve_path(input.get("binary_path") or input.get("path", "/"))
 
     loop = asyncio.get_running_loop()
-    if not await loop.run_in_executor(None, os.path.isfile, path):
+    if not await loop.run_in_executor(None, os.path.isfile, path):  # noqa: ASYNC240 — pre-flight stat before bounded work
         return f"Error: file not found: {input['path']}"
 
     # Check capa availability
@@ -2151,7 +2151,7 @@ async def _handle_list_binary_capabilities(
     path = context.resolve_path(input.get("binary_path") or input.get("path", "/"))
 
     loop = asyncio.get_running_loop()
-    if not await loop.run_in_executor(None, os.path.isfile, path):
+    if not await loop.run_in_executor(None, os.path.isfile, path):  # noqa: ASYNC240 — pre-flight stat before bounded work
         return f"Error: file not found: {input.get('binary_path', input.get('path', ''))}"
 
     capa_bin = shutil.which("capa")
@@ -2238,10 +2238,10 @@ async def _handle_analyze_raw_binary(input: dict, context: ToolContext) -> str:
     path = context.resolve_path(input["binary_path"])
 
     loop = asyncio.get_running_loop()
-    if not await loop.run_in_executor(None, os.path.isfile, path):
+    if not await loop.run_in_executor(None, os.path.isfile, path):  # noqa: ASYNC240 — pre-flight stat before bounded work
         return f"Error: File not found: {input['binary_path']}"
 
-    file_size = await loop.run_in_executor(None, os.path.getsize, path)
+    file_size = await loop.run_in_executor(None, os.path.getsize, path)  # noqa: ASYNC240 — pre-flight stat before bounded work
     if file_size < 64:
         return "Error: File too small for meaningful architecture detection (< 64 bytes)."
 
@@ -2309,7 +2309,7 @@ async def _handle_detect_rtos(input: dict, context: ToolContext) -> str:
 
     import asyncio
     loop = asyncio.get_running_loop()
-    if not await loop.run_in_executor(None, os.path.isfile, path):
+    if not await loop.run_in_executor(None, os.path.isfile, path):  # noqa: ASYNC240 — pre-flight stat before bounded work
         return f"Not a file: {path_input}"
 
     rtos = await loop.run_in_executor(None, detect_rtos, path)
@@ -2653,7 +2653,7 @@ async def _handle_check_function_decompile_status(
 def _pid_is_alive(pid: int) -> bool:
     """Return True if the given pid is a live (non-zombie) process."""
     try:
-        with open(f"/proc/{pid}/status") as f:
+        with open(f"/proc/{pid}/status") as f:  # noqa: ASYNC230 — bounded file I/O
             for line in f:
                 if line.startswith("State:"):
                     # Second token is the single-letter state code.

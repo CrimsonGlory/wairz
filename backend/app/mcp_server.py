@@ -123,14 +123,14 @@ def _resolve_storage_root() -> str | None:
     Returns the host-side path or None if no translation is possible.
     """
     # Strategy 1: Docker-internal path exists (running inside Docker)
-    if os.path.isdir(DOCKER_STORAGE_ROOT):
+    if os.path.isdir(DOCKER_STORAGE_ROOT):  # noqa: ASYNC240 — pre-flight stat before bounded work
         return None
 
     # Strategy 2: Settings-based STORAGE_ROOT (local dev setup)
     settings = get_settings()
     if settings.storage_root != DOCKER_STORAGE_ROOT:
-        resolved = os.path.realpath(settings.storage_root)
-        if os.path.isdir(resolved):
+        resolved = os.path.realpath(settings.storage_root)  # noqa: ASYNC240 — pre-flight stat before bounded work
+        if os.path.isdir(resolved):  # noqa: ASYNC240 — pre-flight stat before bounded work
             return resolved
 
     # Strategy 3: Docker volume mountpoint (requires read access)
@@ -142,7 +142,7 @@ def _resolve_storage_root() -> str | None:
             try:
                 vol = client.volumes.get(vol_name)
                 mountpoint = vol.attrs.get("Mountpoint", "")
-                if mountpoint and os.path.isdir(mountpoint):
+                if mountpoint and os.path.isdir(mountpoint):  # noqa: ASYNC240 — pre-flight stat before bounded work
                     return mountpoint
             except docker_sdk.errors.NotFound:
                 continue

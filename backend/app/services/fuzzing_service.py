@@ -126,7 +126,7 @@ def _elf_lib_backed(elf_path: str) -> dict:
         from elftools.elf.dynamic import DynamicSection
         from elftools.elf.elffile import ELFFile
 
-        with open(elf_path, "rb") as f:
+        with open(elf_path, "rb") as f:  # noqa: ASYNC230 — bounded file I/O
             elf = ELFFile(f)
             needed: list[str] = []
             dyn = elf.get_section_by_name(".dynamic")
@@ -180,7 +180,7 @@ class FuzzingService:
         dest_name = os.path.basename(dest_path)
 
         tar_stream = io.BytesIO()
-        with tarfile.open(fileobj=tar_stream, mode="w") as tar:
+        with tarfile.open(fileobj=tar_stream, mode="w") as tar:  # noqa: ASYNC230 — bounded file I/O
             info = tarfile.TarInfo(name=dest_name)
             info.size = len(data)
             tar.addfile(info, io.BytesIO(data))
@@ -195,7 +195,7 @@ class FuzzingService:
     ) -> None:
         """Write base64-encoded seed files to /opt/fuzzing/input/ using put_archive."""
         tar_stream = io.BytesIO()
-        with tarfile.open(fileobj=tar_stream, mode="w") as tar:
+        with tarfile.open(fileobj=tar_stream, mode="w") as tar:  # noqa: ASYNC230 — bounded file I/O
             for i, seed_b64 in enumerate(seeds_b64):
                 try:
                     seed_data = base64.b64decode(seed_b64)
@@ -219,7 +219,7 @@ class FuzzingService:
         """
         if not firmware.storage_path:
             return None
-        carved_dir = os.path.realpath(
+        carved_dir = os.path.realpath(  # noqa: ASYNC240 — pre-flight stat before bounded work
             os.path.join(os.path.dirname(firmware.storage_path), "carved")
         )
         rel = virtual_path
@@ -229,16 +229,16 @@ class FuzzingService:
                 break
         else:
             rel = rel.lstrip("/")
-        full = os.path.realpath(os.path.join(carved_dir, rel))
+        full = os.path.realpath(os.path.join(carved_dir, rel))  # noqa: ASYNC240 — pre-flight stat before bounded work
         if full != carved_dir and not full.startswith(carved_dir + os.sep):
             return None
         return full
 
     def _resolve_host_path(self, container_path: str) -> str | None:
         """Resolve a container path to a host path for Docker volume mounts."""
-        real_path = os.path.realpath(container_path)
+        real_path = os.path.realpath(container_path)  # noqa: ASYNC240 — pre-flight stat before bounded work
 
-        if not os.path.exists("/.dockerenv"):
+        if not os.path.exists("/.dockerenv"):  # noqa: ASYNC240 — pre-flight stat before bounded work
             return real_path
 
         client = self._get_docker_client()
@@ -278,7 +278,7 @@ class FuzzingService:
         imports: list[str] = []
         function_count = 0
 
-        with open(full_path, "rb") as f:
+        with open(full_path, "rb") as f:  # noqa: ASYNC230 — bounded file I/O
             elf = ELFFile(f)
 
             # Get dynamic imports
@@ -322,7 +322,7 @@ class FuzzingService:
         full_path = validate_path(firmware.extracted_path, binary_path)
 
         loop = asyncio.get_running_loop()
-        if not await loop.run_in_executor(None, os.path.isfile, full_path):
+        if not await loop.run_in_executor(None, os.path.isfile, full_path):  # noqa: ASYNC240 — pre-flight stat before bounded work
             raise ValueError(f"Binary not found: {binary_path}")
 
         # Parse ELF imports using pyelftools — sync work moved to a thread
@@ -376,7 +376,7 @@ class FuzzingService:
             score += min(10, len(found_network) * 3)
 
         # Binary size / complexity (10 pts)
-        file_size = await loop.run_in_executor(None, os.path.getsize, full_path)
+        file_size = await loop.run_in_executor(None, os.path.getsize, full_path)  # noqa: ASYNC240 — pre-flight stat before bounded work
         if file_size > 100_000:
             score += 5
         if function_count > 50:
@@ -557,7 +557,7 @@ class FuzzingService:
         # Resolve host path for firmware volume mount
         loop = asyncio.get_running_loop()
         real_path = await loop.run_in_executor(
-            None, os.path.realpath, firmware.extracted_path,
+            None, os.path.realpath, firmware.extracted_path,  # noqa: ASYNC240 — pre-flight stat before bounded work
         )
         host_path = self._resolve_host_path(real_path)
 
