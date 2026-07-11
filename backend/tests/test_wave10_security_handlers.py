@@ -285,20 +285,20 @@ class TestSecurityHandlersResidual:
                     except Exception:
                         pass
 
-        # clamav
+        # clamav — never patch the module's asyncio binding (that poisons the
+        # event loop for every subsequent async test). Mock the service only.
         for name in ("_handle_scan_with_clamav", "_handle_scan_firmware_clamav"):
             fn = getattr(sec, name, None)
             if not fn:
                 continue
-            with patch.object(sec, "asyncio", create=False):
+            try:
+                with patch("app.services.clamav_service.ClamAVService", create=True):
+                    await fn({"path": "/bin/busybox"}, ctx)
+            except Exception:
                 try:
-                    with patch("app.services.clamav_service.ClamAVService", create=True):
-                        await fn({"path": "/bin/busybox"}, ctx)
+                    await fn({}, ctx)
                 except Exception:
-                    try:
-                        await fn({}, ctx)
-                    except Exception:
-                        pass
+                    pass
 
         # virustotal / malwarebazaar / threatfox / urlhaus / known_good / enrich
         external = [
