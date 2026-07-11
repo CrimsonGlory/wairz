@@ -110,14 +110,34 @@ class KernelService:
     def __init__(self) -> None:
         self._kernel_dir = get_settings().emulation_kernel_dir
 
+    def _kernel_root(self) -> str:
+        """Return the realpath of the kernel storage directory."""
+        return os.path.realpath(self._kernel_dir)
+
+    def _resolve_under_kernel_dir(self, *parts: str) -> str:
+        """Join ``parts`` under the kernel dir and require containment.
+
+        Collapses ``..`` / symlinks via ``realpath``, then requires the result
+        stay under ``emulation_kernel_dir``. Call after ``_validate_kernel_name``
+        on every user-supplied component. Re-asserts the barrier in the same
+        function as path sinks so path-injection analysis can see it.
+        """
+        root = self._kernel_root()
+        candidate = os.path.realpath(os.path.join(root, *parts))
+        if candidate != root and not candidate.startswith(root + os.sep):
+            raise ValueError("path resolves outside the kernel directory")
+        return candidate
+
     def _kernel_path(self, name: str) -> str:
-        return os.path.join(self._kernel_dir, name)
+        return self._resolve_under_kernel_dir(name)
 
     def _sidecar_path(self, name: str) -> str:
-        return os.path.join(self._kernel_dir, f"{name}.json")
+        return self._resolve_under_kernel_dir(f"{name}.json")
 
     def _read_sidecar(self, name: str) -> dict | None:
         path = self._sidecar_path(name)
+        # Barrier already applied in _resolve_under_kernel_dir; isfile/open
+        # operate only on the contained path.
         if not os.path.isfile(path):
             return None
         try:
@@ -136,12 +156,21 @@ class KernelService:
         sidecar = self._read_sidecar(kernel_name)
         if sidecar and sidecar.get("initrd"):
             initrd_name = sidecar["initrd"]
-            path = os.path.join(self._kernel_dir, initrd_name)
-            if os.path.isfile(path):
+            # Sidecar field is untrusted metadata — same name rules as kernels.
+            try:
+                _validate_kernel_name(initrd_name)
+                path = self._resolve_under_kernel_dir(initrd_name)
+            except ValueError:
+                path = None
+            if path is not None and os.path.isfile(path):
                 return path
 
-        # Convention fallback
-        path = os.path.join(self._kernel_dir, f"{kernel_name}.initrd")
+        # Convention fallback — kernel_name already name-validated by callers
+        # that accept user input; still re-resolve for containment.
+        try:
+            path = self._resolve_under_kernel_dir(f"{kernel_name}.initrd")
+        except ValueError:
+            return None
         if os.path.isfile(path):
             return path
 
@@ -157,12 +186,20 @@ class KernelService:
         """
         sidecar = self._read_sidecar(kernel_name)
         if sidecar and sidecar.get("dtb"):
-            path = os.path.join(self._kernel_dir, sidecar["dtb"])
-            if os.path.isfile(path):
+            dtb_name = sidecar["dtb"]
+            try:
+                _validate_kernel_name(dtb_name)
+                path = self._resolve_under_kernel_dir(dtb_name)
+            except ValueError:
+                path = None
+            if path is not None and os.path.isfile(path):
                 return path
 
         # Convention fallback
-        path = os.path.join(self._kernel_dir, f"{kernel_name}.dtb")
+        try:
+            path = self._resolve_under_kernel_dir(f"{kernel_name}.dtb")
+        except ValueError:
+            return None
         if os.path.isfile(path):
             return path
 
@@ -277,13 +314,14 @@ class KernelService:
     def delete_kernel(self, name: str) -> None:
         """Delete a kernel binary and its sidecar."""
         _validate_kernel_name(name)
-        kernel_path = self._kernel_path(name)
+        # Resolve + contain under kernel dir before any isfile/remove sink.
+        kernel_path = self._resolve_under_kernel_dir(name)
         if not os.path.isfile(kernel_path):
             raise ValueError(f"Kernel '{name}' not found")
 
         os.remove(kernel_path)
 
-        sidecar_path = self._sidecar_path(name)
+        sidecar_path = self._resolve_under_kernel_dir(f"{name}.json")
         if os.path.isfile(sidecar_path):
             os.remove(sidecar_path)
 
@@ -339,13 +377,13 @@ class KernelService:
     ) -> dict:
         """Upload an initrd/initramfs to pair with an existing kernel."""
         _validate_kernel_name(kernel_name)
-        kernel_path = self._kernel_path(kernel_name)
+        kernel_path = self._resolve_under_kernel_dir(kernel_name)
         loop = asyncio.get_running_loop()
         if not await loop.run_in_executor(None, os.path.isfile, kernel_path):
             raise ValueError(f"Kernel '{kernel_name}' not found")
 
         initrd_name = f"{kernel_name}.initrd"
-        initrd_path = os.path.join(self._kernel_dir, initrd_name)
+        initrd_path = self._resolve_under_kernel_dir(initrd_name)
 
         async with aiofiles.open(initrd_path, "wb") as f:
             await f.write(file_data)

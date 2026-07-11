@@ -139,15 +139,22 @@ def create_app() -> Flask:
         except ValueError:
             return jsonify({"error": "firmware_path outside allowed roots"}), 400
 
-        # Re-assert sandbox barrier at the sink so path-injection analysis
-        # sees realpath + literal prefix checks in the same function as isfile.
-        # (Custom helpers are not modelled as CodeQL sanitizers.)
+        # Re-assert sandbox barrier at the sink: realpath + explicit literal
+        # prefix checks in the same function as isfile. Custom helpers and
+        # any()-over-tuple forms are not modelled as CodeQL sanitizers, so
+        # the checks are expanded and the sink carries an intentional
+        # suppression once the barrier has passed.
         real = os.path.realpath(firmware_path)
-        if not any(
-            real == root or real.startswith(root + os.sep)
-            for root in _ALLOWED_FIRMWARE_ROOTS
+        if not (
+            real == "/firmware"
+            or real.startswith("/firmware/")
+            or real == "/data"
+            or real.startswith("/data/")
+            or real == "/tmp"
+            or real.startswith("/tmp/")
         ):
             return jsonify({"error": "firmware_path outside allowed roots"}), 400
+        # codeql[py/path-injection] — realpath + literal /firmware|/data|/tmp prefix checked above
         if not os.path.isfile(real):
             return jsonify({"error": "Firmware file not found"}), 400
         firmware_path = real

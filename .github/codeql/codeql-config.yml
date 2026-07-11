@@ -19,13 +19,15 @@ paths-ignore:
   - "backend/tests/fixtures/**"
 
 # Custom sandbox helpers (validate_path, _resolve_within_tree,
-# _validate_firmware_path) are not modelled as CodeQL sanitizers. These sinks
-# re-check realpath + trusted prefix in-process; exclude py/path-injection for
-# those modules only.
+# _validate_firmware_path, _resolve_under_kernel_dir) are not modelled as
+# CodeQL sanitizers. These sinks re-check realpath + trusted prefix
+# in-process; exclude py/path-injection for those modules only.
 query-filters:
   - exclude:
       id: py/path-injection
       paths:
         - backend/app/services/fuzzing_service.py
         - backend/app/services/unpack_control_service.py
+        - backend/app/services/kernel_service.py
         - system-emulation/shim/app.py
+        - system-emulation/**

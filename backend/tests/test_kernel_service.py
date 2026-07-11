@@ -267,6 +267,23 @@ class TestInitrdPath:
         service = KernelService()
         assert service._initrd_path("k1") is None
 
+    def test_malicious_sidecar_initrd_name_ignored(self, patched_kernel_dir: Path):
+        # Path-injection attempt via sidecar metadata must not escape the
+        # kernel dir (CodeQL alert #254) — invalid names are dropped.
+        (patched_kernel_dir / "k1.json").write_text(json.dumps({
+            "architecture": "arm", "initrd": "../../etc/passwd",
+        }))
+        service = KernelService()
+        assert service._initrd_path("k1") is None
+
+    def test_resolve_under_kernel_dir_rejects_escape(
+        self, patched_kernel_dir: Path,
+    ):
+        service = KernelService()
+        with pytest.raises(ValueError, match="outside the kernel directory"):
+            # Absolute second component makes join discard the root prefix.
+            service._resolve_under_kernel_dir("/etc/passwd")
+
 
 class TestKernelInfo:
     def test_with_sidecar(self, patched_kernel_dir: Path):
