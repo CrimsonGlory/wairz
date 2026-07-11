@@ -260,8 +260,8 @@ class TestSecurityHandlersResidual:
         (FAILED + 49 setup ERRORs at maxfail=50) under full-suite + coverage.
         Keep a cheap import/registration canary only.
         """
-        from app.ai.tools import security as sec
         from app.ai.tool_registry import ToolRegistry
+        from app.ai.tools import security as sec
 
         reg = ToolRegistry()
         sec.register_security_tools(reg)
