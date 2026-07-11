@@ -110,7 +110,7 @@ def _latest_status_check_migration_path() -> Path:
             sizes = [
                 len(m.group(1).split(","))
                 for m in re.finditer(
-                    r"(?:FUZZING_)?STATUS_VALUES(?:_V\d+)?\s*=\s*\(([^)]*)\)",
+                    r"FUZZING_STATUS_VALUES(?:_V\d+)?\s*=\s*\(([^)]*)\)",
                     t,
                 )
             ]

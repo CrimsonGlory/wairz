@@ -495,4 +495,4 @@ class KernelService:
                 f"HTTP {exc.response.status_code} downloading from {current}"
             ) from exc
         except httpx.RequestError as exc:
-            raise ValueError(f"Failed to download: {exc}") from exc
+            raise ValueError(f"Failed to download kernel: {exc}") from exc
