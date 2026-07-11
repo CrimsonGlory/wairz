@@ -41,6 +41,11 @@ from app.utils.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
+
+def _compute_sha256(file_path: str) -> str:
+    """Compute SHA256 of a file (thread-friendly wrapper)."""
+    return compute_file_sha256(file_path)
+
 # Markers used by both AnalyzeBinary.java and DecompileFunction.java
 _START_MARKER = "===ANALYSIS_START==="
 _END_MARKER = "===ANALYSIS_END==="
@@ -234,6 +239,59 @@ async def _flock_analysis_lock(lock_key: str):
         yield
     finally:
         await asyncio.to_thread(_release_analysis_flock, fd)
+
+
+async def _renew_redis_lock(lock, ttl: int) -> None:
+    """Keep a held Redis lock alive while long work (a Ghidra import) runs."""
+    interval = max(1, ttl // 3)
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await lock.extend(ttl, replace_ttl=True)
+        except Exception:
+            return
+
+
+@contextlib.asynccontextmanager
+async def _redis_analysis_lock(lock_key: str):
+    """Distributed exclusive lock via Redis (no shared filesystem for flock)."""
+    import redis.asyncio as aioredis
+
+    settings = get_settings()
+    ttl = settings.redis_lock_ttl_seconds
+    client = aioredis.from_url(settings.redis_url)
+    lock = client.lock(
+        f"wairz:analysis-lock:{lock_key}", timeout=ttl, blocking=True,
+    )
+    await lock.acquire()
+    renew = asyncio.create_task(_renew_redis_lock(lock, ttl))
+    try:
+        yield
+    finally:
+        renew.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await renew
+        with contextlib.suppress(Exception):
+            await lock.release()
+        with contextlib.suppress(Exception):
+            await client.aclose()
+
+
+@contextlib.asynccontextmanager
+async def _cross_process_analysis_lock(binary_sha256: str):
+    """Exclusive lock keyed by binary sha256 (or any caller-supplied key).
+
+    Dispatches on the compute backend: fcntl.flock when running locally with a
+    shared filesystem; a Redis lock when work is distributed across hosts
+    (``compute_backend != "local"``). Local behavior is byte-for-byte the
+    flock-only path we shipped before the enterprise merge.
+    """
+    if get_settings().compute_backend == "local":
+        async with _flock_analysis_lock(binary_sha256):
+            yield
+    else:
+        async with _redis_analysis_lock(binary_sha256):
+            yield
 
 
 # ---------------------------------------------------------------------------
@@ -675,6 +733,11 @@ def _build_import_command(
     if script_args:
         cmd.extend(script_args)
     return cmd
+
+
+# Back-compat alias for tests and callers that predate the
+# persistent-project rename (_build_analyze_command → _build_import_command).
+_build_analyze_command = _build_import_command
 
 
 def _build_process_command(
