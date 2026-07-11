@@ -134,24 +134,33 @@ def _format_ghidra_diag(stdout_text: str, stderr_text: str, max_lines: int = 15)
 def _make_ghidra_preexec_fn() -> Callable[[], None] | None:
     """Return a ``preexec_fn`` that drops a spawned Ghidra child to 'wairz'.
 
-    Standard deployment already runs as the unprivileged 'wairz' user
-    (entrypoint.sh execs uvicorn via ``su -s /bin/sh wairz``), so this is
-    a no-op (``None``) there — there is no privilege to drop, and
-    ``os.setuid()`` from a non-root process raises ``PermissionError``.
-    Only meaningful for a hypothetical root-context invocation, where it
-    keeps GZF process-mode project ownership consistently 'wairz' rather
-    than root.
+    Ghidra persistent-project files record OWNER=<username> at import time.
+    Backend drops to wairz via entrypoint.sh; the worker container overrides
+    the entrypoint and runs arq as root. Both mount the shared Ghidra
+    projects volume. Without this drop, whichever container does the initial
+    -import sets OWNER to its username and the other container's -process
+    runs fail with NotOwnerException.
+
+    Non-root callers receive None — a no-op accepted by
+    asyncio.create_subprocess_exec. Root callers get a setgid-then-setuid
+    drop so every analyzeHeadless child owns projects as wairz.
     """
     if os.geteuid() != 0:
         return None
     try:
         pw = pwd.getpwnam("wairz")
     except KeyError:
+        logger.warning(
+            "ghidra_service: 'wairz' user not found; "
+            "analyzeHeadless will run as root (NotOwnerException risk)"
+        )
         return None
 
+    uid, gid = pw.pw_uid, pw.pw_gid
+
     def _drop_to_wairz() -> None:
-        os.setgid(pw.pw_gid)
-        os.setuid(pw.pw_uid)
+        os.setgid(gid)  # must precede setuid — root required to change GID
+        os.setuid(uid)
 
     return _drop_to_wairz
 
@@ -510,19 +519,25 @@ def _parse_analysis_output(raw_output: str) -> dict | None:
 
 # Ghidra's headless logger wraps each script println() as
 #   "INFO  DecompileFunction.java> <text> (GhidraScript)"
-# (only the first physical line of a multi-line println is wrapped). Strip the
-# leading level+script prefix and the trailing " (GhidraScript)" marker so the
-# decompiled C comes back clean, the same way _parse_analysis_output pulls the
-# bare JSON out from between its markers.
+# A single-line println produces one fully-wrapped line. A multi-line println
+# (e.g. decompiled C) produces the prefix on the first physical line, BARE
+# middle lines, and the trailing " (GhidraScript)" on the last. Strip prefix
+# and suffix independently per line so all four shapes are handled:
+# fully-wrapped, prefix-only, bare, and suffix-only.
 _GHIDRA_LOG_PREFIX = re.compile(r"^(?:INFO|WARN|WARNING|ERROR|DEBUG)\s+\S+\.java>\s?")
 _GHIDRA_LOG_SUFFIX = re.compile(r"\s*\(GhidraScript\)\s*$")
 
 
+def _strip_ghidra_log_line(line: str) -> str:
+    """Strip Ghidra headless log wrapping from one physical line.
+
+    No-op when neither marker is present (already-clean output).
+    """
+    return _GHIDRA_LOG_SUFFIX.sub("", _GHIDRA_LOG_PREFIX.sub("", line))
+
+
 def _strip_ghidra_log_wrapper(content: str) -> str:
-    cleaned = [
-        _GHIDRA_LOG_SUFFIX.sub("", _GHIDRA_LOG_PREFIX.sub("", line))
-        for line in content.splitlines()
-    ]
+    cleaned = [_strip_ghidra_log_line(line) for line in content.splitlines()]
     return "\n".join(cleaned).strip()
 
 
@@ -534,7 +549,9 @@ def _parse_decompile_output(raw_output: str) -> str | None:
     if start == -1 or end == -1:
         return None
 
-    content = raw_output[start + len(_DECOMPILE_START):end].strip()
+    content = raw_output[start + len(_DECOMPILE_START):end]
+    # Markers themselves may sit inside an INFO-wrapped line (find() still
+    # matches); strip wrapping from the extracted body.
     content = _strip_ghidra_log_wrapper(content)
     return content if content else None
 
@@ -717,6 +734,16 @@ def _build_import_command(
         os.path.join(extra_script_path, script_name) if extra_script_path else script_name
     )
     cmd.extend(["-postScript", postscript_target])
+    # script_args MUST come immediately after their -postScript <target>:
+    # analyzeHeadless collects post-script arguments only until the next
+    # recognised option flag. If a loader/processor flag (-processor,
+    # -loader, -loader-baseAddr, ...) is interposed first, arg collection
+    # stops and the args land in option position, failing with
+    # "Bad argument: <value>" at AnalyzeHeadless.parseOptions. This bites
+    # baremetal/RTOS firmware where ghidra_import_params is populated from
+    # rtos_flavor (and run_ghidra_headless which passes both together).
+    if script_args:
+        cmd.extend(script_args)
 
     if ghidra_import_params:
         if (proc := ghidra_import_params.get("processor")):
@@ -732,8 +759,6 @@ def _build_import_command(
         if (cspec := ghidra_import_params.get("cspec")):
             cmd.extend(["-cspec", str(cspec)])
 
-    if script_args:
-        cmd.extend(script_args)
     return cmd
 
 
@@ -779,6 +804,10 @@ async def _exec_headless(cmd: list[str], effective_timeout: int) -> str:
     fills before asyncio drains it and Ghidra deadlocks blocked in a
     FileOutputStream.write syscall. Tempfiles let the kernel buffer arbitrary
     output with no possibility of deadlock; we read them once Ghidra exits.
+
+    Always passes ``preexec_fn=_make_ghidra_preexec_fn()`` so root callers
+    (worker container) drop to wairz and keep Ghidra project OWNER consistent
+    with the backend container.
     """
     with tempfile.TemporaryFile(prefix="ghidra-stdout-") as stdout_f, \
          tempfile.TemporaryFile(prefix="ghidra-stderr-") as stderr_f:
@@ -787,6 +816,7 @@ async def _exec_headless(cmd: list[str], effective_timeout: int) -> str:
                 *cmd,
                 stdout=stdout_f,
                 stderr=stderr_f,
+                preexec_fn=_make_ghidra_preexec_fn(),
             )
         except FileNotFoundError:
             raise RuntimeError(
@@ -1993,13 +2023,19 @@ def _parse_batch_decompile_output(raw_output: str) -> dict[str, str | None]:
     """Parse batch decompilation output containing multiple DECOMPILE_START/END blocks.
 
     Returns dict mapping function_name -> decompiled_code.
+
+    Ghidra headless wraps each println as ``INFO  Script.java> … (GhidraScript)``
+    (markers, ``// Function:`` metadata, and multi-line C bodies). Strip per
+    line before startswith() checks — without this, real headless stdout
+    yields 0/N results because markers and function-name lines never match.
     """
     results: dict[str, str | None] = {}
     current_func = None
     current_code_lines = []
     in_decompile = False
 
-    for line in raw_output.split("\n"):
+    for raw_line in raw_output.split("\n"):
+        line = _strip_ghidra_log_line(raw_line)
         if line.startswith("===DECOMPILE_START==="):
             in_decompile = True
             current_code_lines = []
