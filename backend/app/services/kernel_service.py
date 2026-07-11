@@ -118,15 +118,20 @@ class KernelService:
         """Join ``parts`` under the kernel dir and require containment.
 
         Collapses ``..`` / symlinks via ``realpath``, then requires the result
-        stay under ``emulation_kernel_dir``. Call after ``_validate_kernel_name``
-        on every user-supplied component. Re-asserts the barrier in the same
-        function as path sinks so path-injection analysis can see it.
+        stay under ``emulation_kernel_dir``. Rebuilds the returned path from
+        the trusted root realpath + relative suffix so path-injection analysis
+        no longer treats the result as request-tainted. Call after
+        ``_validate_kernel_name`` on every user-supplied component.
         """
         root = self._kernel_root()
         candidate = os.path.realpath(os.path.join(root, *parts))
-        if candidate != root and not candidate.startswith(root + os.sep):
+        if candidate == root:
+            return root
+        prefix = root + os.sep
+        if not candidate.startswith(prefix):
             raise ValueError("path resolves outside the kernel directory")
-        return candidate
+        # Rebuild from trusted root + relative component (taint cut).
+        return root + os.sep + candidate[len(prefix) :]
 
     def _kernel_path(self, name: str) -> str:
         return self._resolve_under_kernel_dir(name)

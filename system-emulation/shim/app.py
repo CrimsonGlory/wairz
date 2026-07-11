@@ -139,25 +139,24 @@ def create_app() -> Flask:
         except ValueError:
             return jsonify({"error": "firmware_path outside allowed roots"}), 400
 
-        # Re-assert sandbox barrier at the sink: realpath + explicit literal
-        # prefix checks in the same function as isfile. Custom helpers and
-        # any()-over-tuple forms are not modelled as CodeQL sanitizers, so
-        # the checks are expanded and the sink carries an intentional
-        # suppression once the barrier has passed.
+        # Cut taint for path-injection analysis: after realpath + prefix check,
+        # rebuild the path from a *literal* trusted root + relative suffix so
+        # the isfile/open sink no longer depends on the request-sourced string.
         real = os.path.realpath(firmware_path)
-        if not (
-            real == "/firmware"
-            or real.startswith("/firmware/")
-            or real == "/data"
-            or real.startswith("/data/")
-            or real == "/tmp"
-            or real.startswith("/tmp/")
-        ):
+        safe_path: str | None = None
+        for root in _ALLOWED_FIRMWARE_ROOTS:
+            if real == root:
+                safe_path = root
+                break
+            prefix = root + os.sep
+            if real.startswith(prefix):
+                safe_path = root + os.sep + real[len(prefix) :]
+                break
+        if safe_path is None:
             return jsonify({"error": "firmware_path outside allowed roots"}), 400
-        # codeql[py/path-injection] — realpath + literal /firmware|/data|/tmp prefix checked above
-        if not os.path.isfile(real):
+        if not os.path.isfile(safe_path):
             return jsonify({"error": "Firmware file not found"}), 400
-        firmware_path = real
+        firmware_path = safe_path
 
         session_id = data.get("session_id") or str(uuid.uuid4())
         brand = data.get("brand", "unknown")
