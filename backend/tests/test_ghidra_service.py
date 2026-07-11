@@ -364,6 +364,9 @@ class TestRunGhidraSubprocess:
         fake_settings.ghidra_timeout = 0.05
         fake_settings.ghidra_path = "/opt/ghidra"
         fake_settings.ghidra_scripts_path = "/scripts"
+        fake_settings.compute_backend = "local"
+        fake_settings.ghidra_project_root = str(tmp_path / "ghidra_projects")
+        fake_settings.ghidra_project_cache_max = 0
 
         with patch.object(
             ghidra_service.asyncio,

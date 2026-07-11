@@ -37,6 +37,7 @@ from app.workers.unpack_linux import (  # noqa: F401
     detect_architecture,
     detect_architecture_from_elf,
     detect_architecture_from_kernel,
+    detect_architecture_from_uboot,
     detect_kernel,
     detect_os_info,
 )

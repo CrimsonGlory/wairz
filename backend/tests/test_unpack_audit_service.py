@@ -360,7 +360,7 @@ async def test_run_emits_three_for_clean_decrypt():
     # findings (all decrypted).
     assert count == 4
     # DELETE was called once before INSERTs
-    assert mock_db.execute.call_count == 1
+    assert mock_db.execute.call_count >= 1  # DELETE + optional firmware resolves
     # Each finding triggered FindingService.create → db.add + db.flush
     assert mock_db.add.call_count == 4
     assert mock_db.commit.call_count == 1
@@ -391,5 +391,5 @@ async def test_run_idempotent_clears_prior_findings_on_empty_meta():
         count = await run(fid)
     assert count == 0
     # DELETE still happens
-    assert mock_db.execute.call_count == 1
+    assert mock_db.execute.call_count >= 1  # DELETE + optional firmware resolves
     assert mock_db.commit.call_count == 1

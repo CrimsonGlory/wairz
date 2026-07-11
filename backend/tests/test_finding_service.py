@@ -55,6 +55,7 @@ def _make_db_session():
     db.flush = AsyncMock()
     db.delete = AsyncMock()
     db.refresh = AsyncMock()
+    db.expire = MagicMock()
     return db
 
 
@@ -250,7 +251,9 @@ class TestFindingServiceUpdate:
 
         assert finding.title == "New title"
         db.flush.assert_awaited_once()
-        db.refresh.assert_awaited_once()
+        # Prefer-ours: re-load via get() after expire so firmware_versions is
+        # eagerly populated; refresh() is a no-op under expire_on_commit=False.
+        db.expire.assert_called_once_with(finding)
 
     @pytest.mark.asyncio
     async def test_update_severity_enum(self):

@@ -338,6 +338,8 @@ class TestCarvingServiceUnit:
         client = MagicMock()
         existing = MagicMock()
         existing.status = "running"
+        # Reuse requires matching firmware label (post-merge switch_project safety).
+        existing.labels = {"wairz.firmware_id": str(fw.id)}
         client.containers.get.return_value = existing
         with patch.object(svc, "_get_docker_client", return_value=client):
             c = await svc._ensure_container(uuid.uuid4(), fw)

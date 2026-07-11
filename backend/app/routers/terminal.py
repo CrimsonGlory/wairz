@@ -26,6 +26,7 @@ from app.models.emulation_session import EmulationSession
 from app.models.firmware import Firmware
 from app.models.project import Project
 from app.utils.docker_client import get_docker_client
+from app.utils.firmware_selection import pick_active_firmware
 from app.utils.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)

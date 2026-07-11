@@ -32,9 +32,9 @@ from app.services.ghidra_service import (
     _cross_process_analysis_lock,
     _get_cached,
     _parse_decompile_output,
+    _run_ghidra_local,
     _store_cached,
     resolve_binary_import_params,
-    run_ghidra_subprocess,
 )
 
 logger = logging.getLogger(__name__)
@@ -83,15 +83,16 @@ async def _run(
                     await recheck_db.commit()
                     return 0
 
-            ghidra_import_params = await resolve_binary_import_params(binary_path, firmware_id)
-            raw_output = await run_ghidra_subprocess(
+            # Run Ghidra in-process on this host. Do NOT call
+            # run_ghidra_subprocess — in cloud mode that re-dispatches to
+            # Batch, and this worker is already ON the compute box.
+            _ = await resolve_binary_import_params(binary_path, firmware_id)
+            raw_output = await _run_ghidra_local(
                 binary_path,
                 "DecompileFunction.java",
-                script_args=[function_name],
-                timeout=get_settings().ghidra_background_decompile_timeout,
-                ghidra_import_params=ghidra_import_params,
-                firmware_id=firmware_id,
-                binary_sha256=binary_sha256,
+                [function_name],
+                get_settings().ghidra_background_decompile_timeout,
+                binary_sha256,
             )
             decompiled = _parse_decompile_output(raw_output)
 

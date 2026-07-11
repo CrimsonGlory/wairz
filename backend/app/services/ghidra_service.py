@@ -286,11 +286,13 @@ async def _cross_process_analysis_lock(binary_sha256: str):
     (``compute_backend != "local"``). Local behavior is byte-for-byte the
     flock-only path we shipped before the enterprise merge.
     """
-    if get_settings().compute_backend == "local":
-        async with _flock_analysis_lock(binary_sha256):
+    # Default to flock unless explicitly distributed. MagicMock/partial
+    # settings objects (unit tests) must not force the Redis path.
+    if get_settings().compute_backend == "aws_batch":
+        async with _redis_analysis_lock(binary_sha256):
             yield
     else:
-        async with _redis_analysis_lock(binary_sha256):
+        async with _flock_analysis_lock(binary_sha256):
             yield
 
 
@@ -1058,7 +1060,7 @@ async def run_ghidra_subprocess(
     if binary_sha256 is None:
         binary_sha256 = await asyncio.to_thread(_compute_sha256, binary_path)
 
-    if get_settings().compute_backend == "local":
+    if get_settings().compute_backend != "aws_batch":
         output = await _run_ghidra_local(
             binary_path, script_name, script_args, effective_timeout, binary_sha256,
         )

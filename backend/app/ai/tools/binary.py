@@ -888,7 +888,7 @@ async def _handle_decompile_function(input: dict, context: ToolContext) -> str:
     # cache — would 504). Serve a cache hit directly; otherwise route to the
     # async decompile worker and return a poll handle. Local mode keeps the
     # synchronous behavior (no gateway timeout).
-    if get_settings().compute_backend != "local":
+    if get_settings().compute_backend == "aws_batch":
         cache = get_analysis_cache()
         sha256 = await cache.get_binary_sha256(path)
         cached = await cache._get_cached(
@@ -2486,7 +2486,7 @@ async def _handle_check_binary_analysis_status(
     if status == "running":
         elapsed = int(time.time() - status_row.get("started_at", 0))
         job_ref = status_row.get("job_ref")
-        if get_settings().compute_backend != "local":
+        if get_settings().compute_backend == "aws_batch":
             # Distributed worker (e.g. AWS Batch): there's no local pid to probe;
             # ask the dispatch backend for the job's state instead. The cache
             # completion check above remains the source of truth for "done".
@@ -2637,7 +2637,7 @@ async def _handle_check_function_decompile_status(
     if status == "running":
         elapsed = int(time.time() - status_row.get("started_at", 0))
         job_ref = status_row.get("job_ref")
-        if get_settings().compute_backend != "local":
+        if get_settings().compute_backend == "aws_batch":
             state = (await asyncio.to_thread(describe_batch_job_state, job_ref))
             if state == "failed":
                 return (

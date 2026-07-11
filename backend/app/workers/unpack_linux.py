@@ -13,6 +13,49 @@ from app.workers.unpack_common import (
 )
 
 
+_UIMAGE_ARCH_MAP = {
+    2: ("arm", "little"),
+    21: ("aarch64", "little"),
+    3: ("x86", "little"),
+    23: ("x86_64", "little"),
+    5: ("mips", "big"),
+    6: ("mips64", "big"),
+    7: ("ppc", "big"),
+    9: ("sh", "little"),
+    10: ("sparc", "big"),
+    11: ("sparc64", "big"),
+    25: ("riscv", "little"),
+}
+
+_UBOOT_MAGIC = b"\x27\x05\x19\x56"
+
+
+def detect_architecture_from_uboot(firmware_path: str) -> tuple[str | None, str | None]:
+    """Last-resort arch detection from a U-Boot uImage header.
+
+    When no ELF binary can be found in the extracted tree (e.g. the rootfs
+    didn't reconstruct, or only a kernel/RTOS blob was carved), the uImage
+    header on the raw image still declares the target architecture. The
+    header doesn't carry target endianness, so we fall back to the
+    conventional default per architecture (see ``_UIMAGE_ARCH_MAP``).
+
+    Returns (None, None) if no uImage header is present.
+    """
+    try:
+        with open(firmware_path, "rb") as f:
+            head = f.read(256 * 1024)
+    except OSError:
+        return None, None
+
+    idx = 0 if head[:4] == _UBOOT_MAGIC else head.find(_UBOOT_MAGIC)
+    if idx < 0 or idx + 30 > len(head):
+        return None, None
+
+    # The architecture lives in byte 29 (ih_arch) of the 64-byte header.
+    ih_arch = head[idx + 29]
+    return _UIMAGE_ARCH_MAP.get(ih_arch, (None, None))
+
+
 def detect_architecture(fs_root: str) -> tuple[str | None, str | None]:
     """Detect architecture and endianness by examining ELF binaries.
 

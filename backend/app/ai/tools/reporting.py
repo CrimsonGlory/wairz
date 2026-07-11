@@ -314,6 +314,10 @@ async def _handle_add_finding(input: dict, context: ToolContext) -> str:
     )
     finding = await svc.create(context.project_id, data)
     await context.db.flush()
+    versions = ", ".join(
+        fw.version_label or str(fw.id)[:8] for fw in finding.firmware_versions
+    )
+    version_str = f" — version(s): {versions}" if versions else ""
     return (
         f"Finding recorded: {finding.title} [{finding.severity}] "
         f"(ID: {finding.id}){version_str}"

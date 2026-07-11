@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
+from app.auth.oidc import authorize_websocket
 from app.config import get_settings
 from app.database import async_session_factory, get_db
 from app.models.emulation_preset import EmulationPreset

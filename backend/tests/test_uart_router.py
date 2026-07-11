@@ -124,7 +124,7 @@ class TestUartConnect:
             "app.routers.uart.UARTService",
         ) as svc_cls:
             fw_svc = MagicMock()
-            fw_svc.get_by_project = AsyncMock(return_value=firmware)
+            fw_svc.list_by_project = AsyncMock(return_value=[firmware])
             fw_svc_cls.return_value = fw_svc
 
             svc = MagicMock()
@@ -148,7 +148,7 @@ class TestUartConnect:
             "app.routers.uart.UARTService",
         ) as svc_cls:
             fw_svc = MagicMock()
-            fw_svc.get_by_project = AsyncMock(return_value=firmware)
+            fw_svc.list_by_project = AsyncMock(return_value=[firmware])
             fw_svc_cls.return_value = fw_svc
 
             svc = MagicMock()
@@ -168,7 +168,7 @@ class TestUartConnect:
         """Router's _resolve_firmware raises 404 when no firmware in project."""
         with patch("app.routers.uart.FirmwareService") as fw_svc_cls:
             fw_svc = MagicMock()
-            fw_svc.get_by_project = AsyncMock(return_value=None)
+            fw_svc.list_by_project = AsyncMock(return_value=[])
             fw_svc_cls.return_value = fw_svc
 
             app.dependency_overrides[get_db] = lambda: AsyncMock()
@@ -392,7 +392,7 @@ class TestUartConnectLiveCanary:
                 "app.routers.uart.UARTService",
             ) as svc_cls:
                 fw_svc = MagicMock()
-                fw_svc.get_by_project = AsyncMock(return_value=firmware)
+                fw_svc.list_by_project = AsyncMock(return_value=[firmware])
                 fw_svc_cls.return_value = fw_svc
 
                 svc = MagicMock()

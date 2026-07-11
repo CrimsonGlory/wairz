@@ -14,6 +14,7 @@ from app.schemas.finding import FindingCreate, FindingResponse, FindingUpdate
 from app.schemas.pagination import Page
 from app.services.finding_service import FindingService
 from app.services.report_service import generate_markdown_report, generate_pdf_report
+from app.utils.firmware_selection import pick_active_firmware
 from app.utils.pagination import paginate_query
 
 router = APIRouter(

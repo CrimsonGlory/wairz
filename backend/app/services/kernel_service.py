@@ -14,7 +14,7 @@ import re
 import socket
 import tempfile
 from datetime import UTC, datetime
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import aiofiles
 import httpx
@@ -441,3 +441,58 @@ class KernelService:
                     os.unlink(path)
 
             await cleanup_loop.run_in_executor(None, _cleanup_tmp_sync, tmp_path)
+
+    async def _stream_download(
+        self,
+        url: str,
+        dest_path: str,
+        max_size_bytes: int,
+        timeout_seconds: int,
+    ) -> int:
+        """Stream a URL to ``dest_path``, returning bytes written.
+
+        Follows redirects MANUALLY so every hop — including cross-host
+        redirects to regional mirrors (e.g. downloads.openwrt.org → a country
+        mirror) — is re-validated against the SSRF policy before we connect to
+        it. httpx's built-in follow_redirects would skip that re-check, and
+        some mirrors 404 a request without a normal User-Agent.
+        """
+        headers = {"User-Agent": "wairz-kernel-downloader/1.0"}
+        current = url
+        try:
+            async with httpx.AsyncClient(
+                follow_redirects=False,
+                timeout=httpx.Timeout(timeout_seconds, connect=30.0),
+                headers=headers,
+            ) as client:
+                for _hop in range(10):
+                    _validate_download_url(current)
+                    async with client.stream("GET", current) as response:
+                        if response.is_redirect:
+                            location = response.headers.get("location")
+                            if not location:
+                                raise ValueError(
+                                    f"HTTP {response.status_code} redirect with no "
+                                    f"Location header from {current}"
+                                )
+                            current = urljoin(current, location)
+                            continue
+                        response.raise_for_status()
+                        downloaded = 0
+                        async with aiofiles.open(dest_path, "wb") as f:
+                            async for chunk in response.aiter_bytes(chunk_size=65536):
+                                downloaded += len(chunk)
+                                if downloaded > max_size_bytes:
+                                    raise ValueError(
+                                        f"Download exceeds maximum size "
+                                        f"({max_size_bytes // (1024*1024)}MB)"
+                                    )
+                                await f.write(chunk)
+                        return downloaded
+                raise ValueError(f"Too many redirects downloading from {url}")
+        except httpx.HTTPStatusError as exc:
+            raise ValueError(
+                f"HTTP {exc.response.status_code} downloading from {current}"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise ValueError(f"Failed to download: {exc}") from exc
