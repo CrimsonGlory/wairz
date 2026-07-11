@@ -19,9 +19,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import type { Finding, FindingUpdate, FindingStatus, FindingSource, Severity } from '@/types'
+import type { Finding, FindingUpdate, FindingStatus, FindingSource, Severity, FirmwareDetail } from '@/types'
 import { formatDate } from '@/utils/format'
 import { getCweDescription, getCweMitreUrl } from '@/utils/cwe'
+import { firmwareLabel } from '@/utils/firmware'
 import { SEVERITY_CONFIG, FINDING_STATUS_OPTIONS, FINDING_SOURCE_CONFIG } from '@/constants/statusConfig'
 
 interface FindingDetailProps {

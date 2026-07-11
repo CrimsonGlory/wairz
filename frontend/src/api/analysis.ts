@@ -12,7 +12,7 @@ import type {
 export async function listFunctions(
   projectId: string,
   binaryPath: string,
-  firmwareId?: string,
+  _firmwareId?: string,
 ): Promise<FunctionListResponse> {
   const { data } = await apiClient.get<FunctionListResponse>(
     `/projects/${projectId}/analysis/functions`,
@@ -24,7 +24,7 @@ export async function listFunctions(
 export async function listImports(
   projectId: string,
   binaryPath: string,
-  firmwareId?: string,
+  _firmwareId?: string,
 ): Promise<ImportsResponse> {
   const { data } = await apiClient.get<ImportsResponse>(
     `/projects/${projectId}/analysis/imports`,
@@ -38,7 +38,7 @@ export async function disassembleFunction(
   binaryPath: string,
   functionName: string,
   maxInstructions: number = 100,
-  firmwareId?: string,
+  _firmwareId?: string,
 ): Promise<DisassemblyResponse> {
   const { data } = await apiClient.get<DisassemblyResponse>(
     `/projects/${projectId}/analysis/disasm`,
@@ -54,7 +54,7 @@ export async function decompileFunction(
   projectId: string,
   binaryPath: string,
   functionName: string,
-  firmwareId?: string,
+  _firmwareId?: string,
 ): Promise<DecompilationResponse> {
   const { data } = await apiClient.get<DecompilationResponse>(
     `/projects/${projectId}/analysis/decompile`,
@@ -67,7 +67,7 @@ export async function fetchCleanedCode(
   projectId: string,
   binaryPath: string,
   functionName: string,
-  firmwareId?: string,
+  _firmwareId?: string,
 ): Promise<CleanedCodeResponse> {
   const { data } = await apiClient.get<CleanedCodeResponse>(
     `/projects/${projectId}/analysis/cleaned-code`,
@@ -79,7 +79,7 @@ export async function fetchCleanedCode(
 export async function getBinaryInfo(
   projectId: string,
   binaryPath: string,
-  firmwareId?: string,
+  _firmwareId?: string,
 ): Promise<BinaryInfoResponse> {
   const { data } = await apiClient.get<BinaryInfoResponse>(
     `/projects/${projectId}/analysis/binary-info`,

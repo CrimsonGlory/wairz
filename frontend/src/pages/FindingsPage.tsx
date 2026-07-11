@@ -21,7 +21,6 @@ export default function FindingsPage() {
   const { firmwareList } = useFirmwareList(projectId)
 
   const [findings, setFindings] = useState<Finding[]>([])
-  const [firmwareVersions, setFirmwareVersions] = useState<FirmwareDetail[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(
     (location.state as { findingId?: string } | null)?.findingId ?? null,
@@ -31,6 +30,9 @@ export default function FindingsPage() {
   const [sourceFilter, setSourceFilter] = useState<FindingSource | null>(
     (searchParams.get('source') as FindingSource | null) ?? null,
   )
+  // In-list firmware filter (FindingsList dropdown). Defaults to the globally
+  // selected firmware version; users can widen to "All versions" afterward.
+  const [firmwareFilter, setFirmwareFilter] = useState<string | null>(selectedFirmwareId)
 
   // Apply firmware_id query param on mount (deep-link from FirmwareVersionCard
   // and similar surfaces). Clear the param after applying so it doesn't pin
@@ -39,12 +41,20 @@ export default function FindingsPage() {
     const fwParam = searchParams.get('firmware_id')
     const srcParam = searchParams.get('source')
     if (fwParam || srcParam) {
-      if (fwParam) setSelectedFirmware(fwParam)
+      if (fwParam) {
+        setSelectedFirmware(fwParam)
+        setFirmwareFilter(fwParam)
+      }
       // Note: source filter is initialised from the param above. We clear
       // BOTH params here so re-renders don't re-trigger the firmware reset.
       setSearchParams({}, { replace: true })
     }
   }, [searchParams, setSearchParams, setSelectedFirmware])
+
+  // Keep the list filter aligned with the global version picker / selector.
+  useEffect(() => {
+    setFirmwareFilter(selectedFirmwareId)
+  }, [selectedFirmwareId])
 
   const initialLoadDone = useRef(false)
   const fetchFindings = useCallback(async () => {
@@ -55,7 +65,7 @@ export default function FindingsPage() {
       if (severityFilter) params.severity = severityFilter
       if (statusFilter) params.status = statusFilter
       if (sourceFilter) params.source = sourceFilter
-      if (selectedFirmwareId) params.firmware_id = selectedFirmwareId
+      if (firmwareFilter) params.firmware_id = firmwareFilter
       const data = await listFindings(projectId, params)
       setFindings(data)
     } catch (err) {
@@ -65,24 +75,11 @@ export default function FindingsPage() {
       setLoading(false)
       initialLoadDone.current = true
     }
-  }, [projectId, severityFilter, statusFilter, sourceFilter, selectedFirmwareId])
+  }, [projectId, severityFilter, statusFilter, sourceFilter, firmwareFilter])
 
   useEffect(() => {
     fetchFindings()
   }, [fetchFindings])
-
-  useEffect(() => {
-    if (!projectId) return
-    listFirmware(projectId)
-      .then(setFirmwareVersions)
-      .catch((err) => console.error('Failed to load firmware versions:', err))
-  }, [projectId])
-
-  // Default the findings view to the globally-selected firmware version. Users
-  // can still widen to "All versions" via the in-list filter afterward.
-  useEffect(() => {
-    setFirmwareFilter(activeFirmwareId)
-  }, [activeFirmwareId])
 
   const handleSelect = useCallback((finding: Finding) => {
     setSelectedId((prev) => (prev === finding.id ? null : finding.id))
@@ -152,7 +149,7 @@ export default function FindingsPage() {
             severityFilter={severityFilter}
             statusFilter={statusFilter}
             sourceFilter={sourceFilter}
-            firmwareVersions={firmwareVersions}
+            firmwareVersions={firmwareList}
             firmwareFilter={firmwareFilter}
             onSeverityFilter={setSeverityFilter}
             onStatusFilter={setStatusFilter}
@@ -169,7 +166,7 @@ export default function FindingsPage() {
             <FindingDetail
               key={selectedFinding.id}
               finding={selectedFinding}
-              firmwareVersions={firmwareVersions}
+              firmwareVersions={firmwareList}
               onUpdate={handleUpdate}
               onDelete={handleDelete}
             />

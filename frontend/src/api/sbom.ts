@@ -79,7 +79,7 @@ export async function getSbomComponentsPage(
 ): Promise<PageEnvelope<SbomComponent>> {
   const { data } = await apiClient.get<PageEnvelope<SbomComponent>>(
     `/projects/${projectId}/sbom`,
-    { params: { ...filters, firmware_id: firmwareId } },
+    { params: filters },
   )
   return data
 }
@@ -149,7 +149,7 @@ export async function getVulnerabilitiesPage(
 ): Promise<PageEnvelope<SbomVulnerability>> {
   const { data } = await apiClient.get<PageEnvelope<SbomVulnerability>>(
     `/projects/${projectId}/sbom/vulnerabilities`,
-    { params: { ...filters, firmware_id: firmwareId } },
+    { params: filters },
   )
   return data
 }

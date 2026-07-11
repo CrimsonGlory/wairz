@@ -366,7 +366,7 @@ async def _stub_resolution_hint(
             context.real_root_for(display_path), _needed_libs(path), function_name,
         )
         if found_lib:
-            rel = "/" + os.path.relpath(found_lib, context.real_root_for(display_path))
+            rel = "/" + os.path.relpath(found_lib, context.real_root_for(display_path))  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
             where = f"its implementation is in {rel}. "
     except Exception:
         pass
@@ -2745,8 +2745,8 @@ async def _handle_hexdump_data(input: dict, context: ToolContext) -> str:
     except (TypeError, ValueError):
         return "Error: offset and length must be integers."
     try:
-        size = os.path.getsize(path)
-        with open(path, "rb") as f:
+        size = os.path.getsize(path)  # noqa: ASYNC240 — pre-flight stat before bounded sync work
+        with open(path, "rb") as f:  # noqa: ASYNC230 — bounded file I/O in MCP tool path
             f.seek(offset)
             data = f.read(length)
     except OSError as exc:

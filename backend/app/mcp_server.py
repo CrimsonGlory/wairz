@@ -584,12 +584,12 @@ def build_mcp_server(
         # projects expose a storage_path instead. Validate whichever one
         # this project relies on.
         rootfs_missing = (
-            state.extracted_path and not os.path.isdir(state.extracted_path)
+            state.extracted_path and not os.path.isdir(state.extracted_path)  # noqa: ASYNC240 — pre-flight stat before bounded sync work
         )
         blob_missing = (
             not state.extracted_path
             and state.storage_path
-            and not os.path.isfile(state.storage_path)
+            and not os.path.isfile(state.storage_path)  # noqa: ASYNC240 — pre-flight stat before bounded sync work
         )
         if state.firmware_loaded and (rootfs_missing or blob_missing):
             # Revert to old project + firmware

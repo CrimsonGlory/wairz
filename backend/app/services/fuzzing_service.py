@@ -649,12 +649,12 @@ class FuzzingService:
             harness_real = None
             if harness_binary:
                 harness_real = self._resolve_carved_path(firmware, harness_binary)
-                if not harness_real or not os.path.isfile(harness_real):
+                if not harness_real or not os.path.isfile(harness_real):  # noqa: ASYNC240 — pre-flight stat before bounded sync work
                     raise ValueError(
                         f"harness binary not found: {harness_binary} "
                         f"(resolved to {harness_real})"
                     )
-                with open(harness_real, "rb") as f:
+                with open(harness_real, "rb") as f:  # noqa: ASYNC230 — bounded file I/O in service path
                     self._write_file_to_container(
                         container, "/opt/fuzzing/harness_elf", f.read()
                     )
