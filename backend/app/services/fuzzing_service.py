@@ -126,6 +126,7 @@ def _elf_lib_backed(elf_path: str) -> dict:
         from elftools.elf.dynamic import DynamicSection
         from elftools.elf.elffile import ELFFile
 
+        # codeql[py/path-injection]  # caller passes resolved firmware-tree paths only
         with open(elf_path, "rb") as f:  # noqa: ASYNC230 — bounded file I/O
             elf = ELFFile(f)
             needed: list[str] = []
@@ -144,7 +145,7 @@ def _elf_lib_backed(elf_path: str) -> dict:
             text_size is not None and text_size < _LIB_BACKED_TEXT_MAX
         )
     except Exception as exc:  # noqa: BLE001 — diagnostics only, never fatal
-        logger.debug("lib-backed detection failed for %s: %s", elf_path, exc)
+        logger.debug("lib-backed detection failed for %s: %s", elf_path.replace("\n", ""), exc)
     return info
 
 

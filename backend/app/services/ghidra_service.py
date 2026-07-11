@@ -916,7 +916,7 @@ def _try_evict_project(sha256: str, project_dir: str) -> bool:
     """
     lock_path = str(_ANALYSIS_LOCK_DIR / f"{sha256}.lock")
     try:
-        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     except OSError:
         return False
     try:

@@ -157,6 +157,7 @@ class UnpackControlService:
     # ── rootfs ──────────────────────────────────────────────────────────
 
     async def set_rootfs(self, firmware: Firmware, path: str) -> Firmware:
+        # codeql[py/path-injection]  # path re-validated inside _resolve_within_tree (sandbox)
         real = _resolve_within_tree(firmware, path)
         if not os.path.isdir(real):  # noqa: ASYNC240 — pre-flight stat before bounded sync work
             raise UnpackControlError(
@@ -175,6 +176,7 @@ class UnpackControlService:
     # ── kernel ──────────────────────────────────────────────────────────
 
     async def set_kernel(self, firmware: Firmware, path: str) -> Firmware:
+        # codeql[py/path-injection]  # path re-validated inside _resolve_within_tree (sandbox)
         real = _resolve_within_tree(firmware, path)
         if not os.path.isfile(real):  # noqa: ASYNC240 — pre-flight stat before bounded sync work
             raise UnpackControlError(
