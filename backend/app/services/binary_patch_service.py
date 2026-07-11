@@ -90,8 +90,8 @@ class BinaryPatchService:
         patched_dir = os.path.join(carved, "patched")  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         os.makedirs(patched_dir, exist_ok=True)
         try:
-            # setgid + owner rwx + group rx; backend/harness-build share uid 1000 — no group-write
-            os.chmod(patched_dir, 0o2750)  # noqa: S103  # nosec B103
+            # owner-only; backend + harness-build both run as uid 1000
+            os.chmod(patched_dir, 0o700)  # noqa: S103  # nosec B103
         except OSError:
             pass
         out_name = name or (os.path.basename(real) + ".patched")  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
@@ -100,8 +100,8 @@ class BinaryPatchService:
         out_host = os.path.join(patched_dir, out_name)  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         shutil.copy2(real, out_host)
         try:
-            # owner rwx + group rx; same uid 1000 in backend and harness-build
-            os.chmod(out_host, 0o750)  # noqa: S103  # nosec B103
+            # owner-only executable; same uid 1000 in backend and harness-build
+            os.chmod(out_host, 0o700)  # noqa: S103  # nosec B103
         except OSError:
             pass
 
@@ -233,8 +233,8 @@ class BinaryPatchService:
         carved = os.path.join(os.path.dirname(firmware.storage_path), "carved")  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         os.makedirs(carved, exist_ok=True)
         try:
-            # setgid + owner rwx + group rx; backend/harness-build share uid 1000 — no group-write
-            os.chmod(carved, 0o2750)  # noqa: S103  # nosec B103
+            # owner-only; backend + harness-build both run as uid 1000
+            os.chmod(carved, 0o700)  # noqa: S103  # nosec B103
         except OSError:
             pass
         return carved

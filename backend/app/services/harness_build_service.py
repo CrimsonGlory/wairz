@@ -132,8 +132,8 @@ class HarnessBuildService:
         harness_dir = os.path.join(carved_dir, "harnesses")  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         os.makedirs(harness_dir, exist_ok=True)
         try:
-            # setgid + owner rwx + group rx; backend/harness-build share uid 1000 — no group-write
-            os.chmod(harness_dir, 0o2750)  # noqa: S103  # nosec B103
+            # owner-only; backend + harness-build both run as uid 1000
+            os.chmod(harness_dir, 0o700)  # noqa: S103  # nosec B103
         except OSError:
             pass
 
@@ -142,8 +142,8 @@ class HarnessBuildService:
         with open(src_host, "w") as f:  # noqa: ASYNC230 — bounded file I/O in service path; analysis/patch target
             f.write(full_source)
         try:
-            # owner rw + group r; same uid 1000 in backend and harness-build
-            os.chmod(src_host, 0o640)  # nosec B103
+            # owner-only source; same uid 1000 in backend and harness-build
+            os.chmod(src_host, 0o600)  # nosec B103
         except OSError:
             pass
 
@@ -315,8 +315,8 @@ class HarnessBuildService:
         carved = os.path.join(os.path.dirname(firmware.storage_path), "carved")  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         os.makedirs(carved, exist_ok=True)
         try:
-            # setgid + owner rwx + group rx; backend/harness-build share uid 1000 — no group-write
-            os.chmod(carved, 0o2750)  # noqa: S103  # nosec B103
+            # owner-only; backend + harness-build both run as uid 1000
+            os.chmod(carved, 0o700)  # noqa: S103  # nosec B103
         except OSError:
             pass
         return carved

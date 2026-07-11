@@ -102,6 +102,10 @@ _LIBC_PREFIXES: tuple[str, ...] = (
 # its real work to a shared library (e.g. xmllint → libxml2) has a small one.
 _LIB_BACKED_TEXT_MAX = 32 * 1024
 
+# Must match Settings.storage_root default (config.py). Plain string literal so
+# CodeQL path-injection can treat it as a trusted prefix at open sinks.
+_STORAGE_ROOT = "/data/firmware"
+
 
 def _is_libc_lib(name: str) -> bool:
     n = name.lower()
@@ -120,7 +124,8 @@ def _elf_lib_backed(elf_path: str, sandbox_root: str | None = None) -> dict:
 
     When ``sandbox_root`` is provided, the path is re-validated with realpath +
     prefix check in this function so path-injection analysis sees the barrier
-    at the open sink (caller already used ``validate_path``).
+    at the open sink (caller already used ``validate_path``). Also requires
+    the path under the literal ``_STORAGE_ROOT`` trusted prefix.
     """
     info: dict = {
         "lib_backed": False, "needed": [], "non_libc_needed": [],
@@ -131,6 +136,8 @@ def _elf_lib_backed(elf_path: str, sandbox_root: str | None = None) -> dict:
         from elftools.elf.elffile import ELFFile
 
         path = os.path.realpath(elf_path)
+        if path != _STORAGE_ROOT and not path.startswith(_STORAGE_ROOT + os.sep):
+            return info
         if sandbox_root:
             root = os.path.realpath(sandbox_root)
             if path != root and not path.startswith(root + os.sep):
