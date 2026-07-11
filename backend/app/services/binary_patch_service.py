@@ -90,7 +90,7 @@ class BinaryPatchService:
         patched_dir = os.path.join(carved, "patched")  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         os.makedirs(patched_dir, exist_ok=True)
         try:
-            os.chmod(patched_dir, 0o2770)  # noqa: S103 — container-shared dir must be group-writable for non-root build user  # nosec B103
+            os.chmod(patched_dir, 0o2770)  # codeql[py/overly-permissive-file]  # noqa: S103 — container-shared dir must be group-writable for non-root build user  # nosec B103
         except OSError:
             pass
         out_name = name or (os.path.basename(real) + ".patched")  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
@@ -99,7 +99,7 @@ class BinaryPatchService:
         out_host = os.path.join(patched_dir, out_name)  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         shutil.copy2(real, out_host)
         try:
-            os.chmod(out_host, 0o770)  # noqa: S103 — container-shared dir must be group-writable for non-root build user  # nosec B103
+            os.chmod(out_host, 0o770)  # codeql[py/overly-permissive-file]  # noqa: S103 — container-shared dir must be group-writable for non-root build user  # nosec B103
         except OSError:
             pass
 
@@ -231,7 +231,7 @@ class BinaryPatchService:
         carved = os.path.join(os.path.dirname(firmware.storage_path), "carved")  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         os.makedirs(carved, exist_ok=True)
         try:
-            os.chmod(carved, 0o2770)  # noqa: S103 — container-shared dir must be group-writable for non-root build user  # nosec B103
+            os.chmod(carved, 0o2770)  # codeql[py/overly-permissive-file]  # noqa: S103 — container-shared dir must be group-writable for non-root build user  # nosec B103
         except OSError:
             pass
         return carved
