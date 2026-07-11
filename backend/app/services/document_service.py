@@ -317,11 +317,11 @@ class DocumentService:
                         pages.append(text)
                 return "\n\n".join(pages) if pages else "[No extractable text in PDF]"
             except Exception as exc:
-                return f"[Error extracting PDF text: {exc}]"
+                return "[Error extracting PDF text]"
 
         # Text-based formats: read directly
         try:
             with open(path, encoding="utf-8", errors="replace") as f:
                 return f.read()
         except Exception as exc:
-            return f"[Error reading file: {exc}]"
+            return "[Error reading file]"

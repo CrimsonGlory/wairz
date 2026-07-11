@@ -38,6 +38,7 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_device_metadata,
 )
 from app.workers.unpack import detect_kernel
+from app.utils.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -330,7 +331,7 @@ async def unpack(
             firmware_id=str(firmware_id),
             storage_path=firmware.storage_path,
         )
-        logger.info("Enqueued unpack_firmware_job for firmware %s via arq", firmware_id)
+        logger.info("Enqueued unpack_firmware_job for firmware %s via arq", sanitize_for_log(firmware_id))
     else:
         asyncio.create_task(
             _run_unpack_background(project_id, firmware_id, firmware.storage_path)
@@ -383,7 +384,7 @@ async def _run_unpack_background(
             dispatch_firmware = fw_lookup.scalar_one_or_none()
 
         if dispatch_firmware is None:
-            logger.error("Background unpack: firmware %s missing at dispatch time", firmware_id)
+            logger.error("Background unpack: firmware %s missing at dispatch time", sanitize_for_log(firmware_id))
             return
 
         result = await run_unpack(
@@ -413,7 +414,7 @@ async def _run_unpack_background(
                     logger.info(
                         "Background unpack: firmware %s gone (deleted mid-unpack), "
                         "skipping status update",
-                        firmware_id,
+                        sanitize_for_log(firmware_id),
                     )
                     if project and project.status == "unpacking":
                         project.status = "created"
@@ -518,7 +519,7 @@ async def _run_unpack_background(
                 await db.rollback()
                 raise
     except Exception:
-        logger.exception("Background firmware unpack failed for firmware %s", firmware_id)
+        logger.exception("Background firmware unpack failed for firmware %s", sanitize_for_log(firmware_id))
     finally:
         # Guarantee project/firmware state is never stuck at "unpacking"
         try:
@@ -558,7 +559,7 @@ async def _run_unpack_background(
                 if changed:
                     await db.commit()
         except Exception:
-            logger.exception("Failed to reset status for project %s", project_id)
+            logger.exception("Failed to reset status for project %s", sanitize_for_log(project_id))
 
 
 @router.post("/{firmware_id}/upload-rootfs", response_model=FirmwareDetailResponse)

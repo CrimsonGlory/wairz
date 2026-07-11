@@ -29,6 +29,7 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_device_metadata,
     _stamp_hardware_firmware_blobs_metadata,
 )
+from app.utils.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -330,7 +331,7 @@ async def detect_hardware_firmware(
         if firmware is None:
             logger.warning(
                 "Hardware firmware detector: firmware_id=%s not found",
-                firmware_id,
+                sanitize_for_log(firmware_id),
             )
             return 0
         walk_roots = await get_detection_roots(firmware, db=db)
@@ -345,7 +346,7 @@ async def detect_hardware_firmware(
     if not walk_roots:
         logger.info(
             "Hardware firmware detector: no detection roots for firmware_id=%s",
-            firmware_id,
+            sanitize_for_log(firmware_id),
         )
         await _stamp_detection_audit(
             db, firmware_id, walk_roots=[], count=0,
@@ -356,7 +357,7 @@ async def detect_hardware_firmware(
     logger.info(
         "Hardware firmware detector: walking %d root(s) for firmware_id=%s",
         len(walk_roots),
-        firmware_id,
+        sanitize_for_log(firmware_id),
     )
 
     loop = asyncio.get_event_loop()
@@ -435,7 +436,7 @@ async def detect_hardware_firmware(
     logger.info(
         "Hardware firmware detector: persisted %d blob row(s) for firmware_id=%s",
         len(values),
-        firmware_id,
+        sanitize_for_log(firmware_id),
     )
 
     # Phase 5 observability: stamp a detection audit on the firmware row so

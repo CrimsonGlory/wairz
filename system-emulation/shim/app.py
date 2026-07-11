@@ -18,6 +18,23 @@ from pipeline import PipelineManager, PipelinePhase, PipelineState
 
 logger = logging.getLogger(__name__)
 
+# Only accept firmware paths under these container-mounted roots (path-injection gate).
+_ALLOWED_FIRMWARE_ROOTS = (
+    os.path.realpath("/firmware"),
+    os.path.realpath("/data"),
+    os.path.realpath("/tmp"),
+)
+
+
+def _validate_firmware_path(firmware_path: str) -> str:
+    """Resolve and require the path to stay under an allowed root."""
+    real = os.path.realpath(firmware_path)
+    for root in _ALLOWED_FIRMWARE_ROOTS:
+        if real == root or real.startswith(root + os.sep):
+            return real
+    raise ValueError("firmware_path outside allowed roots")
+
+
 
 # ---------------------------------------------------------------------------
 # Global state
@@ -105,8 +122,13 @@ def create_app() -> Flask:
         if not firmware_path:
             return jsonify({"error": "firmware_path is required"}), 400
 
+        try:
+            firmware_path = _validate_firmware_path(firmware_path)
+        except ValueError:
+            return jsonify({"error": "firmware_path outside allowed roots"}), 400
+
         if not os.path.isfile(firmware_path):
-            return jsonify({"error": f"Firmware file not found: {firmware_path}"}), 400
+            return jsonify({"error": "Firmware file not found"}), 400
 
         session_id = data.get("session_id") or str(uuid.uuid4())
         brand = data.get("brand", "unknown")
@@ -122,12 +144,13 @@ def create_app() -> Flask:
                 brand=brand,
                 timeout=timeout,
             )
-        except ValueError as exc:
-            return jsonify({"error": str(exc)}), 409
+        except ValueError:
+            # Do not echo exception text — can leak internal path/state details.
+            return jsonify({"error": "Pipeline already running or invalid request"}), 409
 
         logger.info(
             "Pipeline started: session=%s firmware=%s brand=%s timeout=%ds",
-            session_id, firmware_path, brand, timeout,
+            session_id, firmware_path.replace("\r", "\\r").replace("\n", "\\n"), str(brand).replace("\r", "\\r").replace("\n", "\\n"), timeout,
         )
 
         return jsonify({
@@ -377,4 +400,4 @@ def _parse_nmap_output(xml_output: str, target_ip: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     app = create_app()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=False)

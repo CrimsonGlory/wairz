@@ -36,6 +36,7 @@ import tarfile
 import docker
 
 from app.utils.docker_client import get_docker_client
+from app.utils.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -307,7 +308,7 @@ def inject_stub_libraries(
     stub_files = arch_map.get(architecture, [])
     if not stub_files:
         logger.debug(
-            "No stub libraries for profile=%s arch=%s", stub_profile, architecture
+            "No stub libraries for profile=%s arch=%s", sanitize_for_log(stub_profile), sanitize_for_log(architecture)
         )
         return
 

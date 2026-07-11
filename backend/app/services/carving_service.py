@@ -349,7 +349,7 @@ class CarvingService:
         # container itself may run as a different uid, so chmod 0o775 is
         # safer than chowning.
         try:
-            os.chmod(carved, 0o2775)  # noqa: S103 -- setgid+group-writable so the carving sandbox (uid 1000) can write, not world-writable  # nosec B103
+            os.chmod(carved, 0o2770)  # noqa: S103 -- setgid+group-writable (no world perms) so the carving sandbox (uid 1000) can write  # nosec B103
         except OSError:
             pass
         return carved

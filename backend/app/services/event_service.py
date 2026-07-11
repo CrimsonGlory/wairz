@@ -20,6 +20,7 @@ from collections.abc import AsyncGenerator
 import redis.asyncio as aioredis
 
 from app.config import get_settings
+from app.utils.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ class EventService:
         """
         payload = json.dumps(event)
         count = await self.redis.publish(channel, payload)
-        logger.debug("Published to %s (%d subscribers): %s", channel, count, payload[:200])
+        logger.debug("Published to %s (%s subscribers): %s", sanitize_for_log(channel), sanitize_for_log(count), sanitize_for_log(payload[:200]))
         return count
 
     async def publish_progress(

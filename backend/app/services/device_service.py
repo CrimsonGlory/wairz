@@ -37,6 +37,7 @@ from app.services.jsonb_normalizers import (
 )
 from app.utils.getprop import extract_device_metadata, parse_getprop_txt
 from app.workers.unpack import unpack_firmware
+from app.utils.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -525,7 +526,7 @@ async def _run_dump_background(
                         items[i]["error"] = str(e)
                         failed += 1
                         logger.warning(
-                            "Dump of %s failed: %s", partition, e, exc_info=True
+                            "Dump of %s failed: %s", sanitize_for_log(partition), sanitize_for_log(e), exc_info=True
                         )
 
                     await _persist_partitions(db, dump_id, items)

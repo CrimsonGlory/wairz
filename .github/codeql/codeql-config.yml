@@ -1,0 +1,19 @@
+# CodeQL configuration for Wairz.
+#
+# security-extended suite is selected in the workflow; this config scopes
+# analysis away from intentional insecure test fixtures (chmod 0o777, weak
+# RSA keys, etc.) so the dashboard tracks production/app risk.
+#
+# See: https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/customizing-your-advanced-setup-for-code-scanning#using-a-custom-configuration-file
+
+name: "Wairz CodeQL config"
+
+paths-ignore:
+  - "backend/tests/**"
+  - "frontend/tests/**"
+  - "frontend/src/**/__tests__/**"
+  - "**/test_*.py"
+  - "**/*_test.py"
+  - "**/tests/**"
+  - "**/fixtures/**"
+  - "backend/tests/fixtures/**"

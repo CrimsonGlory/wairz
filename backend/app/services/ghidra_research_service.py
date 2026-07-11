@@ -24,6 +24,7 @@ from app.schemas.ghidra_research import (
     MAX_SCRIPT_SIZE_MB,
     TEXT_EXTENSIONS,
 )
+from app.utils.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -309,7 +310,7 @@ class GhidraResearchService:
             with open(path, encoding="utf-8", errors="replace") as f:
                 return f.read()
         except Exception as exc:
-            return f"[Error reading file: {exc}]"
+            return "[Error reading file]"
 
 
 # ---------------------------------------------------------------------------
@@ -393,6 +394,6 @@ async def run_ghidra_import_background(file_id: uuid.UUID) -> None:
                         fail_record.import_status = "failed"
                         fail_record.import_error = err
                         await fail_db.commit()
-                logger.exception("Ghidra archive import failed for file %s", file_id)
+                logger.exception("Ghidra archive import failed for file %s", sanitize_for_log(file_id))
     except Exception:
-        logger.exception("Unrecoverable error in run_ghidra_import_background for file %s", file_id)
+        logger.exception("Unrecoverable error in run_ghidra_import_background for file %s", sanitize_for_log(file_id))

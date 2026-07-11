@@ -1355,11 +1355,11 @@ async def _handle_run_ghidra_headless(input: dict, context: ToolContext) -> str:
         # stays consistent), and that de-privileged Ghidra process then cannot
         # traverse the 0o700 root-owned temp dir — analyzeHeadless reports
         # "Script not found: <tmp>/<name>.java" even though the file exists.
-        # Widen to world-traversable dir + world-readable script so the dropped
+        # Widen to group-traversable dir + group-readable script so the dropped
         # user can read it. These are the operator's own research scripts in a
         # short-lived per-run temp dir (rmtree'd in the finally), not secrets.
-        os.chmod(_tmp_script_dir, 0o755)  # noqa: S103 -- world-traversable temp dir, short-lived, no secrets, see comment above  # nosec B103
-        os.chmod(script_dest, 0o644)  # noqa: S103 -- world-readable script, required for de-privileged Ghidra user to traverse  # nosec B103
+        os.chmod(_tmp_script_dir, 0o750)  # noqa: S103 -- group-traversable temp dir for de-privileged Ghidra user; short-lived  # nosec B103
+        os.chmod(script_dest, 0o640)  # noqa: S103 -- group-readable script for de-privileged Ghidra user; no world perms  # nosec B103
         effective_script_name = record.original_filename
 
     if not effective_script_name:
