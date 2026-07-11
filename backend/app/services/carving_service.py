@@ -345,11 +345,14 @@ class CarvingService:
         firmware_dir = os.path.dirname(firmware.storage_path)
         carved = os.path.join(firmware_dir, "carved")
         os.makedirs(carved, exist_ok=True)
-        # Make the dir writable by the sandbox's uid (1000). The backend
-        # container itself may run as a different uid, so chmod 0o775 is
-        # safer than chowning.
+        # Prefer owner-only 0o700 owned by the carving sandbox uid (1000).
+        # Fall back to chmod alone when chown is not permitted (non-root).
         try:
-            os.chmod(carved, 0o2770)  # noqa: S103 -- setgid+group-writable (no world perms) so the carving sandbox (uid 1000) can write  # nosec B103
+            os.chown(carved, 1000, 1000)
+        except OSError:
+            pass
+        try:
+            os.chmod(carved, 0o700)
         except OSError:
             pass
         return carved

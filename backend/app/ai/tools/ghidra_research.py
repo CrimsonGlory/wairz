@@ -1353,13 +1353,22 @@ async def _handle_run_ghidra_headless(input: dict, context: ToolContext) -> str:
         # worker/root container the GZF process-mode step drops to the 'wairz'
         # user via _make_ghidra_preexec_fn (so persistent-project ownership
         # stays consistent), and that de-privileged Ghidra process then cannot
-        # traverse the 0o700 root-owned temp dir — analyzeHeadless reports
+        # traverse a root-owned temp dir — analyzeHeadless reports
         # "Script not found: <tmp>/<name>.java" even though the file exists.
-        # Widen to group-traversable dir + group-readable script so the dropped
-        # user can read it. These are the operator's own research scripts in a
-        # short-lived per-run temp dir (rmtree'd in the finally), not secrets.
-        os.chmod(_tmp_script_dir, 0o750)  # noqa: S103 -- group-traversable temp dir for de-privileged Ghidra user; short-lived  # nosec B103
-        os.chmod(script_dest, 0o640)  # noqa: S103 -- group-readable script for de-privileged Ghidra user; no world perms  # nosec B103
+        # Chown the short-lived temp tree to 'wairz' and keep owner-only modes
+        # (0o700/0o600) so CodeQL py/overly-permissive-file stays clean.
+        try:
+            import pwd  # noqa: PLC0415 -- local to avoid top-level pwd on non-POSIX hosts
+
+            _wairz = pwd.getpwnam("wairz")
+            os.chown(_tmp_script_dir, _wairz.pw_uid, _wairz.pw_gid)
+            os.chown(script_dest, _wairz.pw_uid, _wairz.pw_gid)
+        except (KeyError, OSError, PermissionError):
+            # Already running as wairz, or chown not permitted — owner-only
+            # modes still apply to the creating uid.
+            pass
+        os.chmod(_tmp_script_dir, 0o700)
+        os.chmod(script_dest, 0o600)
         effective_script_name = record.original_filename
 
     if not effective_script_name:

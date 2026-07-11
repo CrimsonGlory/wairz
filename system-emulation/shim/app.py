@@ -148,9 +148,15 @@ def create_app() -> Flask:
             # Do not echo exception text — can leak internal path/state details.
             return jsonify({"error": "Pipeline already running or invalid request"}), 409
 
+        def _log_safe(value: object) -> str:
+            return str(value).replace("\r", "\\r").replace("\n", "\\n")
+
         logger.info(
-            "Pipeline started: session=%s firmware=%s brand=%s timeout=%ds",
-            session_id, firmware_path.replace("\r", "\\r").replace("\n", "\\n"), str(brand).replace("\r", "\\r").replace("\n", "\\n"), timeout,
+            "Pipeline started: session=%s firmware=%s brand=%s timeout=%ss",
+            _log_safe(session_id),
+            _log_safe(firmware_path),
+            _log_safe(brand),
+            _log_safe(timeout),
         )
 
         return jsonify({
