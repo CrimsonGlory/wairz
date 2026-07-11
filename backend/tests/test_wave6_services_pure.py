@@ -1,19 +1,6 @@
 """Wave 6: pure-path coverage for abusech, mobsfscan normalization, main
 middleware, SBOM VEX/SPDX helpers, and hardware-firmware pure helpers.
 """
-
-import os
-
-import pytest
-
-# Full-suite residual wave modules poison the CI event loop after ~78%
-# progress (FAILED + maxfail ERROR cascade). Skip under CI; still run locally.
-if os.environ.get("CI", "").lower() in ("1", "true", "yes"):
-    pytest.skip(
-        "wave residual suites skip under CI full-suite (event-loop cascade)",
-        allow_module_level=True,
-    )
-
 from __future__ import annotations
 
 import json
@@ -33,8 +20,6 @@ from app.routers import hardware_firmware as hw
 from app.routers import sbom as sbom_router
 from app.services import abusech_service as abusech
 from app.services.mobsfscan.normalization import (
-
-
     MOBSFSCAN_SOURCE,
     _apply_severity_override,
     _bump_severity,

@@ -4,19 +4,6 @@ Targets container_walker outer residual, ds1qrsetup_callgraph pure/ghidra path,
 cli/scan create_temp_db + extract, unpack_common residual lines, arq_worker jobs,
 update_mechanism residual, strings residual, apk_scan residual, terminal residual.
 """
-
-import os
-
-import pytest
-
-# Full-suite residual wave modules poison the CI event loop after ~78%
-# progress (FAILED + maxfail ERROR cascade). Skip under CI; still run locally.
-if os.environ.get("CI", "").lower() in ("1", "true", "yes"):
-    pytest.skip(
-        "wave residual suites skip under CI full-suite (event-loop cascade)",
-        allow_module_level=True,
-    )
-
 from __future__ import annotations
 
 import asyncio
@@ -31,8 +18,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 # ── ds1qrsetup callgraph pure + ghidra path ──────────────────────────────────
-
-
 
 
 class TestDs1qrsetupDeep:

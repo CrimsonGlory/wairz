@@ -2,19 +2,6 @@
 tools, unpack_common residual pure helpers, file_format resolver evals,
 firmware_service 7z/upload edges.
 """
-
-import os
-
-import pytest
-
-# Full-suite residual wave modules poison the CI event loop after ~78%
-# progress (FAILED + maxfail ERROR cascade). Skip under CI; still run locally.
-if os.environ.get("CI", "").lower() in ("1", "true", "yes"):
-    pytest.skip(
-        "wave residual suites skip under CI full-suite (event-loop cascade)",
-        allow_module_level=True,
-    )
-
 from __future__ import annotations
 
 import io
@@ -30,8 +17,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 # ── update_mechanism ─────────────────────────────────────────────────────────
-
-
 
 
 def _mk_root(tmp: Path) -> Path:

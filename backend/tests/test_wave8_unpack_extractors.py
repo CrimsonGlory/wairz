@@ -1,17 +1,4 @@
 """Wave 8: deep unpack extractors (img/apex/lz4/nested/async) + android OTA/super + unpack orchestrator branches."""
-
-import os
-
-import pytest
-
-# Full-suite residual wave modules poison the CI event loop after ~78%
-# progress (FAILED + maxfail ERROR cascade). Skip under CI; still run locally.
-if os.environ.get("CI", "").lower() in ("1", "true", "yes"):
-    pytest.skip(
-        "wave residual suites skip under CI full-suite (event-loop cascade)",
-        allow_module_level=True,
-    )
-
 from __future__ import annotations
 
 import gzip
