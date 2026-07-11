@@ -555,6 +555,80 @@ class TestExportGhidraArchive:
             )
             assert "not found in this project" in result
 
+    @pytest.mark.asyncio
+    async def test_export_temp_dir_is_owner_only_and_wairz_writable(
+        self, tmp_path, _fake_ghidra_settings,
+    ):
+        """export_ghidra_archive mkdtemps a 0o700 dir then drops Ghidra to
+        'wairz' via preexec_fn. Without chown, packFile fails with
+        Permission denied on the root-owned temp dir (observed 2026-07-11).
+        Mirror of TestScriptFileIdTempDirPermissions for the export path."""
+        import os
+        import stat
+
+        from app.utils.hashing import compute_file_sha256
+
+        async with make_live_db() as db:
+            project_id = uuid.uuid4()
+            db.add(Project(id=project_id, name="export-tmpdir-perms", status="ready"))
+            await db.flush()
+
+            gzf_path = tmp_path / "annotated.gzf"
+            gzf_path.write_bytes(b"PK\x03\x04" + b"\x00" * 16)
+            gzf_sha = compute_file_sha256(str(gzf_path))
+            record_id = uuid.uuid4()
+            db.add(GhidraResearchFile(
+                id=record_id, project_id=project_id,
+                original_filename="annotated.gzf", file_category="ghidra_archive",
+                content_type="application/octet-stream", file_size=20,
+                sha256="d" * 64, storage_path=str(gzf_path),
+            ))
+            await db.commit()
+
+            proj_base = tmp_path / "ghidra_projects" / gzf_sha[:16]
+            (proj_base / "gzf_project.rep").mkdir(parents=True)
+
+            context = ToolContext(
+                project_id=project_id, firmware_id=uuid.uuid4(),
+                extracted_path=str(tmp_path), db=db,
+            )
+
+            captured: dict = {}
+
+            class _FakeProc:
+                returncode = 0
+
+                async def wait(self):
+                    return 0
+
+            async def fake_create_subprocess(*args, **kwargs):
+                # Capture temp-dir mode at the moment the de-privileged Ghidra
+                # process would open the output path (before finally rmtree).
+                output_path = args[-1]
+                export_dir = os.path.dirname(output_path)
+                captured["dir_mode"] = stat.S_IMODE(os.stat(export_dir).st_mode)
+                captured["export_dir"] = export_dir
+                # Prove the dir is writable by the process that would pack —
+                # if modes/ownership were wrong this open would fail the same
+                # way packFile did in production.
+                with open(output_path, "wb") as f:
+                    f.write(b"PK\x03\x04FAKE_EXPORTED_GZF")
+                return _FakeProc()
+
+            with patch.object(
+                gr.asyncio, "create_subprocess_exec",
+                new=AsyncMock(side_effect=fake_create_subprocess),
+            ):
+                result = await gr._handle_export_ghidra_archive(
+                    {"file_id": str(record_id)}, context,
+                )
+
+            assert "Ghidra archive exported successfully" in result
+            assert captured["dir_mode"] == 0o700, f"export dir mode={oct(captured['dir_mode'])}"
+            assert not (captured["dir_mode"] & (stat.S_IRWXG | stat.S_IRWXO))
+            # Chown target is the short-lived export tree (not a project path).
+            assert os.path.basename(captured["export_dir"]).startswith("ghidra-export-")
+
 
 class TestListGhidraResearchFilesFilterAndPaging:
     """The >100-file listing fix: name_contains filter + limit/offset paging +

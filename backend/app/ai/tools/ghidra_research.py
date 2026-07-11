@@ -781,6 +781,26 @@ async def _handle_export_ghidra_archive(input: dict, context: ToolContext) -> st
     timeout = timeout_override if isinstance(timeout_override, int) else settings.ghidra_timeout
 
     export_dir = tempfile.mkdtemp(prefix="ghidra-export-")
+    # mkdtemp() creates the dir 0o700 owned by the calling UID. The export
+    # subprocess drops to the 'wairz' user via _make_ghidra_preexec_fn (so
+    # persistent-project ownership stays consistent), and that de-privileged
+    # Ghidra process then cannot write the .gzf into a root-owned temp dir —
+    # packFile fails with FileNotFoundException (...gzf: Permission denied)
+    # even though the parent directory exists. Chown the short-lived temp
+    # tree to 'wairz' and keep owner-only mode (0o700) so CodeQL
+    # py/overly-permissive-file stays clean. Same shape as the script_file_id
+    # temp-dir chown in _handle_run_ghidra_headless.
+    try:
+        import pwd  # noqa: PLC0415 -- local to avoid top-level pwd on non-POSIX hosts
+
+        _wairz = pwd.getpwnam("wairz")
+        os.chown(export_dir, _wairz.pw_uid, _wairz.pw_gid)
+    except (KeyError, OSError, PermissionError):
+        # Already running as wairz, or chown not permitted — owner-only
+        # mode still applies to the creating uid.
+        pass
+    os.chmod(export_dir, 0o700)
+
     export_stem = os.path.splitext(record.original_filename)[0]
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
     output_filename = f"{export_stem}_export_{timestamp}.gzf"
