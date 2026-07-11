@@ -37,8 +37,8 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_binary_info,
     _stamp_firmware_device_metadata,
 )
-from app.workers.unpack import detect_kernel
 from app.utils.log_sanitize import sanitize_for_log
+from app.workers.unpack import detect_kernel
 
 logger = logging.getLogger(__name__)
 

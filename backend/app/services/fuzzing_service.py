@@ -34,8 +34,8 @@ from app.services.jsonb_normalizers import (
 )
 from app.services.sysroot_service import get_sysroot_path
 from app.utils.docker_client import get_docker_client
-from app.utils.sandbox import validate_path
 from app.utils.log_sanitize import sanitize_for_log
+from app.utils.sandbox import validate_path
 
 logger = logging.getLogger(__name__)
 

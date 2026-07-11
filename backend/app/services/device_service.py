@@ -36,8 +36,8 @@ from app.services.jsonb_normalizers import (
     _stamp_firmware_device_metadata,
 )
 from app.utils.getprop import extract_device_metadata, parse_getprop_txt
-from app.workers.unpack import unpack_firmware
 from app.utils.log_sanitize import sanitize_for_log
+from app.workers.unpack import unpack_firmware
 
 logger = logging.getLogger(__name__)
 
