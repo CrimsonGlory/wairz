@@ -55,6 +55,9 @@ jobs:
           # codebase. Lower-confidence queries still go to the security
           # dashboard but don't fail the build.
           queries: security-extended
+          # Exclude intentional insecure test fixtures (chmod 0o777, weak
+          # RSA keys, etc.) so the dashboard tracks production/app risk.
+          config-file: ./.github/codeql/codeql-config.yml
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4

@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 
 from app.rate_limit import limiter
 from app.services.event_service import event_service
+from app.utils.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +76,7 @@ async def stream_events(
             await pubsub.subscribe(*channels)
             logger.info(
                 "SSE client connected: project=%s types=%s",
-                project_id,
+                sanitize_for_log(project_id),
                 sorted(event_types),
             )
 
@@ -115,7 +116,7 @@ async def stream_events(
         finally:
             await pubsub.unsubscribe(*channels)
             await pubsub.aclose()
-            logger.info("SSE client disconnected: project=%s", project_id)
+            logger.info("SSE client disconnected: project=%s", sanitize_for_log(project_id))
 
     return StreamingResponse(
         event_generator(),

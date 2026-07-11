@@ -37,6 +37,7 @@ from app.services.emulation.docker_ops import (
 )
 from app.services.emulation.sysroot_mount import inject_init_wrapper
 from app.services.jsonb_normalizers import _normalize_emulation_sessions_port_forwards
+from app.utils.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ async def setup_system_mode_container(
                 container, initrd_backend_path, CONTAINER_INITRD_PATH,
             )
             initrd_arg = CONTAINER_INITRD_PATH
-            logger.info("Copied initrd to container: %s", initrd_backend_path)
+            logger.info("Copied initrd to container: %s", sanitize_for_log(initrd_backend_path))
 
     # Inject init wrapper into the firmware rootfs. The wrapper
     # auto-mounts proc/sysfs, configures networking, sets LD_PRELOAD

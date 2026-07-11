@@ -34,6 +34,7 @@ from app.services.jsonb_normalizers import (
 )
 from app.services.sysroot_service import get_sysroot_path
 from app.utils.docker_client import get_docker_client
+from app.utils.log_sanitize import sanitize_for_log
 from app.utils.sandbox import validate_path
 
 logger = logging.getLogger(__name__)
@@ -250,7 +251,7 @@ class FuzzingService:
                 None, self._parse_elf_sync, full_path,
             )
         except Exception as exc:
-            logger.warning("Failed to parse ELF %s: %s", binary_path, exc)
+            logger.warning("Failed to parse ELF %s: %s", sanitize_for_log(binary_path), sanitize_for_log(exc))
             return {
                 "binary_path": binary_path,
                 "error": f"Failed to parse ELF: {exc}",
@@ -671,7 +672,7 @@ class FuzzingService:
                 await self._sync_stats(campaign)
                 await self._sync_crashes(campaign)
             except Exception:
-                logger.warning("Failed to sync data before stopping campaign %s", campaign_id)
+                logger.warning("Failed to sync data before stopping campaign %s", sanitize_for_log(campaign_id))
 
             try:
                 client = self._get_docker_client()

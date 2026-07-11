@@ -39,6 +39,7 @@ from app.schemas.emulation import (
 from app.services.emulation import EmulationService
 from app.services.pcap_analysis_service import PcapAnalysisService
 from app.services.system_emulation_service import SystemEmulationService
+from app.utils.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -968,6 +969,6 @@ async def websocket_emulation_terminal(
             pass
         logger.info(
             "Emulation terminal ended: project=%s session=%s",
-            project_id,
-            session_id,
+            sanitize_for_log(project_id),
+            sanitize_for_log(session_id),
         )

@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.services import _cache
 from app.utils.hashing import compute_file_sha256
+from app.utils.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +113,7 @@ async def run_jadx_subprocess(
 
     logger.info(
         "Running JADX on %s (timeout=%ds, memory=%s)",
-        os.path.basename(apk_path),
+        sanitize_for_log(os.path.basename(apk_path)),
         effective_timeout,
         settings.jadx_max_memory,
     )
@@ -150,7 +151,7 @@ async def run_jadx_subprocess(
         logger.warning(
             "JADX exited with code %d for %s: %s",
             process.returncode,
-            os.path.basename(apk_path),
+            sanitize_for_log(os.path.basename(apk_path)),
             stderr_text[-500:],
         )
 
@@ -370,7 +371,7 @@ class JadxDecompilationCache:
 
         logger.info(
             "JADX decompilation complete for %s: %d source files (%d cached, %d bytes)",
-            os.path.basename(apk_path),
+            sanitize_for_log(os.path.basename(apk_path)),
             stats["total_source_files"],
             stats["cached_source_files"],
             stats["total_cached_bytes"],

@@ -69,6 +69,7 @@ from app.services.jsonb_normalizers import (
 from app.services.qiling_service import get_rootfs_path, run_binary_async
 from app.services.sysroot_service import get_sysroot_path
 from app.utils.docker_client import get_docker_client
+from app.utils.log_sanitize import sanitize_for_log
 from app.utils.sandbox import validate_path
 
 logger = logging.getLogger(__name__)
@@ -558,7 +559,7 @@ class EmulationService:
                 kernel_backend_path, kernel_name,
             )
             if initrd_backend_path:
-                logger.info("Found initrd: %s", initrd_backend_path)
+                logger.info("Found initrd: %s", sanitize_for_log(initrd_backend_path))
 
         common_labels = {
             "wairz.session_id": str(session.id),
@@ -1012,6 +1013,25 @@ class EmulationService:
         )
         return list(result.scalars().all())
 
+    @staticmethod
+    def _public_log_text(text: str | None, *, fallback: str = "No logs available.") -> str:
+        """Return operator-facing log text without raw Python tracebacks.
+
+        Full tracebacks remain in structured application logs; the API only
+        surfaces QEMU/container output and a short error summary.
+        """
+        if not text:
+            return fallback
+        # Drop classic Python traceback blocks (Traceback (most recent call last): ...)
+        if "Traceback (most recent call last):" in text:
+            # Keep only the final exception line if present
+            lines = text.strip().splitlines()
+            last = lines[-1] if lines else ""
+            if last and not last.startswith(" "):
+                return f"Session error: {last[:300]}"
+            return "Session failed (see server logs for details)."
+        return text
+
     async def get_session_logs(self, session_id: UUID) -> str:
         """Read QEMU startup logs from a session's container.
 
@@ -1026,24 +1046,24 @@ class EmulationService:
             raise ValueError("Session not found")
 
         if not session.container_id:
-            # No container — return stored error_message if available
+            # No container — return stored error_message if available (sanitized)
             if session.error_message:
-                return session.error_message
+                return self._public_log_text(session.error_message)
             return "No container associated with this session — no logs available."
 
         try:
             client = get_docker_client()
             container = client.containers.get(session.container_id)
-            return read_container_qemu_log(container, max_bytes=8000)
+            return self._public_log_text(read_container_qemu_log(container, max_bytes=8000))
         except docker.errors.NotFound:
-            # Container removed — return saved logs or error_message
+            # Container removed — return saved logs or error_message (sanitized)
             if session.logs:
-                return session.logs
+                return self._public_log_text(session.logs)
             if session.error_message:
-                return session.error_message
+                return self._public_log_text(session.error_message)
             return "Container has been removed — no logs available."
-        except Exception as exc:
-            return f"Failed to read logs: {exc}"
+        except Exception:
+            return "Failed to read logs (see server logs for details)."
 
     async def cleanup_expired(self) -> int:
         """Stop sessions that have exceeded the timeout.

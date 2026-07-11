@@ -34,6 +34,7 @@ from app.config import get_settings
 from app.database import async_session_factory
 from app.services import _cache
 from app.utils.hashing import compute_file_sha256
+from app.utils.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -188,14 +189,14 @@ async def resolve_binary_import_params(
         params = _FLAVOR_GHIDRA_PARAMS[flavor]
         logger.info(
             "Raw binary for firmware %s (flavor=%s) — Ghidra params: %s",
-            firmware_id, flavor, params,
+            sanitize_for_log(firmware_id), sanitize_for_log(flavor), sanitize_for_log(params)
         )
         return params
     return None
 
 
 def _acquire_analysis_flock(lock_path: str) -> int:
-    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
     except BaseException:
@@ -987,7 +988,7 @@ async def ensure_analysis(
             logger.info(
                 "GZF rev mismatch for %s (cached=%s on-disk=%s) — analysis "
                 "cache cleared",
-                os.path.basename(binary_path),
+                sanitize_for_log(os.path.basename(binary_path)),
                 sentinel.get("gzf_rev"),
                 current_rev,
             )
@@ -1436,8 +1437,8 @@ async def decompile_function(
         if code:
             logger.info(
                 "Cache hit for %s:%s",
-                os.path.basename(binary_path),
-                function_name,
+                sanitize_for_log(os.path.basename(binary_path)),
+                sanitize_for_log(function_name),
             )
             return code
 

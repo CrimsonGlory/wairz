@@ -697,7 +697,7 @@ class TestScriptFileIdTempDirPermissions:
     2026-06-29 pre-existing bug)."""
 
     @pytest.mark.asyncio
-    async def test_tmp_script_dir_and_file_are_world_readable(
+    async def test_tmp_script_dir_and_file_are_owner_only(
         self, tmp_path, _fake_settings,
     ):
         import os
@@ -760,11 +760,12 @@ class TestScriptFileIdTempDirPermissions:
 
             assert result == "OK"
             assert captured["script_name"] == "RomRegionBreakdown.java"
-            # Dir must be traversable (o+x) and script readable (o+r) by the
-            # dropped-to 'wairz' user.
-            assert captured["dir_mode"] & stat.S_IXOTH, "temp dir not world-traversable"
-            assert captured["dir_mode"] & stat.S_IROTH, "temp dir not world-readable"
-            assert captured["file_mode"] & stat.S_IROTH, "script not world-readable"
+            # Owner-only modes after chown-to-wairz (CodeQL py/overly-permissive-file).
+            assert captured["dir_mode"] == 0o700, f"temp dir mode={oct(captured['dir_mode'])}"
+            assert captured["file_mode"] == 0o600, f"script mode={oct(captured['file_mode'])}"
+            # No group/other bits.
+            assert not (captured["dir_mode"] & (stat.S_IRWXG | stat.S_IRWXO))
+            assert not (captured["file_mode"] & (stat.S_IRWXG | stat.S_IRWXO))
 
 
 class TestResolveFirmwarePathBeyond100:

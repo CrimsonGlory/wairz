@@ -28,6 +28,7 @@ import os
 import docker
 
 from app.services.emulation.docker_ops import put_file_in_container
+from app.utils.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +241,7 @@ def inject_init_wrapper(
 
     logger.info(
         "Injected init wrapper (original_init=%s, has_pre_init=%s, shell=%s)",
-        init_path or "auto-detect",
+        sanitize_for_log(init_path or "auto-detect"),
         bool(pre_init_script),
         shell_path,
     )

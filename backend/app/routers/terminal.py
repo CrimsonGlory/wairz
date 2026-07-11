@@ -25,6 +25,7 @@ from app.models.emulation_session import EmulationSession
 from app.models.firmware import Firmware
 from app.models.project import Project
 from app.utils.docker_client import get_docker_client
+from app.utils.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -290,7 +291,7 @@ async def websocket_terminal(
             container.kill()
         except Exception:
             pass
-        logger.info("Terminal session ended: project=%s", project_id)
+        logger.info("Terminal session ended: project=%s", sanitize_for_log(project_id))
 
 
 # ── WebSocket TCP Proxy for System Emulation Port Forwarding ──
@@ -471,6 +472,6 @@ async def websocket_tcp_proxy(
         except Exception:
             pass
         logger.info(
-            "System emulation TCP proxy ended: project=%s session=%s port=%d",
-            project_id, session_id, port,
+            "System emulation TCP proxy ended: project=%s session=%s port=%s",
+            sanitize_for_log(project_id), sanitize_for_log(session_id), sanitize_for_log(port)
         )

@@ -653,8 +653,9 @@ class TestReadTextContent:
 
         with patch.dict(sys.modules, {"pypdf": fake_pypdf}):
             result = DocumentService.read_text_content(doc)
-        assert "[Error extracting PDF text:" in result
-        assert "malformed PDF" in result
+        # Generic sentinel only — do not leak exception text to API clients
+        # (CodeQL py/stack-trace-exposure).
+        assert result == "[Error extracting PDF text]"
 
     def test_uppercase_pdf_extension_also_routes_to_pypdf(self, tmp_path: Path):
         """``.PDF`` (uppercase) must also dispatch to pypdf — the lower()

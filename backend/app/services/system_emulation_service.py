@@ -21,6 +21,7 @@ from app.models.emulation_session import EmulationSession
 from app.models.firmware import Firmware
 from app.services.jsonb_normalizers import _normalize_emulation_sessions_discovered_services
 from app.utils.docker_client import get_docker_client
+from app.utils.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -353,7 +354,7 @@ class SystemEmulationService:
             await self.db.flush()
 
         except (httpx.ConnectError, httpx.ReadTimeout) as exc:
-            logger.warning("Could not poll shim for session %s: %s", session_id, exc)
+            logger.warning("Could not poll shim for session %s: %s", sanitize_for_log(session_id), sanitize_for_log(exc))
 
         return session
 
@@ -427,7 +428,7 @@ class SystemEmulationService:
             return services
 
         except (httpx.ConnectError, httpx.ReadTimeout) as exc:
-            logger.warning("Could not get services for session %s: %s", session_id, exc)
+            logger.warning("Could not get services for session %s: %s", sanitize_for_log(session_id), sanitize_for_log(exc))
             return _normalize_emulation_sessions_discovered_services(session.discovered_services)
 
     async def stop_system_emulation(self, session_id: UUID) -> EmulationSession:

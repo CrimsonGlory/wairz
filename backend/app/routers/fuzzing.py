@@ -20,6 +20,7 @@ from app.schemas.fuzzing import (
     FuzzingTargetAnalysis,
 )
 from app.services.fuzzing_service import FuzzingService
+from app.utils.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ async def _run_campaign_spawn_background(campaign_id: uuid.UUID) -> None:
     except Exception:
         logger.exception(
             "Background fuzzing-container spawn failed for campaign %s",
-            campaign_id,
+            sanitize_for_log(campaign_id),
         )
 
 

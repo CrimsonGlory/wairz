@@ -37,6 +37,7 @@ from app.schemas.apk_scan import (
     SourceFileListResponse,
     SourceFileResponse,
 )
+from app.utils.log_sanitize import sanitize_for_log
 
 if TYPE_CHECKING:
     from app.utils.firmware_context import FirmwareContext
@@ -302,7 +303,7 @@ async def scan_apk_manifest_endpoint(
             503, "Androguard not installed — APK manifest scanning unavailable"
         )
     except Exception as exc:
-        logger.exception("Manifest scan failed for %s", apk_path)
+        logger.exception("Manifest scan failed for %s", sanitize_for_log(apk_path))
         raise HTTPException(500, f"Manifest scan failed: {exc}")
 
     # Enrich result with context flags
@@ -565,7 +566,7 @@ async def scan_apk_bytecode_endpoint(
             503, "Androguard not installed — APK bytecode scanning unavailable"
         )
     except Exception as exc:
-        logger.exception("Bytecode scan failed for %s", apk_path)
+        logger.exception("Bytecode scan failed for %s", sanitize_for_log(apk_path))
         raise HTTPException(500, f"Bytecode scan failed: {exc}")
 
     # Cache result
@@ -736,7 +737,7 @@ async def scan_apk_sast_endpoint(
     except RuntimeError as exc:
         raise HTTPException(500, f"Pipeline error: {exc}")
     except Exception as exc:
-        logger.exception("SAST scan failed for %s", apk_path)
+        logger.exception("SAST scan failed for %s", sanitize_for_log(apk_path))
         raise HTTPException(500, f"SAST scan failed: {exc}")
 
     # Build response

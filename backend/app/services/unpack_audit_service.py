@@ -47,6 +47,7 @@ from app.models.firmware import Firmware
 from app.schemas.finding import Confidence, FindingCreate, Severity
 from app.services.finding_service import FindingService
 from app.services.jsonb_normalizers import _normalize_firmware_device_metadata
+from app.utils.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -62,12 +63,12 @@ async def _run_safe(firmware_id: uuid.UUID) -> None:
     try:
         count = await run(firmware_id)
         logger.info(
-            "Unpack audit: emitted %d findings for firmware %s",
-            count, firmware_id,
+            "Unpack audit: emitted %s findings for firmware %s",
+            sanitize_for_log(count), sanitize_for_log(firmware_id)
         )
     except Exception:
         logger.warning(
-            "Unpack audit failed for firmware %s", firmware_id, exc_info=True,
+            "Unpack audit failed for firmware %s", sanitize_for_log(firmware_id), exc_info=True,
         )
 
 

@@ -21,6 +21,7 @@ import httpx
 
 from app.config import get_settings
 from app.services.emulation_constants import _validate_kernel_file
+from app.utils.log_sanitize import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +124,7 @@ class KernelService:
             with open(path) as f:
                 return json.load(f)
         except (json.JSONDecodeError, OSError):
-            logger.warning("Failed to read sidecar for kernel %s", name)
+            logger.warning("Failed to read sidecar for kernel %s", sanitize_for_log(name))
             return None
 
     def _initrd_path(self, kernel_name: str) -> str | None:
@@ -303,8 +304,8 @@ class KernelService:
         async with aiofiles.open(sidecar_path, "w") as f:
             await f.write(json.dumps(sidecar, indent=2))
 
-        logger.info("Uploaded initrd %s for kernel %s (%d bytes)",
-                     initrd_name, kernel_name, len(file_data))
+        logger.info("Uploaded initrd %s for kernel %s (%s bytes)",
+                     sanitize_for_log(initrd_name), sanitize_for_log(kernel_name), sanitize_for_log(len(file_data)))
         return self._kernel_info(kernel_name)
 
     async def download_kernel(

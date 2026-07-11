@@ -44,6 +44,7 @@ from app.services.mobsfscan.parser import (
     MobsfScanResult,
     run_mobsfscan,
 )
+from app.utils.log_sanitize import sanitize_for_log
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -363,9 +364,9 @@ class MobsfScanPipeline:
             elapsed_ms = int((time.monotonic() - pipeline_t0) * 1000)
             logger.error(
                 "Pipeline budget exhausted during JADX decompilation for %s "
-                "(%ds budget)",
-                os.path.basename(apk_path),
-                budget,
+                "(%ss budget)",
+                sanitize_for_log(os.path.basename(apk_path)),
+                sanitize_for_log(budget),
             )
             raise TimeoutError(
                 f"Pipeline budget ({budget}s) exhausted during JADX "
@@ -386,7 +387,7 @@ class MobsfScanPipeline:
             logger.warning(
                 "Only %.1fs remaining after JADX — skipping mobsfscan for %s",
                 remaining_budget,
-                os.path.basename(apk_path),
+                sanitize_for_log(os.path.basename(apk_path)),
             )
             empty_result = MobsfScanResult(
                 success=False,
@@ -414,7 +415,7 @@ class MobsfScanPipeline:
             if cached_data is not None:
                 logger.info(
                     "mobsfscan cache hit for %s (sha256=%s)",
-                    os.path.basename(apk_path),
+                    sanitize_for_log(os.path.basename(apk_path)),
                     apk_sha256[:12],
                 )
                 scan_result = self._rebuild_scan_result(cached_data)
