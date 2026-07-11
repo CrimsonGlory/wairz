@@ -18,19 +18,31 @@ from pipeline import PipelineManager, PipelinePhase, PipelineState
 
 logger = logging.getLogger(__name__)
 
-# Only accept firmware paths under these container-mounted roots (path-injection gate).
+# Only accept firmware paths under these container-mounted roots.
+# Keep these as plain string literals so CodeQL path-injection can treat
+# them as trusted prefixes at isfile/open sinks (realpath()'d values at
+# import time are opaque to the dataflow model).
 _ALLOWED_FIRMWARE_ROOTS = (
-    os.path.realpath("/firmware"),
-    os.path.realpath("/data"),
-    os.path.realpath("/tmp"),
+    "/firmware",
+    "/data",
+    "/tmp",
 )
 
 
 def _validate_firmware_path(firmware_path: str) -> str:
-    """Resolve and require the path to stay under an allowed root."""
+    """Resolve and require the path to stay under an allowed root.
+
+    Collapses ``..`` and symlinks via ``realpath``, then requires a prefix
+    match against container-mounted roots. Symlink-correct at runtime by
+    comparing against ``realpath(root)``; callers that need a CodeQL-visible
+    barrier should re-check the literal roots next to the path sink.
+    """
+    if not isinstance(firmware_path, str) or not firmware_path:
+        raise ValueError("firmware_path outside allowed roots")
     real = os.path.realpath(firmware_path)
     for root in _ALLOWED_FIRMWARE_ROOTS:
-        if real == root or real.startswith(root + os.sep):
+        root_real = os.path.realpath(root)
+        if real == root_real or real.startswith(root_real + os.sep):
             return real
     raise ValueError("firmware_path outside allowed roots")
 
@@ -127,8 +139,18 @@ def create_app() -> Flask:
         except ValueError:
             return jsonify({"error": "firmware_path outside allowed roots"}), 400
 
-        if not os.path.isfile(firmware_path):
+        # Re-assert sandbox barrier at the sink so path-injection analysis
+        # sees realpath + literal prefix checks in the same function as isfile.
+        # (Custom helpers are not modelled as CodeQL sanitizers.)
+        real = os.path.realpath(firmware_path)
+        if not any(
+            real == root or real.startswith(root + os.sep)
+            for root in _ALLOWED_FIRMWARE_ROOTS
+        ):
+            return jsonify({"error": "firmware_path outside allowed roots"}), 400
+        if not os.path.isfile(real):
             return jsonify({"error": "Firmware file not found"}), 400
+        firmware_path = real
 
         session_id = data.get("session_id") or str(uuid.uuid4())
         brand = data.get("brand", "unknown")
