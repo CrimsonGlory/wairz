@@ -151,6 +151,23 @@ class Settings(BaseSettings):
     # ``result`` column; without a TTL, the table grows unboundedly.
     analysis_cache_retention_days: int = 30
 
+    # --- Compute backend (enterprise cloud deploy) ---------------------------
+    # Where heavy Ghidra jobs run. "local" (default) spawns detached worker
+    # subprocesses on the backend host — the standard docker-compose behavior.
+    # "aws_batch" submits the same worker as an AWS Batch job.
+    compute_backend: Literal["local", "aws_batch"] = "local"
+    aws_region: str = ""
+    batch_job_queue: str = ""
+    batch_job_definition: str = ""
+    # Max in-flight Batch jobs per firmware (aws_batch mode). 0 disables.
+    batch_max_jobs_per_firmware: int = 8
+    # TTL (seconds) for the distributed analysis lock when compute_backend
+    # != "local" (no shared filesystem for flock). Auto-renewed while held.
+    redis_lock_ttl_seconds: int = 120
+    # Idle timeout for the cloud "reuse worker". Stays warm while requests keep
+    # arriving; exits after this long with an empty queue.
+    re_worker_idle_ttl_minutes: int = 20
+
     # --- Auth (OIDC / JWT bearer) ------------------------------------------
     # Enforce bearer-token auth on the HTTP API. Default off keeps the local
     # docker-compose deploy open and unauthenticated. When on, every request

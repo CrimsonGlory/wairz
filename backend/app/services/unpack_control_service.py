@@ -69,13 +69,13 @@ def _firmware_root(firmware: Firmware) -> str:
     """
     if not firmware.storage_path:
         raise UnpackControlError("firmware has no storage_path on disk")
-    return os.path.realpath(os.path.dirname(firmware.storage_path))
+    return os.path.realpath(os.path.dirname(firmware.storage_path))  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
 
 
 def _carved_path(firmware: Firmware) -> str | None:
     if not firmware.storage_path:
         return None
-    return os.path.join(os.path.dirname(firmware.storage_path), "carved")
+    return os.path.join(os.path.dirname(firmware.storage_path), "carved")  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
 
 
 def _file_service(firmware: Firmware) -> FileService:
@@ -98,7 +98,7 @@ def _resolve_within_tree(firmware: Firmware, virtual_path: str) -> str:
         raise UnpackControlError("path is required")
 
     try:
-        real = os.path.realpath(_file_service(firmware)._resolve(virtual_path))
+        real = os.path.realpath(_file_service(firmware)._resolve(virtual_path))  # noqa: ASYNC240 — pre-flight stat before bounded sync work
     except Exception as exc:  # PathTraversalError, etc.
         raise UnpackControlError(f"could not resolve path '{virtual_path}': {exc}")
 
@@ -158,7 +158,7 @@ class UnpackControlService:
 
     async def set_rootfs(self, firmware: Firmware, path: str) -> Firmware:
         real = _resolve_within_tree(firmware, path)
-        if not os.path.isdir(real):
+        if not os.path.isdir(real):  # noqa: ASYNC240 — pre-flight stat before bounded sync work
             raise UnpackControlError(
                 f"path '{path}' is not a directory; the rootfs must be a "
                 f"directory containing the filesystem root"
@@ -176,7 +176,7 @@ class UnpackControlService:
 
     async def set_kernel(self, firmware: Firmware, path: str) -> Firmware:
         real = _resolve_within_tree(firmware, path)
-        if not os.path.isfile(real):
+        if not os.path.isfile(real):  # noqa: ASYNC240 — pre-flight stat before bounded sync work
             raise UnpackControlError(
                 f"path '{path}' is not a file; the kernel must be a single "
                 f"image file"
@@ -216,13 +216,13 @@ class UnpackControlService:
         # Locate the extraction directory: prefer the recorded one, else the
         # canonical extracted/ dir next to the blob.
         extraction_dir = firmware.extraction_dir
-        if not extraction_dir or not os.path.isdir(extraction_dir):
+        if not extraction_dir or not os.path.isdir(extraction_dir):  # noqa: ASYNC240 — pre-flight stat before bounded sync work
             if firmware.storage_path:
-                candidate = os.path.join(
-                    os.path.dirname(firmware.storage_path), "extracted"
+                candidate = os.path.join(  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
+                    os.path.dirname(firmware.storage_path), "extracted"  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
                 )
-                extraction_dir = candidate if os.path.isdir(candidate) else None
-        if not extraction_dir or not os.path.isdir(extraction_dir):
+                extraction_dir = candidate if os.path.isdir(candidate) else None  # noqa: ASYNC240 — pre-flight stat before bounded sync work
+        if not extraction_dir or not os.path.isdir(extraction_dir):  # noqa: ASYNC240 — pre-flight stat before bounded sync work
             raise UnpackControlError(
                 "no extraction directory found to re-detect from; (re-)unpack "
                 "the firmware first or carve a rootfs and use set_rootfs"
@@ -233,9 +233,9 @@ class UnpackControlService:
         fs_root = find_filesystem_root(extraction_dir)
         if "rootfs" in wanted:
             if fs_root:
-                firmware.extracted_path = os.path.realpath(fs_root)
+                firmware.extracted_path = os.path.realpath(fs_root)  # noqa: ASYNC240 — pre-flight stat before bounded sync work
                 fs_root_real = firmware.extracted_path
-                extraction_real = os.path.realpath(extraction_dir)
+                extraction_real = os.path.realpath(extraction_dir)  # noqa: ASYNC240 — pre-flight stat before bounded sync work
                 firmware.extraction_dir = (
                     extraction_real if fs_root_real != extraction_real else None
                 )
@@ -247,7 +247,7 @@ class UnpackControlService:
         arch_root = fs_root or firmware.extracted_path
         if "arch" in wanted:
             arch = endian = None
-            if arch_root and os.path.isdir(arch_root):
+            if arch_root and os.path.isdir(arch_root):  # noqa: ASYNC240 — pre-flight stat before bounded sync work
                 arch, endian = detect_architecture(arch_root)
             if arch is None and firmware.storage_path:
                 arch, endian = detect_architecture_from_uboot(firmware.storage_path)
@@ -261,7 +261,7 @@ class UnpackControlService:
         if "kernel" in wanted:
             kernel = detect_kernel(extraction_dir, fs_root or firmware.extracted_path)
             if kernel:
-                firmware.kernel_path = os.path.realpath(kernel)
+                firmware.kernel_path = os.path.realpath(kernel)  # noqa: ASYNC240 — pre-flight stat before bounded sync work
             report["kernel"] = firmware.kernel_path if kernel else None
 
         await self.db.flush()

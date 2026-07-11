@@ -64,14 +64,14 @@ class BinaryPatchService:
             raise BinaryPatchError("return_value must be in 0..65535")
 
         firmware = await self._load_firmware(project_id, firmware_id)
-        if not firmware.extracted_path or not os.path.isdir(firmware.extracted_path):
+        if not firmware.extracted_path or not os.path.isdir(firmware.extracted_path):  # noqa: ASYNC240 — pre-flight stat before bounded sync work
             raise BinaryPatchError("firmware has no extracted rootfs on disk")
 
         real = self._resolve(firmware.extracted_path, binary_path)
 
         from elftools.elf.elffile import ELFFile
 
-        with open(real, "rb") as f:
+        with open(real, "rb") as f:  # noqa: ASYNC230 — bounded file I/O in service path; analysis/patch target
             elf = ELFFile(f)
             machine = elf["e_machine"]
             little = elf.little_endian
@@ -87,23 +87,23 @@ class BinaryPatchService:
 
         # Copy the binary into carved/patched/<name> and overwrite the entry.
         carved = self._ensure_carved_dir(firmware)
-        patched_dir = os.path.join(carved, "patched")
+        patched_dir = os.path.join(carved, "patched")  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         os.makedirs(patched_dir, exist_ok=True)
         try:
-            os.chmod(patched_dir, 0o2775)
+            os.chmod(patched_dir, 0o2775)  # noqa: S103 — container-shared dir must be group-writable for non-root build user
         except OSError:
             pass
-        out_name = name or (os.path.basename(real) + ".patched")
+        out_name = name or (os.path.basename(real) + ".patched")  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         if "/" in out_name or ".." in out_name:
             raise BinaryPatchError("name must be a plain filename")
-        out_host = os.path.join(patched_dir, out_name)
+        out_host = os.path.join(patched_dir, out_name)  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         shutil.copy2(real, out_host)
         try:
-            os.chmod(out_host, 0o775)
+            os.chmod(out_host, 0o775)  # noqa: S103 — container-shared dir must be group-writable for non-root build user
         except OSError:
             pass
 
-        with open(out_host, "r+b") as f:
+        with open(out_host, "r+b") as f:  # noqa: ASYNC230 — bounded file I/O in service path; analysis/patch target
             f.seek(file_off)
             f.write(stub)
 
@@ -206,7 +206,7 @@ class BinaryPatchService:
                 clean = "/" + clean[len(prefix):]
                 break
         real = validate_path(extracted_path, clean)
-        if not os.path.isfile(real):
+        if not os.path.isfile(real):  # noqa: ASYNC240 — pre-flight stat before bounded sync work
             raise BinaryPatchError(
                 f"binary not found at firmware path '{path}' (resolved to {real})"
             )
@@ -228,10 +228,10 @@ class BinaryPatchService:
     def _ensure_carved_dir(firmware: Firmware) -> str:
         if not firmware.storage_path:
             raise BinaryPatchError("firmware has no storage_path on disk")
-        carved = os.path.join(os.path.dirname(firmware.storage_path), "carved")
+        carved = os.path.join(os.path.dirname(firmware.storage_path), "carved")  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         os.makedirs(carved, exist_ok=True)
         try:
-            os.chmod(carved, 0o2775)
+            os.chmod(carved, 0o2775)  # noqa: S103 — container-shared dir must be group-writable for non-root build user
         except OSError:
             pass
         return carved

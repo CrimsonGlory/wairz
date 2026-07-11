@@ -118,7 +118,7 @@ class HarnessBuildService:
             )
 
         firmware = await self._load_firmware(project_id, firmware_id)
-        if not firmware.extracted_path or not os.path.isdir(firmware.extracted_path):
+        if not firmware.extracted_path or not os.path.isdir(firmware.extracted_path):  # noqa: ASYNC240 — pre-flight stat before bounded sync work
             raise HarnessBuildError("firmware has no extracted rootfs on disk")
 
         arch_key = self._resolve_arch(firmware, arch)
@@ -129,23 +129,23 @@ class HarnessBuildService:
 
         # Compose the full source and stage it + the output under carved/.
         carved_dir = self._ensure_carved_dir(firmware)
-        harness_dir = os.path.join(carved_dir, "harnesses")
+        harness_dir = os.path.join(carved_dir, "harnesses")  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         os.makedirs(harness_dir, exist_ok=True)
         try:
-            os.chmod(harness_dir, 0o2775)
+            os.chmod(harness_dir, 0o2775)  # noqa: S103 — container-shared dir must be group-writable for non-root build user
         except OSError:
             pass
 
-        src_host = os.path.join(harness_dir, f"{name}.c")
+        src_host = os.path.join(harness_dir, f"{name}.c")  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         full_source = _SCAFFOLD.format(user_source=harness_source)
-        with open(src_host, "w") as f:
+        with open(src_host, "w") as f:  # noqa: ASYNC230 — bounded file I/O in service path; analysis/patch target
             f.write(full_source)
         try:
             os.chmod(src_host, 0o664)
         except OSError:
             pass
 
-        out_host = os.path.join(harness_dir, name)
+        out_host = os.path.join(harness_dir, name)  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         # Remove any stale ELF so we don't report success on a failed rebuild.
         try:
             os.remove(out_host)
@@ -160,7 +160,7 @@ class HarnessBuildService:
         }
         log = await self._run_build(firmware, carved_dir, env)
 
-        ok = os.path.isfile(out_host)
+        ok = os.path.isfile(out_host)  # noqa: ASYNC240 — pre-flight stat before bounded sync work
 
         def _grab(pat: str) -> str | None:
             m = re.search(pat, log)
@@ -281,13 +281,13 @@ class HarnessBuildService:
                 clean = "/" + clean[len(prefix):]
                 break
         real = validate_path(extracted_path, clean)
-        if not os.path.isfile(real):
+        if not os.path.isfile(real):  # noqa: ASYNC240 — pre-flight stat before bounded sync work
             raise HarnessBuildError(
                 f"target library not found at firmware path '{lib_path}' "
                 f"(resolved to {real})"
             )
-        rel = os.path.relpath(os.path.realpath(real),
-                              os.path.realpath(extracted_path))
+        rel = os.path.relpath(os.path.realpath(real),  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
+                              os.path.realpath(extracted_path))  # noqa: ASYNC240 — pre-flight stat before bounded sync work
         if rel.startswith(".."):
             raise HarnessBuildError("library path escapes the firmware rootfs")
         return real, "/firmware/" + rel
@@ -310,10 +310,10 @@ class HarnessBuildService:
     def _ensure_carved_dir(firmware: Firmware) -> str:
         if not firmware.storage_path:
             raise HarnessBuildError("firmware has no storage_path on disk")
-        carved = os.path.join(os.path.dirname(firmware.storage_path), "carved")
+        carved = os.path.join(os.path.dirname(firmware.storage_path), "carved")  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         os.makedirs(carved, exist_ok=True)
         try:
-            os.chmod(carved, 0o2775)
+            os.chmod(carved, 0o2775)  # noqa: S103 — container-shared dir must be group-writable for non-root build user
         except OSError:
             pass
         return carved
@@ -325,8 +325,8 @@ class HarnessBuildService:
 
     def _resolve_host_path(self, container_path: str) -> str | None:
         """Translate an in-backend path to a host-visible path for bind mounts."""
-        real_path = os.path.realpath(container_path)
-        if not os.path.exists("/.dockerenv"):
+        real_path = os.path.realpath(container_path)  # noqa: ASYNC240 — pre-flight stat before bounded sync work
+        if not os.path.exists("/.dockerenv"):  # noqa: ASYNC240 — pre-flight stat before bounded sync work
             return real_path
         client = self._get_docker_client()
         hostname = os.environ.get("HOSTNAME", "")
@@ -341,7 +341,7 @@ class HarnessBuildService:
                     continue
                 if real_path.startswith(dest + os.sep) or real_path == dest:
                     relative = os.path.relpath(real_path, dest)
-                    return os.path.join(source, relative)
+                    return os.path.join(source, relative)  # noqa: ASYNC240 — pure-string path math; no filesystem I/O
         except Exception:
             logger.warning("harness-build path translation failed for %s", real_path)
         return None

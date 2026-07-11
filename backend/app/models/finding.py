@@ -17,7 +17,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
-
 # Association table linking findings to the firmware version(s) they affect.
 # A finding may apply to multiple versions (e.g. a vuln still present after an
 # update), and a version may have many findings — hence many-to-many.

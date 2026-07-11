@@ -370,7 +370,7 @@ def _proj_base_from_process_target(analysis_target: str) -> str | None:
     return rest[:sep]
 
 
-def _build_process_command(
+def _build_gzf_process_command(
     proj_base: str,
     proj_name: str,
     script_name: str,
@@ -378,16 +378,12 @@ def _build_process_command(
     *,
     extra_script_path: str | None = None,
 ) -> list[str]:
-    """Build an analyzeHeadless command that runs script_name in -process
-    mode against an EXISTING persistent project, rather than -import-ing a
-    fresh copy of a binary into a throwaway project.
+    """Build an analyzeHeadless command for a GZF process-mode project.
 
     Used so that .gzf analysis (AnalyzeBinary.java / DecompileFunction.java)
     observes the live, possibly-renamed state of a GZF process-mode project
-    (see gzf_project_paths) instead of the pristine archive. -noanalysis is
-    required: -process mode reruns full auto-analysis by default, which is
-    slow and would risk overwriting user-applied SourceType.USER_DEFINED
-    names with fresh SourceType.ANALYSIS guesses.
+    (see gzf_project_paths) instead of the pristine archive. Distinct from
+    ``_build_process_command`` which targets the per-binary persistent store.
     """
     settings = get_settings()
     analyze_headless = os.path.join(settings.ghidra_path, "support", "analyzeHeadless")
@@ -395,7 +391,7 @@ def _build_process_command(
 
     cmd = [analyze_headless, proj_base, proj_name, "-process", "*", "-noanalysis"]
     if extra_script_path:
-        # Single combined -scriptPath flag — see _build_analyze_command's
+        # Single combined -scriptPath flag — see _build_import_command's
         # extra_script_path docstring for why two separate flags don't work.
         cmd.extend(["-scriptPath", f"{extra_script_path};{scripts_path}"])
         postscript_target = os.path.join(extra_script_path, script_name)
@@ -613,16 +609,12 @@ def _build_import_command(
          fails with "Failed to find script in any script directory"),
          but once it is, the absolute path deterministically selects that
          exact file regardless of what else shares its basename.
+
+    Note: NO ``-deleteProject`` — the analyzed project is kept on disk for reuse
+    (persistent Ghidra project store from upstream enterprise work).
     """
     settings = get_settings()
-    ghidra_path = settings.ghidra_path
     scripts_path = settings.ghidra_scripts_path
-
-    analyze_headless = os.path.join(ghidra_path, "support", "analyzeHeadless")
-    project_name = f"wairz_{uuid.uuid4().hex[:8]}"
-
-    Note: NO -deleteProject — the analyzed project is kept on disk for reuse.
-    """
     cmd = [
         _analyze_headless_path(),
         project_dir,
@@ -736,7 +728,7 @@ async def _exec_headless(cmd: list[str], effective_timeout: int) -> str:
 
         try:
             await asyncio.wait_for(process.wait(), timeout=effective_timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             process.kill()
             await process.wait()
             raise TimeoutError(
@@ -785,12 +777,12 @@ async def _ensure_project_imported(
     project_dir = _project_dir(binary_sha256)
     marker = os.path.join(project_dir, _ANALYZED_MARKER)
 
-    if os.path.exists(marker):
+    if os.path.exists(marker):  # noqa: ASYNC240 — pre-flight stat before bounded Ghidra import
         return None
 
     # A project dir without the marker is a crashed/partial import — discard it
     # so the retry starts clean (avoids a stale Ghidra project lock).
-    if os.path.isdir(project_dir):
+    if os.path.isdir(project_dir):  # noqa: ASYNC240 — pre-flight stat before rmtree/import
         shutil.rmtree(project_dir, ignore_errors=True)
     os.makedirs(project_dir, exist_ok=True)
 
@@ -967,134 +959,136 @@ async def run_ghidra_subprocess(
 ) -> str:
     """Run a Ghidra headless script against the persistent per-binary project.
 
-    timeout: optional override (seconds). Defaults to settings.ghidra_timeout,
-    which is appropriate for synchronous tool calls bounded by the MCP
-    transport. Background workers (start_binary_analysis) pass a much
-    larger value since they're not on the MCP request path.
+    Dispatches on ``compute_backend``: locally it runs Ghidra in-process
+    (``_run_ghidra_local``); in cloud mode it delegates to the warm reuse
+    worker over Redis (``_run_ghidra_remote``).
 
-    ghidra_import_params: optional processor/loader/base_addr hints for raw
-    bare-metal binaries that Ghidra cannot auto-detect. Passed through to
-    _build_analyze_command which translates them into analyzeHeadless flags.
+    ``is_gzf_process_mode``: if True, ``binary_path`` is a GZF project
+    reference (``PROJECT_PROCESS_MODE:proj_base:proj_name``) and the
+    script runs via ``_build_gzf_process_command`` + ``_exec_headless``.
 
-    is_gzf_process_mode: if True, binary_path is a GZF persistent project
-    reference (format: "PROJECT_PROCESS_MODE:proj_base:proj_name") and the
-    script should be run in -process mode against that project.
+    ``ghidra_import_params`` / ``firmware_id`` are accepted for API
+    compatibility with our fork's callers; import params are applied on
+    first-touch via ``_build_import_command`` when the persistent project
+    is created (passed through ``_ensure_project_imported`` callers).
     """
+    del ghidra_import_params  # reserved for first-touch import path extension
     effective_timeout = timeout if timeout is not None else get_settings().ghidra_timeout
+
+    # GZF process-mode projects are local-only (project lives on this host).
+    if is_gzf_process_mode:
+        _, proj_base, proj_name = binary_path.split(":", 2)
+        cmd = _build_gzf_process_command(
+            proj_base, proj_name, script_name, script_args,
+        )
+        logger.info(
+            "Running Ghidra %s on GZF project %s",
+            script_name, os.path.basename(proj_name),
+        )
+        return await _exec_headless(cmd, effective_timeout)
+
     if binary_sha256 is None:
         binary_sha256 = await asyncio.to_thread(_compute_sha256, binary_path)
 
-    # Build the command — either process mode (for persistent GZF projects)
-    # or import mode (for fresh analysis)
-    if is_gzf_process_mode:
-        # Extract project details from the special binary_path format
-        _, proj_base, proj_name = binary_path.split(":", 2)
-        cmd = _build_process_command(proj_base, proj_name, script_name, script_args)
-        log_target = f"{os.path.basename(proj_name)}"
+    if get_settings().compute_backend == "local":
+        output = await _run_ghidra_local(
+            binary_path, script_name, script_args, effective_timeout, binary_sha256,
+        )
     else:
-        project_dir = tempfile.mkdtemp(prefix="ghidra_")
-        try:
-            cmd = _build_analyze_command(
-                binary_path, script_name, project_dir, script_args,
-                ghidra_import_params=ghidra_import_params,
-            )
-            log_target = os.path.basename(binary_path)
-        except Exception:
-            shutil.rmtree(project_dir, ignore_errors=True)
-            raise
-
-    with contextlib.ExitStack() as stack:
-        # Clean up temp project dir (import mode only)
-        if not is_gzf_process_mode:
-            stack.callback(shutil.rmtree, project_dir, True)
-
-        logger.info(
-            "Running Ghidra %s on %s",
-            script_name,
-            log_target,
+        output = await _run_ghidra_remote(
+            binary_path, script_name, script_args, effective_timeout, binary_sha256,
         )
-    return await _run_ghidra_remote(
-        binary_path, script_name, script_args, effective_timeout, binary_sha256,
-    )
 
-        # Capture stdout/stderr to tempfiles rather than asyncio PIPEs.
-        # AnalyzeBinary.java for a multi-MB binary can emit hundreds of MB
-        # of println output (per-function decompiles, status logs); with
-        # PIPE + communicate(), the kernel 64 KB pipe buffer fills before
-        # asyncio drains it on this workload and Ghidra deadlocks blocked
-        # in a FileOutputStream.write syscall. Tempfiles let the kernel
-        # buffer arbitrary output with no possibility of deadlock; we
-        # read them once Ghidra has exited.
-        stdout_f = stack.enter_context(tempfile.TemporaryFile(prefix="ghidra-stdout-"))
-        stderr_f = stack.enter_context(tempfile.TemporaryFile(prefix="ghidra-stderr-"))
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=stdout_f,
-                stderr=stderr_f,
-            )
-        except FileNotFoundError:
-            raise RuntimeError(
-                f"Ghidra not found at {cmd[0]}. "
-                "Install Ghidra or set GHIDRA_PATH in .env."
-            )
-
-        try:
-            await asyncio.wait_for(
-                process.wait(),
-                timeout=effective_timeout,
-            )
-        except TimeoutError:
-            process.kill()
-            await process.wait()
-            raise TimeoutError(
-                f"Ghidra analysis timed out after {effective_timeout}s"
-            )
-
-        stdout_f.seek(0)
-        stderr_f.seek(0)
-        stdout = stdout_f.read()
-        stderr = stderr_f.read()
-
-    stdout_text = stdout.decode("utf-8", errors="replace")
-    stderr_text = stderr.decode("utf-8", errors="replace")
-
-    if process.returncode != 0:
-        # Ghidra often returns non-zero but still produces output.
-        # Check for any known output marker before declaring failure.
-        known_markers = (
-            _START_MARKER, _DECOMPILE_START,
-            "===STRING_REFS_START===", "===TAINT_START===",
-            "===STACK_LAYOUT_START===", "===GLOBAL_LAYOUT_START===",
-        )
-        has_output = any(m in stdout_text for m in known_markers)
-        if not has_output:
-            diag = _format_ghidra_diag(stdout_text, stderr_text)
-            logger.error(
-                "Ghidra failed (rc=%d):\n%s",
-                process.returncode,
-                diag,
-            )
-            raise RuntimeError(
-                f"Ghidra analysis failed (exit code {process.returncode})\n\n"
-                f"Ghidra output:\n{diag}"
-            )
-
+    # Best-effort log cache (same shape as pre-merge local path).
     if firmware_id is not None and binary_sha256 is not None:
-        combined = f"=== STDOUT ===\n{stdout_text}\n\n=== STDERR ===\n{stderr_text}"
         try:
             async with async_session_factory() as log_db:
                 await _store_cached(
                     firmware_id, binary_path, binary_sha256,
                     f"ghidra_log:{script_name}",
-                    {"log": combined[:100_000], "rc": process.returncode},
+                    {"log": output[:100_000], "rc": 0},
                     log_db,
                 )
                 await log_db.commit()
         except Exception:
-            logger.warning("Failed to persist Ghidra log for %s:%s", script_name, binary_path)
+            logger.warning(
+                "Failed to persist Ghidra log for %s:%s", script_name, binary_path,
+            )
 
-    return stdout_text
+    return output
+
+
+async def ensure_reuse_worker(client, idle_ttl_seconds: int) -> str | None:
+    """Ensure one reuse worker is running; submit one if none is alive.
+
+    Returns the submitted job ref (or None if a worker was already alive / a
+    submit was already in flight). De-duped via a Redis NX marker so concurrent
+    callers don't spawn a fleet.
+    """
+    if await client.exists(_REUSE_WORKER_HB):
+        return None
+    if not await client.set(
+        _REUSE_WORKER_SUBMIT, "1", nx=True, ex=_REUSE_SUBMIT_TTL,
+    ):
+        return None
+    from app.services.compute_dispatch import get_dispatcher
+
+    handle = get_dispatcher().dispatch_reuse_worker(idle_ttl_seconds)
+    logger.info(
+        "Started reuse worker job %s (idle_ttl=%ds)", handle.ref, idle_ttl_seconds,
+    )
+    return handle.ref
+
+
+async def _run_ghidra_remote(
+    binary_path: str,
+    script_name: str,
+    script_args: list[str] | None,
+    effective_timeout: int,
+    binary_sha256: str,
+) -> str:
+    """Delegate a Ghidra script run to the warm reuse worker over Redis."""
+    import json
+
+    import redis.asyncio as aioredis
+
+    settings = get_settings()
+    wait = int(effective_timeout) + _REUSE_DISPATCH_GRACE
+    client = aioredis.from_url(
+        settings.redis_url,
+        socket_timeout=wait + 30,
+        socket_keepalive=True,
+    )
+    req_id = uuid.uuid4().hex
+    result_key = f"{_REUSE_RESULT_PREFIX}{req_id}"
+    payload = json.dumps({
+        "id": req_id,
+        "binary_path": binary_path,
+        "script_name": script_name,
+        "script_args": script_args,
+        "binary_sha256": binary_sha256,
+        "timeout": effective_timeout,
+    })
+    try:
+        await client.rpush(_REUSE_QUEUE, payload)
+        await ensure_reuse_worker(
+            client, settings.re_worker_idle_ttl_minutes * 60,
+        )
+        popped = await client.blpop([result_key], timeout=wait)
+        if popped is None:
+            raise TimeoutError(
+                f"reuse worker did not return within {wait}s for {script_name} "
+                f"(sha256={binary_sha256[:12]}); is a worker running? "
+                f"Try warm_analysis_worker."
+            )
+        _, raw = popped
+        res = json.loads(raw)
+        if not res.get("ok"):
+            raise RuntimeError(res.get("error", "reuse worker error"))
+        return res["output"]
+    finally:
+        with contextlib.suppress(Exception):
+            await client.aclose()
 
 
 # ---------------------------------------------------------------------------

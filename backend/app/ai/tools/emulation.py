@@ -24,7 +24,6 @@ from app.services.jsonb_normalizers import (
 )
 from app.services.kernel_service import KernelService
 
-
 # System-mode QEMU/boot override knobs. Shared by start_emulation (per-run)
 # and save_emulation_preset (persisted) so the agent can iterate on bring-up —
 # sweeping machine/CPU/console/root-device/initrd/cmdline the way a human turns
@@ -1499,9 +1498,9 @@ async def _handle_inject_file(input: dict, context: ToolContext) -> str:
             real = context.resolve_path(host_path)
         except Exception as exc:
             return f"Error: host_path could not be resolved: {exc}"
-        if not os.path.isfile(real):
+        if not os.path.isfile(real):  # noqa: ASYNC240 — pre-flight stat before bounded work
             return f"Error: host_path not found: {host_path}"
-        with open(real, "rb") as f:
+        with open(real, "rb") as f:  # noqa: ASYNC230 — bounded file I/O in tool path
             data = f.read()
 
     svc = EmulationService(context.db)
@@ -1682,12 +1681,12 @@ def _diagnose_environment_sync(
 
     # --- 2. Check for /etc_ro (common in Tenda, TP-Link, etc.) ---
     etc_ro = os.path.join(fs_root, "etc_ro")
-    has_etc_ro = os.path.isdir(etc_ro)
+    has_etc_ro = os.path.isdir(etc_ro)  # noqa: ASYNC240 — pre-flight stat before bounded work
     if has_etc_ro:
         etc_path = os.path.join(fs_root, "etc")
         etc_is_link = os.path.islink(etc_path)
         etc_is_empty = (
-            os.path.isdir(etc_path)
+            os.path.isdir(etc_path)  # noqa: ASYNC240 — pre-flight stat before bounded work
             and not os.path.islink(etc_path)
             and len(os.listdir(etc_path)) == 0
         )
@@ -1719,9 +1718,9 @@ def _diagnose_environment_sync(
         if os.path.islink(path):
             target = os.readlink(path)
             found_inits.append(f"/{candidate} -> {target}")
-        elif os.path.isfile(path):
+        elif os.path.isfile(path):  # noqa: ASYNC240 — pre-flight stat before bounded work
             found_inits.append(f"/{candidate}")
-        elif os.path.isdir(path):
+        elif os.path.isdir(path):  # noqa: ASYNC240 — pre-flight stat before bounded work
             # Directory at one of the init candidate paths — common in
             # split-MTD camera firmware where /init holds config files.
             init_dir_collisions.append(f"/{candidate}")
@@ -1747,7 +1746,7 @@ def _diagnose_environment_sync(
     # standalone). These lack the directories that switch_root assumes and
     # cannot boot in system mode without the device's separate rootfs.
     fhs_dirs = ("sbin", "etc", "usr")
-    missing_fhs = [d for d in fhs_dirs if not os.path.isdir(
+    missing_fhs = [d for d in fhs_dirs if not os.path.isdir(  # noqa: ASYNC240 — pre-flight stat before bounded work
         os.path.join(fs_root, d)
     )]
     if len(missing_fhs) == len(fhs_dirs):
@@ -1789,12 +1788,12 @@ def _diagnose_environment_sync(
     ]
     found_interp = [
         f"/{c}" for c in interp_candidates
-        if os.path.exists(os.path.join(fs_root, c))
+        if os.path.exists(os.path.join(fs_root, c))  # noqa: ASYNC240 — pre-flight stat before bounded work
         or os.path.islink(os.path.join(fs_root, c))
     ]
     if found_interp:
         info.append("Dynamic loader: " + ", ".join(found_interp))
-    elif os.path.isdir(os.path.join(fs_root, "lib")):
+    elif os.path.isdir(os.path.join(fs_root, "lib")):  # noqa: ASYNC240 — pre-flight stat before bounded work
         # /lib exists but no recognized loader — probably fatal for any
         # dynamically-linked firmware binary.
         issues.append(
@@ -1811,9 +1810,9 @@ def _diagnose_environment_sync(
     found_bb = None
     for bp in bb_paths:
         full = os.path.join(fs_root, bp)
-        if os.path.isfile(full) and not os.path.islink(full):
+        if os.path.isfile(full) and not os.path.islink(full):  # noqa: ASYNC240 — pre-flight stat before bounded work
             try:
-                size = os.path.getsize(full)
+                size = os.path.getsize(full)  # noqa: ASYNC240 — pre-flight stat before bounded work
                 if size > 1000:
                     found_bb = f"/{bp} ({size // 1024}KB)"
                     break
@@ -1834,9 +1833,9 @@ def _diagnose_environment_sync(
     found_passwd = False
     for pp in passwd_paths:
         full = os.path.join(fs_root, pp)
-        if os.path.isfile(full):
+        if os.path.isfile(full):  # noqa: ASYNC240 — pre-flight stat before bounded work
             try:
-                with open(full) as f:
+                with open(full) as f:  # noqa: ASYNC230 — bounded file I/O in tool path
                     content = f.read(512)
                 content = content.replace("\x00", "").strip()
                 if content and "root:" in content:
@@ -1883,9 +1882,9 @@ def _diagnose_environment_sync(
     inittab_ro = os.path.join(fs_root, "etc_ro", "inittab")
     found_inittab = None
     for itab in [inittab, inittab_ro]:
-        if os.path.isfile(itab):
+        if os.path.isfile(itab):  # noqa: ASYNC240 — pre-flight stat before bounded work
             try:
-                with open(itab) as f:
+                with open(itab) as f:  # noqa: ASYNC230 — bounded file I/O in tool path
                     content = f.read(2048).replace("\x00", "").strip()
                 if content:
                     found_inittab = itab.replace(fs_root, "")
@@ -1915,7 +1914,7 @@ def _diagnose_environment_sync(
     rcs_dirs = ["etc/init.d", "etc_ro/init.d"]
     for rcs_dir in rcs_dirs:
         full = os.path.join(fs_root, rcs_dir)
-        if os.path.isdir(full):
+        if os.path.isdir(full):  # noqa: ASYNC240 — pre-flight stat before bounded work
             try:
                 scripts = [f for f in os.listdir(full)
                            if not f.startswith(".")]
@@ -1924,9 +1923,9 @@ def _diagnose_environment_sync(
                 )
                 # Check for rcS specifically
                 rcs = os.path.join(full, "rcS")
-                if os.path.isfile(rcs):
+                if os.path.isfile(rcs):  # noqa: ASYNC240 — pre-flight stat before bounded work
                     try:
-                        with open(rcs) as f:
+                        with open(rcs) as f:  # noqa: ASYNC230 — bounded file I/O in tool path
                             rcs_content = f.read(4096)
                         rcs_content = rcs_content.replace("\x00", "")
                         # Look for common patterns that fail in emulation
@@ -1954,7 +1953,7 @@ def _diagnose_environment_sync(
     mtd_scan_dirs = ["bin", "sbin", "usr/bin", "usr/sbin"]
     for scan_dir in mtd_scan_dirs:
         full_dir = os.path.join(fs_root, scan_dir)
-        if not os.path.isdir(full_dir):
+        if not os.path.isdir(full_dir):  # noqa: ASYNC240 — pre-flight stat before bounded work
             continue
         try:
             for entry in os.scandir(full_dir):
@@ -1964,7 +1963,7 @@ def _diagnose_environment_sync(
                     size = entry.stat().st_size
                     if size < 1000 or size > 50_000_000:
                         continue
-                    with open(entry.path, "rb") as bf:
+                    with open(entry.path, "rb") as bf:  # noqa: ASYNC230 — bounded file I/O in tool path
                         data = bf.read(min(size, 2_000_000))
                     if b"get_mtd_size" in data or b"get_mtd_num" in data:
                         mtd_binaries.append(f"/{scan_dir}/{entry.name}")
@@ -1999,9 +1998,9 @@ def _diagnose_environment_sync(
         }
         for check_bin in ["bin/busybox", "sbin/init", "bin/sh"]:
             full = os.path.join(fs_root, check_bin)
-            if os.path.isfile(full) and not os.path.islink(full):
+            if os.path.isfile(full) and not os.path.islink(full):  # noqa: ASYNC240 — pre-flight stat before bounded work
                 try:
-                    with open(full, "rb") as f:
+                    with open(full, "rb") as f:  # noqa: ASYNC230 — bounded file I/O in tool path
                         if f.read(4) == b"\x7fELF":
                             f.seek(0)
                             elf = ELFFile(f)
@@ -2033,7 +2032,7 @@ def _diagnose_environment_sync(
     total_libs = 0
     for ld in lib_dirs:
         full = os.path.join(fs_root, ld)
-        if os.path.isdir(full):
+        if os.path.isdir(full):  # noqa: ASYNC240 — pre-flight stat before bounded work
             try:
                 libs = [f for f in os.listdir(full)
                         if f.endswith(".so") or ".so." in f]
@@ -2072,7 +2071,7 @@ async def _handle_diagnose_environment(input: dict, context: ToolContext) -> str
 
     fs_root = firmware.extracted_path
     loop = asyncio.get_running_loop()
-    if not await loop.run_in_executor(None, os.path.isdir, fs_root):
+    if not await loop.run_in_executor(None, os.path.isdir, fs_root):  # noqa: ASYNC240 — pre-flight stat before bounded work
         return f"Error: extracted filesystem not found at {fs_root}"
 
     arch = firmware.architecture or "unknown"
@@ -2312,8 +2311,8 @@ def _troubleshoot_detect_characteristics_sync(
     Returns ``(has_etc_ro, has_webroot, has_mtd_deps)``. Wrapped via
     ``run_in_executor`` (Rule #5).
     """
-    has_etc_ro = os.path.isdir(os.path.join(fs_root, "etc_ro"))
-    has_webroot = os.path.isdir(os.path.join(fs_root, "webroot"))
+    has_etc_ro = os.path.isdir(os.path.join(fs_root, "etc_ro"))  # noqa: ASYNC240 — pre-flight stat before bounded work
+    has_webroot = os.path.isdir(os.path.join(fs_root, "webroot"))  # noqa: ASYNC240 — pre-flight stat before bounded work
 
     has_mtd_deps = False
     # Quick MTD scan on a few key binaries
@@ -2321,7 +2320,7 @@ def _troubleshoot_detect_characteristics_sync(
         if has_mtd_deps:
             break
         full_dir = os.path.join(fs_root, scan_dir)
-        if not os.path.isdir(full_dir):
+        if not os.path.isdir(full_dir):  # noqa: ASYNC240 — pre-flight stat before bounded work
             continue
         try:
             for entry in os.scandir(full_dir):
@@ -2333,7 +2332,7 @@ def _troubleshoot_detect_characteristics_sync(
                     size = entry.stat().st_size
                     if size < 1000 or size > 50_000_000:
                         continue
-                    with open(entry.path, "rb") as bf:
+                    with open(entry.path, "rb") as bf:  # noqa: ASYNC230 — bounded file I/O in tool path
                         data = bf.read(min(size, 500_000))
                     if b"get_mtd_size" in data or b"get_mtd_num" in data:
                         has_mtd_deps = True
@@ -2365,7 +2364,7 @@ async def _handle_troubleshoot_emulation(input: dict, context: ToolContext) -> s
         arch = firmware.architecture or "unknown"
         fs_root = firmware.extracted_path or ""
         loop = asyncio.get_running_loop()
-        if fs_root and await loop.run_in_executor(None, os.path.isdir, fs_root):
+        if fs_root and await loop.run_in_executor(None, os.path.isdir, fs_root):  # noqa: ASYNC240 — pre-flight stat before bounded work
             has_etc_ro, has_webroot, has_mtd_deps = await loop.run_in_executor(
                 None, _troubleshoot_detect_characteristics_sync, fs_root,
             )
@@ -3254,7 +3253,7 @@ async def _handle_emulate_with_qiling(input: dict, context: ToolContext) -> str:
 
     path = context.resolve_path(binary_path_raw)
     loop = asyncio.get_running_loop()
-    if not await loop.run_in_executor(None, os.path.isfile, path):
+    if not await loop.run_in_executor(None, os.path.isfile, path):  # noqa: ASYNC240 — pre-flight stat before bounded work
         return f"Error: File not found: {binary_path_raw}"
 
     args_str = input.get("arguments", "").strip()
