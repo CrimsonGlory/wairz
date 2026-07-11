@@ -31,6 +31,10 @@ from app.services.firmware_service import (
     FirmwareService,
     _run_upload_post_processing_background,
 )
+from app.services.unpack_control_service import (
+    UnpackControlError,
+    UnpackControlService,
+)
 from app.services.format_detection import (
     CAPABILITY_NOTES,
     EXTRACTION_CAPABILITY,
