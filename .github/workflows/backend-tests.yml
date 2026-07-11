@@ -86,7 +86,7 @@ jobs:
             -e PYTHONPATH=/app \
             -e CI=true \
             backend /app/.venv/bin/python -m pytest tests/ \
-              -v --tb=short --maxfail=50
+              -v --tb=short --maxfail=50 -p no:cov
         timeout-minutes: 40
 
       - name: Coverage report
