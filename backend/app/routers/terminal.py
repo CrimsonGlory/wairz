@@ -17,7 +17,7 @@ import tarfile
 import uuid
 
 import docker
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
 from app.auth.oidc import authorize_websocket
