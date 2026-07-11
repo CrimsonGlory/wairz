@@ -78,8 +78,13 @@ jobs:
 
       - name: Run pytest
         run: |
+          # CI=true must reach the container so conftest.pytest_configure can
+          # drop pytest-cov and quiet verbosity (coverage + -v push the 9k+
+          # suite past runner memory/time after large merges; nightly
+          # must-complete still collects coverage outside this path).
           docker compose exec -T -w /app \
             -e PYTHONPATH=/app \
+            -e CI=true \
             backend /app/.venv/bin/python -m pytest tests/ \
               -v --tb=short --maxfail=50 --cov=app --cov-report=
         timeout-minutes: 40
