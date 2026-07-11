@@ -22,6 +22,7 @@ import logging
 import os
 import pathlib
 import pwd
+import re
 import shutil
 import tempfile
 import time
