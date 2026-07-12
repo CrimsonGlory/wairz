@@ -31,6 +31,7 @@ from app.ai.tools.module_reachability import register_module_reachability_tools
 from app.ai.tools.network import register_network_tools
 from app.ai.tools.network_exposure import register_network_exposure_tools
 from app.ai.tools.python_ast import register_python_ast_tools
+from app.ai.tools.reachability_export import register_reachability_export_tools
 from app.ai.tools.report_writer import register_report_writer_tools
 from app.ai.tools.reporting import register_reporting_tools
 from app.ai.tools.rtos import register_rtos_tools
@@ -157,6 +158,10 @@ def create_tool_registry() -> ToolRegistry:
     # linux_kernel_hardening.py; the registry-uniqueness META-CANARY in
     # test_kernel_config_mcp.py closes the silent-overwrite gap.
     register_module_reachability_tools(registry)
+    # MOVE 2 reachability-export durability walker (wairz↔framework bridge, binary
+    # axis): trigger/get/export + the Rule #44 lookup_reachable_symbol_across_firmwares
+    # (GIN-queried per-blob symbol presence; structural raise_only).
+    register_reachability_export_tools(registry)
     # C3 network-exposure REACHABILITY-EVIDENCE walker MCP tools (2026-05-29).
     # Synthesizes the listener → bind-scope → owning-daemon exposure map the
     # cve-assessment-framework L4 kill-chain classifier consumes (ListenerEntry

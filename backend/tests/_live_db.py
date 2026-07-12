@@ -206,6 +206,7 @@ async def make_live_db() -> AsyncIterator[AsyncSession]:
         hardware_firmware,
         memory_dump_image,
         project,
+        reachability_export,
         sbom,
         volatility_injection_record,
         volatility_process_record,

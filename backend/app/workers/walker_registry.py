@@ -107,6 +107,9 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
     from app.services.python_ast_walker import (
         auto_python_ast_walk_firmware_safe,
     )
+    from app.services.reachability_export_walker import (
+        auto_reachability_export_walk_firmware_safe,
+    )
     from app.services.registry_hive_walker import (
         auto_walk_firmware_safe as registry_auto_walk,
     )
@@ -275,6 +278,16 @@ def _load_walker_safe_runners() -> list[WalkerSafeRunner]:
         # Rule #39 .safe so operator re-triggers via trigger_android_posture_walk
         # don't 409.
         auto_android_posture_walk_firmware_safe,
+        # MOVE 2 reachability-export durability walker (wairz↔framework bridge,
+        # binary axis). ORDER-INDEPENDENT — it reads the already-detected
+        # HardwareFirmwareBlob rows (created by the hardware-firmware detection
+        # hook that precedes this list), extracts per-blob ELF symbol sets
+        # PARSE-ONLY (Rule #36/#45), persists them into reachability_export_records
+        # (GIN-queryable for the Rule #44 lookup_reachable_symbol_across_firmwares
+        # tool), and stamps a counts-only aggregate onto
+        # reachability_export_walk_result. Status stays 'idle' per Rule #39 .safe so
+        # operator re-triggers via trigger_reachability_export_walk don't 409.
+        auto_reachability_export_walk_firmware_safe,
     ]
 
 
@@ -522,6 +535,20 @@ STATE_MACHINE_REAPER_CONFIGS: dict[str, WalkerReaperConfig] = {
         finished_at_column="windows_update_diff_finished_at",
         error_column="windows_update_diff_error",
     ),
+    # MOVE 2 reachability-export durability walker (wairz↔framework bridge, binary
+    # axis, 2026-06-09). DUAL REGISTRATION — this column ALSO lives in
+    # WALKER_REAPER_CONFIGS below because the ``_walk_status`` suffix makes
+    # ``test_walker_reaper_configs_size_lock_matches_firmware_model`` REQUIRE the
+    # WALKER entry; the result-JSONB Rule #33 .b semantics justify this STATE_MACHINE
+    # entry. The reaper sweep applies both passes; the second is a ~1 ms no-op on a
+    # row already reaped by the first.
+    "reachability_export_walk_status": WalkerReaperConfig(
+        column_name="reachability_export_walk_status",
+        in_progress_states=("queued", "running"),
+        failure_message="Backend restarted; runner state lost",
+        finished_at_column="reachability_export_walk_finished_at",
+        error_column="reachability_export_walk_error",
+    ),
     "upload_stage": WalkerReaperConfig(
         # upload_stage uses pre-Rule-#33 vocabulary
         # (detecting/extracting/analyzing) and a 15-min grace window
@@ -559,12 +586,13 @@ def _walker_reaper(column: str, *, prefix: str | None = None) -> WalkerReaperCon
     )
 
 
-# 32 walker status columns; each Rule #33 .a 5-state with NO grace
+# 33 walker status columns; each Rule #33 .a 5-state with NO grace
 # (operator-triggered in-process work). Per Rule #46 the META-CANARY
 # in tests/test_main_lifespan_reapers.py SIZE-LOCKS this dict and
 # CROSS-CHECKS that EVERY *_walk_status column on the Firmware model
-# is registered here. Last bump: 31 → 32 in C4 android-posture
-# walker 2026-05-29 (android_posture_walk_status).
+# is registered here. Last bump: 32 → 33 in MOVE 2 reachability-export
+# durability walker 2026-06-09 (reachability_export_walk_status).
+# Prior bump: 31 → 32 in C4 android-posture walker 2026-05-29.
 WALKER_REAPER_CONFIGS: dict[str, WalkerReaperConfig] = {
     "registry_hive_walk_status": _walker_reaper("registry_hive_walk_status"),
     "evtx_walk_status": _walker_reaper("evtx_walk_status"),
@@ -654,6 +682,14 @@ WALKER_REAPER_CONFIGS: dict[str, WalkerReaperConfig] = {
     # itself is in-process JSONB aggregation.
     "ds1qrsetup_callgraph_walk_status": _walker_reaper(
         "ds1qrsetup_callgraph_walk_status",
+    ),
+    # MOVE 2 reachability-export durability walker (2026-06-09). DUAL REGISTRATION —
+    # this column ALSO lives in STATE_MACHINE_REAPER_CONFIGS above (Rule #33 .b result
+    # JSONB). The suffix-introspection check requires every *_walk_status column here.
+    # `_walker_reaper` strips `_walk_status` → `reachability_export`, deriving
+    # reachability_export_walk_finished_at / reachability_export_walk_error.
+    "reachability_export_walk_status": _walker_reaper(
+        "reachability_export_walk_status",
     ),
 }
 

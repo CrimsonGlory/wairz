@@ -4965,3 +4965,71 @@ def _stamp_firmware_android_posture_walk_result(payload: dict) -> dict:
     )
     payload["provenance"] = "walker"
     return payload
+
+
+# ── reachability_export_records.defined_symbols / .imported_symbols ─────────
+#
+# Per-blob ELF symbol-presence lists for the wairz reachability bridge (binary axis; see
+# app.models.reachability_export). Each is a list[str] of symbol NAMES (defined functions /
+# imported references) read from the ELF symbol table AS DATA (Rule #36/#45 parse-only). A bare
+# list[str] carries no schema_version — the firmware-level AGGREGATE
+# (Firmware.reachability_export_walk_result) carries that. The normaliser coerces a non-list /
+# wrong-element value (hand-edited / legacy row) to a clean list[str] so a GIN containment query
+# (defined_symbols @> '["X"]') and the Rule #44 lookup never see a non-string element. The Iron
+# Law (symbol absence valid ONLY on a non-stripped, sha256-matched binary) lives at the
+# producer/consumer; these normalisers only sanitise the persisted lists.
+
+
+def _coerce_symbol_list(value: Any) -> list[str]:
+    """Coerce a JSONB value to a clean ``list[str]`` — drop non-str elements; None / wrong-type
+    (dict / str / int from a hand-edited or legacy row) collapses to ``[]``. Idempotent."""
+    if not isinstance(value, list):
+        return []
+    return [s for s in value if isinstance(s, str)]
+
+
+def _normalize_reachability_export_records_defined_symbols(value: Any) -> list[str]:
+    """Canonical ``list[str]`` for ``ReachabilityExportRecord.defined_symbols`` (the GIN-queried,
+    Rule #44-lookup axis). See :func:`_coerce_symbol_list`."""
+    return _coerce_symbol_list(value)
+
+
+def _normalize_reachability_export_records_imported_symbols(value: Any) -> list[str]:
+    """Canonical ``list[str]`` for ``ReachabilityExportRecord.imported_symbols``."""
+    return _coerce_symbol_list(value)
+
+
+# ── firmware.reachability_export_walk_result (MOVE 2 aggregate) ─────────────
+#
+# Per-run AGGREGATE for the reachability_export walker — counts ONLY (blob_count / elf_count /
+# stripped_count / total_defined_symbols / errors), DISTINCT from the per-binary WIRE record
+# (reachability_export.REACHABILITY_EXPORT_SCHEMA_VERSION) and from the per-blob symbol lists
+# (the reachability_export_records table). The full symbol sets live in that table (GIN-queryable);
+# this firmware-level JSONB stays small so a downstream consumer / the MCP get tool reads counts
+# without loading hundreds of thousands of symbol strings. Downstream consumers gate on
+# ``provenance == "walker"`` + ``schema_version == 1`` before trusting the aggregate.
+
+FIRMWARE_REACHABILITY_EXPORT_WALK_RESULT_SCHEMA_VERSION = 1
+
+
+def _normalize_firmware_reachability_export_walk_result(value: Any) -> dict | None:
+    """Canonical ``dict`` (or ``None``) for ``Firmware.reachability_export_walk_result``.
+
+    ``None`` preserved — "no completed reachability-export walk yet". Wrong-typed values
+    (list / str / int from a hand-edited or legacy row) collapse to ``None``. Mirrors
+    ``_normalize_firmware_module_reachability_walk_result``.
+    """
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _stamp_firmware_reachability_export_walk_result(payload: dict) -> dict:
+    """Stamp ``schema_version`` + ``provenance: "walker"`` onto a writer payload for
+    ``Firmware.reachability_export_walk_result``. Idempotent. The walker writes the JSONB
+    EXCLUSIVELY through this stamp."""
+    payload["schema_version"] = (
+        FIRMWARE_REACHABILITY_EXPORT_WALK_RESULT_SCHEMA_VERSION
+    )
+    payload["provenance"] = "walker"
+    return payload

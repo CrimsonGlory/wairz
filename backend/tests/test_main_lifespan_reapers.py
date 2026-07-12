@@ -74,13 +74,13 @@ def test_state_machine_reaper_configs_size_lock():
     """
     from app.workers.walker_registry import STATE_MACHINE_REAPER_CONFIGS
 
-    assert len(STATE_MACHINE_REAPER_CONFIGS) == 14, (
+    assert len(STATE_MACHINE_REAPER_CONFIGS) == 15, (
         f"STATE_MACHINE_REAPER_CONFIGS has {len(STATE_MACHINE_REAPER_CONFIGS)} "
-        f"entries; expected exactly 14 (cve_match, vuln_scan, sbom, "
+        f"entries; expected exactly 15 (cve_match, vuln_scan, sbom, "
         f"bare_metal_audit, authenticode_chain, dotnet_decompile, "
         f"windows_update_diff, upload_stage, ics_protocol_walk, "
         f"kernel_config_audit, kernel_config_walk, module_reachability_walk, "
-        f"network_exposure_walk, android_posture_walk). "
+        f"network_exposure_walk, android_posture_walk, reachability_export_walk). "
         f"If you're adding a new state-machine column, also extend this dict "
         f"+ the META-CANARY size expectation."
     )
@@ -122,10 +122,17 @@ def test_walker_reaper_configs_size_lock_matches_firmware_model():
 
 
 def test_walker_reaper_config_count_matches_documented():
-    """Numeric size-lock — 32 walker columns today (documented in
+    """Numeric size-lock — 33 walker columns today (documented in
     walker_registry.py docstring). Drift forces deliberate test edit.
 
-    Last bump: 31 → 32 in C4 Android DEPLOYMENT-POSTURE REACHABILITY-EVIDENCE
+    Last bump: 32 → 33 in MOVE 2 reachability-export durability walker
+    2026-06-09. Adds reachability_export_walk_status (the wairz↔framework bridge
+    binary-axis collector that persists per-blob ELF symbol-presence rows into
+    reachability_export_records for the Rule #44 lookup_reachable_symbol_across_-
+    firmwares tool; DUAL-registered — also in STATE_MACHINE_REAPER_CONFIGS,
+    size-lock 15 above, because of the Rule #33 .b result JSONB aggregate).
+
+    Prior bump: 31 → 32 in C4 Android DEPLOYMENT-POSTURE REACHABILITY-EVIDENCE
     walker 2026-05-29. Adds android_posture_walk_status (the collector that
     synthesizes the gates_open deployment posture the cve-assessment-framework
     L4 kill-chain LockdownGate consumes via AndroidAdapter.get_security_posture
@@ -176,11 +183,11 @@ def test_walker_reaper_config_count_matches_documented():
     """
     from app.workers.walker_registry import WALKER_REAPER_CONFIGS
 
-    assert len(WALKER_REAPER_CONFIGS) == 32, (
+    assert len(WALKER_REAPER_CONFIGS) == 33, (
         f"WALKER_REAPER_CONFIGS has {len(WALKER_REAPER_CONFIGS)} entries; "
-        f"expected exactly 32 (matches the documented walker count in "
-        f"walker_registry.py docstring as of C4 android-posture "
-        f"walker 2026-05-29). Drift means a walker was added/removed "
+        f"expected exactly 33 (matches the documented walker count in "
+        f"walker_registry.py docstring as of MOVE 2 reachability-export "
+        f"durability walker 2026-06-09). Drift means a walker was added/removed "
         f"without sweeping the size-lock — update the test + the docstring "
         f"together."
     )

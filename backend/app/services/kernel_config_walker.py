@@ -66,6 +66,7 @@ import asyncio
 import datetime as dt
 import logging
 import os
+import re
 import traceback
 import uuid
 import zipfile
@@ -294,6 +295,81 @@ def _module_mode(config_map: dict[str, str]) -> str:
     return "mixed"
 
 
+# ── Booted-kernel disambiguation (multi-kernel firmware). ───────────────────
+# A Tegra / u-boot firmware ships BOTH a stock vendor BSP kernel (reference, in
+# the BSP tarball — e.g. .../kernel/Image) AND the operator's actually-booted
+# kernel (inside the signed u-boot FIT). Both carry an embedded IKCFG, so a
+# naive "first config found" pick can silently select the WRONG kernel. The
+# BOOTED kernel is the one whose UTS_RELEASE matches a ``/lib/modules/<vermagic>``
+# directory in the rootfs (loadable modules MUST match the running kernel's
+# vermagic). Picking the stock/reference config poisons every downstream
+# config-gated CVE disposition (e.g. CONFIG_BT=y in a stock BSP vs =n in the
+# hardened booted kernel flips ~130 Bluetooth CVEs). The walker marks each
+# record ``is_booted`` and flags ``multiple_divergent_configs`` so the consumer
+# (build_profile_from_wairz / the cve-assessment-framework export) selects the
+# booted config and an operator is warned on ambiguity.
+_UTS_RELEASE_RE = re.compile(rb"Linux version (\S+)")
+_DIVERGENCE_KEY_SYMBOLS = (
+    "CONFIG_BT", "CONFIG_DM_VERITY", "CONFIG_MODULE_SIG", "CONFIG_MODULE_SIG_FORCE",
+    "CONFIG_FIQ_DEBUGGER", "CONFIG_X509_CERTIFICATE_PARSER",
+)
+
+
+def _uts_release_from_banner(banner: str | None) -> str | None:
+    """Extract the UTS_RELEASE token (e.g. ``4.9.140-l4t-r32.3.1+gdeadbeef0123``)
+    from a ``Linux version <UTS_RELEASE> (...)`` banner. ``None`` if absent."""
+    if not banner:
+        return None
+    m = _UTS_RELEASE_RE.search(banner.encode("utf-8", "replace"))
+    return m.group(1).decode("utf-8", "replace") if m else None
+
+
+def _scan_module_vermagics_sync(detection_roots: list[str]) -> set[str]:
+    """Collect ``/lib/modules/<vermagic>`` directory names across detection
+    roots — these name the BOOTED kernel(s). Sync; run in executor by caller."""
+    vermagics: set[str] = set()
+    for root in detection_roots:
+        try:
+            with os.scandir(os.path.join(root, "lib", "modules")) as it:
+                for entry in it:
+                    if entry.is_dir():
+                        vermagics.add(entry.name)
+        except OSError:
+            continue
+    return vermagics
+
+
+def _identify_booted_kernels(
+    kernels: list[dict], module_vermagics: set[str]
+) -> tuple[int, bool]:
+    """Mark each record ``is_booted`` (its UTS_RELEASE matches a rootfs
+    /lib/modules dir). Return ``(booted_count, multiple_divergent_configs)``;
+    the latter is True when ≥2 extracted configs disagree on a security-decisive
+    symbol — the stock-vs-booted ambiguity that mandates the booted pick."""
+    booted_count = 0
+    for k in kernels:
+        uts = _uts_release_from_banner(k.get("banner"))
+        k["uts_release"] = uts
+        k["is_booted"] = bool(uts and module_vermagics and uts in module_vermagics)
+        if k["is_booted"]:
+            booted_count += 1
+    extracted = [
+        k for k in kernels
+        if k.get("extraction_status") == "ok" and k.get("kernel_config")
+    ]
+    divergent = False
+    if len(extracted) >= 2:
+        for sym in _DIVERGENCE_KEY_SYMBOLS:
+            states = {
+                "on" if (k["kernel_config"].get(sym, "n") or "n") != "n" else "off"
+                for k in extracted
+            }
+            if len(states) > 1:
+                divergent = True
+                break
+    return booted_count, divergent
+
+
 def _build_kernel_record_from_vmlinux(
     vmlinux: bytes,
     blob_path: str,
@@ -327,6 +403,8 @@ def _build_kernel_record_from_vmlinux(
         "blocked_reason": None,
         "recommendation": None,
         "back_filled_blob_id": None,
+        "uts_release": None,
+        "is_booted": None,
     }
 
     config_text = extract_ikconfig(vmlinux)
@@ -456,6 +534,30 @@ async def _do_kernel_config_run(
                     record["back_filled_blob_id"] = str(origin.id)
             kernels.append(record)
 
+    # ── Booted-kernel disambiguation (multi-kernel firmware). ─────────────
+    # Match each extracted kernel's UTS_RELEASE against the rootfs
+    # /lib/modules/<vermagic> dirs; mark the booted one + flag stock-vs-booted
+    # divergence so the consumer selects the BOOTED config (not a stock BSP one).
+    module_vermagics = await loop.run_in_executor(
+        None, _scan_module_vermagics_sync, detection_roots,
+    )
+    booted_kernel_count, multiple_divergent_configs = _identify_booted_kernels(
+        kernels, module_vermagics,
+    )
+    booted_kernel_blob_path = next(
+        (k["blob_path"] for k in kernels
+         if k.get("is_booted") and k.get("extraction_status") == "ok"),
+        None,
+    )
+    if multiple_divergent_configs:
+        logger.warning(
+            "kernel_config_walker: firmware %s exposes >=2 DIVERGENT kernel "
+            "configs; booted kernel (rootfs /lib/modules match) = %s. Downstream "
+            "consumers MUST use the is_booted=true config — a stock/reference "
+            "kernel config would poison config-gated CVE dispositions.",
+            firmware_id, booted_kernel_blob_path,
+        )
+
     extracted_count = sum(1 for k in kernels if k["extraction_status"] == "ok")
     blocked_count = sum(1 for k in kernels if k["extraction_status"] == "blocked")
     live_device_recommended = any(
@@ -513,6 +615,10 @@ async def _do_kernel_config_run(
         "kernels_extracted_count": extracted_count,
         "kernels_blocked_count": blocked_count,
         "findings_emitted_count": findings_emitted,
+        "booted_kernel_count": booted_kernel_count,
+        "booted_kernel_blob_path": booted_kernel_blob_path,
+        "multiple_divergent_configs": multiple_divergent_configs,
+        "module_vermagics": sorted(module_vermagics)[:20],
         "errors": errors,
     }
 
@@ -785,6 +891,10 @@ def _empty_aggregate(walked_at: str, errors: list[str]) -> dict:
         "kernels_extracted_count": 0,
         "kernels_blocked_count": 0,
         "findings_emitted_count": 0,
+        "booted_kernel_count": 0,
+        "booted_kernel_blob_path": None,
+        "multiple_divergent_configs": False,
+        "module_vermagics": [],
         "errors": errors,
     }
 

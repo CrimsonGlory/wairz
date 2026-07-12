@@ -16,6 +16,7 @@ from app.models.linux_container_artifacts import LinuxContainerArtifact
 from app.models.linux_journald_entry import LinuxJournaldEntry
 from app.models.linux_systemd_units import LinuxSystemdUnit
 from app.models.project import Project
+from app.models.reachability_export import ReachabilityExportRecord
 from app.models.report import Report, ReportFinding, ReportRender, ReportSection
 from app.models.sbom import SbomComponent, SbomVulnerability
 from app.models.security_review import ReviewAgent, SecurityReview  # kept for DB/relationship integrity
@@ -47,6 +48,7 @@ __all__ = [
     "AttackSurfaceEntry", "BareMetalDescriptor", "UARTSession",
     "CraAssessment", "CraRequirementResult", "HardwareFirmwareBlob",
     "DeviceDumpSession", "LinuxContainerArtifact", "LinuxJournaldEntry", "LinuxSystemdUnit",
+    "ReachabilityExportRecord",
     "WindowsPESignature", "WindowsRegistryExtract",
     "WindowsDriver", "WindowsUpdatePackage", "WindowsUpdateDllDiff",
     "WindowsBcdEntry", "WindowsEfsEncryptedFile", "WindowsEspEntry", "WindowsEtlEvent", "WindowsEventRecord", "WindowsLnkRecord", "WindowsMbrVbrSector", "WindowsMftRecord",

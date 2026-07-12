@@ -18,6 +18,13 @@ from app.models.firmware import Firmware
 from app.models.hardware_firmware import HardwareFirmwareBlob
 from app.services.firmware_paths import get_detection_roots
 from app.services.hardware_firmware.classifier import classify
+from app.services.hardware_firmware.fingerprints import (
+    compute_imphash,
+    finalize_tlsh,
+    new_tlsh,
+    stamp_blob_fingerprints,
+    update_tlsh,
+)
 from app.services.hardware_firmware.parsers import ParsedBlob, get_parser
 from app.services.hardware_firmware.parsers.tegra_blob import (
     merge_tegra_evidence,
@@ -119,8 +126,11 @@ def _detect_partition(extracted_path: str, blob_path: str) -> str | None:
     return top
 
 
-def _read_magic_and_hash(path: str, size: int) -> tuple[bytes, str] | None:
-    """Open with O_NOFOLLOW, read magic bytes, stream sha256; None on error."""
+def _read_magic_and_hash(path: str, size: int) -> tuple[bytes, str, str | None] | None:
+    """Open with O_NOFOLLOW, read magic bytes, stream sha256 AND TLSH; None on error.
+
+    TLSH (R2) is computed in this SAME single pass — no extra file read. Returns
+    ``(magic, sha256_hex, tlsh_hex_or_None)``; tlsh is None for blobs <50 bytes / low entropy."""
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     except (OSError, PermissionError):
@@ -137,14 +147,17 @@ def _read_magic_and_hash(path: str, size: int) -> tuple[bytes, str] | None:
             magic = f.read(_MAGIC_READ_BYTES)
             hasher = hashlib.sha256()
             hasher.update(magic)
+            tlsh_acc = new_tlsh()  # R2: fuzzy hash in the same pass (None if tlsh unavailable)
+            update_tlsh(tlsh_acc, magic)
             remaining = size - len(magic)
             while remaining > 0:
                 chunk = f.read(min(_HASH_CHUNK, remaining))
                 if not chunk:
                     break
                 hasher.update(chunk)
+                update_tlsh(tlsh_acc, chunk)
                 remaining -= len(chunk)
-            return magic, hasher.hexdigest()
+            return magic, hasher.hexdigest(), finalize_tlsh(tlsh_acc)
     except (OSError, PermissionError):
         return None
 
@@ -194,11 +207,18 @@ def _walk_and_classify(extracted_path: str) -> list[dict]:
                     read = _read_magic_and_hash(entry.path, size)
                     if read is None:
                         continue
-                    magic, sha256 = read
+                    magic, sha256, tlsh_digest = read
 
                     cls = classify(entry.path, magic, size)
                     if cls is None:
                         continue
+
+                    # R1: PE import-table hash — only for PE blobs (parse-only; LOW confidence,
+                    # feeds Rule #44 cross-firmware similarity, never a disposition flip).
+                    imphash = (
+                        compute_imphash(entry.path) if cls.format == "pe_binary" else None
+                    )
+                    fingerprints = stamp_blob_fingerprints(tlsh_digest, imphash)
 
                     # Invoke per-format parser (sync I/O is fine — we're
                     # already in run_in_executor).  Parsers must never
@@ -247,6 +267,11 @@ def _walk_and_classify(extracted_path: str) -> list[dict]:
                     # (default for the existing fleet), the classifier's
                     # filename vendor is used unchanged.
                     vendor = parsed.vendor if parsed.vendor else cls.vendor
+                    blob_meta = parsed.metadata or {}
+                    # Attach fingerprints only when at least one is present (keep tiny-blob
+                    # metadata clean; absence simply means "no fuzzy/import hash available").
+                    if fingerprints.get("tlsh") or fingerprints.get("imphash"):
+                        blob_meta = {**blob_meta, "fingerprints": fingerprints}
                     rows.append({
                         "blob_path": entry.path,
                         "partition": partition,
@@ -262,7 +287,7 @@ def _walk_and_classify(extracted_path: str) -> list[dict]:
                         "signature_algorithm": parsed.signature_algorithm,
                         "cert_subject": parsed.cert_subject,
                         "chipset_target": parsed.chipset_target,
-                        "metadata": parsed.metadata or {},
+                        "metadata": blob_meta,
                     })
                 except (OSError, PermissionError):
                     continue
