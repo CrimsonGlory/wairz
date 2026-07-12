@@ -12,7 +12,7 @@ import pytest
 
 from app.ai.tools.hardware_firmware import _rank_similar_blobs
 
-tlsh = pytest.importorskip("tlsh")
+tlsh = pytest.importorskip("tlsh", exc_type=ImportError)
 
 
 def _cand(fw, tlsh_h=None, imphash=None, sha="s"):

@@ -21,7 +21,7 @@ from app.services.hardware_firmware.fingerprints import (
     update_tlsh,
 )
 
-tlsh = pytest.importorskip("tlsh")
+tlsh = pytest.importorskip("tlsh", exc_type=ImportError)
 
 
 def _stream(data: bytes, chunk: int = 4096) -> str | None:
