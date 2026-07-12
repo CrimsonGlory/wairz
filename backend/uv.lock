@@ -2731,6 +2731,12 @@ wheels = [
 ]
 
 [[package]]
+name = "python-tlsh"
+version = "4.5.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a0/05/921e95890f52cbcd2ebb5281ab0ed4f9b6039ba68d781927c9e4057dfc31/python-tlsh-4.5.0.tar.gz", hash = "sha256:55e3df72cabdf48bf576b4580d7fa2feba9c14aacde0a8bd7b1ef40b03cb7969", size = 40216, upload-time = "2021-06-15T20:02:37.882Z" }
+
+[[package]]
 name = "pytz"
 version = "2026.2"
 source = { registry = "https://pypi.org/simple" }
@@ -3687,6 +3693,7 @@ dependencies = [
     { name = "python-evtx" },
     { name = "python-magic" },
     { name = "python-multipart" },
+    { name = "python-tlsh" },
     { name = "pyyaml" },
     { name = "rapidfuzz" },
     { name = "redis" },
@@ -3755,6 +3762,7 @@ requires-dist = [
     { name = "python-evtx", specifier = ">=0.8" },
     { name = "python-magic", specifier = ">=0.4.27" },
     { name = "python-multipart", specifier = ">=0.0.31" },
+    { name = "python-tlsh", specifier = ">=4.5.0" },
     { name = "pyyaml", specifier = ">=6.0.0" },
     { name = "rapidfuzz", specifier = ">=3.0.0" },
     { name = "redis", specifier = ">=5.0.0" },
