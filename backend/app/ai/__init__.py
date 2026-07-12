@@ -31,6 +31,7 @@ from app.ai.tools.module_reachability import register_module_reachability_tools
 from app.ai.tools.network import register_network_tools
 from app.ai.tools.network_exposure import register_network_exposure_tools
 from app.ai.tools.python_ast import register_python_ast_tools
+from app.ai.tools.reachability_export import register_reachability_export_tools
 from app.ai.tools.report_writer import register_report_writer_tools
 from app.ai.tools.reporting import register_reporting_tools
 from app.ai.tools.rtos import register_rtos_tools

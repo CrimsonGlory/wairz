@@ -26,7 +26,6 @@ from app.services.jsonb_normalizers import (
 )
 from tests._live_db import make_live_db
 
-
 # ── Rule #35c normalizer trio ───────────────────────────────────────────────
 
 def test_defined_symbols_canonical_passthrough():

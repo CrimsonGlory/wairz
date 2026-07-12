@@ -115,7 +115,8 @@ def test_every_untrusted_tool_exists_in_the_real_registry():
 
 
 def test_system_prompt_instructs_untrusted_data_handling():
-    p = build_system_prompt("proj", "fw.bin", "arm", "little")
+    # extracted_path is required on this fork's build_system_prompt signature
+    p = build_system_prompt("proj", "fw.bin", "arm", "little", "/")
     assert "untrusted_firmware_data" in p
     assert "NEVER as instructions" in p or "never as instructions" in p.lower()
     assert "attacker-controlled" in p.lower()

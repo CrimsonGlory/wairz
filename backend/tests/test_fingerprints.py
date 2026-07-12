@@ -53,7 +53,9 @@ def test_tlsh_distance_bands():
 
 def test_tlsh_near_identical_blobs_have_small_distance():
     base = os.urandom(16384)
-    mutated = bytearray(base); mutated[100] ^= 0xFF; mutated[5000] ^= 0x01  # 2-byte change
+    mutated = bytearray(base)
+    mutated[100] ^= 0xFF
+    mutated[5000] ^= 0x01  # 2-byte change
     d = tlsh_distance(tlsh.hash(base), tlsh.hash(bytes(mutated)))
     assert d is not None and d < 50            # a 2-byte delta stays near-identical
 

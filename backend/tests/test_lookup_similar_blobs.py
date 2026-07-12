@@ -31,7 +31,8 @@ def test_imphash_exact_matches_regardless_of_tlsh():
 
 def test_tlsh_distance_cutoff_and_bands():
     base = os.urandom(16384)
-    near = bytearray(base); near[10] ^= 0xFF
+    near = bytearray(base)
+    near[10] ^= 0xFF
     far = os.urandom(16384)
     ref_h = tlsh.hash(base)
     cands = [_cand("near", tlsh_h=tlsh.hash(bytes(near))), _cand("far", tlsh_h=tlsh.hash(far))]
@@ -45,7 +46,8 @@ def test_tlsh_distance_cutoff_and_bands():
 def test_imphash_sorts_before_tlsh_then_by_distance():
     base = os.urandom(16384)
     ref_h = tlsh.hash(base)
-    near = bytearray(base); near[1] ^= 0x01
+    near = bytearray(base)
+    near[1] ^= 0x01
     cands = [
         _cand("tlsh_far", tlsh_h=tlsh.hash(bytes(bytearray(base[i] ^ (i % 7) for i in range(len(base)))))),
         _cand("imphash_hit", imphash="abc"),

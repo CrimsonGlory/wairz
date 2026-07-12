@@ -91,6 +91,7 @@ def test_export_records_skips_non_elf_blobs(tmp_path, monkeypatch):
     import asyncio
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
+
     import app.services.reachability_export as rx
 
     blobs = [
