@@ -23,7 +23,9 @@ dependencies = [
     "httpx>=0.27.0",
     # OIDC/JWT bearer validation for enterprise Cognito auth (flag-gated).
     "pyjwt[crypto]>=2.9.0",
-    "mcp[cli]>=1.2.0",
+    # mcp floor raised for CVE-2026-52869 / CVE-2026-52870 / CVE-2026-59950
+    # (fixed in 1.27.2 and 1.28.1 respectively; pin the latest patched).
+    "mcp[cli]>=1.28.1",
     "cryptography>=48.0.1",
     "yara-python>=4.5.0",
     "redis>=5.0.0",
@@ -251,6 +253,17 @@ packages = ["app"]
 # release cadence is slower than the rule-catalogue updates we want).
 [tool.hatch.metadata]
 allow-direct-references = true
+
+# Override semgrep's hard pin mcp==1.23.3 so we can ship MCP Python SDK
+# CVE fixes (CVE-2026-52869 / CVE-2026-52870 / CVE-2026-59950, fixed in
+# 1.28.1). Wairz invokes semgrep only as a CLI subprocess (assessment /
+# security tools / mobsfscan) and never imports semgrep's MCP integration,
+# so the pin is not load-bearing for us. Drop this override once upstream
+# semgrep raises its mcp pin past 1.28.1.
+[tool.uv]
+override-dependencies = [
+    "mcp[cli]>=1.28.1",
+]
 
 [build-system]
 requires = ["hatchling"]
