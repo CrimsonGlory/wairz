@@ -73,6 +73,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install binwalk3 Rust CLI from source (multi-arch: builds natively on both
 # x86_64 and ARM64). The pip package only ships Windows binaries; Linux needs
 # a source build. pkg-config + libfontconfig1-dev installed in base apt block.
+# Cargo/rustup are build-time only: strip the toolchain and rustup's shell
+# profile hooks so interactive `docker exec … bash` does not source a missing
+# ~/.cargo/env after cleanup.
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal \
     && . "$HOME/.cargo/env" \
     && git clone --depth 1 --branch v3.1.0 https://github.com/ReFirmLabs/binwalk.git /tmp/binwalk3-src \
@@ -81,6 +84,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --de
     && cp target/release/binwalk /usr/local/bin/binwalk3 \
     && chmod +x /usr/local/bin/binwalk3 \
     && rm -rf /tmp/binwalk3-src "$HOME/.cargo" "$HOME/.rustup" /var/lib/apt/lists/* \
+    && sed -i '/\.cargo\/env/d' "$HOME/.bashrc" "$HOME/.profile" 2>/dev/null || true \
     && binwalk3 --version \
     || echo "WARN: binwalk3 Rust build failed — will fall back to unblob"
 
