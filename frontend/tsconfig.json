@@ -5,7 +5,7 @@
     { "path": "./tsconfig.node.json" }
   ],
   "compilerOptions": {
-    "baseUrl": ".",
+    /* Path aliases (TS 6: no baseUrl — paths must be fully qualified) */
     "paths": {
       "@/*": ["./src/*"]
     }
