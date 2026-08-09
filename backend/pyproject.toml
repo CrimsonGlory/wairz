@@ -16,7 +16,7 @@ dependencies = [
     "fdt>=0.3.3",
     "aiofiles>=24.0.0",
     "weasyprint>=69.0",
-    "pypdf>=6.13.3",
+    "pypdf>=6.15.0",
     "packageurl-python>=0.15.0",
     "nvdlib>=0.7.6",
     "docker>=7.0.0",
@@ -26,7 +26,7 @@ dependencies = [
     # mcp floor raised for CVE-2026-52869 / CVE-2026-52870 / CVE-2026-59950
     # (fixed in 1.27.2 and 1.28.1 respectively; pin the latest patched).
     "mcp[cli]>=1.28.1",
-    "cryptography>=48.0.1",
+    "cryptography>=50.0.0",
     "yara-python>=4.5.0",
     "redis>=5.0.0",
     "arq>=0.26.0",
