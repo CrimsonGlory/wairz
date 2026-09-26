@@ -15,8 +15,10 @@ dependencies = [
     "pyelftools>=0.31",
     "fdt>=0.3.3",
     "aiofiles>=24.0.0",
-    "weasyprint>=69.0",
-    "pypdf>=6.15.0",
+    # CVE-2026-55073 (url_fetcher bypass / SSRF) fixed in 70.0.
+    "weasyprint>=70.0",
+    # CVE-2026-84309 / CVE-2026-84310 / CVE-2026-84311 (DoS) fixed in 6.16.1.
+    "pypdf>=6.16.1",
     "packageurl-python>=0.15.0",
     "nvdlib>=0.7.6",
     "docker>=7.0.0",
@@ -260,9 +262,18 @@ allow-direct-references = true
 # security tools / mobsfscan) and never imports semgrep's MCP integration,
 # so the pin is not load-bearing for us. Drop this override once upstream
 # semgrep raises its mcp pin past 1.28.1.
+
+# Transitive floors for Dependabot alerts that are not direct requirements:
+# anyio CVE-2026-63349 / CVE-2026-63374 / CVE-2026-64847 (fixed in 4.14.2;
+# cap <4.15 so the lock stays on that security patch), pip CVE-2026-13346
+# (pulled in by ida-hcli; fixed in 26.2.0).
 [tool.uv]
 override-dependencies = [
     "mcp[cli]>=1.28.1",
+]
+constraint-dependencies = [
+    "anyio>=4.14.2,<4.15",
+    "pip>=26.2.0",
 ]
 
 [build-system]
