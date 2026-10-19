@@ -27,7 +27,7 @@ dependencies = [
     "pyjwt[crypto]>=2.15.0,<3",
     # mcp floor raised for CVE-2026-52869 / CVE-2026-52870 / CVE-2026-59950
     # (fixed in 1.27.2 and 1.28.1 respectively; pin the latest patched).
-    "mcp[cli]>=1.30.0,<2",
+    "mcp[cli]>=1.30.0,<3",
     "cryptography>=50.0.0",
     "yara-python>=4.5.0",
     "redis>=5.0.0",
@@ -269,7 +269,7 @@ allow-direct-references = true
 # (pulled in by ida-hcli; fixed in 26.2.0).
 [tool.uv]
 override-dependencies = [
-    "mcp[cli]>=1.30.0,<2",
+    "mcp[cli]>=1.30.0,<3",
 ]
 constraint-dependencies = [
     "anyio>=4.14.2,<4.15",
