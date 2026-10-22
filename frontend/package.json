@@ -69,7 +69,7 @@
     "fast-uri": "3.1.8",
     "flatted": "3.4.2",
     "form-data": "4.0.6",
-    "hono": "4.13.9",
+    "hono": "4.13.11",
     "ip-address": "10.7.1",
     "js-yaml": "4.3.2",
     "micromatch": {
