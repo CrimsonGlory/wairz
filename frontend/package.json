@@ -27,7 +27,7 @@
     "p-limit": "^7.3.3",
     "radix-ui": "^1.7.0",
     "react": "^19.3.0",
-    "react-arborist": "^3.16.0",
+    "react-arborist": "^4.0.1",
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.18.4",
