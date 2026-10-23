@@ -18,7 +18,7 @@ dependencies = [
     # CVE-2026-55073 (url_fetcher bypass / SSRF) fixed in 70.0.
     "weasyprint>=70.0",
     # CVE-2026-84309 / CVE-2026-84310 / CVE-2026-84311 (DoS) fixed in 6.16.1.
-    "pypdf>=6.16.1",
+    "pypdf>=6.21.1,<7",
     "packageurl-python>=0.15.0",
     "nvdlib>=0.7.6",
     "docker>=7.0.0",
@@ -273,7 +273,9 @@ override-dependencies = [
 ]
 constraint-dependencies = [
     "anyio>=4.14.2,<4.15",
+    "certifi>=2026.10.19,<2027",
     "mako>=1.4.2,<2",
+    "pillow>=13.0.0,<14",
     "pip>=26.2.0",
     "urllib3>=2.8.0,<3",
 ]
