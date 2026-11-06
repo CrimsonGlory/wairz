@@ -67,7 +67,13 @@ jobs:
       # tests/ is excluded from the production image via backend/.dockerignore (Q9).
       # Copy the test tree into the running container for this CI job only.
       - name: Copy tests into container
-        run: docker cp backend/tests wairz-backend-1:/app/tests
+        run: |
+          docker cp backend/tests wairz-backend-1:/app/tests
+          docker exec wairz-backend-1 mkdir -p /app/scripts
+          docker cp scripts/merge-dependabot-prs.py \
+            wairz-backend-1:/app/scripts/merge-dependabot-prs.py
+          docker cp scripts/fix-github-security-and-quality.py \
+            wairz-backend-1:/app/scripts/fix-github-security-and-quality.py
 
       # pytest + pytest-asyncio live in [dependency-groups].dev, not in the
       # production deps. Install them just for this job.
@@ -166,7 +172,13 @@ jobs:
         timeout-minutes: 20
 
       - name: Copy tests into container
-        run: docker cp backend/tests wairz-backend-1:/app/tests
+        run: |
+          docker cp backend/tests wairz-backend-1:/app/tests
+          docker exec wairz-backend-1 mkdir -p /app/scripts
+          docker cp scripts/merge-dependabot-prs.py \
+            wairz-backend-1:/app/scripts/merge-dependabot-prs.py
+          docker cp scripts/fix-github-security-and-quality.py \
+            wairz-backend-1:/app/scripts/fix-github-security-and-quality.py
 
       - name: Install test runner
         run: |

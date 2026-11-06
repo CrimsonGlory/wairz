@@ -363,12 +363,31 @@ wairz/
 │   └── Dockerfile               # AFL++ container with QEMU mode
 ├── scripts/
 │   ├── wairz-uart-bridge.py     # Host-side UART serial bridge
-│   └── wairz-device-bridge.py   # Host-side ADB device acquisition bridge
+│   ├── wairz-device-bridge.py   # Host-side ADB device acquisition bridge
+│   ├── merge-dependabot-prs.py  # Squash-merge green official Dependabot PRs
+│   └── fix-github-security-and-quality.py  # Alert remediator (calls the merger first)
 ├── docker-compose.yml
 ├── launch.sh                    # Local development launcher
 ├── .env.example
 └── CLAUDE.md
 ```
+
+## Unattended GitHub maintenance
+
+On the operator host, root crontab squash-merges green PRs from the official
+[`github.com/apps/dependabot`](https://github.com/apps/dependabot) App and
+remediates remaining Dependabot / CodeQL alerts:
+
+```
+*/30 * * * * PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin HOME=/root /home/codex/wairz/scripts/merge-dependabot-prs.py >>/var/log/wairz-merge-dependabot.log 2>&1
+55 0 * * * PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin HOME=/root /home/codex/wairz/scripts/fix-github-security-and-quality.py >>/var/log/wairz-security-quality.log 2>&1
+```
+
+Identity is fail-closed (`dependabot[bot]`, user id `49699333`). Majors stay
+for review. Unsatisfiable Python pins (for example `opentelemetry-api` vs
+`semgrep`) are skipped per package so one resolver conflict cannot abort the
+run. `gh` must be authenticated with `repo` + `workflow` scopes; `HOME` must
+point at the account that owns `~/.config/gh/hosts.yml`.
 
 ## Configuration
 
