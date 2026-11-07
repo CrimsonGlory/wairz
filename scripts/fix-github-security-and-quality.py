@@ -1134,7 +1134,7 @@ def render_plan(plan: Plan) -> str:
     if plan.secrets:
         lines.append("Open secret scanning alerts (not rewritten by this script):")
         for s in plan.secrets:
-            lines.append(f"- [#{s.number}]({s.html_url}) {s.secret_type}")
+            lines.append(f"- #{s.number} (details redacted)")
         lines.append("")
     if plan.skipped:
         lines.append("### Skipped")
