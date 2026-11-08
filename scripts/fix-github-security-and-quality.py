@@ -1278,7 +1278,7 @@ def main() -> int:
         for row in plan.skipped:
             log(f"skip: {row}")
         for secret in plan.secrets:
-            log(f"SECRET still open: #{secret.number} {secret.secret_type} {secret.html_url}")
+            log(f"SECRET still open: #{secret.number} [REDACTED] {secret.html_url}")
         for finding in plan.quality:
             log(f"quality (unautomated): #{finding.number} {finding.rule_id} {finding.path}")
 
